@@ -2195,3 +2195,163 @@ fn reapply_thinking_fold_policy_preserves_expanded_tool_groups() {
         "expanded tool-call members must stay visible after thinking refold, visible_tools={visible_tools}"
     );
 }
+
+fn mode_at(state: &ScrollbackState, idx: usize) -> DisplayMode {
+    state.entry(idx).expect("entry").display_mode
+}
+
+/// Successes, failures, and subagent rows. Messages and thinking are not sections.
+#[test]
+fn review_tool_transfers_expansion_and_skips_non_tools() {
+    crate::appearance::cache::set_group_tool_verbs(false);
+    crate::appearance::cache::set_show_thinking_blocks(true);
+    let mut state = ScrollbackState::new();
+    // 0 success, 1 message, 2 failure, 3 thought, 4 subagent, 5 success
+    state.push_block(RenderBlock::tool_call_with_details(
+        "read", "a.rs", true, "alpha",
+    ));
+    state.push_block(RenderBlock::agent_message("between"));
+    state.push_block(RenderBlock::tool_call_with_details(
+        "read",
+        "missing.rs",
+        false,
+        "no such file",
+    ));
+    push_thought(&mut state, "hmm");
+    push_subagent(&mut state, "child-1");
+    state.push_block(RenderBlock::tool_call_with_details(
+        "bash", "ls", true, "ok",
+    ));
+    state.prepare_layout(80, 40);
+
+    state.set_selected(Some(0));
+    state.expand_selected();
+    assert_eq!(mode_at(&state, 0), DisplayMode::Expanded);
+
+    // Already on the first tool: Shift+Up has nowhere to go and leaves it open.
+    state.review_prev_tool();
+    assert_eq!(state.selected(), Some(0));
+    assert_eq!(mode_at(&state, 0), DisplayMode::Expanded);
+
+    state.review_next_tool();
+    assert_eq!(state.selected(), Some(2), "skips the message");
+    assert_eq!(mode_at(&state, 0), DisplayMode::Collapsed);
+    assert_eq!(mode_at(&state, 2), DisplayMode::Expanded);
+    assert_eq!(mode_at(&state, 4), DisplayMode::Collapsed);
+    assert_eq!(mode_at(&state, 5), DisplayMode::Collapsed);
+
+    state.review_next_tool();
+    assert_eq!(state.selected(), Some(4), "skips thinking");
+    assert_eq!(mode_at(&state, 2), DisplayMode::Collapsed);
+    assert_eq!(mode_at(&state, 4), DisplayMode::Expanded);
+
+    state.review_next_tool();
+    assert_eq!(state.selected(), Some(5));
+    assert_eq!(mode_at(&state, 4), DisplayMode::Collapsed);
+    assert_eq!(mode_at(&state, 5), DisplayMode::Expanded);
+
+    // Last tool stays open when there is no further section.
+    state.review_next_tool();
+    assert_eq!(state.selected(), Some(5));
+    assert_eq!(mode_at(&state, 5), DisplayMode::Expanded);
+
+    state.review_prev_tool();
+    assert_eq!(state.selected(), Some(4));
+    assert_eq!(mode_at(&state, 5), DisplayMode::Collapsed);
+    assert_eq!(mode_at(&state, 4), DisplayMode::Expanded);
+    assert_eq!(mode_at(&state, 2), DisplayMode::Collapsed);
+}
+
+#[test]
+fn review_tool_plain_movement_leaves_folds_alone() {
+    crate::appearance::cache::set_group_tool_verbs(false);
+    let mut state = ScrollbackState::new();
+    state.push_block(RenderBlock::tool_call_with_details(
+        "read", "a.rs", true, "alpha",
+    ));
+    state.push_block(RenderBlock::agent_message("between"));
+    state.push_block(RenderBlock::tool_call_with_details(
+        "read", "b.rs", true, "beta",
+    ));
+    state.prepare_layout(80, 40);
+    state.set_selected(Some(0));
+    state.expand_key();
+    assert_eq!(mode_at(&state, 0), DisplayMode::Expanded);
+
+    state.select_next();
+    state.select_next();
+    assert_eq!(state.selected(), Some(2));
+    assert_eq!(mode_at(&state, 0), DisplayMode::Expanded);
+    assert_eq!(mode_at(&state, 2), DisplayMode::Collapsed);
+
+    state.expand_key();
+    assert_eq!(mode_at(&state, 0), DisplayMode::Expanded);
+    assert_eq!(mode_at(&state, 2), DisplayMode::Expanded);
+    state.collapse_key();
+    assert_eq!(mode_at(&state, 2), DisplayMode::Collapsed);
+    assert_eq!(mode_at(&state, 0), DisplayMode::Expanded);
+}
+
+#[test]
+fn review_tool_open_group_jumps_to_the_next_section() {
+    use crate::scrollback::blocks::tool::{ReadToolCallBlock, ToolCallBlock};
+
+    let mut state = verb_state();
+    for i in 0..3 {
+        state.push_block(RenderBlock::ToolCall(ToolCallBlock::Read(
+            ReadToolCallBlock::new(format!("f{i}.rs")).with_content("body".to_owned(), 1),
+        )));
+    }
+    let execute_at = 3;
+    state.push_block(RenderBlock::execute_with_output("ls", "ok", None::<String>));
+    state.prepare_layout(80, 40);
+    state.set_selected(Some(0));
+    assert!(
+        state.toggle_group_expansion(),
+        "Right opens the grouped reads"
+    );
+    state.prepare_layout(80, 40);
+    assert!(
+        cached_height_at(&state, 1) > 0,
+        "members are visible while open"
+    );
+    assert_eq!(mode_at(&state, 0), DisplayMode::Collapsed);
+
+    state.review_next_tool();
+    state.prepare_layout(80, 40);
+
+    assert_eq!(state.selected(), Some(execute_at));
+    assert_eq!(cached_height_at(&state, 1), 0, "the open group closes");
+    assert_eq!(mode_at(&state, 0), DisplayMode::Collapsed);
+    assert_eq!(mode_at(&state, execute_at), DisplayMode::Expanded);
+}
+
+#[test]
+fn review_tool_open_member_body_steps_to_the_next_member() {
+    use crate::scrollback::blocks::tool::{ReadToolCallBlock, ToolCallBlock};
+
+    let mut state = verb_state();
+    for i in 0..3 {
+        state.push_block(RenderBlock::ToolCall(ToolCallBlock::Read(
+            ReadToolCallBlock::new(format!("f{i}.rs")).with_content("body".to_owned(), 1),
+        )));
+    }
+    state.prepare_layout(80, 40);
+    state.set_selected(Some(0));
+    assert!(state.toggle_group_expansion());
+    state.expand_selected();
+    state.prepare_layout(80, 40);
+    assert_eq!(mode_at(&state, 0), DisplayMode::Expanded);
+    assert!(cached_height_at(&state, 1) > 0);
+
+    state.review_next_tool();
+    state.prepare_layout(80, 40);
+
+    assert_eq!(state.selected(), Some(1));
+    assert_eq!(mode_at(&state, 0), DisplayMode::Collapsed);
+    assert_eq!(mode_at(&state, 1), DisplayMode::Expanded);
+    assert!(
+        cached_height_at(&state, 2) > 0,
+        "stepping between open bodies leaves the rest of the group open"
+    );
+}

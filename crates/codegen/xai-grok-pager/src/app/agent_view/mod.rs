@@ -1917,6 +1917,8 @@ fn resolve_action(action_id: Option<ActionId>) -> Option<InputOutcome> {
         ActionId::SendPrompt => return None,
         ActionId::SelectNext => Action::SelectNext,
         ActionId::SelectPrev => Action::SelectPrev,
+        ActionId::ReviewNextTool => Action::ReviewNextTool,
+        ActionId::ReviewPrevTool => Action::ReviewPrevTool,
         ActionId::NextTurn => Action::NextTurn,
         ActionId::PrevTurn => Action::PrevTurn,
         ActionId::NextResponse => Action::NextResponse,

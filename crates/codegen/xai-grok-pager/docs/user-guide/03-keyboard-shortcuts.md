@@ -8,7 +8,7 @@ Reference for key bindings in the Grok Build TUI. Bindings are built in. The cop
 
 Grok has two input modes that control how you navigate the scrollback:
 
-- **Simple mode** (default): Arrow keys for navigation, `Shift+Arrow` for turn navigation, `Space` to focus the prompt, and any letter key auto-focuses the prompt.
+- **Simple mode** (default): Arrow keys for navigation, `Shift+Left`/`Shift+Right` for turn navigation, `Shift+Up`/`Shift+Down` to step through tool runs, `Space` to focus the prompt, and any letter key auto-focuses the prompt.
 - **Vim mode** (opt-in): `j`/`k` for navigation, `H`/`L` for selected-turn navigation, `J`/`K` for viewport-top turn jumps (same as the timeline arrows), `h`/`l` for fold, `e`/`E` for expand/collapse, and `i`/`Tab`/`Space` to focus the prompt.
 
 Simple mode is active by default. To switch to Vim mode, set `vim_mode = true` under `[ui]` in `~/.grok/config.toml`, or toggle it at runtime with `/vim-mode`. See [Configuration](05-configuration.md) for details.
@@ -34,6 +34,8 @@ Move through conversation entries in the scrollback pane.
 | `k` | `Up` | Select previous entry |
 | `⇧L` | `Shift+Right` | Jump to next turn (user prompt) |
 | `⇧H` | `Shift+Left` | Jump to previous turn (user prompt) |
+| | `Shift+Down` | Next tool run: collapse the one you leave and expand the one you land on |
+| | `Shift+Up` | Previous tool run: collapse the one you leave and expand the one you land on |
 | `⇧J` | | Jump to next turn at viewport top |
 | `⇧K` | | Jump to previous turn at viewport top |
 | `g` | | Go to top of scrollback |
@@ -49,6 +51,14 @@ Move through conversation entries in the scrollback pane.
 is focused, without moving focus or changing the draft. An active prompt
 history, `@` file search, slash menu, or completion dropdown keeps the keys for
 its own navigation.
+
+`Shift+Down` and `Shift+Up` walk tool calls and subagent rows only, including
+successes and failures. The section you leave collapses and the one you land
+on expands. An open grouped header (the folded "Read 3 files" row) counts as
+the current section: it closes, and the next tool section opens. An expanded
+tool body steps to the next visible tool and opens that body. Plain `Up` /
+`Down` still only move the selection, `Left` / `Right` still only fold the
+selected entry, and `Shift+Left` / `Shift+Right` still jump between turns.
 
 ---
 
@@ -440,6 +450,7 @@ The TUI supports mouse interaction:
 
 ```
 Navigation:       Up/Down (prev/next entry)  Shift+Left/Right (prev/next turn)
+Tool review:      Shift+Up/Down (collapse this tool run, expand the previous/next)
 Scrolling:        Ctrl+J/K (line)  PgUp/PgDn (page)  Ctrl+U/D (half page)
 Focus prompt:     Space or any letter key (auto-focuses and types)
 ```
@@ -449,7 +460,7 @@ Focus prompt:     Space or any letter key (auto-focuses and types)
 ```
 Navigation:       j/k (up/down)  H/L (prev/next turn)  K/J (viewport-top turn)  g/G (top/bottom)
 Scrolling:        Ctrl+J/K (line)  Ctrl+U/D (half page; D=Shift+D in VSCode)  PgUp/PgDn (page)
-Folding:          h/l (collapse/expand)  e (toggle)  E (all)
+Folding:          h/l (collapse/expand)  e (toggle)  E (all)  Shift+Up/Down (step tool runs)
 Content:          y (copy)  Y (copy cmd)  Enter (fullscreen)
 View:             r (raw markdown)  Ctrl+E (thinking)
 Focus prompt:     i, Tab, or Space

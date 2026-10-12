@@ -29,6 +29,8 @@ pub(crate) fn gate_child_action(action: &Action) -> ChildActionGate {
         | Action::GotoBottom
         | Action::SelectNext
         | Action::SelectPrev
+        | Action::ReviewNextTool
+        | Action::ReviewPrevTool
         | Action::NextTurn
         | Action::PrevTurn
         | Action::NextResponse

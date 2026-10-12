@@ -174,6 +174,123 @@ impl ScrollbackState {
         // No selectable entry found before current, so stay where we are
     }
 
+    /// Shift+Down: collapse the tool section you leave and expand the next one.
+    pub fn review_next_tool(&mut self) {
+        self.review_adjacent_tool(true);
+    }
+
+    /// Shift+Up: collapse the tool section you leave and expand the previous one.
+    pub fn review_prev_tool(&mut self) {
+        self.review_adjacent_tool(false);
+    }
+
+    /// Left / `h`. Collapses the selected entry, or the expanded group when that entry is already collapsed.
+    pub fn collapse_key(&mut self) {
+        let at_minimum = self
+            .selected()
+            .and_then(|i| self.entry(i))
+            .is_some_and(|e| e.display_mode == DisplayMode::Collapsed);
+        if !at_minimum || !self.collapse_group_if_expanded() {
+            self.collapse_selected();
+        }
+    }
+
+    /// Right / `l`. Expands a group header, otherwise the selected entry's body.
+    pub fn expand_key(&mut self) {
+        if !self.toggle_group_expansion() {
+            self.expand_selected();
+        }
+    }
+
+    /// Move to the next or previous visible tool section and transfer expansion onto it.
+    ///
+    /// Plain Up/Down and Left/Right stay on [`Self::select_next`], [`Self::collapse_key`], and [`Self::expand_key`].
+    /// An open grouped header (entry already collapsed) is the section: members that are only visible because it is
+    /// open are skipped, the group closes, and the next tool section opens. An expanded tool body steps to the next
+    /// visible tool and opens that body, leaving an already-open group open.
+    fn review_adjacent_tool(&mut self, forward: bool) {
+        let range = self.visible_entry_range();
+        if range.is_empty() {
+            return;
+        }
+        let origin = self.selected.filter(|i| range.contains(i));
+        let skip = origin.and_then(|_| self.open_group_span_at_minimum());
+        let Some(target) = self.find_adjacent_visible_tool(forward, origin, skip.as_ref()) else {
+            return;
+        };
+        if origin.is_some() {
+            self.collapse_key();
+        }
+        self.set_selected(Some(target));
+        self.expand_key();
+        // Opening an "N more" header clears selection so the header row is not also the active member.
+        // Keep it selected so the next Shift+arrow still has a section to leave.
+        if self.selected.is_none() {
+            self.set_selected(Some(target));
+        }
+        let direction = if forward {
+            NavDirection::Down
+        } else {
+            NavDirection::Up
+        };
+        self.ensure_selected_visible(direction);
+    }
+
+    /// Range Left would close when the selection is already collapsed inside an expanded group.
+    /// `None` when Left would collapse an expanded body instead, so sibling rows stay addressable.
+    fn open_group_span_at_minimum(&self) -> Option<std::ops::Range<usize>> {
+        let sel = self.selected?;
+        let entry = self.entry(sel)?;
+        if entry.display_mode != DisplayMode::Collapsed {
+            return None;
+        }
+        let group = self.group_range_of(sel, true);
+        if !group.contains(&sel) {
+            return None;
+        }
+        let (&first_id, _) = self.entries.get_index(group.start)?;
+        self.expanded_groups.contains(&first_id).then_some(group)
+    }
+
+    fn find_adjacent_visible_tool(
+        &self,
+        forward: bool,
+        origin: Option<usize>,
+        skip: Option<&std::ops::Range<usize>>,
+    ) -> Option<usize> {
+        let range = self.visible_entry_range();
+        if range.is_empty() {
+            return None;
+        }
+        let is_target = |idx: usize| {
+            if origin == Some(idx) || skip.is_some_and(|span| span.contains(&idx)) {
+                return false;
+            }
+            self.is_visible_tool_section(idx)
+        };
+        if forward {
+            let start = origin.map(|i| i.saturating_add(1)).unwrap_or(range.start);
+            (start..range.end).find(|&idx| is_target(idx))
+        } else {
+            let end = match origin {
+                Some(i) if i > range.start => i,
+                Some(_) => return None,
+                None => range.end,
+            };
+            (range.start..end).rev().find(|&idx| is_target(idx))
+        }
+    }
+
+    fn is_visible_tool_section(&self, idx: usize) -> bool {
+        if self.is_entry_hidden(idx) {
+            return false;
+        }
+        self.entries
+            .get_index(idx)
+            .map(|(_, entry)| entry)
+            .is_some_and(|entry| entry.block.is_selectable() && is_tool_run(&entry.block))
+    }
+
     pub fn clear_selection(&mut self) {
         self.selected = None;
     }
@@ -727,6 +844,11 @@ impl ScrollbackState {
         self.bump_generation();
         true
     }
+}
+
+/// Tool calls and subagent rows are the sections Shift+Up/Down walk. Messages and thinking stay put.
+fn is_tool_run(block: &RenderBlock) -> bool {
+    matches!(block, RenderBlock::ToolCall(_) | RenderBlock::Subagent(_))
 }
 
 fn display_rank(mode: DisplayMode) -> u8 {

@@ -4795,7 +4795,6 @@ mod overlay_post_flush_tests {
             None,
             false,
             crate::app::agent_view::BannerSlotParams::none(),
-            &BundleState::default(),
             false,
             &mut Vec::new(),
             super::AppRenderParams::default(),

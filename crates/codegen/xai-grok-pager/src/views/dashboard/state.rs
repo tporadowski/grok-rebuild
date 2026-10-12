@@ -4152,6 +4152,8 @@ fn dashboard_action_for_id(
         | ActionId::GotoBottom
         | ActionId::SelectNext
         | ActionId::SelectPrev
+        | ActionId::ReviewNextTool
+        | ActionId::ReviewPrevTool
         | ActionId::NextTurn
         | ActionId::PrevTurn
         | ActionId::NextResponse

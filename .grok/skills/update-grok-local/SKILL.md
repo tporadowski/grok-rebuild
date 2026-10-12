@@ -214,7 +214,7 @@ git merge "$UPSTREAM_REMOTE/main"
 Commit message style used in this repo when wrapping merges:
 
 ```text
-Merge <upstream-remote>/main: sync monorepo into fork; preserve pager error UI, plugin-hooks-at-spawn, session turn index UI, Windows proto-build / pager stack, sticky Edit path header, subagent session ID UI, full release-notes history, copy markdown source, and the README fork summary
+Merge <upstream-remote>/main: sync monorepo into fork; preserve pager error UI, plugin-hooks-at-spawn, session turn index UI, Windows proto-build / pager stack, sticky Edit path header, subagent session ID UI, full release-notes history, copy markdown source, tool-run review keys, and the README fork summary
 ```
 
 If `git merge` reports “Already up to date”, skip Steps 3–5. Rebuild only
@@ -515,11 +515,41 @@ intent unless analysis shows upstream absorbed them:
    not a match arm. Never take a single side — upstream-only drops the
    chord (or fails to compile `SetCopyMarkdownShortcut`); HEAD-only fails
    to compile when a new upstream setter or variant is missing.
-9. **README fork summary** — `README.md` has a **What this fork adds**
+9. **Tool-run review keys** — with the scrollback focused, `Shift+Down`
+   collapses the tool section you leave and expands the next one.
+   `Shift+Up` does the same backward. Sections are tool calls (success or
+   failure) and subagent rows. Messages and thinking are skipped. An open
+   grouped header (entry already collapsed, group in `expanded_groups`)
+   closes and the next tool section opens. An expanded tool body steps to
+   the next visible tool and opens that body. Plain `Up`/`Down` stay
+   `SelectNext`/`SelectPrev`. `Left`/`Right` stay `Collapse`/`Expand`
+   (`collapse_key` / `expand_key`). `Shift+Left`/`Shift+Right` stay
+   turn jumps. Dashboard `Shift+Up`/`Shift+Down` stay reorder.
+   - Actions: `ActionId::ReviewNextTool` / `ReviewPrevTool`,
+     `Action::ReviewNextTool` / `ReviewPrevTool`. Keys in
+     `actions/defaults.rs` (`When::ScrollbackFocused`).
+   - Behavior: `ScrollbackState::review_next_tool` /
+     `review_prev_tool` in `scrollback/state/selection.rs`.
+   - Routing: `resolve_action`, `dispatch` in `app/dispatch/router.rs`,
+     child allowlist in `child_action_filter.rs`. Minimal mode drops
+     them with every other `ScrollbackFocused` binding.
+   - Tests: `review_tool_transfers_expansion_and_skips_non_tools`,
+     `review_tool_plain_movement_leaves_folds_alone`,
+     `review_tool_open_group_jumps_to_the_next_section`,
+     `review_tool_open_member_body_steps_to_the_next_member`,
+     `review_tool_shift_arrows_are_scrollback_only`.
+   **`ActionId` conflicts:** when upstream adds an action arm, keep
+   `ReviewNextTool` and `ReviewPrevTool` on every exhaustive match
+   (`ActionId`, `Action`, `resolve_action`, the dispatch router, the
+   child gate, and the dashboard non-dashboard fallthrough). Never take
+   a single side — upstream-only drops the chords; HEAD-only fails to
+   compile when a new upstream variant is missing.
+10. **README fork summary** — `README.md` has a **What this fork adds**
    section (nav link plus a sentence in the intro) listing the fork-only
    behavior above: copyable tool errors, session turn index, sticky Edit
    path, subagent session IDs, plugin hooks at spawn, full release notes,
-   copy markdown source, and the native Windows link. The Windows bullet
+   copy markdown source, tool-run review keys, and the native Windows
+   link. The Windows bullet
    under **Building from source** points at that section instead of
    upstream's "best-effort" wording. When upstream edits `README.md`, keep
    this section and take the new upstream text around it. Update the
@@ -864,7 +894,7 @@ settings-match, or setter-import conflict.
 
 **README fork summary** — if the upstream range touches `README.md`,
 re-verify **What this fork adds** is still present (nav link, intro
-sentence, and the eight bullets) and that upstream's other README edits
+sentence, and the nine bullets) and that upstream's other README edits
 were kept. The Windows build bullet must not revert to "best-effort /
 not tested" without also pointing at the fork's native link fixes.
 
@@ -1050,8 +1080,8 @@ next `/update-grok-local` stays accurate.
 | Remotes / branches | URL-based detection no longer finds xAI vs this fork, or tracking model changed |
 | Package / binary paths | `xai-grok-pager-bin`, artifact path, or `grok-local` wiring changed |
 | Version sources | Semver crate, `build.rs` embed, or channel labeling changed |
-| Fork themes | Upstream absorbed error-UI, plugin-hooks-at-spawn, session turn-index UI, Windows proto-build / pager stack, sticky Edit path header, subagent session ID UI, full release-notes history, copy markdown source, or the README fork summary, or a new deliberate fork theme appeared |
-| Adjacent watch paths | New surfaces matter for copy/selection/tool-error, plugin-hook spawn, turn-index UI, Windows proto-build / pager stack, sticky Edit path header, subagent session ID UI, full release-notes history, copy markdown source, or the README fork summary (clipboard, scrollback, ACP, `spawn.rs`, composer, `xai-proto-build`, pager-bin `build.rs`, `sticky_edit.rs`, `entry_renderer.rs`, `EditBlockConfig`, `subagent_takeover.rs`, `draw_subagent_fullscreen`, `scrollback/blocks/subagent.rs`, `changelog.rs` `fetch_merged`, `fetch_changelog`, `release_notes.rs`, `actions/shortcut.rs`, `CopyMarkdownSource`, `[ui].copy_markdown_shortcut`, `README.md`, …) |
+| Fork themes | Upstream absorbed error-UI, plugin-hooks-at-spawn, session turn-index UI, Windows proto-build / pager stack, sticky Edit path header, subagent session ID UI, full release-notes history, copy markdown source, tool-run review keys, or the README fork summary, or a new deliberate fork theme appeared |
+| Adjacent watch paths | New surfaces matter for copy/selection/tool-error, plugin-hook spawn, turn-index UI, Windows proto-build / pager stack, sticky Edit path header, subagent session ID UI, full release-notes history, copy markdown source, tool-run review keys (`ReviewNextTool`, `scrollback/state/selection.rs`), or the README fork summary (clipboard, scrollback, ACP, `spawn.rs`, composer, `xai-proto-build`, pager-bin `build.rs`, `sticky_edit.rs`, `entry_renderer.rs`, `EditBlockConfig`, `subagent_takeover.rs`, `draw_subagent_fullscreen`, `scrollback/blocks/subagent.rs`, `changelog.rs` `fetch_merged`, `fetch_changelog`, `release_notes.rs`, `actions/shortcut.rs`, `CopyMarkdownSource`, `[ui].copy_markdown_shortcut`, `README.md`, …) |
 | Build / verify procedure | Toolchain, timeouts, env vars (`HERDR_AGENT`, `GROK_VERSION`), or pass criteria wrong |
 | Safety / push policy | Process friction that should become an explicit rule |
 | Operational gaps | Something non-obvious burned time this run and belongs in the skill |

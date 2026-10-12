@@ -198,6 +198,8 @@ fn child_navigation_and_link_actions_pass_filter() {
     for action in [
         Action::ScrollUp(1),
         Action::GotoBottom,
+        Action::ReviewNextTool,
+        Action::ReviewPrevTool,
         Action::ToggleFold,
         Action::FocusPrompt,
         Action::FocusScrollback,

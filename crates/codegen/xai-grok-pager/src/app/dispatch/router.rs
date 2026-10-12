@@ -89,8 +89,7 @@ use super::settings::setters::{
     set_remember_tool_approvals, set_render_mermaid, set_respect_manual_folds, set_screen_mode,
     set_scroll_lines, set_scroll_mode, set_scroll_speed, set_show_thinking_blocks, set_show_tips,
     set_simple_mode, set_subagent_model_inheritance, set_theme, set_timeline, set_timestamps,
-    set_vim_mode, set_voice_capture_mode,
-    set_voice_keybind_enabled, set_voice_stt_language,
+    set_vim_mode, set_voice_capture_mode, set_voice_keybind_enabled, set_voice_stt_language,
 };
 use super::settings::ui::{
     dispatch_confirm_reset_setting, dispatch_open_command_palette, dispatch_open_howto_guides,
@@ -120,7 +119,7 @@ use crate::app::actions::{Action, Effect, ModelChoice};
 use crate::app::agent_view::ActivePane;
 use crate::app::app_view::{ActiveView, AppView, AuthState};
 use crate::app::consent::ConsentState;
-use crate::scrollback::types::DisplayMode;
+
 use crate::views::session_picker::CONTENT_EXPAND_OFFSET;
 use xai_grok_telemetry::session_ctx::log_event;
 pub(super) fn dispatch_copy_auth_url(
@@ -546,6 +545,14 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             navigate_clearing_selection(app, |s| s.select_prev());
             vec![]
         }
+        Action::ReviewNextTool => {
+            navigate_clearing_selection(app, |s| s.review_next_tool());
+            vec![]
+        }
+        Action::ReviewPrevTool => {
+            navigate_clearing_selection(app, |s| s.review_prev_tool());
+            vec![]
+        }
         Action::NextTurn => {
             with_scrollback(app, |s| {
                 s.next_turn();
@@ -607,23 +614,11 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             vec![]
         }
         Action::Collapse => {
-            with_scrollback(app, |s| {
-                let at_minimum = s
-                    .selected()
-                    .and_then(|i| s.entry(i))
-                    .is_some_and(|e| e.display_mode == DisplayMode::Collapsed);
-                if !at_minimum || !s.collapse_group_if_expanded() {
-                    s.collapse_selected();
-                }
-            });
+            with_scrollback(app, |s| s.collapse_key());
             vec![]
         }
         Action::Expand => {
-            with_scrollback(app, |s| {
-                if !s.toggle_group_expansion() {
-                    s.expand_selected();
-                }
-            });
+            with_scrollback(app, |s| s.expand_key());
             vec![]
         }
         Action::ToggleFold => {

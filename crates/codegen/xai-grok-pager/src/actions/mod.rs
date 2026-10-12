@@ -62,6 +62,10 @@ pub enum ActionId {
     GotoBottom,
     SelectNext,
     SelectPrev,
+    /// Collapse the tool run you leave and expand the next one.
+    ReviewNextTool,
+    /// Collapse the tool run you leave and expand the previous one.
+    ReviewPrevTool,
     NextTurn,
     PrevTurn,
     NextResponse,
@@ -800,6 +804,66 @@ mod tests {
         // Not at scrollback or global level
         assert_eq!(registry.lookup(&ctrl_c, When::ScrollbackFocused), None);
         assert_eq!(registry.lookup(&ctrl_c, When::Always), None);
+    }
+
+    #[test]
+    fn review_tool_shift_arrows_are_scrollback_only() {
+        let registry = ActionRegistry::defaults();
+        let shift_down = KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT);
+        let shift_up = KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT);
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        let right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        let left = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+        let shift_right = KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT);
+        let shift_left = KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT);
+
+        assert_eq!(
+            registry.lookup(&shift_down, When::ScrollbackFocused),
+            Some(ActionId::ReviewNextTool)
+        );
+        assert_eq!(
+            registry.lookup_with_mode(&shift_down, When::ScrollbackFocused, false),
+            Some(ActionId::ReviewNextTool)
+        );
+        assert_eq!(
+            registry.lookup_with_mode(&shift_up, When::ScrollbackFocused, true),
+            Some(ActionId::ReviewPrevTool)
+        );
+        assert_eq!(
+            registry.lookup(&down, When::ScrollbackFocused),
+            Some(ActionId::SelectNext)
+        );
+        assert_eq!(
+            registry.lookup(&up, When::ScrollbackFocused),
+            Some(ActionId::SelectPrev)
+        );
+        assert_eq!(
+            registry.lookup(&right, When::ScrollbackFocused),
+            Some(ActionId::Expand)
+        );
+        assert_eq!(
+            registry.lookup(&left, When::ScrollbackFocused),
+            Some(ActionId::Collapse)
+        );
+        assert_eq!(
+            registry.lookup(&shift_right, When::ScrollbackFocused),
+            Some(ActionId::NextTurn)
+        );
+        assert_eq!(
+            registry.lookup(&shift_left, When::ScrollbackFocused),
+            Some(ActionId::PrevTurn)
+        );
+        assert_eq!(registry.lookup(&shift_down, When::PromptFocused), None);
+        assert_eq!(registry.lookup(&shift_down, When::Always), None);
+        assert_eq!(
+            registry.lookup(&shift_up, When::DashboardFocused),
+            Some(ActionId::DashboardReorderUp)
+        );
+        assert_eq!(
+            registry.lookup(&shift_down, When::DashboardFocused),
+            Some(ActionId::DashboardReorderDown)
+        );
     }
 
     #[test]

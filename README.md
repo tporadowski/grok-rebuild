@@ -73,6 +73,15 @@ install.
   text. It copies the selected assistant message, or the latest one.
   Change the chord in Settings, or with `[ui].copy_markdown_shortcut`
   (`off` unbinds it).
+- **Step through tool runs.** With the scrollback focused, `Shift+Down`
+  collapses the tool section you leave and expands the next one.
+  `Shift+Up` does the same toward the previous tool run. Successes,
+  failures, and subagent rows are included. Messages and thinking are
+  skipped. An open grouped header closes and the next tool section opens.
+  An expanded tool body steps to the next visible tool and opens that
+  body. Plain `Up`/`Down` still only move the selection, `Left`/`Right`
+  still only fold the selected entry, and `Shift+Left`/`Shift+Right`
+  still jump between turns.
 - **Native Windows link.** Proto codegen skips the in-repo DotSlash
   `protoc` wrapper (it is not a Windows executable) and uses `protoc` on
   `PATH` or `$PROTOC`. Dependency output goes to a temp file, and the

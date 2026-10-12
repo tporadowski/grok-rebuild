@@ -289,6 +289,10 @@ pub enum Action {
     SelectNext,
     /// Select previous entry.
     SelectPrev,
+    /// Collapse the tool run you leave and expand the next one (Shift+Down).
+    ReviewNextTool,
+    /// Collapse the tool run you leave and expand the previous one (Shift+Up).
+    ReviewPrevTool,
     /// Jump to next turn boundary.
     NextTurn,
     /// Jump to previous turn boundary.
