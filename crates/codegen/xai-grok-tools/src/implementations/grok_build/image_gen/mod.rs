@@ -324,6 +324,21 @@ pub enum ImageGenConfig {
 /// chat requests already carry.
 pub const SESSION_ID_HEADER: &str = "x-grok-session-id";
 
+/// Extension for a decoded Imagine payload, or an error when the bytes are not an allow-listed image.
+/// Callers must not write a non-image body out as `.jpg`.
+pub(crate) fn imagine_image_extension(bytes: &[u8]) -> Result<&'static str, String> {
+    let (_w, _h, mime) = xai_grok_image::validate_image_bytes(bytes).map_err(|e| e.to_string())?;
+    match mime {
+        "image/jpeg" => Ok("jpg"),
+        "image/png" => Ok("png"),
+        "image/gif" => Ok("gif"),
+        "image/webp" => Ok("webp"),
+        "image/bmp" => Ok("bmp"),
+        "image/tiff" => Ok("tiff"),
+        other => Err(format!("unsupported image type {other}")),
+    }
+}
+
 impl ImageGenConfig {
     /// Credentials present — required to construct any of the clients.
     pub fn has_credentials(&self) -> bool {
@@ -476,6 +491,12 @@ impl xai_tool_runtime::Tool for ImageGenTool {
         generate_span.record("elapsed_ms", generate_start.elapsed().as_millis() as i64);
         drop(generate_span);
 
+        let ext = imagine_image_extension(&image_bytes).map_err(|reason| {
+            xai_tool_runtime::ToolError::invalid_arguments(format!(
+                "Image generation returned data that is not a valid image: {reason}"
+            ))
+        })?;
+
         let session_folder = {
             let res = resources.lock().await;
             res.require::<SessionFolder>()?.0.clone()
@@ -483,7 +504,7 @@ impl xai_tool_runtime::Tool for ImageGenTool {
 
         let absolute_path = client
             .writer
-            .save(&session_folder, &image_bytes, None)
+            .save(&session_folder, &image_bytes, Some(ext))
             .await
             .map_err(|e| xai_tool_runtime::ToolError::invalid_arguments(e.to_string()))?;
 
@@ -506,6 +527,22 @@ mod tests {
     fn tool_name_and_description() {
         let tool = ImageGenTool;
         assert_eq!(xai_tool_runtime::Tool::id(&tool).as_str(), "image_gen");
+    }
+
+    #[test]
+    fn non_image_imagine_bytes_are_rejected() {
+        let err = imagine_image_extension(b"not an image").unwrap_err();
+        assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn png_imagine_bytes_keep_png_extension() {
+        let mut buf = Vec::new();
+        let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255]));
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+        assert_eq!(imagine_image_extension(&buf).unwrap(), "png");
     }
 
     #[test]
