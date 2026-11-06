@@ -30,22 +30,25 @@ pub(crate) fn resolve_search_tools_enabled(
     )
 }
 
-/// Parse `[shell_environment_policy]` from the merged effective config, or `None` when unset or unparseable.
-/// On `None` the child inherits the full environment.
+/// Parse `[shell_environment_policy]` from the merged effective config.
+/// `Ok(None)` means the table is absent, so the child inherits the full environment.
+/// A present table that does not parse is an error: callers must stop instead of
+/// silently inheriting the full environment. Unknown keys inside a valid table are ignored.
 /// This is the authoritative parse; the `Config` field of the same name only feeds the unrecognized-key scan.
 pub(crate) fn resolve_shell_env_policy(
     effective_cfg: Option<&TomlValue>,
-) -> Option<xai_grok_tools::util::ShellEnvironmentPolicy> {
-    let value = effective_cfg?.get("shell_environment_policy")?.clone();
-    match value.try_into::<xai_grok_tools::util::ShellEnvironmentPolicy>() {
-        Ok(policy) => Some(policy),
-        Err(error) => {
-            tracing::warn!(
-                %error,
-                "failed to parse [shell_environment_policy]; inheriting the full environment"
-            );
-            None
-        }
+) -> Result<Option<xai_grok_tools::util::ShellEnvironmentPolicy>, String> {
+    let Some(value) = effective_cfg.and_then(|cfg| cfg.get("shell_environment_policy")) else {
+        return Ok(None);
+    };
+    match value
+        .clone()
+        .try_into::<xai_grok_tools::util::ShellEnvironmentPolicy>()
+    {
+        Ok(policy) => Ok(Some(policy)),
+        Err(error) => Err(format!(
+            "[shell_environment_policy] is invalid: {error}. Fix config.toml; grok will not start and will not fall back to the full environment."
+        )),
     }
 }
 
@@ -825,14 +828,16 @@ mod shell_env_policy_tests {
     fn resolve_shell_env_policy_absent_parsed_typo_and_typed_error() {
         // An absent table yields None (the child inherits the full environment)
         let empty: TomlValue = toml::from_str("").unwrap();
-        assert!(resolve_shell_env_policy(Some(&empty)).is_none());
-        assert!(resolve_shell_env_policy(None).is_none());
+        assert!(resolve_shell_env_policy(Some(&empty)).unwrap().is_none());
+        assert!(resolve_shell_env_policy(None).unwrap().is_none());
 
         // A well-formed table parses through.
         let cfg: TomlValue =
             toml::from_str("[shell_environment_policy]\ninherit = \"core\"\nexclude = [\"FOO\"]\n")
                 .unwrap();
-        let policy = resolve_shell_env_policy(Some(&cfg)).expect("policy parses");
+        let policy = resolve_shell_env_policy(Some(&cfg))
+            .expect("policy parses")
+            .expect("table present");
         assert_eq!(policy.inherit, ShellEnvironmentPolicyInherit::Core);
         assert_eq!(
             policy.exclude,
@@ -843,12 +848,22 @@ mod shell_env_policy_tests {
         let typo: TomlValue =
             toml::from_str("[shell_environment_policy]\ninherit = \"none\"\ninhert = \"core\"\n")
                 .unwrap();
-        let policy = resolve_shell_env_policy(Some(&typo)).expect("known keys still parse");
+        let policy = resolve_shell_env_policy(Some(&typo))
+            .expect("known keys still parse")
+            .expect("table present");
         assert_eq!(policy.inherit, ShellEnvironmentPolicyInherit::None);
 
-        // A wrong-typed known key fails the parse, yielding None (full environment, logged), not a spawn abort
+        // A wrong-typed known key is a hard error. Callers must not inherit the full environment.
         let bad: TomlValue =
             toml::from_str("[shell_environment_policy]\nexclude = \"not-an-array\"\n").unwrap();
-        assert!(resolve_shell_env_policy(Some(&bad)).is_none());
+        let error = resolve_shell_env_policy(Some(&bad)).expect_err("typed error");
+        assert!(
+            error.contains("[shell_environment_policy]") && error.contains("full environment"),
+            "{error}"
+        );
+
+        let not_a_table: TomlValue = toml::from_str("shell_environment_policy = \"nope\"\n").unwrap();
+        let error = resolve_shell_env_policy(Some(&not_a_table)).expect_err("not a table");
+        assert!(error.contains("[shell_environment_policy]"), "{error}");
     }
 }

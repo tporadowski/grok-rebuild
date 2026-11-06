@@ -1401,6 +1401,8 @@ impl Config {
         Ok((config, unrecognized_keys))
     }
     pub fn new_from_toml_cfg(raw_config: &toml::Value) -> Result<Self, String> {
+        // A mistyped `[shell_environment_policy]` must fail here, before any shell inherits the full environment.
+        crate::util::config::resolve_shell_env_policy(Some(raw_config))?;
         let raw_config = &xai_grok_login::expand_auth_alias(raw_config);
         let super::config_model_override_parse::ParsedModelOverrides {
             models: config_models,

@@ -827,12 +827,28 @@ fn shell_environment_policy_typo_does_not_fail_config() {
     let cfg: toml::Value = toml::from_str(
         r#"
             [shell_environment_policy]
+            inherit = "core"
             inhert = "core"
+            "#,
+    )
+    .unwrap();
+    Config::new_from_toml_cfg(&cfg).expect("an unknown policy key must not fail the config");
+}
+
+#[test]
+fn invalid_shell_environment_policy_fails_config_instead_of_full_env() {
+    let cfg: toml::Value = toml::from_str(
+        r#"
+            [shell_environment_policy]
             exclude = 123
             "#,
     )
     .unwrap();
-    Config::new_from_toml_cfg(&cfg).expect("a policy typo must not fail the config");
+    let error = Config::new_from_toml_cfg(&cfg).expect_err("a mistyped policy must not load");
+    assert!(
+        error.contains("[shell_environment_policy]") && error.contains("full environment"),
+        "{error}"
+    );
 }
 #[test]
 fn shell_environment_policy_known_keys_track_the_policy_struct() {

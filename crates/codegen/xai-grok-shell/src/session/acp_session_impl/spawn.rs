@@ -780,7 +780,8 @@ pub(crate) async fn spawn_session_actor(
             grep_ugrep,
         }
     };
-    let resolve_policy = || crate::util::config::resolve_shell_env_policy(effective_cfg.as_ref());
+    let shell_env_policy = crate::util::config::resolve_shell_env_policy(effective_cfg.as_ref())
+        .map_err(xai_grok_agent::AgentBuildError::InvalidConfig)?;
     let terminal_backend: std::sync::Arc<dyn xai_grok_tools::computer::types::TerminalBackend> =
         match terminal_backend_kind {
             TerminalBackendKind::ReuseParent => parent_terminal_backend
@@ -795,7 +796,7 @@ pub(crate) async fn spawn_session_actor(
             TerminalBackendKind::LocalPersistent => {
                 std::sync::Arc::new(LocalTerminalBackend::new_local_with_persistent_shell(
                     resolve_search_shadows(),
-                    resolve_policy(),
+                    shell_env_policy.clone(),
                     tool_context.process_scope.clone(),
                 ))
             }
@@ -806,7 +807,7 @@ pub(crate) async fn spawn_session_actor(
                 std::sync::Arc::new(LocalTerminalBackend::new_local_with_login_shell_capture(
                     resolve_search_shadows(),
                     login_shell_capture,
-                    resolve_policy(),
+                    shell_env_policy.clone(),
                     tool_context.process_scope.clone(),
                 ))
             }
