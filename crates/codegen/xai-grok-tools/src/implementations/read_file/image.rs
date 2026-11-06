@@ -193,17 +193,11 @@ fn compress_image_for_conversation_with_caps(
         });
     }
 
-    let img = match ImageReader::new(Cursor::new(&raw_bytes))
-        .with_guessed_format()
-        .ok()
-        .and_then(|r| r.decode().ok())
-    {
-        Some(img) => img,
-        None => {
+    let img = match crate::util::image_compress::decode_oriented(&raw_bytes) {
+        Ok(img) => img,
+        Err(e) => {
             tracing::warn!("image decode failed; cannot compress oversized image");
-            return Err(CompressImageError::DecodeFailed(
-                "pixel decode returned no image".into(),
-            ));
+            return Err(CompressImageError::DecodeFailed(e.to_string()));
         }
     };
 

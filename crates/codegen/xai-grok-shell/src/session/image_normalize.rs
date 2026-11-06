@@ -436,8 +436,8 @@ fn compute_normalized_blocking(
             "image {orig_w}x{orig_h} exceeds {MAX_DECODE_PIXELS} px decode limit",
         )));
     }
-    let decoded =
-        image::load_from_memory(&raw_bytes).map_err(|e| NormalizeError(format!("decode: {e}")))?;
+    let decoded = xai_grok_tools::util::image_compress::decode_oriented(&raw_bytes)
+        .map_err(|e| NormalizeError(format!("decode: {e}")))?;
     let (buf, new_w, new_h, mime) = match re_encode_under_limit(&decoded, params) {
         Ok(v) => v,
         Err(e) => {

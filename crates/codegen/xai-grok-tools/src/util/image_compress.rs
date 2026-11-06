@@ -5,10 +5,32 @@
 //! respecting per-caller dimension and quality parameters.
 
 use std::borrow::Cow;
+use std::io::Cursor;
 
 use image::DynamicImage;
+use image::ImageDecoder;
+use image::ImageReader;
 use image::codecs::jpeg::JpegEncoder;
 pub use image::imageops::FilterType;
+
+/// Decode `bytes` and apply the file's EXIF orientation so a later re-encode is not sideways.
+/// `image::load_from_memory` ignores orientation; cameras store pixels unrotated and put the rotation in EXIF.
+pub fn decode_oriented(bytes: &[u8]) -> image::ImageResult<DynamicImage> {
+    let reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let mut img = DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+    Ok(img)
+}
+
+/// True when any pixel is not fully opaque. JPEG re-encodes those pixels onto black.
+fn has_transparent_pixel(img: &DynamicImage) -> bool {
+    if !img.color().has_alpha() {
+        return false;
+    }
+    img.to_rgba8().pixels().any(|pixel| pixel.0[3] != 255)
+}
 
 /// Parameters that control the re-encode loop. Each call-site provides its own set of limits so the
 /// shared encoder can serve callers with different size/quality trade-offs.
@@ -87,6 +109,8 @@ pub fn re_encode_under_limit(
         };
         let img: &DynamicImage = &scaled;
         let (w, h) = (img.width(), img.height());
+        // JPEG has no alpha. Encoding a transparent image as JPEG paints those pixels black.
+        let keep_png = has_transparent_pixel(img);
 
         // --- PNG candidate ---------------------------------------------------
         let png_candidate = {
@@ -98,12 +122,16 @@ pub fn re_encode_under_limit(
         };
 
         // --- JPEG candidate (best quality that fits) -------------------------
-        let jpeg_candidate = params.quality_steps.iter().find_map(|&quality| {
-            let mut buf = Vec::new();
-            let mut enc = JpegEncoder::new_with_quality(&mut buf, quality);
-            enc.encode_image(img).ok()?;
-            (buf.len() <= params.max_bytes).then_some(buf)
-        });
+        let jpeg_candidate = if keep_png {
+            None
+        } else {
+            params.quality_steps.iter().find_map(|&quality| {
+                let mut buf = Vec::new();
+                let mut enc = JpegEncoder::new_with_quality(&mut buf, quality);
+                enc.encode_image(img).ok()?;
+                (buf.len() <= params.max_bytes).then_some(buf)
+            })
+        };
 
         // --- Pick the smaller candidate --------------------------------------
         match (png_candidate, jpeg_candidate) {
@@ -272,5 +300,66 @@ mod tests {
                 "{sw}x{sh} cap {cap}: long side must match the predicted fit"
             );
         }
+    }
+
+    #[test]
+    fn transparent_image_reencodes_as_png_not_jpeg() {
+        use image::{Rgba, RgbaImage};
+        let mut img = RgbaImage::new(32, 32);
+        for pixel in img.pixels_mut() {
+            *pixel = Rgba([10, 20, 30, 255]);
+        }
+        img.put_pixel(0, 0, Rgba([10, 20, 30, 0]));
+        let (bytes, _w, _h, mime) = re_encode_under_limit(
+            &DynamicImage::ImageRgba8(img),
+            &params(5_000_000, 1568, u64::MAX),
+        )
+        .unwrap();
+        assert_eq!(mime, "image/png");
+        let decoded = image::load_from_memory(&bytes).unwrap().to_rgba8();
+        assert_eq!(decoded.get_pixel(0, 0).0[3], 0);
+    }
+
+    #[test]
+    fn exif_rotate90_swaps_decoded_dimensions() {
+        use image::{Rgb, RgbImage};
+        let mut wide = RgbImage::new(4, 2);
+        for (x, y, pixel) in wide.enumerate_pixels_mut() {
+            *pixel = if x < 2 {
+                Rgb([255, 0, 0])
+            } else {
+                Rgb([0, 0, 255])
+            };
+            let _ = y;
+        }
+        let mut jpeg = Vec::new();
+        let mut enc = JpegEncoder::new_with_quality(&mut jpeg, 90);
+        enc.encode_image(&DynamicImage::ImageRgb8(wide)).unwrap();
+        let oriented = insert_exif_orientation_6(&jpeg);
+        let decoded = decode_oriented(&oriented).unwrap();
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (2, 4),
+            "orientation 6 rotates a 4x2 JPEG to 2x4"
+        );
+    }
+
+    /// Insert a minimal little-endian EXIF APP1 segment (orientation = 6) after SOI.
+    fn insert_exif_orientation_6(jpeg: &[u8]) -> Vec<u8> {
+        assert!(jpeg.starts_with(&[0xFF, 0xD8]), "jpeg soi");
+        // TIFF LE: header, one IFD entry, tag 0x0112 SHORT value 6.
+        let tiff: &[u8] = &[
+            b'I', b'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x12, 0x01, 0x03, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let mut payload = b"Exif\0\0".to_vec();
+        payload.extend_from_slice(tiff);
+        let len = (payload.len() + 2) as u16;
+        let mut out = Vec::with_capacity(jpeg.len() + payload.len() + 4);
+        out.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0xE1]);
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(&payload);
+        out.extend_from_slice(&jpeg[2..]);
+        out
     }
 }

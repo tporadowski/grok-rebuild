@@ -77,13 +77,9 @@ fn compress_reference(
     }
 
     // `into_dimensions` consumed the reader; re-open to decode.
-    let img = ImageReader::new(Cursor::new(&raw_bytes))
-        .with_guessed_format()
-        .ok()
-        .and_then(|r| r.decode().ok())
-        .ok_or_else(|| {
-            xai_tool_runtime::ToolError::invalid_arguments("failed to decode image reference")
-        })?;
+    let img = crate::util::image_compress::decode_oriented(&raw_bytes).map_err(|_| {
+        xai_tool_runtime::ToolError::invalid_arguments("failed to decode image reference")
+    })?;
 
     let params = ReEncodeParams {
         max_bytes: MAX_REF_RAW_BYTES,
