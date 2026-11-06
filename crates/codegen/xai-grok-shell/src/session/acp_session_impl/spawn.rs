@@ -384,13 +384,19 @@ pub(crate) async fn spawn_session_actor(
             };
             let yolo_lock = permission_resolution::yolo_policy_lock();
             let yolo_pin = yolo_lock.as_ref().map(|lock| lock.reason.message());
-            let mut permission_config = permission_resolution::resolve_permission_config_with_fallback_pinned(
+            let permission_load = permission_resolution::resolve_pinned_permission_load(
                     tool_context.cwd.as_path(),
                     project_trusted,
                     yolo_lock.as_ref(),
                 )
                 .instrument(tracing::info_span!("spawn.permission_config_load"))
                 .await;
+            for skipped in &permission_load.skipped {
+                let line = permission_resolution::skipped_permission_warning(skipped);
+                tracing::warn!("{line}");
+                eprintln!("{line}");
+            }
+            let mut permission_config = permission_load.config;
             let (cli_permission_rules, dropped_catchalls) = drop_cli_catchall_allows(
                 cli_permission_rules,
                 yolo_pin,
