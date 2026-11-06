@@ -372,19 +372,19 @@ pub enum Modal {
     Plan,
 }
 
-/// The active prompt-replacing modal, in the full-TUI render precedence (cancel-confirm > plan > permission > question > elicitation > rewind), or `None`.
+/// The active prompt-replacing modal.
+/// A permission prompt wins over a plan or cancel panel so minimal mode does not hide the approval.
+/// After that: cancel-confirm, plan, question, elicitation, rewind.
 pub fn active_modal(agent: &AgentView) -> Option<Modal> {
-    // The cancel-turn confirm is checked first to match the input router
-    // The router intercepts keys for `cancel_turn_view` ahead of the question view (`AgentView::handle_input`)
+    if !agent.permission_queue.is_empty() {
+        return Some(Modal::Permission);
+    }
+    // The cancel-turn confirm is checked ahead of plan and question.
     if minimal_api::cancel_turn_view(agent).is_some() {
         return Some(Modal::Cancel);
     }
-    // Plan approval routes through the line viewer (kept open in minimal) and is mutually exclusive with permission/question in practice
     if minimal_api::plan_approval_view(agent).is_some() {
         return Some(Modal::Plan);
-    }
-    if !agent.permission_queue.is_empty() {
-        return Some(Modal::Permission);
     }
     if minimal_api::question_view(agent).is_some() {
         return Some(Modal::Question);
@@ -906,6 +906,17 @@ mod tests {
             row_text.contains('z') && row_text.contains("line 1"),
             "editor top row must be the prefix row at the capped offset, got {row_text:?}"
         );
+    }
+
+    #[test]
+    fn permission_prompt_wins_over_plan_and_cancel() {
+        let mut agent = minimal_api::test_agent_view(Some("s1"), std::path::PathBuf::from("/tmp"));
+        minimal_api::open_test_plan_approval(&mut agent);
+        assert_eq!(active_modal(&agent), Some(Modal::Plan));
+        minimal_api::open_test_cancel_turn(&mut agent);
+        assert_eq!(active_modal(&agent), Some(Modal::Cancel));
+        minimal_api::push_test_permission(&mut agent);
+        assert_eq!(active_modal(&agent), Some(Modal::Permission));
     }
 
     #[test]

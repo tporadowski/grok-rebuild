@@ -813,6 +813,84 @@ pub fn set_question_view(v: &mut AgentView, val: Option<QuestionViewState>) {
     v.question_view = val;
 }
 
+/// Test-only: a permission card is waiting.
+#[cfg(any(test, feature = "test-support"))]
+pub fn push_test_permission(v: &mut AgentView) {
+    v.permission_queue.push_back(test_followup_permission_state());
+}
+
+/// Test-only: plan approval is open.
+#[cfg(any(test, feature = "test-support"))]
+pub fn open_test_plan_approval(v: &mut AgentView) {
+    v.plan_approval_view = Some(test_plan_approval_view_state());
+}
+
+#[cfg(any(test, feature = "test-support"))]
+fn test_followup_permission_state() -> crate::views::permission_view::PermissionViewState {
+    let (response_tx, _rx) = tokio::sync::oneshot::channel();
+    let request = agent_client_protocol::RequestPermissionRequest::new(
+        agent_client_protocol::SessionId::new(std::sync::Arc::from("test")),
+        agent_client_protocol::ToolCallUpdate::new(
+            agent_client_protocol::ToolCallId::new(std::sync::Arc::from("call-1")),
+            agent_client_protocol::ToolCallUpdateFields::default(),
+        ),
+        vec![],
+    );
+    crate::views::permission_view::PermissionViewState {
+        request: xai_acp_lib::AcpArgs {
+            request,
+            response_tx,
+        },
+        id: 0,
+        focus: crate::views::permission_view::PermissionFocus::FollowupInput,
+        options: vec![],
+        active_idx: 0,
+        bash_highlights: None,
+        bash_selection_count: 0,
+        bash_deny_selection_count: 0,
+        bash_command_raw: None,
+        mcp_scope: None,
+        title: String::new(),
+        description: vec![],
+        args_expanded: false,
+        desc_scroll: 0,
+        subagent_label: None,
+        options_area_height: 0,
+        options_scroll_offset: 0,
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+fn test_plan_approval_view_state() -> crate::views::plan_approval_view::PlanApprovalViewState {
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    let request = crate::views::plan_approval_view::ExitPlanModeExtRequest {
+        session_id: "test-session".into(),
+        tool_call_id: "call-1".into(),
+        plan_content: Some("# Plan\n\n## Step 1\nDo something".into()),
+    };
+    crate::views::plan_approval_view::PlanApprovalViewState::new(
+        request,
+        crate::views::prompt_widget::StashedPrompt {
+            text: String::new(),
+            cursor: 0,
+            images: Vec::new(),
+            chip_elements: Vec::new(),
+            image_counter: 0,
+            image_undo_stash: Vec::new(),
+        },
+        tx,
+    )
+}
+
+/// Test-only: the cancel-turn confirm is open.
+#[cfg(any(test, feature = "test-support"))]
+pub fn open_test_cancel_turn(v: &mut AgentView) {
+    v.cancel_turn_view = Some(crate::views::modal::CancelTurnViewState {
+        active_idx: 0,
+        running_count: 1,
+    });
+}
+
 /// Test-only: open a one-text-field form elicitation card from `server_name`.
 #[cfg(any(test, feature = "test-support"))]
 pub fn open_test_elicitation(v: &mut AgentView, server_name: &str, message: &str) {
