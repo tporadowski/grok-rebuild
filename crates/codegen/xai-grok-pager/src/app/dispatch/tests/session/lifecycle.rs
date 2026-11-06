@@ -23,6 +23,41 @@ fn pending_trust_workspace() -> (tempfile::TempDir, std::path::PathBuf, AppView)
     (repo, workspace, app)
 }
 #[test]
+fn new_session_inherits_always_approve_from_the_active_tab() {
+    let mut app = test_app_with_agent();
+    app.default_yolo = false;
+    app.agents.get_mut(&AgentId(0)).unwrap().session.yolo_mode = true;
+    let _ = dispatch_new_session_inner(&mut app, None);
+    assert!(
+        app.agents.get(&AgentId(1)).unwrap().session.is_yolo(),
+        "must copy the tab /new was run from, not another tab's global mirror"
+    );
+
+    let mut app = test_app_with_agent();
+    app.default_yolo = true;
+    app.agents.get_mut(&AgentId(0)).unwrap().session.yolo_mode = false;
+    let _ = dispatch_new_session_inner(&mut app, None);
+    assert!(
+        !app.agents.get(&AgentId(1)).unwrap().session.is_yolo(),
+        "a yolo flag left by another tab must not leak into this tab's /new"
+    );
+}
+
+#[test]
+fn permission_mode_plan_flag_starts_the_new_session_in_plan() {
+    let mut app = test_app();
+    app.launch_in_plan_mode = true;
+    let _ = dispatch_new_session_inner(&mut app, None);
+    let agent = app.agents.get(&AgentId(0)).unwrap();
+    assert_eq!(agent.plan_mode_pending, Some(true));
+    assert_eq!(
+        agent.deferred_session_mode,
+        Some(xai_grok_tools::types::SessionMode::Plan)
+    );
+    assert!(!app.launch_in_plan_mode);
+}
+
+#[test]
 fn voice_on_welcome_creates_session_and_records() {
     let mut app = test_app();
     let (tx, mut rx) = tokio::sync::mpsc::channel(8);

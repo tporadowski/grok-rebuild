@@ -369,14 +369,16 @@ pub(in crate::app::dispatch) fn dispatch_new_session_inner_with_id(
     model_id: Option<acp::ModelId>,
     stay_on_welcome: bool,
 ) -> (AgentId, Vec<Effect>) {
-    let (previous_session_id, effective_cwd, inherit_worktree) = match get_active_agent(app) {
-        Some(a) => (
-            a.session.session_id.clone(),
-            a.session.cwd.clone(),
-            a.session.is_worktree,
-        ),
-        None => (None, app.cwd.clone(), false),
-    };
+    let (previous_session_id, effective_cwd, inherit_worktree, inherited_yolo) =
+        match get_active_agent(app) {
+            Some(a) => (
+                a.session.session_id.clone(),
+                a.session.cwd.clone(),
+                a.session.is_worktree,
+                a.session.is_yolo(),
+            ),
+            None => (None, app.cwd.clone(), false, app.default_yolo),
+        };
     let mut effects = unregister_session_effect(previous_session_id);
     reseed_tip_for_new_session(app);
     let agent_id = AgentId(app.next_agent_id);
@@ -397,7 +399,7 @@ pub(in crate::app::dispatch) fn dispatch_new_session_inner_with_id(
             forked_from: None,
             pending_prompts: std::collections::VecDeque::new(),
             next_queue_id: 0,
-            yolo_mode: app.default_yolo,
+            yolo_mode: inherited_yolo,
             auto_mode: inherit_auto_mode(app),
             prompt_history: Vec::new(),
             prompt_history_loading: false,
@@ -426,6 +428,13 @@ pub(in crate::app::dispatch) fn dispatch_new_session_inner_with_id(
         scrollback,
     );
     app.agents.insert(agent_id, agent);
+    if app.launch_in_plan_mode {
+        if let Some(agent) = app.agents.get_mut(&agent_id) {
+            agent.deferred_session_mode = Some(xai_grok_tools::types::SessionMode::Plan);
+            agent.plan_mode_pending = Some(true);
+        }
+        app.launch_in_plan_mode = false;
+    }
     configure_agent_composer(app, agent_id);
     {
         let agent = app.agents.get_mut(&agent_id).unwrap();
