@@ -847,6 +847,8 @@ pub struct AppView {
     /// Enable plan mode for new sessions (`--plan`).
     /// Adds `enter_plan_mode`, `exit_plan_mode` tools; implies `ask_user`.
     pub plan_mode: bool,
+    /// `--permission-mode plan`: the next new session starts in plan mode. Cleared once consumed.
+    pub launch_in_plan_mode: bool,
     /// Enable subagent spawning for new sessions (`--subagents`).
     /// Adds the `TaskTool` for spawning subagents.
     pub subagents: bool,
@@ -1473,6 +1475,7 @@ impl AppView {
             screen_mode_switch_hint: None,
             require_plan_approval: false,
             plan_mode: false,
+            launch_in_plan_mode: false,
             subagents: false,
             ask_user: false,
             chat_mode: false,

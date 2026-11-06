@@ -703,7 +703,10 @@ pub(crate) async fn spawn_session_actor(
         let tracker = if let Some(snapshot) = persisted_plan_mode {
             crate::session::plan_mode::PlanModeTracker::from_snapshot(session_dir, snapshot)
         } else {
-            crate::session::plan_mode::PlanModeTracker::new(session_dir)
+            crate::session::plan_mode::PlanModeTracker::new_for_launch(
+                session_dir,
+                startup_hints.start_in_plan,
+            )
         };
         Arc::new(parking_lot::Mutex::new(tracker))
     };

@@ -133,6 +133,7 @@ fn test_app() -> AppView {
         screen_mode_switch_hint: None,
         require_plan_approval: false,
         plan_mode: false,
+        launch_in_plan_mode: false,
         chat_mode: false,
         post_turn_plan_review: false,
         #[cfg(feature = "local-workspace")]

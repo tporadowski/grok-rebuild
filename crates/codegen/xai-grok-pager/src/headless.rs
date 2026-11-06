@@ -466,6 +466,7 @@ async fn authenticate(
 fn build_headless_init_request(
     rules: Option<&str>,
     system_prompt_override: Option<&str>,
+    start_in_plan: bool,
 ) -> acp::InitializeRequest {
     let mut meta = serde_json::json!({
         "clientType": HEADLESS_CLIENT_TYPE,
@@ -485,6 +486,7 @@ fn build_headless_init_request(
             "startupHints".into(),
             serde_json::json!({
                 "nonInteractive": true,
+                "startInPlan": start_in_plan,
             }),
         );
     }
@@ -910,6 +912,7 @@ pub async fn run_single_turn(
     let init_req = build_headless_init_request(
         options.rules.as_deref(),
         options.system_prompt_override.as_deref(),
+        options.permission_mode_flag.as_deref() == Some("plan"),
     );
     xai_grok_telemetry::startup::enter(crate::acp::StartupPhase::AcpInitialize);
     let init_resp: acp::InitializeResponse = match acp_send(init_req, &acp_tx).await {

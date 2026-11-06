@@ -629,6 +629,9 @@ pub struct StartupHints {
     /// Unlike `yoloMode` / `autoMode`, a warm re-attach to an already-resident actor does NOT re-apply it.
     #[serde(default)]
     pub permission_mode: Option<String>,
+    /// `--permission-mode plan`: a new session starts in plan mode. Ignored when a snapshot is restored.
+    #[serde(default)]
+    pub start_in_plan: bool,
     #[serde(skip)]
     pub startup_traceparent: std::cell::RefCell<Option<String>>,
 }
@@ -671,6 +674,15 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(subagent.take_mcp_reroot_traceparent(), None);
+    }
+
+    #[test]
+    fn start_in_plan_deserializes_from_startup_hints() {
+        let hints: StartupHints =
+            serde_json::from_value(serde_json::json!({ "startInPlan": true })).unwrap();
+        assert!(hints.start_in_plan);
+        let absent: StartupHints = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(!absent.start_in_plan);
     }
 
     #[test]

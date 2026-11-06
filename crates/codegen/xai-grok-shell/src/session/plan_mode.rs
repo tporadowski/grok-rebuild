@@ -67,6 +67,14 @@ pub struct PlanModeSnapshot {
 impl PlanModeTracker {
     /// Create a new tracker. `session_dir` is the session's storage
     /// directory (e.g., `~/.grok/sessions/<encoded-cwd>/<session-id>/`).
+    /// `start_in_plan` is `--permission-mode plan` on a fresh session.
+    pub fn new_for_launch(session_dir: PathBuf, start_in_plan: bool) -> Self {
+        let mut tracker = Self::new(session_dir);
+        if start_in_plan {
+            tracker.enter_pending();
+        }
+        tracker
+    }
     pub fn new(session_dir: PathBuf) -> Self {
         Self {
             state: PlanModeState::Inactive,
@@ -407,6 +415,27 @@ mod tests {
     fn test_tracker() -> PlanModeTracker {
         PlanModeTracker::new(PathBuf::from("/tmp/test-session"))
     }
+    #[test]
+    fn permission_mode_plan_starts_pending() {
+        let started = PlanModeTracker::new_for_launch(PathBuf::from("/tmp/test-session"), true);
+        assert_eq!(started.state(), PlanModeState::Pending);
+        let normal = PlanModeTracker::new_for_launch(PathBuf::from("/tmp/test-session"), false);
+        assert_eq!(normal.state(), PlanModeState::Inactive);
+        let mut restored = PlanModeTracker::from_snapshot(
+            PathBuf::from("/tmp/test-session"),
+            PlanModeSnapshot {
+                state: PlanModeState::Active,
+                was_previously_active: true,
+                reminder_count: 0,
+                pending_exit_reminder: false,
+                awaiting_plan_approval: false,
+            },
+        );
+        assert_eq!(restored.state(), PlanModeState::Active);
+        // A restored session keeps its snapshot; launch plan mode is only for a fresh tracker.
+        let _ = &mut restored;
+    }
+
     #[test]
     fn user_initiated_lifecycle() {
         let mut t = test_tracker();
