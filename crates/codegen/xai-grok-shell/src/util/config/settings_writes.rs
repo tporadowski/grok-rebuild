@@ -331,6 +331,68 @@ pub(super) fn write_feature_override(
     })
 }
 
+/// Turn one skill on or off by editing only `[skills].disabled`.
+/// Paths, ignore, and any managed skill folders in other files are left untouched.
+pub async fn set_skill_enabled(name: String, enabled: bool) -> Result<()> {
+    rewrite_user_config_locked("skills.disabled", move |path| {
+        rewrite_user_config_table(
+            path,
+            "skills.disabled",
+            crate::util::config::persist::atomic_write_follow_bound,
+            |root| {
+                edit_skills_disabled(root, &name, enabled);
+                Ok(())
+            },
+        )
+    })
+    .await
+}
+
+/// Insert or remove `name` in `[skills].disabled` and leave every other skills key alone.
+pub(crate) fn edit_skills_disabled(
+    root: &mut toml::map::Map<String, toml::Value>,
+    name: &str,
+    enabled: bool,
+) {
+    use toml::Value;
+    let skills = root
+        .entry("skills".to_owned())
+        .or_insert_with(|| Value::Table(toml::map::Map::new()));
+    if !matches!(skills, Value::Table(_)) {
+        *skills = Value::Table(toml::map::Map::new());
+    }
+    let Some(table) = skills.as_table_mut() else {
+        return;
+    };
+    let mut disabled: Vec<String> = table
+        .get("disabled")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    if enabled {
+        disabled.retain(|entry| entry != name);
+    } else if !disabled.iter().any(|entry| entry == name) {
+        disabled.push(name.to_owned());
+    }
+    if disabled.is_empty() {
+        table.remove("disabled");
+        if table.is_empty() {
+            root.remove("skills");
+        }
+    } else {
+        table.insert(
+            "disabled".to_owned(),
+            Value::Array(disabled.into_iter().map(Value::String).collect()),
+        );
+    }
+}
+
 /// Persist `[ui].fork_secondary_model` via `update_config`. Caller must validate against the model catalog. Empty string restores the built-in default. A length over [`MAX_DEFAULT_MODEL_LEN`] returns `Err`.
 pub async fn set_fork_secondary_model(value: String) -> Result<()> {
     if value.len() > MAX_DEFAULT_MODEL_LEN {
@@ -341,6 +403,8 @@ pub async fn set_fork_secondary_model(value: String) -> Result<()> {
         );
     }
     update_config(|cfg| {
+        // Empty restores the built-in default in memory. `save_config_locked` omits that
+        // default from config.toml so a settings save does not re-insert it.
         cfg.ui.fork_secondary_model = if value.is_empty() {
             crate::models::default_model().to_string()
         } else {

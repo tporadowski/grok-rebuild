@@ -32,6 +32,89 @@ fn parse_existing_config_toml_blank_is_empty_table_not_unparseable() {
         "non-empty unparseable TOML must still be refused"
     );
 }
+#[test]
+fn skill_toggle_writes_only_disabled() {
+    use super::super::settings_writes::edit_skills_disabled;
+    let mut root = TomlMap::new();
+    let mut skills = TomlMap::new();
+    skills.insert(
+        "paths".into(),
+        TomlValue::Array(vec![TomlValue::String("/managed/skills".into())]),
+    );
+    skills.insert(
+        "ignore".into(),
+        TomlValue::Array(vec![TomlValue::String("secret".into())]),
+    );
+    root.insert("skills".into(), TomlValue::Table(skills));
+    root.insert("ui".into(), TomlValue::Table(TomlMap::new()));
+    edit_skills_disabled(&mut root, "lint", false);
+    let skills = root.get("skills").and_then(|v| v.as_table()).unwrap();
+    assert_eq!(
+        skills
+            .get("disabled")
+            .and_then(|v| v.as_array())
+            .map(|items| items.len()),
+        Some(1)
+    );
+    assert_eq!(
+        skills.get("paths").and_then(|v| v.as_array()).map(|a| a.len()),
+        Some(1),
+        "managed or user skill folders must stay"
+    );
+    assert!(skills.contains_key("ignore"));
+    assert!(root.contains_key("ui"));
+    edit_skills_disabled(&mut root, "lint", true);
+    let skills = root.get("skills").and_then(|v| v.as_table()).unwrap();
+    assert!(!skills.contains_key("disabled"));
+    assert!(skills.contains_key("paths"));
+}
+
+#[test]
+fn settings_save_does_not_keep_the_builtin_fork_model() {
+    let builtin = xai_grok_models::default_model();
+    let mut table = TomlMap::new();
+    let mut ui = TomlMap::new();
+    ui.insert(
+        "fork_secondary_model".into(),
+        TomlValue::String(builtin.to_string()),
+    );
+    ui.insert("yolo".into(), TomlValue::Boolean(false));
+    table.insert("ui".into(), TomlValue::Table(ui));
+    strip_builtin_fork_secondary_model(&mut table, builtin);
+    let ui = table.get("ui").and_then(|v| v.as_table()).unwrap();
+    assert!(
+        !ui.contains_key("fork_secondary_model"),
+        "built-in fork model must not be re-inserted"
+    );
+    assert_eq!(ui.get("yolo").and_then(|v| v.as_bool()), Some(false));
+
+    strip_builtin_fork_secondary_model(&mut table, "custom-fork-model");
+    assert!(
+        !table
+            .get("ui")
+            .and_then(|v| v.as_table())
+            .unwrap()
+            .contains_key("fork_secondary_model"),
+        "a custom model is not inserted by the strip"
+    );
+
+    let mut custom = TomlMap::new();
+    let mut ui = TomlMap::new();
+    ui.insert(
+        "fork_secondary_model".into(),
+        TomlValue::String("custom-fork-model".into()),
+    );
+    custom.insert("ui".into(), TomlValue::Table(ui));
+    strip_builtin_fork_secondary_model(&mut custom, "custom-fork-model");
+    assert_eq!(
+        custom
+            .get("ui")
+            .and_then(|v| v.get("fork_secondary_model"))
+            .and_then(|v| v.as_str()),
+        Some("custom-fork-model")
+    );
+}
+
 /// The `[toolset.ask_user_question]` settings write merges only that sub-table.
 /// The toggled field lands, hand-written sibling keys survive, and no other `[toolset]` defaults (bash/web_search) are splatted into the user file.
 /// All-None leaves the file untouched.

@@ -594,15 +594,7 @@ pub async fn handle(
 
             let name = req.name.clone();
             let enabled = req.enabled;
-            if let Err(e) = cli_config::update_config(|cfg| {
-                if enabled {
-                    cfg.skills.disabled.retain(|d| d != &name);
-                } else if !cfg.skills.disabled.contains(&name) {
-                    cfg.skills.disabled.push(name.clone());
-                }
-            })
-            .await
-            {
+            if let Err(e) = cli_config::set_skill_enabled(name, enabled).await {
                 return super::to_ext_response(Err::<SkillsListResponse, _>(anyhow::anyhow!(
                     "Failed to save config: {e}"
                 )));
