@@ -52,6 +52,7 @@ async fn save_config_locked(
     merge_section(table, "cli", &config.cli);
     merge_section(table, "models", &config.models);
     merge_section(table, "ui", &config.ui);
+    strip_builtin_fork_secondary_model(table, &config.ui.fork_secondary_model);
     merge_section(table, "harness", &config.harness);
     merge_section(table, "session", &config.session);
     merge_ask_user_question_section(table, &config.ask_user_question);
@@ -277,6 +278,24 @@ fn merge_ask_user_question_section(
 }
 /// Merge serialized fields of `value` into `table[key]`, preserving any existing keys not present in the serialized output.
 /// This prevents `save_config` round-trips from silently dropping unmodeled fields (e.g. pager-written `show_timestamps`, `auto_dark_theme`).
+/// Drop `[ui].fork_secondary_model` when it is empty or the built-in default.
+/// Settings saves otherwise re-insert that default because the in-memory field is always filled.
+pub(crate) fn strip_builtin_fork_secondary_model(
+    table: &mut TomlMap<String, TomlValue>,
+    model: &str,
+) {
+    if !model.is_empty() && model != xai_grok_models::default_model() {
+        return;
+    }
+    let Some(TomlValue::Table(ui)) = table.get_mut("ui") else {
+        return;
+    };
+    ui.remove("fork_secondary_model");
+    if ui.is_empty() {
+        table.remove("ui");
+    }
+}
+
 /// Deep-merge `incoming` into `existing`: nested tables recurse; scalars replace.
 fn merge_toml_tables(
     existing: &mut TomlMap<String, TomlValue>,

@@ -3,6 +3,11 @@ use xai_grok_config::DisplayRefreshSettings;
 
 use xai_grok_status_line::StatusLineConfig;
 
+/// True when `value` is unset or the built-in fork model, so a settings save must not write it into config.toml.
+fn fork_secondary_is_builtin_default(value: &String) -> bool {
+    value.is_empty() || value == xai_grok_models::default_model()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiConfig {
@@ -11,6 +16,8 @@ pub struct UiConfig {
     pub theme: Option<String>,
     /// Model ID to use for the secondary agent when forking.
     /// Defaults to the main default model (from default_models.json).
+    /// The built-in default is not written back to config.toml.
+    #[serde(skip_serializing_if = "fork_secondary_is_builtin_default")]
     pub fork_secondary_model: String,
     /// Read by `util::config`, declared here for `serde_ignored`.
     #[serde(default)]
