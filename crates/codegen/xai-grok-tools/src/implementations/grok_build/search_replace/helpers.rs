@@ -173,6 +173,34 @@ pub(crate) enum NormalizedMatchResult {
     Ambiguous,
 }
 
+/// True when `pattern` occurs again starting inside an earlier match.
+/// `str::match_indices` skips those overlaps, so a single reported hit can still be the wrong span.
+pub(crate) fn has_overlapping_literal_match(text: &str, pattern: &str) -> bool {
+    if pattern.is_empty() {
+        return false;
+    }
+    let mut search_from = 0usize;
+    let mut open_end: Option<usize> = None;
+    while search_from < text.len() {
+        let Some(rel) = text[search_from..].find(pattern) else {
+            break;
+        };
+        let start = search_from + rel;
+        let end = start + pattern.len();
+        if let Some(prev_end) = open_end
+            && start < prev_end
+        {
+            return true;
+        }
+        open_end = Some(end);
+        let Some(ch) = text[start..].chars().next() else {
+            break;
+        };
+        search_from = start + ch.len_utf8();
+    }
+    false
+}
+
 /// Find match positions using confusable-normalized comparison and remap them back to the original text's byte coordinates. Build
 /// `(normalized_text, offset_map)` via [`build_offset_map`]. Normalize the search pattern the same way. Find all non-overlapping matches in
 /// `normalized_text`. Remap each normalized `[start..end]` span back to original bytes via `offset_map`.
@@ -283,6 +311,15 @@ pub(crate) fn replace_normalized_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlapping_literal_match_is_refused_and_disjoint_matches_are_not() {
+        assert!(has_overlapping_literal_match("aaaa", "aaa"));
+        assert!(has_overlapping_literal_match("aaa", "aa"));
+        assert!(!has_overlapping_literal_match("aa aa", "aa"));
+        assert!(!has_overlapping_literal_match("hello", "xyz"));
+        assert!(!has_overlapping_literal_match("hello", ""));
+    }
 
     #[test]
     fn render_snippet_middle_of_file_contexts() {

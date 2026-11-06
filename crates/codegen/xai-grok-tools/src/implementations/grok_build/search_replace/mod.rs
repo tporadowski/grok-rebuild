@@ -30,7 +30,7 @@ use crate::util::truncate_str_with_marker;
 use crate::{notification::types::ToolNotificationHandle, register_resource};
 use helpers::{
     NormalizedMatchResult, build_edit_details, find_normalized_match_positions,
-    replace_normalized_matches, replace_using_positions,
+    has_overlapping_literal_match, replace_normalized_matches, replace_using_positions,
 };
 pub(crate) const CONTEXT_LINES: usize = 3;
 /// Internal version discriminant for search_replace.
@@ -576,6 +576,14 @@ async fn handle_replacement(
         .match_indices(&input.old_string)
         .map(|(index, _)| index)
         .collect();
+    if has_overlapping_literal_match(&match_text, &input.old_string) {
+        let old_string_name =
+            TemplateRenderer::resolve(&resources, "${{ params.edit.old_string }}").await?;
+        return Ok(SearchReplaceOutput::MultipleMatchesFound(format!(
+            "The string to replace matches again at an overlapping position. \
+             Use a more specific {old_string_name} so only one span matches."
+        )));
+    }
     let mut used_normalized_fallback = false;
     if positions.is_empty() {
         let fallback_enabled = {
@@ -1268,6 +1276,40 @@ mod tests {
             other => panic!("Expected EditsApplied, got {:?}", other),
         }
     }
+    #[tokio::test]
+    async fn overlapping_old_string_is_refused() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("test.txt"), "aaaa\n").unwrap();
+        let tool = SearchReplaceTool;
+        for replace_all in [false, true] {
+            let mut resources = test_resources(tmp.path());
+            resources.insert(Params(SearchReplaceParams {
+                skip_read_before_edit: true,
+                empty_old_string_does_not_override: false,
+                ..Default::default()
+            }));
+            let mut input = make_input("test.txt", "aaa", "b");
+            input.replace_all = replace_all;
+            let result =
+                xai_tool_runtime::Tool::run(&tool, test_ctx(resources.into_shared()), input)
+                    .await
+                    .unwrap();
+            match result {
+                SearchReplaceOutput::MultipleMatchesFound(msg) => {
+                    assert!(
+                        msg.contains("overlapping"),
+                        "replace_all={replace_all}: {msg}"
+                    );
+                }
+                other => panic!("replace_all={replace_all}: expected refusal, got {other:?}"),
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("test.txt")).unwrap(),
+            "aaaa\n"
+        );
+    }
+
     #[tokio::test]
     async fn multiple_matches_without_replace_all() {
         let tmp = TempDir::new().unwrap();
