@@ -69,29 +69,61 @@ impl ParsedPermissions {
     }
 }
 
+/// Why [`load_claude_settings`] returned nothing, so a session can warn instead of skipping silently.
+#[derive(Debug)]
+pub(crate) enum ClaudeSettingsLoad {
+    /// Path is absent. Not a warning.
+    Missing,
+    /// The path exists but its rules cannot be loaded.
+    Invalid { reason: String },
+    Loaded(ClaudeSettings),
+}
+
 /// Returns `None` only when the file is missing, unreadable, or unparseable JSON.
 /// A `Some(ClaudeSettings)` may lack the `permissions` key, so callers still see `defaultMode` and `additionalDirectories`.
 /// Non-string array entries are skipped with warnings, and the canonical `permissions.*` keys win over the grok-legacy root keys.
 pub fn load_claude_settings(path: &Path) -> Option<ClaudeSettings> {
+    match load_claude_settings_status(path) {
+        ClaudeSettingsLoad::Loaded(settings) => Some(settings),
+        ClaudeSettingsLoad::Missing | ClaudeSettingsLoad::Invalid { .. } => None,
+    }
+}
+
+pub(crate) fn load_claude_settings_status(path: &Path) -> ClaudeSettingsLoad {
     // Opening a FIFO for read blocks until a writer appears; this runs on the session actor, so refuse non-regular files up front
     match std::fs::metadata(path) {
         Ok(m) if m.is_file() => {}
         Ok(_) => {
             tracing::warn!(?path, "refusing to read non-regular settings file");
-            return None;
+            return ClaudeSettingsLoad::Invalid {
+                reason: "not a regular file".to_string(),
+            };
         }
-        Err(_) => return None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return ClaudeSettingsLoad::Missing,
+        Err(e) => {
+            return ClaudeSettingsLoad::Invalid {
+                reason: format!("unreadable: {e}"),
+            };
+        }
     }
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(_) => return None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return ClaudeSettingsLoad::Missing,
+        Err(e) => {
+            return ClaudeSettingsLoad::Invalid {
+                reason: format!("unreadable: {e}"),
+            };
+        }
     };
 
     // Parse as generic JSON value for tolerant handling
     let value: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
-        Err(_) => return None,
+        Err(e) => {
+            return ClaudeSettingsLoad::Invalid {
+                reason: format!("not valid JSON: {e}"),
+            };
+        }
     };
 
     // Extract permissions tolerantly if present (with warnings for non-strings)
@@ -121,7 +153,7 @@ pub fn load_claude_settings(path: &Path) -> Option<ClaudeSettings> {
 
     let env = extract_string_map(value.get("env"), path);
 
-    Some(ClaudeSettings {
+    ClaudeSettingsLoad::Loaded(ClaudeSettings {
         permissions,
         default_mode,
         additional_directories,

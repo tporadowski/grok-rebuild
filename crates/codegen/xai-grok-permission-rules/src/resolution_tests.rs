@@ -1433,6 +1433,7 @@ fn inputs_trusted(
         yolo_lock,
         managed: DEFAULT_MANAGED.get_or_init(ManagedSettings::default),
         managed_config_rules: Vec::new(),
+        managed_config_skipped: Vec::new(),
         project_trusted,
     }
 }
@@ -1446,6 +1447,7 @@ fn inputs_with_managed<'a>(
         yolo_lock,
         managed,
         managed_config_rules: Vec::new(),
+        managed_config_skipped: Vec::new(),
         project_trusted: true,
     }
 }
@@ -2824,7 +2826,7 @@ fn managed_config_toml_rules_resolve_as_non_admin_defaults() {
                 .path
                 .starts_with(user.path())
     );
-    let rules = managed_config_permissions(&layers);
+    let rules = managed_config_permissions(&layers).rules;
     assert_eq!(rules.len(), 2);
     assert!(rules.iter().all(|s| {
         matches!(&s.source, RequirementSource::ManagedConfig { .. }) && !is_admin_source(&s.source)
@@ -2991,4 +2993,84 @@ fn explicit_default_mode_blocks_permission_mode_hint() {
             "{label}"
         );
     }
+}
+
+#[test]
+fn unrecognized_permission_keys_and_plural_section_are_skipped() {
+    let value: toml::Value = toml::from_str(
+        r#"
+        [permission]
+        denny = ["Bash(rm *)"]
+        deny = ["Read(*.env)"]
+
+        [permissions]
+        deny = ["Bash(curl *)"]
+        "#,
+    )
+    .unwrap();
+    let loaded = extract_toml_permissions(&value, || RequirementSource::Config {
+        path: PathBuf::from("config.toml"),
+    });
+    assert!(
+        loaded.rules.iter().any(|sourced| {
+            sourced.value.action == RuleAction::Deny
+                && sourced.value.tool == ToolFilter::Read
+                && sourced.value.pattern.as_deref() == Some("*.env")
+        }),
+        "the valid deny stays, got {:?}",
+        loaded.rules
+    );
+    assert!(
+        !loaded
+            .rules
+            .iter()
+            .any(|sourced| sourced.value.tool == ToolFilter::Bash),
+        "a bad key and [permissions] must not become rules"
+    );
+    assert!(loaded.skipped.iter().any(|skipped| {
+        skipped.rule == "permission.denny" && skipped.reason.contains("unrecognized")
+    }));
+    assert!(
+        loaded
+            .skipped
+            .iter()
+            .any(|skipped| skipped.rule == "[permissions]")
+    );
+}
+
+#[test]
+fn invalid_claude_settings_json_is_reported_as_not_loaded() {
+    let _home = isolated_home();
+    let tmp = tempfile::tempdir().unwrap();
+    let claude_dir = tmp.path().join(".claude");
+    std::fs::create_dir_all(&claude_dir).unwrap();
+    let path = claude_dir.join("settings.json");
+    std::fs::write(&path, "{not json").unwrap();
+
+    match load_claude_settings_status(&path) {
+        ClaudeSettingsLoad::Invalid { reason } => {
+            assert!(reason.contains("not valid JSON"), "{reason}");
+        }
+        other => panic!("expected invalid JSON, got {other:?}"),
+    }
+    assert!(load_claude_settings(&path).is_none());
+
+    let (_cfg, skipped, _) = resolve_claude_settings_inner(
+        tmp.path(),
+        true,
+        None,
+        UserDefaultModeLoad::Apply,
+    )
+    .expect("a broken settings file must still resolve so the skip is visible");
+    let hit = skipped
+        .iter()
+        .find(|skipped| skipped.rule.contains("settings.json"))
+        .expect("settings.json must be skipped");
+    assert!(hit.reason.contains("not valid JSON"), "{}", hit.reason);
+    let line = skipped_permission_warning(hit);
+    assert!(
+        line.starts_with("grok: permission rules not loaded:"),
+        "{line}"
+    );
+    assert!(line.contains("not valid JSON"), "{line}");
 }

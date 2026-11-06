@@ -93,11 +93,34 @@ fn parse_default_mode_claiming_scope(
 
 /// Parse `[permission]` from TOML.
 /// Tries compact (`deny = ["Read(...)"]`) first, falls back to verbose (`[[permission.rules]]`).
+/// Bad entries and unrecognized keys are returned as skips; sibling rules stay.
+#[cfg(test)]
 fn parse_toml_permission_section(
     permission_value: &toml::Value,
 ) -> Result<Vec<PermissionRule>, String> {
+    Ok(parse_toml_permission_section_with_skips(permission_value)?.0)
+}
+
+fn parse_toml_permission_section_with_skips(
+    permission_value: &toml::Value,
+) -> Result<(Vec<PermissionRule>, Vec<SkippedPermission>), String> {
     let mut rules = Vec::new();
+    let mut skipped = Vec::new();
     let mut found_compact = false;
+
+    if let Some(table) = permission_value.as_table() {
+        for key in table.keys() {
+            if !matches!(
+                key.as_str(),
+                "deny" | "allow" | "ask" | "rules" | "default_mode" | "defaultMode"
+            ) {
+                skipped.push(SkippedPermission {
+                    rule: format!("permission.{key}"),
+                    reason: "unrecognized permission key".to_string(),
+                });
+            }
+        }
+    }
 
     for (action, key) in [
         (RuleAction::Deny, "deny"),
@@ -107,10 +130,15 @@ fn parse_toml_permission_section(
         if let Some(value) = permission_value.get(key) {
             let Some(arr) = value.as_array() else {
                 // Don't drop a security rule list silently.
-                warn!(
-                    "permission.{key}: expected an array of rule strings, got {} -- ignored",
+                let reason = format!(
+                    "expected an array of rule strings, got {}",
                     toml_type_name(value)
                 );
+                warn!("permission.{key}: {reason} -- ignored");
+                skipped.push(SkippedPermission {
+                    rule: format!("permission.{key}"),
+                    reason,
+                });
                 continue;
             };
             found_compact = true;
@@ -118,26 +146,34 @@ fn parse_toml_permission_section(
                 if let Some(s) = item.as_str() {
                     match parse_permission_rule(s, action) {
                         Ok(rule) => rules.push(rule),
-                        Err(e) => warn!("permission.{key}[{i}]: \"{s}\" -- {e}"),
+                        Err(e) => {
+                            warn!("permission.{key}[{i}]: \"{s}\" -- {e}");
+                            skipped.push(SkippedPermission {
+                                rule: format!("permission.{key}[{i}]: {s}"),
+                                reason: e.to_string(),
+                            });
+                        }
                     }
                 } else {
-                    warn!(
-                        "permission.{key}[{i}]: expected string, got {}",
-                        toml_type_name(item)
-                    );
+                    let reason = format!("expected string, got {}", toml_type_name(item));
+                    warn!("permission.{key}[{i}]: {reason}");
+                    skipped.push(SkippedPermission {
+                        rule: format!("permission.{key}[{i}]"),
+                        reason,
+                    });
                 }
             }
         }
     }
 
     if found_compact {
-        return Ok(rules);
+        return Ok((rules, skipped));
     }
 
     permission_value
         .clone()
         .try_into::<PermissionConfig>()
-        .map(|config| config.rules)
+        .map(|config| (config.rules, skipped))
         .map_err(|e| e.to_string())
 }
 
@@ -155,32 +191,59 @@ fn toml_type_name(v: &toml::Value) -> &'static str {
 
 use crate::types::{RequirementSource, Sourced};
 
+struct TomlPermissionLoad {
+    rules: Vec<Sourced<PermissionRule>>,
+    skipped: Vec<SkippedPermission>,
+}
+
 /// Try to extract `[permission]` rules from a TOML config value.
+/// A plural `[permissions]` section is skipped, not loaded, so it shows up in `grok inspect`.
 fn extract_toml_permissions(
     config: &toml::Value,
     make_source: impl Fn() -> RequirementSource,
-) -> Vec<Sourced<PermissionRule>> {
+) -> TomlPermissionLoad {
+    let mut skipped = Vec::new();
+    if config.get("permissions").is_some() {
+        skipped.push(SkippedPermission {
+            rule: "[permissions]".to_string(),
+            reason: "unrecognized section; rules belong under [permission]".to_string(),
+        });
+    }
     let Some(permission_value) = config.get("permission") else {
-        return Vec::new();
+        return TomlPermissionLoad {
+            rules: Vec::new(),
+            skipped,
+        };
     };
-    match parse_toml_permission_section(permission_value) {
-        Ok(rules) => {
+    match parse_toml_permission_section_with_skips(permission_value) {
+        Ok((rules, more)) => {
+            skipped.extend(more);
             let source = make_source();
             if !rules.is_empty() {
                 info!(count = rules.len(), %source, "Loaded permission rules");
             }
-            rules
-                .into_iter()
-                .map(|rule| Sourced {
-                    value: rule,
-                    source: source.clone(),
-                })
-                .collect()
+            TomlPermissionLoad {
+                rules: rules
+                    .into_iter()
+                    .map(|rule| Sourced {
+                        value: rule,
+                        source: source.clone(),
+                    })
+                    .collect(),
+                skipped,
+            }
         }
         Err(e) => {
             let source = make_source();
             warn!(error = %e, %source, "Failed to parse [permission]");
-            Vec::new()
+            skipped.push(SkippedPermission {
+                rule: format!("[permission] ({source})"),
+                reason: e,
+            });
+            TomlPermissionLoad {
+                rules: Vec::new(),
+                skipped,
+            }
         }
     }
 }
@@ -188,28 +251,35 @@ fn extract_toml_permissions(
 /// Load `[permission]` rules from requirements.toml layers. Trust keys on the
 /// `is_system` flag (set at load, never from `path`): system → `SystemRequirements`,
 /// user `~/.grok` → `Requirements`, so [`is_admin_source`] trusts only the root tier.
-fn load_requirements_permissions() -> Vec<Sourced<PermissionRule>> {
-    xai_grok_config::requirements_layers()
-        .into_iter()
-        .flat_map(|layer| {
-            let source = if layer.is_system {
-                RequirementSource::SystemRequirements {
-                    path: PathBuf::from(layer.source.label().as_ref()),
-                }
-            } else {
-                RequirementSource::Requirements {
-                    path: PathBuf::from(layer.source.label().as_ref()),
-                }
-            };
-            extract_toml_permissions(&layer.value, || source.clone())
-        })
-        .collect()
+fn load_requirements_permissions() -> TomlPermissionLoad {
+    let mut loaded = TomlPermissionLoad {
+        rules: Vec::new(),
+        skipped: Vec::new(),
+    };
+    for layer in xai_grok_config::requirements_layers() {
+        let source = if layer.is_system {
+            RequirementSource::SystemRequirements {
+                path: PathBuf::from(layer.source.label().as_ref()),
+            }
+        } else {
+            RequirementSource::Requirements {
+                path: PathBuf::from(layer.source.label().as_ref()),
+            }
+        };
+        let part = extract_toml_permissions(&layer.value, || source.clone());
+        loaded.rules.extend(part.rules);
+        loaded.skipped.extend(part.skipped);
+    }
+    loaded
 }
 
 /// Load `[permission]` rules from `~/.grok/config.toml` (lowest) then each `.grok/config.toml` from repo root to `cwd`.
 /// The walk matches [`crate::project_config::find_project_configs`] so detector and loader agree. Empty if no `[permission]` section.
-fn load_config_toml_permissions(cwd: &Path, project_trusted: bool) -> Vec<Sourced<PermissionRule>> {
-    let mut rules = Vec::new();
+fn load_config_toml_permissions(cwd: &Path, project_trusted: bool) -> TomlPermissionLoad {
+    let mut loaded = TomlPermissionLoad {
+        rules: Vec::new(),
+        skipped: Vec::new(),
+    };
 
     // Global `~/.grok/config.toml` first (lowest priority within this layer).
     // Gated on user_grok_home() so a project's .grok/config.toml is never read as global permissions when neither GROK_HOME nor a home dir resolves
@@ -217,13 +287,19 @@ fn load_config_toml_permissions(cwd: &Path, project_trusted: bool) -> Vec<Source
         && global_path.is_file()
     {
         match xai_grok_config::load_config_file(&global_path) {
-            Ok(value) => rules.extend(extract_toml_permissions(&value, || {
-                RequirementSource::Config {
+            Ok(value) => {
+                let part = extract_toml_permissions(&value, || RequirementSource::Config {
                     path: global_path.clone(),
-                }
-            })),
+                });
+                loaded.rules.extend(part.rules);
+                loaded.skipped.extend(part.skipped);
+            }
             Err(e) => {
-                warn!(path = %global_path.display(), error = %e, "Failed to load global config.toml")
+                warn!(path = %global_path.display(), error = %e, "Failed to load global config.toml");
+                loaded.skipped.push(SkippedPermission {
+                    rule: global_path.display().to_string(),
+                    reason: format!("config.toml could not be read: {e}"),
+                });
             }
         }
     }
@@ -233,30 +309,42 @@ fn load_config_toml_permissions(cwd: &Path, project_trusted: bool) -> Vec<Source
     if project_trusted {
         for path in crate::project_config::find_project_configs(cwd) {
             match xai_grok_config::load_config_file(&path) {
-                Ok(value) => rules.extend(extract_toml_permissions(&value, || {
-                    RequirementSource::Config { path: path.clone() }
-                })),
+                Ok(value) => {
+                    let part = extract_toml_permissions(&value, || RequirementSource::Config {
+                        path: path.clone(),
+                    });
+                    loaded.rules.extend(part.rules);
+                    loaded.skipped.extend(part.skipped);
+                }
                 Err(e) => {
-                    warn!(path = %path.display(), error = %e, "Failed to load project config.toml")
+                    warn!(path = %path.display(), error = %e, "Failed to load project config.toml");
+                    loaded.skipped.push(SkippedPermission {
+                        rule: path.display().to_string(),
+                        reason: format!("config.toml could not be read: {e}"),
+                    });
                 }
             }
         }
     }
 
-    rules
+    loaded
 }
 
 fn managed_config_permissions(
     layers: &[xai_grok_config::ManagedConfigLayer],
-) -> Vec<Sourced<PermissionRule>> {
-    layers
-        .iter()
-        .flat_map(|layer| {
-            extract_toml_permissions(&layer.value, || RequirementSource::ManagedConfig {
-                path: layer.path.clone(),
-            })
-        })
-        .collect()
+) -> TomlPermissionLoad {
+    let mut loaded = TomlPermissionLoad {
+        rules: Vec::new(),
+        skipped: Vec::new(),
+    };
+    for layer in layers {
+        let part = extract_toml_permissions(&layer.value, || RequirementSource::ManagedConfig {
+            path: layer.path.clone(),
+        });
+        loaded.rules.extend(part.rules);
+        loaded.skipped.extend(part.skipped);
+    }
+    loaded
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -283,12 +371,47 @@ pub async fn resolve_permission_config_with_fallback_pinned(
     project_trusted: bool,
     yolo_lock: Option<&YoloPolicyLock>,
 ) -> Option<PermissionConfig> {
-    resolve_permissions_with_provenance_inner(
+    resolve_pinned_permission_load(cwd, project_trusted, yolo_lock)
+        .await
+        .config
+}
+
+/// Permission config plus the rules that were present but not loaded.
+/// Session spawn prints these; the library itself does not.
+pub struct PinnedPermissionLoad {
+    pub config: Option<PermissionConfig>,
+    pub skipped: Vec<SkippedPermission>,
+}
+
+/// Same pin read as [`resolve_permission_config_with_fallback_pinned`], keeping skip records.
+pub async fn resolve_pinned_permission_load(
+    cwd: &Path,
+    project_trusted: bool,
+    yolo_lock: Option<&YoloPolicyLock>,
+) -> PinnedPermissionLoad {
+    match resolve_permissions_with_provenance_inner(
         cwd,
         ResolveInputs::live(project_trusted, yolo_lock.cloned()),
     )
     .await
-    .map(|r| r.config)
+    {
+        Some(resolved) => PinnedPermissionLoad {
+            config: Some(resolved.config),
+            skipped: resolved.skipped,
+        },
+        None => PinnedPermissionLoad {
+            config: None,
+            skipped: Vec::new(),
+        },
+    }
+}
+
+/// User-visible line for a rule or settings file that did not load.
+pub fn skipped_permission_warning(skipped: &SkippedPermission) -> String {
+    format!(
+        "grok: permission rules not loaded: {} -- {}",
+        skipped.rule, skipped.reason
+    )
 }
 
 /// Client `startupHints.permissionMode` pre-declares an allow for headless agent-initiated turns after the client hangs up.
@@ -446,6 +569,7 @@ struct ResolveInputs<'a> {
     yolo_lock: Option<YoloPolicyLock>,
     managed: &'a ManagedSettings,
     managed_config_rules: Vec<Sourced<PermissionRule>>,
+    managed_config_skipped: Vec<SkippedPermission>,
     /// Folder-trust verdict for `cwd`.
     /// When false, project-tier `.claude/settings.json` / `.grok/config.toml` permission rules are dropped (global/user/admin tiers still load).
     project_trusted: bool,
@@ -455,12 +579,12 @@ impl ResolveInputs<'static> {
     /// Production inputs; the caller supplies the always-approve pin so one
     /// read serves the whole flow.
     fn live(project_trusted: bool, yolo_lock: Option<YoloPolicyLock>) -> Self {
+        let managed_config = managed_config_permissions(&xai_grok_config::managed_config_layers());
         Self {
             yolo_lock,
             managed: managed_settings(),
-            managed_config_rules: managed_config_permissions(
-                &xai_grok_config::managed_config_layers(),
-            ),
+            managed_config_rules: managed_config.rules,
+            managed_config_skipped: managed_config.skipped,
             project_trusted,
         }
     }
@@ -493,10 +617,11 @@ async fn resolve_permissions_with_provenance_inner(
         yolo_lock,
         managed,
         managed_config_rules,
+        managed_config_skipped,
         project_trusted,
     } = inputs;
     let policy_block = yolo_lock.as_ref().map(|lock| lock.reason.message());
-    let config_toml_rules = load_config_toml_permissions(cwd, project_trusted);
+    let config_toml = load_config_toml_permissions(cwd, project_trusted);
 
     // Managed defaultMode wins; skip user-tier defaultMode application so a project acceptEdits cannot loosen a managed dontAsk/auto/default
     let managed_mode = managed.default_mode;
@@ -516,10 +641,13 @@ async fn resolve_permissions_with_provenance_inner(
     };
 
     let mut all_rules: Vec<Sourced<PermissionRule>> = Vec::new();
-    all_rules.extend(load_requirements_permissions());
+    let requirements = load_requirements_permissions();
+    let mut skipped = managed_config_skipped;
+    skipped.extend(config_toml.skipped);
+    skipped.extend(requirements.skipped);
+    all_rules.extend(requirements.rules);
     all_rules.extend(managed.permissions.clone());
 
-    let mut skipped = Vec::new();
     let mut prompt_policy = PromptPolicy::default();
     let mut default_mode_configured = false;
 
@@ -544,7 +672,7 @@ async fn resolve_permissions_with_provenance_inner(
     }
 
     all_rules.extend(managed_config_rules);
-    all_rules.extend(config_toml_rules);
+    all_rules.extend(config_toml.rules);
     if let Some((config, skipped_rules, path)) = settings_json {
         skipped.extend(skipped_rules);
         // User-tier prompt_policy only when managed did not set defaultMode.
@@ -611,8 +739,17 @@ fn resolve_claude_settings_inner(
 
     // Same path set as env injection ([`claude_settings_paths_for_trust`]).
     for path in claude_settings_paths_for_trust(cwd, project_trusted) {
-        let Some(settings) = load_claude_settings(&path) else {
-            continue;
+        let settings = match load_claude_settings_status(&path) {
+            ClaudeSettingsLoad::Missing => continue,
+            ClaudeSettingsLoad::Invalid { reason } => {
+                warn!(path = %path.display(), %reason, "Claude settings not loaded");
+                all_skipped.push(SkippedPermission {
+                    rule: path.display().to_string(),
+                    reason,
+                });
+                continue;
+            }
+            ClaudeSettingsLoad::Loaded(settings) => settings,
         };
 
         if let Some(dirs) = &settings.additional_directories {
