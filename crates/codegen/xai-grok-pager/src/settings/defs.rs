@@ -93,7 +93,7 @@ const PERMISSION_MODE_CHOICES: &[EnumChoice] = &[
     EnumChoice {
         canonical: "always-approve",
         display: "Always approve",
-        description: "Auto-approve every tool action. Skips ALL permission prompts.",
+        description: "Auto-approve every tool action. Skips ALL permission prompts. Saved to config.",
     },
 ];
 

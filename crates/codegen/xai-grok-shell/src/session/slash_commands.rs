@@ -59,7 +59,7 @@ pub(super) const BUILTIN_COMMANDS: &[BuiltinCommand] = &[
     },
     BuiltinCommand {
         name: "always-approve",
-        description: "Toggle always-approve mode (skip all permission prompts)",
+        description: "Toggle always-approve mode (skip all permission prompts). Saved to config.",
         argument_hint: Some("on|off"),
         aliases: &["yolo"],
         model_authored_eligibility: ModelAuthoredEligibility::Denied,

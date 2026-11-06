@@ -268,7 +268,7 @@ pub struct AgentArgs {
         overrides_with = "reasoning_effort"
     )]
     pub reasoning_effort: Option<String>,
-    /// Auto-approve all tool executions
+    /// Auto-approve all tool executions for this launch. The interactive /always-approve setting is saved to config.
     #[arg(long = "always-approve", alias = "yolo")]
     pub yolo: bool,
     /// Path to an agent profile file.
@@ -438,7 +438,7 @@ pub struct PagerArgs {
         value_hint = ValueHint::FilePath
     )]
     pub debug_file: Option<PathBuf>,
-    /// Auto-approve all tool executions.
+    /// Auto-approve all tool executions for this launch. The interactive /always-approve setting is saved to config.
     #[clap(
         long = "always-approve",
         alias = "yolo",

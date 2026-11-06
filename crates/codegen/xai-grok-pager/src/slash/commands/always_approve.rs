@@ -14,7 +14,7 @@ pub struct AlwaysApproveCommand;
 impl SlashCommand for AlwaysApproveCommand {
     slash_meta! {
         name: "always-approve",
-        description: "Toggle always-approve mode (skip all permission prompts)",
+        description: "Toggle always-approve mode (skip all permission prompts). Saved to config.",
         usage: "/always-approve",
     }
 
@@ -71,6 +71,16 @@ mod tests {
             AlwaysApproveCommand.run(&mut ctx, ""),
             CommandResult::Action(Action::SetYoloMode(false))
         ));
+    }
+
+    #[test]
+    fn help_text_says_the_setting_is_saved_to_config() {
+        use crate::slash::command::SlashCommand;
+        let description = AlwaysApproveCommand.description();
+        assert!(
+            description.contains("saved to config"),
+            "{description}"
+        );
     }
 
     #[test]
