@@ -3491,7 +3491,7 @@ pub fn render_extensions_modal(
         && let Some(badge) = entry_badge_text.get_mut(row)
         && badge.is_empty()
     {
-        *badge = "✓".to_string();
+        *badge = crate::glyphs::check_mark().to_string();
         if let Some(color) = entry_badge_color.get_mut(row) {
             *color = Some(theme.accent_success);
         }
@@ -4076,7 +4076,11 @@ fn render_mcp_setup_form(buf: &mut Buffer, area: Rect, setup: &McpSetupFormState
             break;
         }
         let selected = idx == setup.selected;
-        let marker = if selected { "❯" } else { " " };
+        let marker = if selected {
+            crate::glyphs::selection_arrow()
+        } else {
+            " "
+        };
         let label = format!("{marker} {}", option.label);
         let style = if selected {
             Style::default()

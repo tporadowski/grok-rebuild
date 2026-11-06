@@ -501,7 +501,12 @@ fn render_corner_indicators(
     let at_bottom = total <= vp || state.scroll_offset() + vp >= total;
 
     if state.follow_mode {
-        place_indicator(buf, bottom_right, "▶", pane_style.follow_indicator_fg);
+        place_indicator(
+            buf,
+            bottom_right,
+            crate::glyphs::play_mark(),
+            pane_style.follow_indicator_fg,
+        );
     } else if !at_bottom {
         place_indicator(buf, bottom_right, "▼", indicator_fg);
     }

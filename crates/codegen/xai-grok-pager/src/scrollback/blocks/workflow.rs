@@ -63,8 +63,8 @@ impl WorkflowBlock {
                 .iter()
                 .map(|p| {
                     let mark = match p.state.as_str() {
-                        "done" => "✓",
-                        "active" => "●",
+                        "done" => crate::glyphs::check_mark(),
+                        "active" => crate::glyphs::running_dot(),
                         _ => "○",
                     };
                     format!("{} {mark}", p.title)
@@ -96,8 +96,9 @@ impl BlockContent for WorkflowBlock {
             }
             WorkflowBlockStatus::Cancelled { elapsed } => {
                 format!(
-                    "{} ◌ cancelled after {}: ",
+                    "{} {} cancelled after {}: ",
                     self.name,
+                    crate::glyphs::idle_mark(),
                     format_duration(*elapsed)
                 )
             }
@@ -198,8 +199,8 @@ impl BlockContent for WorkflowBlock {
         ];
         for p in &self.phases {
             let mark = match p.state.as_str() {
-                "done" => "✓",
-                "active" => "●",
+                "done" => crate::glyphs::check_mark(),
+                "active" => crate::glyphs::running_dot(),
                 _ => "○",
             };
             lines.push(Line::from(Span::styled(

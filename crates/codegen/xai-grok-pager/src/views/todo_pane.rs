@@ -84,7 +84,7 @@ impl TodoListEntry {
     fn icon(&self) -> &'static str {
         match self.item.status {
             TodoStatus::Pending => "□",
-            TodoStatus::InProgress => "▶",
+            TodoStatus::InProgress => crate::glyphs::play_mark(),
             TodoStatus::Completed => crate::glyphs::check_mark(),
             TodoStatus::Cancelled => crate::glyphs::ballot_x(),
         }

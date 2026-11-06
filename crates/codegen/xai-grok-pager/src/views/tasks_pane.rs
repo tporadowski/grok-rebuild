@@ -1201,7 +1201,10 @@ impl TasksPane {
                 Style::default().fg(theme.accent_error),
             )
         } else {
-            ("⏸", Style::default().fg(theme.warning))
+            (
+                crate::glyphs::pause_mark(),
+                Style::default().fg(theme.warning),
+            )
         };
         let right_text = format!("{elapsed} ");
         buf.set_span(area.x, y, &Span::styled(icon, icon_style), 2);

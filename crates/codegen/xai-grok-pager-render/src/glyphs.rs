@@ -55,6 +55,35 @@ pub fn ballot_x() -> &'static str {
     }
 }
 
+fn console_mark(legacy: bool, fancy: &'static str, fallback: &'static str) -> &'static str {
+    if legacy { fallback } else { fancy }
+}
+
+/// Filled running dot. Legacy ConHost uses CP437 `•` instead of `●`.
+pub fn running_dot() -> &'static str {
+    console_mark(is_legacy_windows_console(), "\u{25CF}", "\u{2022}")
+}
+
+/// Pause bars. Legacy ConHost has no `⏸`, so it draws `=`.
+pub fn pause_mark() -> &'static str {
+    console_mark(is_legacy_windows_console(), "\u{23F8}", "=")
+}
+
+/// Idle ring (`◌`). Legacy ConHost draws `o`.
+pub fn idle_mark() -> &'static str {
+    console_mark(is_legacy_windows_console(), "\u{25CC}", "o")
+}
+
+/// Play triangle (`▶`) for in-progress and follow markers. Legacy ConHost draws `>`.
+pub fn play_mark() -> &'static str {
+    console_mark(is_legacy_windows_console(), "\u{25B6}", ">")
+}
+
+/// Selection arrow. Legacy ConHost draws `>` instead of `❯`.
+pub fn selection_arrow() -> &'static str {
+    console_mark(is_legacy_windows_console(), "\u{276F}", ">")
+}
+
 /// Check mark; legacy ConHost uses CP437 `√` so the raster font still reads as done. Always 1 column.
 pub fn check_mark() -> &'static str {
     if is_legacy_windows_console() {
@@ -597,6 +626,19 @@ mod tests {
         let out = sanitize_toast_message("a\nb\tc");
         assert_eq!(out.as_ref(), "a b c");
         assert!(!out.chars().any(char::is_control));
+    }
+
+    #[test]
+    fn legacy_row_marks_are_one_column_and_drawable() {
+        assert_eq!(console_mark(true, "\u{25B6}", ">"), ">");
+        assert_eq!(console_mark(true, "\u{23F8}", "="), "=");
+        assert_eq!(console_mark(true, "\u{25CC}", "o"), "o");
+        assert_eq!(console_mark(true, "\u{25CF}", "\u{2022}"), "\u{2022}");
+        assert_eq!(console_mark(true, "\u{276F}", ">"), ">");
+        assert_eq!(console_mark(false, "\u{25B6}", ">"), "\u{25B6}");
+        for mark in [">", "=", "o", "\u{2022}"] {
+            assert_eq!(UnicodeWidthStr::width(mark), 1, "{mark}");
+        }
     }
 
     #[test]
