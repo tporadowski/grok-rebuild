@@ -2606,6 +2606,27 @@ mod math_tests {
     }
 
     #[test]
+    fn currency_amounts_stay_plain_text() {
+        let lines = pretty_lines("It costs $5 and $10 today.\n\n");
+        assert_eq!(
+            first_str(&lines).unwrap_or(""),
+            "It costs $5 and $10 today.",
+            "got: {lines:#?}"
+        );
+    }
+
+    #[test]
+    fn markdown_image_does_not_keep_a_stray_bang() {
+        let lines = pretty_lines("See ![cat](https://example.com/cat.png) now.\n\n");
+        let text = lines.join("\n");
+        assert!(
+            !text.contains('!'),
+            "image markup must not leave a bang, got: {lines:#?}"
+        );
+        assert!(text.contains("cat"), "alt text must remain, got: {lines:#?}");
+    }
+
+    #[test]
     fn dollar_inline_math_renders_unicode() {
         let lines = pretty_lines("Energy is $E = mc^2$ here.\n\n");
         assert_eq!(

@@ -1147,6 +1147,12 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                 if let Some(bracket_pos) = bracket_pos_opt {
                     let open_bracket = if tag_str.starts_with("![") { 1 } else { 0 };
                     if open_bracket > 0 {
+                        // The `!` of `![alt](url)` is markup, not alt text. Leaving it paints a stray bang.
+                        self.buffers.transforms.push(Transform {
+                            range: range.start..range.start + 1,
+                            to: String::new(),
+                            force: false,
+                        });
                         more.push(Highlight {
                             style: Some(self.ms.link_outer),
                             range: range.start..range.start + 1,
