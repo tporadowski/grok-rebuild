@@ -243,13 +243,16 @@ pub fn parse_permission_rule(
 
 pub(crate) fn tool_name_to_filter(name: &str) -> Option<ToolFilter> {
     match name {
-        "Bash" => Some(ToolFilter::Bash),
-        "Read" => Some(ToolFilter::Read),
-        "Edit" | "Write" => Some(ToolFilter::Edit),
+        // Claude names and the native tool ids the model and config actually write.
+        "Bash" | "Shell" | "run_terminal_command" => Some(ToolFilter::Bash),
+        "Read" | "read_file" | "hashline_read" => Some(ToolFilter::Read),
+        "Edit" | "Write" | "write" | "search_replace" | "hashline_edit" => Some(ToolFilter::Edit),
         "MCPTool" => Some(ToolFilter::Mcp),
-        "Grep" | "Glob" => Some(ToolFilter::Grep),
-        "WebFetch" => Some(ToolFilter::WebFetch),
-        "WebSearch" => Some(ToolFilter::WebSearch),
+        // list_dir is a read (`AccessKind::Read`), not a grep.
+        "Grep" | "Glob" | "grep" | "hashline_grep" => Some(ToolFilter::Grep),
+        "list_dir" => Some(ToolFilter::Read),
+        "WebFetch" | "web_fetch" => Some(ToolFilter::WebFetch),
+        "WebSearch" | "web_search" => Some(ToolFilter::WebSearch),
         "AgentMessage" | "SendSubagentMessage" | "SendAgentMessage" => {
             Some(ToolFilter::AgentMessage)
         }
@@ -314,6 +317,28 @@ pub(crate) fn strip_bash_colon_wildcard(pattern: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_tool_names_use_the_same_filters_as_claude_prefixes() {
+        for (rule_str, tool, pattern) in [
+            ("Shell(rm -rf /)", ToolFilter::Bash, Some("rm -rf /")),
+            (
+                "run_terminal_command(git status)",
+                ToolFilter::Bash,
+                Some("git status"),
+            ),
+            ("run_terminal_command", ToolFilter::Bash, None),
+            ("Shell", ToolFilter::Bash, None),
+            ("read_file(src/lib.rs)", ToolFilter::Read, Some("src/lib.rs")),
+            ("web_search(*)", ToolFilter::WebSearch, None),
+            ("web_fetch(domain:example.com)", ToolFilter::WebFetch, Some("example.com")),
+            ("list_dir", ToolFilter::Read, None),
+        ] {
+            let rule = parse_permission_rule(rule_str, RuleAction::Deny).unwrap();
+            assert_eq!(rule.tool, tool, "{rule_str}");
+            assert_eq!(rule.pattern.as_deref(), pattern, "{rule_str}");
+        }
+    }
 
     #[test]
     fn parses_agent_message_filter_forms_including_legacy_alias() {
