@@ -104,7 +104,7 @@ fn dispatch_interject_on_inner(
             Some(std::path::Path::new(&agent.session.cwd)),
         );
         app.pending_image_notices
-            .extend(agent.skipped_image_send_notice(&build.skipped_display_numbers));
+            .extend(agent.notice_skipped_sends(&build));
         Some(build.blocks)
     };
 
@@ -184,7 +184,7 @@ pub(super) fn dispatch_send_prompt_now(
         Some(std::path::Path::new(&agent.session.cwd)),
     );
     app.pending_image_notices
-        .extend(agent.skipped_image_send_notice(&build.skipped_display_numbers));
+        .extend(agent.notice_skipped_sends(&build));
     let blocks = build.blocks;
 
     // Optimistic queue-pane echo, reconciled by the shell's queue broadcast.

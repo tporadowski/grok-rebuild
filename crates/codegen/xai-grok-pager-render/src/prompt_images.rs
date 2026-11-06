@@ -1241,9 +1241,24 @@ pub fn session_mermaid_dir(
 
 const MAX_SEND_BYTES: usize = 50_000_000; // 50 MB
 
+/// Why an attached image was left out of the wire payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageSendSkip {
+    Unreadable,
+    TooLarge,
+    TooSmall,
+}
+
 /// Load image bytes from a `PastedImage` (in-memory or from disk).
-/// Returns `None` if the image cannot be loaded or exceeds [`MAX_SEND_BYTES`].
+/// Returns `None` if the image cannot be loaded, is under 8×8, or exceeds [`MAX_SEND_BYTES`].
 pub fn load_for_send(img: &PastedImage) -> Option<(Vec<u8>, String)> {
+    load_for_send_limited(img, send_byte_limit()).ok()
+}
+
+fn load_for_send_limited(
+    img: &PastedImage,
+    limit: usize,
+) -> Result<(Vec<u8>, String), ImageSendSkip> {
     let raw_bytes = if let Some(ref b) = img.encoded_bytes {
         b.to_vec()
     } else if let Some(ref path) = img.session_image_path {
@@ -1255,35 +1270,120 @@ pub fn load_for_send(img: &PastedImage) -> Option<(Vec<u8>, String)> {
                     img.display_number,
                     path.display()
                 );
-                return None;
+                return Err(ImageSendSkip::Unreadable);
             }
         }
     } else {
         tracing::warn!("image {}: no bytes or file path", img.display_number);
-        return None;
+        return Err(ImageSendSkip::Unreadable);
     };
 
-    if raw_bytes.len() > MAX_SEND_BYTES {
-        tracing::warn!(
-            "image {}: {} bytes exceeds send limit, skipping",
-            img.display_number,
-            raw_bytes.len()
-        );
-        return None;
-    }
-    if let Some((width, height)) = img.dimensions
-        && (width < 8 || height < 8)
-    {
-        tracing::warn!(
-            "image {}: dimensions {}x{} are below the 8x8 minimum",
-            img.display_number,
-            width,
-            height
-        );
-        return None;
+    if let Some(reason) = classify_send_payload(raw_bytes.len(), img.dimensions, limit) {
+        match reason {
+            ImageSendSkip::TooLarge => tracing::warn!(
+                "image {}: {} bytes exceeds send limit, skipping",
+                img.display_number,
+                raw_bytes.len()
+            ),
+            ImageSendSkip::TooSmall => {
+                if let Some((width, height)) = img.dimensions {
+                    tracing::warn!(
+                        "image {}: dimensions {}x{} are below the 8x8 minimum",
+                        img.display_number,
+                        width,
+                        height
+                    );
+                }
+            }
+            ImageSendSkip::Unreadable => {}
+        }
+        return Err(reason);
     }
 
-    Some((raw_bytes, img.mime_type.clone()))
+    Ok((raw_bytes, img.mime_type.clone()))
+}
+
+/// `None` when the payload may be sent.
+fn classify_send_payload(
+    len: usize,
+    dimensions: Option<(u32, u32)>,
+    limit: usize,
+) -> Option<ImageSendSkip> {
+    if len > limit {
+        return Some(ImageSendSkip::TooLarge);
+    }
+    if let Some((width, height)) = dimensions
+        && (width < 8 || height < 8)
+    {
+        return Some(ImageSendSkip::TooSmall);
+    }
+    None
+}
+
+fn send_byte_limit() -> usize {
+    #[cfg(test)]
+    {
+        TEST_SEND_LIMIT.with(|slot| slot.get().unwrap_or(MAX_SEND_BYTES))
+    }
+    #[cfg(not(test))]
+    {
+        MAX_SEND_BYTES
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_SEND_LIMIT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// User-facing notice for images left out of a send. Unreadable and undersized images keep the
+/// existing "couldn't be read" sentence. Over-limit images name the 50 MB cap.
+pub fn format_skipped_image_sends(skips: &[(usize, ImageSendSkip)]) -> Option<String> {
+    if skips.is_empty() {
+        return None;
+    }
+    let mut unread = Vec::new();
+    let mut too_large = Vec::new();
+    for (number, reason) in skips {
+        match reason {
+            ImageSendSkip::TooLarge => too_large.push(*number),
+            ImageSendSkip::Unreadable | ImageSendSkip::TooSmall => unread.push(*number),
+        }
+    }
+    let mut parts = Vec::new();
+    if !unread.is_empty() {
+        parts.push(unread_image_sentence(&unread));
+    }
+    if !too_large.is_empty() {
+        parts.push(oversize_image_sentence(&too_large));
+    }
+    Some(parts.join("; "))
+}
+
+fn image_number_list(display_numbers: &[usize]) -> String {
+    display_numbers
+        .iter()
+        .map(|n| format!("#{n}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn unread_image_sentence(display_numbers: &[usize]) -> String {
+    let numbers = image_number_list(display_numbers);
+    if display_numbers.len() == 1 {
+        format!("Image {numbers} couldn't be read — not sent")
+    } else {
+        format!("Images {numbers} couldn't be read — not sent")
+    }
+}
+
+fn oversize_image_sentence(display_numbers: &[usize]) -> String {
+    let numbers = image_number_list(display_numbers);
+    if display_numbers.len() == 1 {
+        format!("Image {numbers} is over the 50 MB send limit — not sent")
+    } else {
+        format!("Images {numbers} are over the 50 MB send limit — not sent")
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -1296,6 +1396,15 @@ pub fn load_for_send(img: &PastedImage) -> Option<(Vec<u8>, String)> {
 pub struct ContentBlocksBuild {
     pub blocks: Vec<agent_client_protocol::ContentBlock>,
     pub skipped_display_numbers: Vec<usize>,
+    /// Why each skipped display number was left out. Parallel to [`Self::skipped_display_numbers`].
+    pub skipped: Vec<(usize, ImageSendSkip)>,
+}
+
+impl ContentBlocksBuild {
+    /// Notice for the images this build left off the wire. `None` when every image was sent.
+    pub fn skip_notice(&self) -> Option<String> {
+        format_skipped_image_sends(&self.skipped)
+    }
 }
 
 /// Matching chips supply bytes. Orphans load via the shared helper (same path rules as the server) when `workspace_cwd` is set.
@@ -1390,12 +1499,14 @@ fn build_content_blocks_with_prefixes_and_caps_ref(
     let mut blocks = Vec::with_capacity(1 + images.len() + orphan_images.len());
     blocks.push(ContentBlock::Text(TextContent::new(rewritten_text)));
     let mut skipped_display_numbers = Vec::new();
+    let mut skipped = Vec::new();
 
     for img in images {
-        let (bytes, mime_type) = match load_for_send(img) {
-            Some(loaded) => loaded,
-            None => {
+        let (bytes, mime_type) = match load_for_send_limited(img, send_byte_limit()) {
+            Ok(loaded) => loaded,
+            Err(reason) => {
                 skipped_display_numbers.push(img.display_number);
+                skipped.push((img.display_number, reason));
                 continue;
             }
         };
@@ -1429,6 +1540,7 @@ fn build_content_blocks_with_prefixes_and_caps_ref(
     ContentBlocksBuild {
         blocks,
         skipped_display_numbers,
+        skipped,
     }
 }
 
@@ -3665,6 +3777,44 @@ mod tests {
     fn load_returns_none_for_missing_data() {
         let img = make_image(1, 1); // no bytes, no file
         assert!(load_for_send(&img).is_none());
+    }
+
+    #[test]
+    fn over_limit_image_names_the_50mb_send_cap() {
+        struct ResetLimit;
+        impl Drop for ResetLimit {
+            fn drop(&mut self) {
+                TEST_SEND_LIMIT.with(|slot| slot.set(None));
+            }
+        }
+        let _reset = ResetLimit;
+        TEST_SEND_LIMIT.with(|slot| slot.set(Some(1)));
+        let img = make_real_image(16, 16);
+        let build =
+            build_content_blocks_with_workspace_report("see [Image #1]".into(), vec![img], None);
+        assert_eq!(
+            build.skip_notice().as_deref(),
+            Some("Image #1 is over the 50 MB send limit — not sent")
+        );
+        assert_eq!(build.skipped, vec![(1, ImageSendSkip::TooLarge)]);
+        assert!(
+            !build
+                .blocks
+                .iter()
+                .any(|block| matches!(block, agent_client_protocol::ContentBlock::Image(_))),
+            "an over-limit image must not be attached"
+        );
+    }
+
+    #[test]
+    fn missing_image_notice_stays_unreadable() {
+        let img = make_image(1, 1);
+        let build =
+            build_content_blocks_with_workspace_report("see [Image #1]".into(), vec![img], None);
+        assert_eq!(
+            build.skip_notice().as_deref(),
+            Some("Image #1 couldn't be read — not sent")
+        );
     }
 
     // ----- build_content_blocks_with_workspace --------------------------------

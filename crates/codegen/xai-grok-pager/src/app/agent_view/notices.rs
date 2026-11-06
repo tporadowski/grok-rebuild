@@ -383,6 +383,23 @@ impl AgentView {
         Some(message)
     }
 
+    /// Attached images left off the wire, logged against this session.
+    /// Over-limit images name the 50 MB cap; other failures keep the unreadable sentence.
+    pub(crate) fn notice_skipped_sends(
+        &self,
+        build: &crate::prompt_images::ContentBlocksBuild,
+    ) -> Option<String> {
+        if build.skipped.is_empty() {
+            return None;
+        }
+        crate::unified_log::warn(
+            "prompt.image_send_skipped",
+            self.session.session_id.as_ref().map(|s| s.0.as_ref()),
+            Some(serde_json::json!({ "display_numbers": build.skipped_display_numbers })),
+        );
+        build.skip_notice()
+    }
+
     /// Attached images whose bytes could not be loaded for the wire, logged against this session.
     pub(crate) fn skipped_image_send_notice(&self, display_numbers: &[usize]) -> Option<String> {
         if display_numbers.is_empty() {

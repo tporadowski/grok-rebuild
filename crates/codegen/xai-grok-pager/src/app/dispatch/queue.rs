@@ -545,7 +545,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
                     queued.images,
                     Some(std::path::Path::new(&agent.session.cwd)),
                 );
-                notices.extend(agent.skipped_image_send_notice(&build.skipped_display_numbers));
+                notices.extend(agent.notice_skipped_sends(&build));
                 let mut blocks = build.blocks;
                 if let Some(acp::ContentBlock::Text(tb)) = blocks.first_mut() {
                     let map = tb.meta.get_or_insert_with(acp::Meta::new);
