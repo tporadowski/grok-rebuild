@@ -566,7 +566,7 @@ pub(crate) mod text {
         violation
             .denied_text(
                 &format!(
-            "Nobody answered: the permission prompt failed ({error}). Stop and report this to the user."
+            "The approval request did not complete ({error}). Stop and report this to the user."
         ),
             )
     }
@@ -579,7 +579,7 @@ pub(crate) mod text {
     pub fn decode_failed(violation: &Violation) -> String {
         violation
             .denied_text(
-                "The user's app could not display this request (it rejected the card as undecodable), so nobody was asked. Stop and report this to the user.",
+                "The approval request could not be shown, so nobody was asked. Stop and report this to the user.",
             )
     }
     /// The reply approved without naming a sandbox decision: the answering app approves prompts

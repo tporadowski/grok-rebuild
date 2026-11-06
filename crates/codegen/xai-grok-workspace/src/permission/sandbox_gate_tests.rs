@@ -1,4 +1,26 @@
 use super::{SandboxPath, SettleContext, ViolationSettlement, settle_violation};
+
+#[test]
+fn failed_permission_prompt_does_not_blame_the_interface() {
+    let violation = Violation {
+        blocked: Blocked::FsWrite {
+            path: PathBuf::from("/tmp/blocked"),
+        },
+        proposed: None,
+        disposition: Disposition::Grantable,
+        partial_output: None,
+        replay: Replay::Rerun,
+        exit_code: Some(1),
+        stderr_snippet: String::new(),
+    };
+    let failed = super::text::transport_failed(&violation, &"closed");
+    let undecodable = super::text::decode_failed(&violation);
+    assert!(failed.contains("The approval request did not complete"));
+    assert!(undecodable.contains("could not be shown"));
+    assert!(!failed.to_ascii_lowercase().contains("interface"));
+    assert!(!undecodable.contains("user's app"));
+    assert!(!undecodable.to_ascii_lowercase().contains("interface"));
+}
 use crate::permission::PermissionHookTransport;
 use crate::permission::hub_gate::PromptGate;
 use crate::permission::sandbox_wire::SANDBOX_VIOLATION_KIND;

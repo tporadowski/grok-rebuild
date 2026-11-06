@@ -2496,7 +2496,7 @@ async fn always_prompt_offers_call_only_and_a_failing_transport_refuses_the_hold
     assert!(
         texts
             .iter()
-            .any(|t| t.contains("the permission prompt failed")),
+            .any(|t| t.contains("The approval request did not complete")),
         "{texts:?}"
     );
 
