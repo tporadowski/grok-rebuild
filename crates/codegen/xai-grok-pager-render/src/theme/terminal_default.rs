@@ -273,6 +273,14 @@ mod tests {
                     .add_modifier
                     .contains(Modifier::REVERSED)
             );
+            assert!(
+                theme
+                    .selection_overlay()
+                    .sub_modifier
+                    .contains(Modifier::DIM),
+                "reverse-video selection must not stay dim"
+            );
+            assert!(theme.hover_overlay().sub_modifier.contains(Modifier::DIM));
             assert_eq!(theme.selection_overlay().bg, None);
             assert!(
                 theme

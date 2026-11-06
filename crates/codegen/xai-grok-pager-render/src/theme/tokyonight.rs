@@ -301,7 +301,10 @@ impl Theme {
     /// Patch over the already-rendered row. Bandless uses reverse video: a bright-black band can sit too close to default fg.
     pub const fn selection_overlay(&self) -> Style {
         if self.is_bandless() {
-            Style::new().add_modifier(Modifier::REVERSED)
+            // Reverse video on already-dim text (menu descriptions) renders faint. Never keep DIM.
+            Style::new()
+                .add_modifier(Modifier::REVERSED)
+                .remove_modifier(Modifier::DIM)
         } else {
             Style::new().bg(self.bg_visual)
         }
@@ -312,7 +315,9 @@ impl Theme {
     /// Dropdowns and chips use this. Inline terminal rows use [`Self::row_hover_bg`] instead.
     pub const fn hover_overlay(&self) -> Style {
         if self.is_bandless() {
-            Style::new().add_modifier(Modifier::REVERSED)
+            Style::new()
+                .add_modifier(Modifier::REVERSED)
+                .remove_modifier(Modifier::DIM)
         } else {
             Style::new().bg(self.bg_hover)
         }

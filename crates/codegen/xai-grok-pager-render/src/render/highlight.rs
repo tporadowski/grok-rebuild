@@ -90,4 +90,6 @@ pub fn paint_match_highlights(
 /// Apply the terminal's REVERSED attribute so the fg/bg swap is native and respects the user's theme.
 fn invert_cell(cell: &mut ratatui::buffer::Cell) {
     cell.modifier.insert(ratatui::style::Modifier::REVERSED);
+    // Reverse video plus DIM is unreadable on the terminal theme (Kitty and others).
+    cell.modifier.remove(ratatui::style::Modifier::DIM);
 }

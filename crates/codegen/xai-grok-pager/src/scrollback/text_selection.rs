@@ -852,6 +852,7 @@ pub(crate) fn apply_selection_highlight(theme: &Theme, cell: &mut ratatui::buffe
     let band = theme.text_primary;
     if band == Color::Reset || theme.bg_base == Color::Reset {
         cell.modifier.insert(Modifier::REVERSED);
+        cell.modifier.remove(Modifier::DIM);
         return;
     }
     // A search-match highlight painted earlier in the frame sets REVERSED; left in place it would swap the band right back out

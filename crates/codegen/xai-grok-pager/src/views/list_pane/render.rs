@@ -350,9 +350,9 @@ impl<T: ListItem> ListPane<'_, T> {
                 // Reset selection slots (terminal theme, zero opaque cells)
                 // carry the cue with reverse video instead of a band.
                 let overlay = match bg {
-                    ratatui::style::Color::Reset => {
-                        Style::default().add_modifier(ratatui::style::Modifier::REVERSED)
-                    }
+                    ratatui::style::Color::Reset => Style::default()
+                        .add_modifier(ratatui::style::Modifier::REVERSED)
+                        .remove_modifier(ratatui::style::Modifier::DIM),
                     c => Style::default().bg(c),
                 };
                 buf.set_style(sel_area, overlay);
