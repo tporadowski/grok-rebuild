@@ -916,6 +916,22 @@ pub fn render_welcome(
     result
 }
 
+/// Rows a login/home error needs once word-wrapped to `width`.
+fn blocked_message_height(text: &str, width: u16) -> u16 {
+    hero_box::wrapped_line_count(text, width.max(1)).max(1)
+}
+
+/// Rows the home-screen startup warning reserves, including wrap on a narrow terminal.
+fn startup_hint_height(message: &str, action: Option<&str>, width: u16) -> u16 {
+    let width = width.max(1);
+    let msg_lines: u16 = message
+        .lines()
+        .map(|line| hero_box::wrapped_line_count(line, width).max(1))
+        .sum();
+    let action_line = action.map_or(0, |action| hero_box::wrapped_line_count(action, width).max(1));
+    msg_lines + action_line + 1
+}
+
 /// Render a blocked welcome screen: logo, optional message, menu, version. Used for both the login
 /// screen (Pending) and the ZDR gate. The layout is: Logo. {prompt} (optional). Version badge.
 #[allow(clippy::too_many_arguments)]
@@ -931,7 +947,9 @@ fn render_welcome_blocked(
 ) -> (Vec<Rect>, Option<crate::terminal::overlay::PostFlush>) {
     let theme = Theme::current();
 
-    let msg_height = if message.is_some() { 2u16 } else { 0u16 };
+    let msg_height = message
+        .map(|(text, _)| blocked_message_height(text, content_area.width))
+        .unwrap_or(0);
     let menu_height = menu_items.len() as u16;
     let mut layout_input = WelcomeLayoutInput {
         content_area,
@@ -1734,9 +1752,7 @@ fn render_welcome_done(
     // Heights that don't depend on the menu, computed first so the menu builder can probe the layout to decide whether to add a Changelog row
     // Startup-warning hint height (multi-line aware). It must pick the same entry `render_startup_warnings` draws; see `startup::banner_warning`.
     let hint_height = crate::startup::banner_warning(p.startup_warnings).map_or(0u16, |w| {
-        let msg_lines = w.message.lines().count() as u16;
-        let action_line = if w.action.is_some() { 1 } else { 0 };
-        msg_lines + action_line + 1 // +1 for buffer spacing
+        startup_hint_height(&w.message, w.action.as_deref(), content_area.width)
     });
     let has_update_tip = p.pending_update_version.is_some();
     let has_resume_tip = !has_update_tip && p.foreign_resume_hint.is_some();
@@ -2713,6 +2729,21 @@ mod tests {
     use crate::app::app_view::SessionPickerEntry;
     use crate::views::picker::PickerState;
     use crate::views::session_picker::{build_grouped_picker_entries, build_session_entry_data};
+
+    #[test]
+    fn narrow_login_error_reserves_a_wrapped_row_per_line() {
+        let text = "sign in failed because the token endpoint refused the refresh token today";
+        assert_eq!(blocked_message_height(text, 80), 1);
+        assert!(blocked_message_height(text, 20) > 1);
+    }
+
+    #[test]
+    fn narrow_home_warning_grows_with_the_wrap() {
+        let message = "the config file at this path cannot be read until you fix the permissions";
+        let wide = startup_hint_height(message, None, 80);
+        let narrow = startup_hint_height(message, None, 16);
+        assert!(narrow > wide);
+    }
 
     fn badge_text(mode: VersionBadgeMode<'_>, team: Option<&str>) -> String {
         let area = Rect::new(0, 0, 80, 1);
