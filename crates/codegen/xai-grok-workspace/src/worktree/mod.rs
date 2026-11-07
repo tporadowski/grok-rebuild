@@ -3348,6 +3348,10 @@ fn scan_worktree_dirs_on_disk(main_repo_root: &std::path::Path) -> Vec<String> {
 
 /// Pure logic for candidate list construction, separated so tests need no git repo or worktree DB.
 /// Filesystem paths are a fallback for worktrees missing from the DB.
+///
+/// When `current_cwd` is a subfolder of `main_repo_root`, each worktree also
+/// contributes that same relative folder. Session files for a `-w` launch from
+/// `repo/crates/pager` live under `<worktree>/crates/pager`, not the worktree root.
 pub fn build_candidate_list(
     current_cwd: &str,
     main_repo_root: &str,
@@ -3366,17 +3370,29 @@ pub fn build_candidate_list(
     add(current_cwd);
     add(main_repo_root);
 
+    let subfolder = Path::new(current_cwd)
+        .strip_prefix(Path::new(main_repo_root))
+        .ok()
+        .filter(|rel| !rel.as_os_str().is_empty());
+    let mut add_worktree = |path: &str| {
+        add(path);
+        if let Some(rel) = subfolder {
+            let nested = Path::new(path).join(rel);
+            add(&nested.to_string_lossy());
+        }
+    };
+
     let mut wt_paths: Vec<&str> = db_records
         .iter()
         .map(|r| r.path.to_str().unwrap_or_default())
         .collect();
     wt_paths.sort();
     for p in wt_paths {
-        add(p);
+        add_worktree(p);
     }
 
     for p in fs_paths {
-        add(p);
+        add_worktree(p);
     }
     candidates
 }
@@ -3424,6 +3440,56 @@ mod tests {
             !policy.dry_run,
             "an explicit local opt-in runs a real pass, not a forced dry-run"
         );
+    }
+
+    fn record_at(path: &str) -> WorktreeRecord {
+        WorktreeRecord {
+            id: path.to_string(),
+            path: path.into(),
+            source_repo: "/repo".into(),
+            repo_name: "repo".into(),
+            kind: WorktreeKind::Session,
+            creation_mode: "linked".into(),
+            git_ref: None,
+            head_commit: None,
+            session_id: None,
+            creator_pid: None,
+            created_at: 0,
+            last_accessed_at: None,
+            status: xai_fast_worktree::WorktreeStatus::Alive,
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn build_candidate_list_includes_the_same_subfolder_of_each_worktree() {
+        let records = vec![
+            record_at("/grok/worktrees/repo/feature-2"),
+            record_at("/grok/worktrees/repo/feature"),
+        ];
+        let result = build_candidate_list(
+            "/repo/crates/pager",
+            "/repo",
+            &records,
+            &["/grok/worktrees/repo/untracked".to_string()],
+        );
+        assert_eq!(
+            result,
+            vec![
+                "/repo/crates/pager",
+                "/repo",
+                "/grok/worktrees/repo/feature",
+                "/grok/worktrees/repo/feature/crates/pager",
+                "/grok/worktrees/repo/feature-2",
+                "/grok/worktrees/repo/feature-2/crates/pager",
+                "/grok/worktrees/repo/untracked",
+                "/grok/worktrees/repo/untracked/crates/pager",
+            ]
+        );
+
+        let outside =
+            build_candidate_list("/repo/wt-1", "/repo/main", &[record_at("/repo/wt-a")], &[]);
+        assert_eq!(outside, vec!["/repo/wt-1", "/repo/main", "/repo/wt-a"]);
     }
 
     /// A real `config.toml` is a document with table headers, not a bare value.

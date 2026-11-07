@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-067 — Session lists include the same subfolder inside each worktree
+
+`grok sessions list` and `/resume` collect sessions through `build_candidate_list`. A launch from `repo/crates/pager` stores the session under `<worktree>/crates/pager`, and the list previously looked only at the worktree root. Each worktree candidate now also includes that relative folder (`v51-f16`, `build_candidate_list_includes_the_same_subfolder_of_each_worktree`). A directory that is not inside the main repo does not gain a suffix.
+
 ### D-066 — Headless JSON names the worktree folder after the session starts
 
 `--output-format json` adds `worktreePath` to the result object when `-w` opened a session. That path is the created worktree root, so a label collision still reports `…/label-2`. The same field is added to a JSON error only after that session exists. Errors before the session starts omit it (`v51-f13`, `json_result_reports_the_opened_worktree_folder`; `v51-f15`, `json_error_includes_the_worktree_folder_after_the_session_starts`).
@@ -319,7 +323,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 29 | 0 | 10 | 2 | 0 |
+| W7 | Worktrees | 28 | 0 | 11 | 2 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -331,9 +335,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 415. Skipped: 8. Done: 118. Already: 32. Deferred: 10.
+Catalog rows: 583. Pending: 414. Skipped: 8. Done: 119. Already: 32. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: `grok sessions list` and `/resume` show worktree sessions started from the same subfolder (`v51-f16`).
+**Next:** W7 worktrees. First open row: `grok worktree` commands work inside Jujutsu repositories (`v51-f26`).
 
 ## Waves
 
@@ -363,7 +367,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 29. Done: 10 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 28. Done: 11 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -528,7 +532,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x62 | done | W7 | Bug Fixes |  |  | **grok worktree rm** by label now refuses when the label exists in multiple repos.
 - v51-f13 | done | W7 | Features |  |  | **grok -p --output-format json** now reports the exact worktree folder used (useful after -w name collisions).
 - v51-f15 | done | W7 | Features |  |  | Headless JSON error output now includes the worktree folder when a session was started.
-- v51-f16 | pending | W7 | Features |  |  | **grok sessions list** and /resume now show worktree sessions started from the same subfolder.
+- v51-f16 | done | W7 | Features |  |  | **grok sessions list** and /resume now show worktree sessions started from the same subfolder.
 - v51-f26 | pending | W7 | Features |  |  | `grok worktree` commands now work correctly inside Jujutsu repositories.
 - v51-x34 | pending | W7 | Bug Fixes |  |  | **Worktree creation** no longer hangs when the repo contains named pipes or sockets.
 - v51-x42 | pending | W7 | Bug Fixes |  |  | **grok -w** now opens the session at the worktree root (with a note) when the original launch folder does not exist in the new worktree.
