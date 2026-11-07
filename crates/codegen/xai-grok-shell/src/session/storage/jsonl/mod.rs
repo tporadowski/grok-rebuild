@@ -1712,11 +1712,7 @@ impl StorageAdapter for JsonlStorageAdapter {
     }
     async fn delete_session(&self, info: &Info) -> io::Result<()> {
         let dir = self.session_dir(info);
-        match tokio::fs::remove_dir_all(&dir).await {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e),
-        }
+        remove_session_dir(&dir).await
     }
     async fn append_rewind_point(&self, info: &Info, point: &RewindPoint) -> io::Result<()> {
         self.append_jsonl(self.rewind_points_file(info), point)
@@ -2063,6 +2059,33 @@ fn is_valid_data_uri_image(url: &str) -> bool {
         }
     }
 }
+const SESSION_DIR_DELETE_ATTEMPTS: u32 = 8;
+
+/// `remove_dir_all` returns this when another process creates a file mid-delete.
+pub(crate) fn session_dir_delete_retries(error: &io::Error) -> bool {
+    error.kind() == io::ErrorKind::DirectoryNotEmpty
+}
+
+/// Retry a few times so a writer filling the session folder does not fail `grok sessions delete`.
+async fn remove_session_dir(dir: &std::path::Path) -> io::Result<()> {
+    let mut last_error = None;
+    for attempt in 0..SESSION_DIR_DELETE_ATTEMPTS {
+        match tokio::fs::remove_dir_all(dir).await {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) if session_dir_delete_retries(&error) => {
+                last_error = Some(error);
+                if attempt + 1 == SESSION_DIR_DELETE_ATTEMPTS {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| io::Error::other("session directory delete failed")))
+}
+
 #[cfg(test)]
 mod durable_tests;
 #[cfg(test)]

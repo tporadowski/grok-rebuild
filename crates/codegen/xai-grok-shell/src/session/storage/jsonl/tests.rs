@@ -507,6 +507,17 @@ async fn reads_never_modify_rewind_or_updates_files() {
             "ACU stays persisted on disk (only skipped on forward)"
         );
 }
+#[test]
+fn directory_not_empty_is_retried_other_errors_are_not() {
+    let busy = std::io::Error::new(
+        std::io::ErrorKind::DirectoryNotEmpty,
+        "Directory not empty",
+    );
+    assert!(session_dir_delete_retries(&busy));
+    let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+    assert!(!session_dir_delete_retries(&denied));
+}
+
 #[tokio::test]
 async fn delete_session_removes_dir_and_is_idempotent() {
     let temp_dir = TempDir::new().unwrap();
