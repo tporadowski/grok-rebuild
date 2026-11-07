@@ -814,7 +814,11 @@ mod tests {
         assert!(rendered.contains("You are a code reviewer"));
         assert!(
             !rendered.contains("<memory>"),
-            "memory should be absent when disabled"
+            "on-memory instructions stay absent when disabled"
+        );
+        assert!(
+            rendered.contains("Memory is turned off for this session."),
+            "the model must be told when memory is off"
         );
     }
     #[test]

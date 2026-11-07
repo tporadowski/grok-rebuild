@@ -423,21 +423,52 @@ async fn fetch_url(
         let final_url = resp.url().to_string();
         let status_code = status.as_u16();
 
-        let body = resp.bytes().await?;
-
-        if body.len() > max_content_length {
+        // Reject from Content-Length before reading, then stop the stream at
+        // the cap so a huge or chunked body is not buffered first.
+        if resp
+            .content_length()
+            .is_some_and(|len| len > max_content_length as u64)
+        {
             return Err(WebFetchError::ResponseTooLarge {
                 max: max_content_length,
             });
         }
+        let body = read_body_capped(resp, max_content_length).await?;
 
         return Ok(FetchResult::Content {
-            body: body.to_vec(),
+            body,
             content_type,
             final_url,
             status_code,
         });
     }
+}
+
+async fn read_body_capped(
+    resp: reqwest::Response,
+    max_content_length: usize,
+) -> Result<Vec<u8>, WebFetchError> {
+    use futures_util::StreamExt;
+    let mut body = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if !extend_capped(&mut body, &chunk, max_content_length) {
+            return Err(WebFetchError::ResponseTooLarge {
+                max: max_content_length,
+            });
+        }
+    }
+    Ok(body)
+}
+
+/// `false` when `chunk` would push `body` past `max`. Nothing is appended in that case.
+fn extend_capped(body: &mut Vec<u8>, chunk: &[u8], max: usize) -> bool {
+    if body.len().saturating_add(chunk.len()) > max {
+        return false;
+    }
+    body.extend_from_slice(chunk);
+    true
 }
 
 /// Exact host equality — no `www.` stripping. Distinct DNS labels (even when
@@ -865,6 +896,15 @@ fn strip_base64_data_uris(content: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extend_capped_stops_before_buffering_past_the_limit() {
+        let mut body = vec![1, 2, 3];
+        assert!(!extend_capped(&mut body, &[4, 5], 4));
+        assert_eq!(body, vec![1, 2, 3]);
+        assert!(extend_capped(&mut body, &[4], 4));
+        assert_eq!(body, vec![1, 2, 3, 4]);
+    }
 
     fn test_converter() -> htmd::HtmlToMarkdown {
         htmd::HtmlToMarkdown::builder()

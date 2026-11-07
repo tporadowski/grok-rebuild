@@ -1217,6 +1217,31 @@ mod tests {
         assert!(results.first().is_some_and(|r| r.snippet.contains("Rust")));
     }
 
+    #[tokio::test]
+    async fn cjk_word_inside_a_longer_note_is_found() {
+        let tmp = TempDir::new().unwrap();
+        init_sqlite_vec();
+        let global = tmp.path().join("memory");
+        let workspace = global.join("test_ws");
+        let storage = MemoryStorage::with_paths(global, workspace);
+        let db_path = tmp.path().join("cjk.sqlite");
+        let mut idx =
+            MemoryIndex::open_or_create(&db_path, storage.clone(), MemoryIndexConfig::default(), 4)
+                .unwrap();
+        let file_path = tmp.path().join("note.md");
+        std::fs::write(&file_path, "これは日本語のテストです。한글 단어와 中文词语。").unwrap();
+        idx.reindex_file(&file_path, "workspace").unwrap();
+        drop(idx);
+        let backend = MemoryBackendImpl::new(db_path, storage);
+        for query in ["日本語", "한글", "中文"] {
+            let results = backend.search(query, 5, 0.0).await.unwrap();
+            assert!(
+                results.iter().any(|r| r.snippet.contains(query)),
+                "{query} should match inside the longer note: {results:?}"
+            );
+        }
+    }
+
     #[test]
     fn test_backend_total_chunks() {
         let tmp = TempDir::new().unwrap();

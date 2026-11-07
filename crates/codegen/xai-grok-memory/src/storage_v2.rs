@@ -205,14 +205,9 @@ fn is_safe_markdown_file(path: &Path, canonical_scope: &Path) -> std::io::Result
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
+    // A symlinked note is skipped. Failing the whole `/memory` listing hid every other note.
     if metadata.file_type().is_symlink() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            format!(
-                "symbolic links are not allowed in memory v2: {}",
-                path.display()
-            ),
-        ));
+        return Ok(false);
     }
     if !metadata.is_file() {
         return Ok(false);

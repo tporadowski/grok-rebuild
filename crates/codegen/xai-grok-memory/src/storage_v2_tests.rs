@@ -256,22 +256,44 @@ fn v2_listing_rejects_symlinked_source_directories() {
     }
 }
 
+#[test]
+fn v2_read_file_rejects_oversized_note_without_returning_it() {
+    let temp = TempDir::new().unwrap();
+    let storage = make_v2_storage(&temp);
+    storage.ensure_initialized().unwrap();
+    let path = storage.workspace_dir().join("topics/huge.md");
+    let mut bytes = vec![b'a'; crate::v2_access::MAX_TOPIC_FILE_BYTES as usize + 1];
+    bytes[0] = b'#';
+    std::fs::write(&path, &bytes).unwrap();
+    let err = storage.read_file(&path, None, None).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{err}");
+    assert!(err.to_string().contains("read limit"), "{err}");
+}
+
 #[cfg(unix)]
 #[test]
-fn v2_listing_rejects_symlinked_markdown_files() {
+fn v2_listing_skips_symlinked_markdown_files() {
     use std::os::unix::fs::symlink;
 
     let temp = TempDir::new().unwrap();
     let storage = make_v2_storage(&temp);
     storage.ensure_initialized().unwrap();
 
+    let kept = storage.workspace_dir().join("topics/kept.md");
+    std::fs::write(&kept, "# Kept").unwrap();
     let outside = temp.path().join("outside.md");
     std::fs::write(&outside, "# Outside").unwrap();
-    symlink(&outside, storage.workspace_dir().join("topics/escaped.md")).unwrap();
+    symlink(
+        &outside,
+        storage.workspace_dir().join("topics/escaped.md"),
+    )
+    .unwrap();
 
-    assert_eq!(
-        storage.list_memory_files().unwrap_err().kind(),
-        std::io::ErrorKind::PermissionDenied
+    let listed = storage.list_memory_files().expect("symlink note is skipped");
+    assert!(listed.contains(&kept));
+    assert!(
+        listed.iter().all(|path| path.file_name().and_then(|n| n.to_str()) != Some("escaped.md")),
+        "symlinked note must not be listed: {listed:?}"
     );
 }
 

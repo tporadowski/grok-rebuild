@@ -137,6 +137,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-023 — v50-b01 and v51-x96 worktree rm
 `refuse_unforced_removal` runs before dry-run. In use means a live `creator_pid` on the worktree record, or a live process whose cwd is inside the worktree. Unsaved means `KeepReason::Dirty` or `HiddenFromStatus`. `CheckFailed` and `GateTimedOut` refuse, which is v51-x96. `Unpushed` does not refuse. A missing path is not refused, so a stale registry row can still be removed. The CLI bails on the first removal error so the process exits non-zero.
 
+### D-024 — W6 memory follow-through
+`web_fetch` rejects a body from `Content-Length` before reading it, and stops the byte stream at the cap (`v50-x22`). `memory_get` uses the topic read limit and does not return a larger file (`v50-x23`). CJK queries that FTS5 unicode61 cannot match inside a longer token are found by a substring scan of chunk text (`v50-x25`). The main and subagent prompts include `<memory-status>` when memory is off, and the existing `<memory>` block when it is on, so a resumed head still reconciles on the on-block only (`v51-x100`). Search snippet lines keep the query match instead of a prefix cut (`v54-x08`). A symlinked note is skipped in `/memory` listing; a symlinked topics or inbox directory still fails the listing (`v54-x09`). `v73-x12` is Kitty image memory, not this cluster.
+
 ### D-025 — W15 classifications
 `v54-p01` is already the slow welcome tick (`view_tick_demand` returns `TickDemand::Slow`, 83 ms). `v54-p04` is already `evict_offscreen_render_caches`, which drops off-screen render caches and keeps heights. `v69-p01` is already `run_and_shutdown`: `shutdown_timeout` is a ceiling, and its test checks that a clean exit returns before the grace. `v73-p01` is deferred: auth startup, `read_auth_json`, managed policy, and the config watcher have no ~100 ms wait on a missing sign-in file. The other 20 performance rows still need code. `v74-p01` is the later markdown-layout release and stays pending even though `v54-p04` already drops render caches.
 
@@ -173,7 +176,7 @@ Refresh these numbers at the end of a session.
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 7 | 0 | 0 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 27 | 0 | 0 | 0 | 0 |
-| W6 | Memory | 7 | 0 | 0 | 0 | 0 |
+| W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 36 | 0 | 0 | 0 | 0 |
 | W5 | Workflows and goals | 29 | 0 | 0 | 0 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
@@ -188,7 +191,7 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 564. Skipped: 8. Done: 6. Already: 3. Deferred: 2.
+Catalog rows: 583. Pending: 558. Skipped: 8. Done: 12. Already: 3. Deferred: 2.
 
 **Next:** W2, `v50-x09`. W2, W3, W5, W8, W11, W12, and W13 are in isolated worktrees and are not done until their commits are in this checkout.
 
@@ -208,7 +211,7 @@ Pending: 27. Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/pe
 
 ### W6 — Memory
 
-Pending: 7. Look first: Do this after W1. Implementation lives in `xai-grok-memory` and the `/memory` pager view. Final behavior is an on/off switch plus the concise `MEMORY.md` index sorted by read count.
+Pending: 1 (`v73-x12`). Done: 6. Look first: Do this after W1. Implementation lives in `xai-grok-memory` and the `/memory` pager view. Final behavior is an on/off switch plus the concise `MEMORY.md` index sorted by read count.
 
 ### W4 — Hooks
 
@@ -302,12 +305,12 @@ id | status | wave | kind | flag | covered | note
 - v75-f01 | pending | W3 | Features |  |  | **Permission rules that don't load**, such as a rule that doesn't parse or a `.claude/settings.json` that isn't valid JSON, show a warning when a session opens instead of being skipped silently.
 - v75-x19 | pending | W3 | Bug Fixes |  |  | **Turning a skill on or off** in the Skills tab saves only `[skills].disabled` to `config.toml`, so an organization's managed skill folders and ignore list keep applying.
 - v78-x01 | pending | W3 | Bug Fixes |  |  | **Always-approve help text** now correctly says the setting is saved to config.
-- v50-x22 | pending | W6 | Bug Fixes |  |  | **web_fetch** no longer downloads huge files into memory before rejecting them.
-- v50-x23 | pending | W6 | Bug Fixes |  |  | **memory_get** no longer returns huge files that exceed the read limit.
-- v50-x25 | pending | W6 | Bug Fixes |  |  | **memory_search** now finds Japanese, Chinese, and Korean words inside longer notes.
-- v51-x100 | pending | W6 | Bug Fixes |  |  | The model is now told when memory is turned off or on for the session.
-- v54-x08 | pending | W6 | Bug Fixes |  |  | **Memory search** shows the matching part of a long line instead of cutting it off before the match.
-- v54-x09 | pending | W6 | Bug Fixes |  |  | **`/memory`** skips a symlinked note instead of failing the whole listing.
+- v50-x22 | done | W6 | Bug Fixes |  |  | **web_fetch** no longer downloads huge files into memory before rejecting them.
+- v50-x23 | done | W6 | Bug Fixes |  |  | **memory_get** no longer returns huge files that exceed the read limit.
+- v50-x25 | done | W6 | Bug Fixes |  |  | **memory_search** now finds Japanese, Chinese, and Korean words inside longer notes.
+- v51-x100 | done | W6 | Bug Fixes |  |  | The model is now told when memory is turned off or on for the session.
+- v54-x08 | done | W6 | Bug Fixes |  |  | **Memory search** shows the matching part of a long line instead of cutting it off before the match.
+- v54-x09 | done | W6 | Bug Fixes |  |  | **`/memory`** skips a symlinked note instead of failing the whole listing.
 - v73-x12 | pending | W6 | Bug Fixes |  |  | **Kitty graphics protocol**: images Grok hides are freed in the terminal, so they no longer use its memory.
 - v49-x01 | pending | W4 | Bug Fixes |  |  | Hook permission prompts now appear regardless of approval mode.
 - v50-x18 | pending | W4 | Bug Fixes |  |  | Custom notification commands defined under [[ui.notifications.hooks]] now execute on matching events.

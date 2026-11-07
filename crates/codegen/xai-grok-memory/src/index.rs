@@ -458,11 +458,12 @@ impl MemoryIndex {
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params_vec.iter().map(|p| p.as_ref()).collect();
 
-        let rows = stmt
+        let mut rows = stmt
             .query_map(param_refs.as_slice(), |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        self.append_cjk_substring_hits(&mut rows, &keywords, limit, Some(sources))?;
 
         self.resolve_fts_rowids(rows)
     }
@@ -479,13 +480,75 @@ impl MemoryIndex {
             "SELECT rowid, rank FROM chunks_fts WHERE chunks_fts MATCH ?1 \
              ORDER BY rank LIMIT ?2",
         )?;
-        let rows = stmt
+        let mut rows = stmt
             .query_map(params![fts_query, limit], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        self.append_cjk_substring_hits(&mut rows, &keywords, limit, None)?;
 
         self.resolve_fts_rowids(rows)
+    }
+
+    /// FTS5 unicode61 keeps a run of CJK letters as one token, so a word inside
+    /// a longer note never matches. Scan the chunk text for those words.
+    fn append_cjk_substring_hits(
+        &self,
+        rows: &mut Vec<(i64, f64)>,
+        keywords: &[String],
+        limit: usize,
+        sources: Option<&[&str]>,
+    ) -> Result<(), rusqlite::Error> {
+        let terms: Vec<&str> = keywords
+            .iter()
+            .filter(|word| word_has_cjk(word))
+            .map(String::as_str)
+            .collect();
+        if terms.is_empty() || rows.len() >= limit {
+            return Ok(());
+        }
+        let mut sql = String::from("SELECT rowid FROM chunks WHERE ");
+        let mut binds: Vec<String> = Vec::new();
+        let mut clauses = Vec::new();
+        for term in &terms {
+            binds.push(like_contains(term));
+            clauses.push(format!("text LIKE ?{} ESCAPE '\\'", binds.len()));
+        }
+        sql.push_str(&clauses.join(" AND "));
+        if let Some(sources) = sources {
+            if sources.is_empty() {
+                return Ok(());
+            }
+            let start = binds.len();
+            let placeholders: Vec<String> = sources
+                .iter()
+                .enumerate()
+                .map(|(i, _)| format!("?{}", start + i + 1))
+                .collect();
+            sql.push_str(&format!(" AND source IN ({})", placeholders.join(", ")));
+            for source in sources {
+                binds.push((*source).to_string());
+            }
+        }
+        sql.push_str(&format!(" LIMIT ?{}", binds.len() + 1));
+        let mut stmt = self.db.prepare(&sql)?;
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            binds.into_iter().map(|b| Box::new(b) as Box<dyn rusqlite::types::ToSql>).collect();
+        params.push(Box::new(limit as i64));
+        let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let extra = stmt.query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?;
+        let seen: std::collections::HashSet<i64> = rows.iter().map(|row| row.0).collect();
+        for rowid in extra {
+            let rowid = rowid?;
+            if seen.contains(&rowid) {
+                continue;
+            }
+            rows.push((rowid, 0.0));
+            if rows.len() >= limit {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn resolve_fts_rowids(&self, rows: Vec<(i64, f64)>) -> Result<Vec<FtsResult>, rusqlite::Error> {
@@ -796,6 +859,33 @@ impl MemoryIndex {
         )?;
         Ok(())
     }
+}
+
+fn word_has_cjk(word: &str) -> bool {
+    word.chars().any(|c| {
+        matches!(
+            c as u32,
+            0x1100..=0x11FF
+                | 0x3040..=0x30FF
+                | 0x3130..=0x318F
+                | 0x3400..=0x4DBF
+                | 0x4E00..=0x9FFF
+                | 0xAC00..=0xD7AF
+                | 0xF900..=0xFAFF
+        )
+    })
+}
+
+fn like_contains(term: &str) -> String {
+    let mut pattern = String::from("%");
+    for ch in term.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(ch);
+    }
+    pattern.push('%');
+    pattern
 }
 
 #[cfg(test)]

@@ -76,6 +76,11 @@ ${%- if memory_enabled and tools.by_kind.memory_search and tools.by_kind.memory_
 <memory>
 Use `${{ tools.by_kind.memory_search }}` and `${{ tools.by_kind.memory_get }}` to recall past decisions and context. Search memory proactively for prior work or conventions.
 </memory>
+${%- elif not memory_enabled %}
+
+<memory-status>
+Memory is turned off for this session. Do not read or write memory notes, and do not assume earlier sessions left notes you can use.
+</memory-status>
 ${%- endif %}
 ${%- if role_instructions %}
 

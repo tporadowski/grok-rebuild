@@ -388,11 +388,15 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_disabled_omits_memory_section() {
+    fn test_memory_disabled_tells_the_model_memory_is_off() {
         let prompt = render_base(&default_renderer(), &default_placeholders());
         assert!(
             !prompt.contains("<memory>"),
-            "Memory section must be omitted"
+            "the on-memory instructions stay omitted"
+        );
+        assert!(
+            prompt.contains("Memory is turned off for this session."),
+            "the model must be told when memory is off"
         );
     }
 

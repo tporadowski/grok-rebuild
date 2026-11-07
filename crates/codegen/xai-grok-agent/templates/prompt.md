@@ -41,6 +41,11 @@ Remember information when the user explicitly asks, or when it is stable, specif
 
 Treat memory as historical context, not current truth. Verify paths, commands, repository state, external facts, and other changeable claims with live tools before relying on them, and prefer current evidence when it conflicts with memory.
 </memory>
+${%- elif not memory_enabled %}
+
+<memory-status>
+Memory is turned off for this session. Do not read or write memory notes, and do not assume earlier sessions left notes you can use.
+</memory-status>
 ${%- endif %}
 
 ${%- if tools.by_kind.execute or tools.by_kind.monitor %}

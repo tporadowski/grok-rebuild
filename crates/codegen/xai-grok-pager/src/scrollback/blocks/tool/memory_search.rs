@@ -213,7 +213,11 @@ impl BlockContent for MemorySearchToolCallBlock {
                         .collect();
                     for sl in &snippet_lines {
                         let trimmed = sl.trim();
-                        let display = truncate_str(trimmed, ctx.content_width().saturating_sub(4));
+                        let display = preview_line(
+                            trimmed,
+                            &self.query,
+                            ctx.content_width().saturating_sub(4),
+                        );
                         lines.push(
                             BlockLine::from(Line::from(Span::styled(
                                 format!("    {display}"),
@@ -295,6 +299,51 @@ impl BlockContent for MemorySearchToolCallBlock {
     fn collapse_mode(&self, _is_running: bool) -> DisplayMode {
         DisplayMode::Collapsed
     }
+}
+
+/// A long snippet line keeps the part that matches the query. A prefix-only
+/// cut hid matches that sat past the terminal width.
+fn preview_line(line: &str, query: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    if width == 0 || line.width() <= width {
+        return line.to_string();
+    }
+    let needle = query
+        .split_whitespace()
+        .max_by_key(|word| word.chars().count())
+        .unwrap_or(query)
+        .trim();
+    let at = if needle.is_empty() {
+        None
+    } else {
+        line.to_lowercase().find(&needle.to_lowercase())
+    };
+    let Some(at) = at else {
+        return truncate_str(line, width);
+    };
+    let prefix = &line[..at];
+    let keep = width / 3;
+    let start = if prefix.width() <= keep {
+        0
+    } else {
+        let mut start = 0;
+        for (idx, _) in prefix.char_indices() {
+            if prefix[idx..].width() <= keep {
+                start = idx;
+                break;
+            }
+        }
+        start
+    };
+    let mut shown = if start == 0 {
+        truncate_str(line, width)
+    } else {
+        format!("…{}", truncate_str(&line[start..], width.saturating_sub(1)))
+    };
+    if shown.width() > width {
+        shown = truncate_str(&shown, width);
+    }
+    shown
 }
 
 fn shorten_path(path: &str) -> &str {
@@ -422,6 +471,16 @@ mod tests {
         assert_eq!(r0.start_line, 0);
         assert_eq!(r0.end_line, 10);
         assert!(r0.snippet.contains("graphite"));
+    }
+
+    #[test]
+    fn preview_line_keeps_a_match_past_the_prefix() {
+        let line = format!("{}graphite", "x".repeat(80));
+        let shown = preview_line(&line, "graphite", 20);
+        assert!(
+            shown.contains("graphite"),
+            "the match must stay visible, got {shown}"
+        );
     }
 
     #[test]

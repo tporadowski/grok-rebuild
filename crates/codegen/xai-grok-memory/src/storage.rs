@@ -3,6 +3,7 @@
 //! Handles reading and writing memory files (`.md`) for both global and workspace-scoped memory.
 //! All workspace-scoped memory lives under `~/.grok/memory/{project-slug}-{hash8}/` to avoid polluting the user's repo.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use xai_grok_config_types::MemoryMode;
@@ -390,7 +391,32 @@ impl MemoryStorage {
         }
 
         // Read the canonicalized path, not the original, to prevent TOCTOU races.
-        let content = std::fs::read_to_string(&canonical)?;
+        // Reject a file over the topic read limit before loading it. `take` stops a
+        // file that grows past the limit between the metadata check and the read.
+        let limit = crate::v2_access::MAX_TOPIC_FILE_BYTES;
+        let meta = std::fs::symlink_metadata(&canonical)?;
+        if !meta.file_type().is_file() || meta.len() > limit {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("memory file exceeds the {limit} byte read limit"),
+            ));
+        }
+        let mut bytes = Vec::new();
+        std::fs::File::open(&canonical)?
+            .take(limit + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > limit {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("memory file exceeds the {limit} byte read limit"),
+            ));
+        }
+        let content = String::from_utf8(bytes).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "memory file is not valid UTF-8",
+            )
+        })?;
 
         let from = from.unwrap_or(0);
         match lines {
