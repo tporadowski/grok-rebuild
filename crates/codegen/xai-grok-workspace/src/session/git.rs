@@ -545,14 +545,78 @@ pub fn find_git_root_from_path(path: &Path) -> Result<PathBuf> {
         GitDiscoveryResult::DiscoveryFailed(e) => Err(e),
     }
 }
-/// Find the main repo root (not the worktree working directory). For regular repos this is the same as find_git_root_from_path.
-/// For worktrees, this returns the parent repo's root.
+/// Find the main checkout of the repository that contains `path`.
+///
+/// A linked worktree resolves to the main checkout when that checkout's `.git`
+/// is the common git dir. A sibling submodule and a repo whose git dir lives
+/// elsewhere keep their own working tree: `commondir().parent()` would be
+/// `.git/modules` or the directory that holds several git dirs, and session
+/// lists would mix those repos together.
 pub fn find_main_repo_root_from_path(path: &Path) -> Result<PathBuf> {
     let repo = Repository::discover(path)?;
-    repo.commondir()
-        .parent()
-        .map(|p| p.to_path_buf())
-        .ok_or_else(|| anyhow::anyhow!("Invalid git repository: {}", path.display()))
+    let common = repo.commondir();
+    if let Some(parent) = common.parent()
+        && workdir_owns_git_dir(parent, &common)
+    {
+        return Ok(parent.to_path_buf());
+    }
+    // libgit2 infers a missing `core.worktree` as the parent of the git dir.
+    // That parent is shared by every separate git dir in the folder, and by
+    // every sibling submodule under `.git/modules`. Use the checkout whose
+    // `.git` actually points here instead.
+    if let Some(found) = worktree_containing(path, &common) {
+        return Ok(found);
+    }
+    Ok(path.to_path_buf())
+}
+
+/// Walk up from `start` to the directory whose `.git` is `git_dir`.
+fn worktree_containing(start: &Path, git_dir: &Path) -> Option<PathBuf> {
+    let mut cur = if start.is_dir() {
+        Some(start)
+    } else {
+        start.parent()
+    };
+    while let Some(dir) = cur {
+        if workdir_owns_git_dir(dir, git_dir) {
+            return Some(dir.to_path_buf());
+        }
+        cur = dir.parent();
+    }
+    None
+}
+
+/// `<workdir>/.git` is this git dir. The parent of a submodule module path or of
+/// a relocated git dir fails the check, so those repos are not merged.
+fn workdir_owns_git_dir(workdir: &Path, git_dir: &Path) -> bool {
+    let dotgit = workdir.join(".git");
+    let resolved = if dotgit.is_dir() {
+        dotgit
+    } else if let Some(target) = gitdir_file_target(&dotgit) {
+        target
+    } else {
+        return false;
+    };
+    same_existing_path(&resolved, git_dir)
+}
+
+fn gitdir_file_target(dotgit: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(dotgit).ok()?;
+    let gitdir = text.trim().strip_prefix("gitdir: ")?;
+    let path = Path::new(gitdir);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        dotgit.parent()?.join(path)
+    };
+    Some(resolved)
+}
+
+fn same_existing_path(left: &Path, right: &Path) -> bool {
+    match (dunce::canonicalize(left), dunce::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
 }
 pub fn change_type_from_git2_delta(delta: git2::Delta) -> ChangeType {
     match delta {

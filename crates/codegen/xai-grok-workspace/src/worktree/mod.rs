@@ -3953,6 +3953,176 @@ mod tests {
         );
     }
 
+    #[test]
+    fn session_candidates_skip_sibling_submodule_and_separate_gitdir() {
+        xai_test_utils::require_git!();
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let home = root.join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &home);
+        let git = |dir: &std::path::Path, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?} in {} failed: {}",
+                dir.display(),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        let canon = |path: &std::path::Path| dunce::canonicalize(path).unwrap();
+
+        let co_a = root.join("checkouts").join("a");
+        let co_b = root.join("checkouts").join("b");
+        std::fs::create_dir_all(&co_a).unwrap();
+        std::fs::create_dir_all(&co_b).unwrap();
+        std::fs::create_dir_all(root.join("gitdirs")).unwrap();
+        git(
+            &root,
+            &[
+                "init",
+                "--separate-git-dir",
+                root.join("gitdirs").join("a").to_str().unwrap(),
+                co_a.to_str().unwrap(),
+            ],
+        );
+        git(&co_a, &["commit", "--allow-empty", "-m", "init"]);
+        git(
+            &root,
+            &[
+                "init",
+                "--separate-git-dir",
+                root.join("gitdirs").join("b").to_str().unwrap(),
+                co_b.to_str().unwrap(),
+            ],
+        );
+        git(&co_b, &["commit", "--allow-empty", "-m", "init"]);
+        let root_a = find_main_repo_root_from_path(&co_a).unwrap();
+        let root_b = find_main_repo_root_from_path(&co_b).unwrap();
+        assert_ne!(canon(&root_a), canon(&root_b));
+        assert_eq!(canon(&root_a), canon(&co_a));
+        assert_eq!(canon(&root_b), canon(&co_b));
+
+        let sub_src_a = root.join("src-a");
+        let sub_src_b = root.join("src-b");
+        for src in [&sub_src_a, &sub_src_b] {
+            std::fs::create_dir_all(src).unwrap();
+            git(src, &["init"]);
+            std::fs::write(src.join("lib.txt"), "lib").unwrap();
+            git(src, &["add", "lib.txt"]);
+            git(src, &["commit", "-m", "lib"]);
+        }
+        let super_repo = root.join("super");
+        std::fs::create_dir_all(&super_repo).unwrap();
+        git(&super_repo, &["init"]);
+        std::fs::write(super_repo.join("README"), "super").unwrap();
+        git(&super_repo, &["add", "README"]);
+        git(&super_repo, &["commit", "-m", "super"]);
+        for (src, name) in [(&sub_src_a, "libs/a"), (&sub_src_b, "libs/b")] {
+            git(
+                &super_repo,
+                &[
+                    "-c",
+                    "protocol.file.allow=always",
+                    "submodule",
+                    "add",
+                    src.to_str().unwrap(),
+                    name,
+                ],
+            );
+        }
+        let sub_a = super_repo.join("libs").join("a");
+        let sub_b = super_repo.join("libs").join("b");
+        let sub_root_a = find_main_repo_root_from_path(&sub_a).unwrap();
+        let sub_root_b = find_main_repo_root_from_path(&sub_b).unwrap();
+        assert_ne!(canon(&sub_root_a), canon(&sub_root_b));
+        assert_eq!(canon(&sub_root_a), canon(&sub_a));
+        assert_eq!(canon(&sub_root_b), canon(&sub_b));
+
+        let main = root.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        git(&main, &["init"]);
+        std::fs::write(main.join("tracked.txt"), "x").unwrap();
+        git(&main, &["add", "tracked.txt"]);
+        git(&main, &["commit", "-m", "main"]);
+        let linked = root.join("main-wt");
+        git(
+            &main,
+            &["worktree", "add", "--detach", linked.to_str().unwrap()],
+        );
+        let linked_root = find_main_repo_root_from_path(&linked).unwrap();
+        assert_eq!(canon(&linked_root), canon(&main));
+
+        let db = WorktreeDb::open(&home).unwrap();
+        let register = |id: &str, path: &std::path::Path, source: &std::path::Path| {
+            db.register(&WorktreeRecord {
+                id: id.to_string(),
+                path: path.to_path_buf(),
+                source_repo: source.to_path_buf(),
+                repo_name: "repo".into(),
+                kind: WorktreeKind::Session,
+                creation_mode: "linked".into(),
+                git_ref: None,
+                head_commit: None,
+                session_id: None,
+                creator_pid: None,
+                created_at: 1,
+                last_accessed_at: None,
+                status: xai_fast_worktree::WorktreeStatus::Alive,
+                metadata: Some(build_label_metadata(id, true)),
+            })
+            .unwrap();
+        };
+        let wt_a = root.join("wt-separate-a");
+        let wt_b = root.join("wt-separate-b");
+        let sub_wt_a = root.join("wt-sub-a");
+        let sub_wt_b = root.join("wt-sub-b");
+        register("sep-a", &wt_a, &root_a);
+        register("sep-b", &wt_b, &root_b);
+        register("sub-a", &sub_wt_a, &sub_root_a);
+        register("sub-b", &sub_wt_b, &sub_root_b);
+        register("linked", &linked, &linked_root);
+
+        let has = |listed: &[String], path: &std::path::Path| {
+            listed
+                .iter()
+                .any(|candidate| std::path::Path::new(candidate) == path)
+        };
+        let from_a = candidate_worktree_cwds_for_same_repo(&co_a).unwrap();
+        assert!(
+            has(&from_a, &wt_a),
+            "own separate-git-dir worktree missing: {from_a:?}"
+        );
+        assert!(
+            !has(&from_a, &wt_b),
+            "sibling separate-git-dir worktree leaked: {from_a:?}"
+        );
+
+        let from_sub = candidate_worktree_cwds_for_same_repo(&sub_a).unwrap();
+        assert!(
+            has(&from_sub, &sub_wt_a),
+            "own submodule worktree missing: {from_sub:?}"
+        );
+        assert!(
+            !has(&from_sub, &sub_wt_b),
+            "sibling submodule worktree leaked: {from_sub:?}"
+        );
+
+        let from_main = candidate_worktree_cwds_for_same_repo(&main).unwrap();
+        assert!(
+            has(&from_main, &linked),
+            "a linked worktree of this repo must stay visible: {from_main:?}"
+        );
+    }
+
     /// A `worktrees.db` under `home` with one record at `<home>/worktrees/repo/wt`, no env involved.
     fn worktree_db_at(home: &Path) -> std::path::PathBuf {
         let wt = home.join("worktrees").join("repo").join("wt");
