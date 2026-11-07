@@ -143,6 +143,10 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-058 — Fork worktree image and log paths stay real
+
+`PathRewriter::rewrite` still maps a project file from the worktree onto the display path. It no longer rewrites the URL-encoded worktree cwd. Session images and terminal logs live under `sessions/<encoded real cwd>/`, and replacing that component reported a directory that was never written (`v50-x30`, `test_rewrite_handles_url_encoded_paths`, `test_rewrite_json_handles_url_encoded_paths`).
+
 ### D-057 — Dashboard worktree column, model badge, and folder-picker toggle
 
 A session row's subtitle names the worktree label, the branch, and a `worktree` marker (`subtitle_worktree_shows_label_branch_and_marker`). The new-agent box paints `pending_model`, or the current model name when nothing is staged (`paint_dispatch_config_badge`). `-m` is `default_model_override`, which becomes that current model, and opening the dashboard copies `app.models` onto the box. The folder picker paints `[worktree:on]` / `[worktree:off]` on a git target and a click flips `worktree_mode` (`render_location_picker_shows_worktree_toggle_in_repo`). `v50-f11` is `already`.
@@ -283,7 +287,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 39 | 0 | 1 | 1 | 0 |
+| W7 | Worktrees | 38 | 0 | 2 | 1 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -295,9 +299,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 425. Skipped: 8. Done: 109. Already: 31. Deferred: 10.
+Catalog rows: 583. Pending: 424. Skipped: 8. Done: 110. Already: 31. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: `/fork --worktree` image and log paths (`v50-x30`).
+**Next:** W7 worktrees. First open row: git-mode `-w` keeps uncommitted changes (`v50-x50`).
 
 ## Waves
 
@@ -327,7 +331,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 39. Done: 1 (`v51-x96`, with `v50-b01`, D-023). Already: 1 (`v50-f11`, D-057). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 38. Done: 2 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058). Already: 1 (`v50-f11`, D-057). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -482,7 +486,7 @@ id | status | wave | kind | flag | covered | note
 - v75-x11 | done | W5 | Bug Fixes |  |  | **A question card's `Enter:submit` button**, the dashboard session popup's `[✗]` and collapsed workflow rows highlight under the mouse pointer like other clickable controls.
 - v75-x16 | done | W5 | Bug Fixes |  |  | **Dashboard rows** stay in Working while a session's background subagents or workflow runs are going, and stopping the row ends them.
 - v50-f11 | already | W7 | Features |  |  | Dashboard now shows which worktree each session belongs to, displays the `-m` model in the new-agent box, and lets you toggle worktree mode in the folder picker.
-- v50-x30 | pending | W7 | Bug Fixes |  |  | **Image and log paths** reported after `/fork --worktree` now point to real files instead of missing locations.
+- v50-x30 | done | W7 | Bug Fixes |  |  | **Image and log paths** reported after `/fork --worktree` now point to real files instead of missing locations.
 - v50-x50 | pending | W7 | Bug Fixes |  |  | **Git-mode worktrees created with -w** now preserve uncommitted changes instead of dropping them.
 - v50-x51 | pending | W7 | Bug Fixes |  |  | **Worktrees created with --worktree-ref** no longer contain wrong submodule contents or LFS pointer text.
 - v50-x52 | pending | W7 | Bug Fixes |  |  | Worktree creation now shows the same clear error messages on every code path.

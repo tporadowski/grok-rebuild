@@ -44,19 +44,14 @@ impl PathRewriter {
         })
     }
 
-    /// Rewrite all occurrences of the real worktree path with the display path.
-    /// Handles both plain paths and URL-encoded paths that appear in session directory structures and `output_file` references.
+    /// Rewrite project paths from the real worktree to the display path.
+    ///
+    /// Session images and terminal logs are stored under `sessions/<encoded real cwd>/`.
+    /// That component is the URL-encoded worktree path, not the plain path, so this
+    /// replace leaves it alone. Rewriting it to the display cwd would report a directory
+    /// that was never written.
     pub(crate) fn rewrite(&self, text: &str) -> String {
-        let plain = text.replace(&self.real_cwd, &self.display_cwd);
-        // Also replace the URL-encoded form: session directory paths use urlencoding::encode(&cwd) as a path component,
-        // so background task output_file paths and similar references embed the encoded real cwd
-        let encoded_real = urlencoding::encode(&self.real_cwd);
-        if plain.contains(encoded_real.as_ref()) {
-            let encoded_display = urlencoding::encode(&self.display_cwd);
-            plain.replace(encoded_real.as_ref(), encoded_display.as_ref())
-        } else {
-            plain
-        }
+        text.replace(&self.real_cwd, &self.display_cwd)
     }
 
     /// Rewrite a `PathBuf` if it starts with the real worktree path.
@@ -69,7 +64,7 @@ impl PathRewriter {
 
     /// Rewrite a `serde_json::Value` by replacing paths in the serialized JSON string.
     /// Catches paths embedded anywhere in the JSON tree without needing to walk the structure.
-    /// Reuses `rewrite()` so both plain and encoded replacements are applied consistently.
+    /// Reuses `rewrite()`, so a session image or log path stays on the real directory.
     pub(crate) fn rewrite_json(&self, value: serde_json::Value) -> serde_json::Value {
         let serialized = value.to_string();
         let rewritten = self.rewrite(&serialized);
@@ -1280,30 +1275,36 @@ mod tests {
         assert!(raw_str.contains("/testbed/myproject/src/lib.rs"));
     }
 
-    // ── URL-encoded path rewriting ─────────────────────────────────
+    // ── Session image and log paths stay on the directory that holds the file ──
 
     #[test]
     fn test_rewrite_handles_url_encoded_paths() {
-        let rw = PathRewriter::new(
-            "/root/.grok/worktrees/project/ab-123-a-overlay",
-            Some("/home/user/project"),
-        )
-        .unwrap();
-        // Session directory paths use urlencoding::encode(&cwd)
-        let encoded_overlay = urlencoding::encode("/root/.grok/worktrees/project/ab-123-a-overlay");
-        let input = format!(
-            "output-file: /root/.grok/sessions/{}/session-id/terminal/call.log",
-            encoded_overlay
+        let real = "/root/.grok/worktrees/project/ab-123-a-overlay";
+        let rw = PathRewriter::new(real, Some("/home/user/project")).unwrap();
+        // Session directory paths use urlencoding::encode(&cwd). The file is written there.
+        let encoded_real = urlencoding::encode(real);
+        let image = format!("/root/.grok/sessions/{encoded_real}/session-id/images/1.png");
+        let log = format!(
+            "output-file: /root/.grok/sessions/{encoded_real}/session-id/terminal/call.log"
         );
+        let input = format!("{log}\nfile: {real}/src/main.rs\nimage: {image}");
         let result = rw.rewrite(&input);
         assert!(
-            !result.contains("ab-123-a-overlay"),
-            "URL-encoded overlay path must be rewritten: {result}"
+            result.contains(&image),
+            "image path must stay on the real session dir: {result}"
+        );
+        assert!(
+            result.contains(&log),
+            "log path must stay on the real session dir: {result}"
+        );
+        assert!(
+            result.contains("file: /home/user/project/src/main.rs"),
+            "a project file still uses the display path: {result}"
         );
         let encoded_display = urlencoding::encode("/home/user/project");
         assert!(
-            result.contains(encoded_display.as_ref()),
-            "rewritten output must contain the encoded display path: {result}"
+            !result.contains(encoded_display.as_ref()),
+            "session dir must not be rewritten to the display cwd: {result}"
         );
     }
 
@@ -1337,8 +1338,12 @@ mod tests {
             .and_then(|v| v.as_str())
             .unwrap();
         assert!(
-            !output_file.contains("ab-123"),
-            "rewrite_json must handle URL-encoded paths: {output_file}"
+            output_file.contains(encoded.as_ref()),
+            "a session log path must stay on the real directory: {output_file}"
+        );
+        assert!(
+            !output_file.contains(urlencoding::encode("/testbed/project").as_ref()),
+            "rewrite_json must not point the log at the display cwd: {output_file}"
         );
     }
 
