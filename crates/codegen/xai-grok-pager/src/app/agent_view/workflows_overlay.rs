@@ -111,13 +111,23 @@ impl AgentView {
                         InputOutcome::Changed
                     }
                     KeyCode::Left if in_detail => {
-                        view.detail_run_id = None;
-                        view.phase_pinned = false;
+                        if view.roster_focused {
+                            view.roster_focused = false;
+                        } else {
+                            view.detail_run_id = None;
+                            view.phase_pinned = false;
+                            view.roster_focused = false;
+                            view.selected_agent_id = None;
+                        }
                         self.workflows_view = view;
                         InputOutcome::Changed
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
-                        if let Some(run) = view.detail_run(&runs) {
+                        if view.roster_focused {
+                            if let Some(run) = view.detail_run(&runs) {
+                                view.move_roster_selection(run, -1);
+                            }
+                        } else if let Some(run) = view.detail_run(&runs) {
                             view.select_phase(view.selected_phase.saturating_sub(1), run);
                         } else {
                             view.select_run(view.selected_run.saturating_sub(1), &runs);
@@ -126,7 +136,11 @@ impl AgentView {
                         InputOutcome::Changed
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        if let Some(run) = view.detail_run(&runs) {
+                        if view.roster_focused {
+                            if let Some(run) = view.detail_run(&runs) {
+                                view.move_roster_selection(run, 1);
+                            }
+                        } else if let Some(run) = view.detail_run(&runs) {
                             view.select_phase(view.selected_phase.saturating_add(1), run);
                         } else {
                             view.select_run(view.selected_run.saturating_add(1), &runs);
@@ -134,8 +148,21 @@ impl AgentView {
                         self.workflows_view = view;
                         InputOutcome::Changed
                     }
+                    KeyCode::Right if in_detail => {
+                        if let Some(run) = view.detail_run(&runs) {
+                            view.phase_pinned = true;
+                            view.pin_active_phase = run.effective_active_phase();
+                            view.focus_agent_list(run);
+                        }
+                        self.workflows_view = view;
+                        InputOutcome::Changed
+                    }
                     KeyCode::Enter if in_detail => {
-                        if let Some(run) = view.detail_run(&runs)
+                        if view.roster_focused {
+                            if let Some(agent_id) = view.selected_agent_id.clone() {
+                                self.open_subagent_fullscreen(agent_id);
+                            }
+                        } else if let Some(run) = view.detail_run(&runs)
                             && let Some(agent_id) =
                                 transcript_target(run, view.selected_phase_name.as_deref())
                         {
@@ -250,7 +277,7 @@ impl AgentView {
                                 .find(|(r, _)| hit(r))
                                 .map(|(_, id)| id.clone())
                             {
-                                self.open_subagent_fullscreen(agent_id);
+                                view.select_roster_agent(agent_id);
                             } else if let Some(phase_name) = view
                                 .phase_hits
                                 .iter()
@@ -262,6 +289,11 @@ impl AgentView {
                                     .position(|(title, _)| title == &phase_name)
                             {
                                 view.select_phase(idx, run);
+                                view.focus_agent_list(run);
+                            } else if view.roster_area.is_some_and(|area| hit(&area))
+                                && let Some(run) = view.detail_run(&runs)
+                            {
+                                view.focus_agent_list(run);
                             }
                         } else if let Some(run_id) = view
                             .run_hits
@@ -654,7 +686,7 @@ mod workflows_overlay_key_tests {
     }
 
     #[test]
-    fn click_on_roster_agent_opens_transcript_fullscreen_over_overlay() {
+    fn click_on_roster_agent_focuses_it_and_enter_opens() {
         let mut agent = workflows_agent(&["wf_run"]);
         agent.workflows_view.agent_hits = vec![(rect(10, 5, 30, 1), "child-1".to_string())];
         agent.insert_test_child("child-1".to_string(), Box::new(make_agent()));
@@ -663,13 +695,94 @@ mod workflows_overlay_key_tests {
         let out = agent.handle_input(&mouse_down(12, 5), &reg);
         assert!(matches!(out, InputOutcome::Changed));
         assert_eq!(
+            agent.active_subagent, None,
+            "a click focuses, it does not open"
+        );
+        assert!(agent.workflows_view.roster_focused);
+        assert_eq!(
+            agent.workflows_view.selected_agent_id.as_deref(),
+            Some("child-1")
+        );
+        assert!(agent.show_workflows);
+
+        let out = agent.handle_input(&key(KeyCode::Enter), &reg);
+        assert!(matches!(out, InputOutcome::Changed));
+        assert_eq!(
             agent.active_subagent.as_deref(),
             Some("child-1"),
-            "roster click must open the child transcript fullscreen"
+            "Enter opens the focused agent"
         );
         assert!(
             agent.show_workflows,
             "the overlay stays open underneath so closing the transcript returns to it"
+        );
+    }
+
+    #[test]
+    fn right_focuses_the_phase_roster_and_left_returns_to_phases() {
+        let mut agent = workflows_agent(&["wf_run"]);
+        let run = agent.workflow_runs.last_mut().unwrap();
+        run.phases = vec![("Research".to_owned(), "active".to_owned())];
+        run.current_phase = Some("Research".to_owned());
+        run.agents = vec![
+            crate::views::workflows::WorkflowAgentRowView {
+                agent_id: "child-older".to_owned(),
+                label: "older".to_owned(),
+                phase: Some("Research".to_owned()),
+                model: None,
+                state: "done".to_owned(),
+                tokens_used: 0,
+                duration_ms: 0,
+            },
+            crate::views::workflows::WorkflowAgentRowView {
+                agent_id: "child-newer".to_owned(),
+                label: "newer".to_owned(),
+                phase: Some("Research".to_owned()),
+                model: None,
+                state: "done".to_owned(),
+                tokens_used: 0,
+                duration_ms: 0,
+            },
+        ];
+        agent.insert_test_child("child-older".to_owned(), Box::new(make_agent()));
+        let reg = ActionRegistry::defaults();
+
+        assert!(matches!(
+            agent.handle_input(&key(KeyCode::Right), &reg),
+            InputOutcome::Changed
+        ));
+        assert!(agent.workflows_view.roster_focused);
+        assert_eq!(
+            agent.workflows_view.detail_run_id.as_deref(),
+            Some("wf_run")
+        );
+        assert_eq!(
+            agent.workflows_view.selected_agent_id.as_deref(),
+            Some("child-newer"),
+            "with nobody running, focus starts on the last agent"
+        );
+
+        agent.handle_input(&key(KeyCode::Up), &reg);
+        assert_eq!(
+            agent.workflows_view.selected_agent_id.as_deref(),
+            Some("child-older")
+        );
+        assert_eq!(
+            agent.workflows_view.selected_phase_name.as_deref(),
+            Some("Research"),
+            "arrows inside the roster do not change the phase"
+        );
+
+        agent.handle_input(&key(KeyCode::Enter), &reg);
+        assert_eq!(agent.active_subagent.as_deref(), Some("child-older"));
+
+        agent.active_subagent = None;
+        agent.handle_input(&key(KeyCode::Left), &reg);
+        assert!(!agent.workflows_view.roster_focused);
+        assert_eq!(
+            agent.workflows_view.detail_run_id.as_deref(),
+            Some("wf_run"),
+            "Left from the agent list returns to the phases"
         );
     }
 

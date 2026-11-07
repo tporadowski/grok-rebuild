@@ -96,6 +96,12 @@ impl WorkflowRunSnapshot {
         self.agents.iter().filter(|a| a.state == "running").count()
     }
 
+    /// A finished agent is one the run marked `done`. Failed, cancelled, and
+    /// not-yet-started rows stay out of the done count (`v53-x10`).
+    pub fn agent_is_finished(state: &str) -> bool {
+        state == "done"
+    }
+
     pub fn activity_label(&self) -> String {
         if self.is_active() {
             let phase = self
@@ -130,19 +136,39 @@ impl WorkflowRunSnapshot {
 
     pub fn agents_in_phase(&self, phase: Option<&str>) -> Vec<&WorkflowAgentRowView> {
         match phase {
+            // Agents with no phase name are outside every declared phase.
+            Some(title) if title == OUTSIDE_PHASE_TITLE => self
+                .agents
+                .iter()
+                .filter(|agent| {
+                    named_phase(agent.phase.as_deref()) == Some(OUTSIDE_PHASE_TITLE)
+                        || named_phase(agent.phase.as_deref()).is_none()
+                })
+                .collect(),
             Some(title) => self
                 .agents
                 .iter()
-                .filter(|a| a.phase.as_deref() == Some(title))
+                .filter(|agent| named_phase(agent.phase.as_deref()) == Some(title))
                 .collect(),
             None => self.agents.iter().collect(),
         }
     }
 
+    /// Agents shown for the selected rail entry. A run with no declared phases
+    /// lists everyone; otherwise the roster is that phase, including agents
+    /// whose phase was not declared (`v53-x10`).
+    pub fn roster_for(&self, phase_title: Option<&str>) -> Vec<&WorkflowAgentRowView> {
+        if self.phases.is_empty() && named_phase(self.current_phase.as_deref()).is_none() {
+            self.agents_in_phase(None)
+        } else {
+            self.agents_in_phase(phase_title)
+        }
+    }
+
     pub fn phase_has_running_agents(&self, phase: &str) -> bool {
-        self.agents
+        self.agents_in_phase(Some(phase))
             .iter()
-            .any(|a| a.state == "running" && a.phase.as_deref() == Some(phase))
+            .any(|agent| agent.state == "running")
     }
 
     pub fn effective_active_phase(&self) -> Option<String> {
@@ -155,8 +181,22 @@ impl WorkflowRunSnapshot {
     }
 
     fn done_agents(&self) -> usize {
-        self.agents.iter().filter(|a| a.state != "running").count()
+        self.agents
+            .iter()
+            .filter(|agent| Self::agent_is_finished(&agent.state))
+            .count()
     }
+}
+
+/// Rail title for agents that have no phase name.
+pub const OUTSIDE_PHASE_TITLE: &str = "Other";
+
+/// Hide each agent's live status once the roster is this narrow, so the name
+/// keeps the columns the status would have taken (`v63-x06`).
+const LIVE_STATUS_MIN_WIDTH: u16 = 48;
+
+fn named_phase(phase: Option<&str>) -> Option<&str> {
+    phase.filter(|title| !title.trim().is_empty())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -180,6 +220,9 @@ pub struct WorkflowsViewState {
     pub roster_scroll: usize,
     pub roster_top_agent_id: Option<String>,
     pub roster_anchor: Option<(String, String)>,
+    /// `→` or a click moves the keys onto this phase's agents (`v72-f05`).
+    pub roster_focused: bool,
+    pub selected_agent_id: Option<String>,
 }
 
 pub mod shortcut_ids {
@@ -342,6 +385,8 @@ impl WorkflowsViewState {
             self.selected_phase = 0;
             self.selected_phase_name = None;
             self.phase_viewport = 0;
+            self.roster_focused = false;
+            self.selected_agent_id = None;
         }
 
         let anchor = self
@@ -352,7 +397,65 @@ impl WorkflowsViewState {
             self.roster_anchor = anchor;
             self.roster_scroll = 0;
             self.roster_top_agent_id = None;
+            let selected_still_listed = self.detail_run(runs).is_some_and(|run| {
+                self.selected_agent_id.as_ref().is_some_and(|id| {
+                    self.roster_rows(run)
+                        .iter()
+                        .any(|agent| &agent.agent_id == id)
+                })
+            });
+            if self.selected_agent_id.is_some() && !selected_still_listed {
+                self.selected_agent_id = None;
+                self.roster_focused = false;
+            }
         }
+    }
+
+    pub fn roster_rows<'a>(&self, run: &'a WorkflowRunSnapshot) -> Vec<&'a WorkflowAgentRowView> {
+        run.roster_for(self.selected_phase_name.as_deref())
+    }
+
+    /// Focus the selected phase's agents. The first pick is the running agent,
+    /// or the last agent when none are running (`v72-f05`).
+    pub fn focus_agent_list(&mut self, run: &WorkflowRunSnapshot) {
+        self.roster_focused = true;
+        let rows = self.roster_rows(run);
+        let still_listed = self
+            .selected_agent_id
+            .as_ref()
+            .is_some_and(|id| rows.iter().any(|agent| &agent.agent_id == id));
+        if !still_listed {
+            self.selected_agent_id = rows
+                .iter()
+                .rev()
+                .find(|agent| agent.state == "running")
+                .or_else(|| rows.last())
+                .map(|agent| agent.agent_id.clone());
+        }
+    }
+
+    pub fn select_roster_agent(&mut self, agent_id: impl Into<String>) {
+        self.roster_focused = true;
+        self.selected_agent_id = Some(agent_id.into());
+    }
+
+    pub fn move_roster_selection(&mut self, run: &WorkflowRunSnapshot, delta: i32) {
+        let rows = self.roster_rows(run);
+        if rows.is_empty() {
+            self.selected_agent_id = None;
+            return;
+        }
+        let current = self
+            .selected_agent_id
+            .as_ref()
+            .and_then(|id| rows.iter().position(|agent| &agent.agent_id == id))
+            .unwrap_or(0);
+        let next = if delta < 0 {
+            current.saturating_sub(delta.unsigned_abs() as usize)
+        } else {
+            current.saturating_add(delta as usize).min(rows.len() - 1)
+        };
+        self.selected_agent_id = Some(rows[next].agent_id.clone());
     }
 
     pub fn select_run(&mut self, idx: usize, runs: &[&WorkflowRunSnapshot]) {
@@ -424,13 +527,12 @@ impl WorkflowsViewState {
             Some(_) if over(self.roster_area) => {
                 if lines < 0 {
                     self.roster_scroll = self.roster_scroll.saturating_add((-lines) as usize);
-                    self.roster_top_agent_id = None;
                 } else {
                     self.roster_scroll = self.roster_scroll.saturating_sub(lines as usize);
-                    if self.roster_scroll == 0 {
-                        self.roster_top_agent_id = None;
-                    }
                 }
+                // The next render anchors on whatever row is now at the top.
+                // Keeping the previous anchor snaps a wheel-down back to it (`v61-x02`).
+                self.roster_top_agent_id = None;
             }
             Some(_) => {}
         }
@@ -467,8 +569,8 @@ fn ensure_selection_visible(
 
 pub fn phase_rail(run: &WorkflowRunSnapshot) -> Vec<(String, String)> {
     let mut phases = run.phases.clone();
-    if let Some(current) = run.current_phase.as_deref()
-        && !phases.iter().any(|(title, _)| title == current)
+    if let Some(current) = named_phase(run.current_phase.as_deref())
+        && !rail_has(&phases, current)
     {
         let state = if run.status == "complete" {
             "done"
@@ -477,10 +579,53 @@ pub fn phase_rail(run: &WorkflowRunSnapshot) -> Vec<(String, String)> {
         };
         phases.push((current.to_owned(), state.to_owned()));
     }
+    let declared = !run.phases.is_empty() || named_phase(run.current_phase.as_deref()).is_some();
+    if declared {
+        let mut extras = Vec::new();
+        for agent in &run.agents {
+            let Some(title) = named_phase(agent.phase.as_deref()) else {
+                continue;
+            };
+            if rail_has(&phases, title) || extras.iter().any(|existing: &String| existing == title)
+            {
+                continue;
+            }
+            extras.push(title.to_owned());
+        }
+        for title in extras {
+            let state = synthesized_phase_state(run, &title);
+            phases.push((title, state));
+        }
+        let has_unscoped = run
+            .agents
+            .iter()
+            .any(|agent| named_phase(agent.phase.as_deref()).is_none());
+        if has_unscoped && !rail_has(&phases, OUTSIDE_PHASE_TITLE) {
+            phases.push((
+                OUTSIDE_PHASE_TITLE.to_owned(),
+                synthesized_phase_state(run, OUTSIDE_PHASE_TITLE),
+            ));
+        }
+    }
     if phases.is_empty() {
         phases.push(("All agents".to_owned(), "active".to_owned()));
     }
     phases
+}
+
+fn rail_has(phases: &[(String, String)], title: &str) -> bool {
+    phases.iter().any(|(existing, _)| existing == title)
+}
+
+fn synthesized_phase_state(run: &WorkflowRunSnapshot, title: &str) -> String {
+    let agents = run.agents_in_phase(Some(title));
+    if agents.iter().any(|agent| agent.state == "running") {
+        "active".to_owned()
+    } else if !agents.is_empty() && agents.iter().all(|agent| agent.state == "done") {
+        "done".to_owned()
+    } else {
+        "pending".to_owned()
+    }
 }
 
 fn default_phase_index(run: &WorkflowRunSnapshot) -> usize {
@@ -511,20 +656,47 @@ fn span_at(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style, max_x: u1
 
 fn status_glyph_and_style(status: &str, theme: &Theme) -> (&'static str, Style) {
     match status {
-        "active" => ("●", Style::default().fg(theme.accent_plan)),
-        "complete" => ("✓", Style::default().fg(theme.accent_success)),
-        "failed" | "interrupted" => ("✗", Style::default().fg(theme.accent_error)),
-        "cancelled" => ("◌", Style::default().fg(theme.gray_dim)),
-        _ => ("⏸", Style::default().fg(theme.warning)),
+        "active" => (
+            crate::glyphs::running_dot(),
+            Style::default().fg(theme.accent_plan),
+        ),
+        "complete" => (
+            crate::glyphs::check_mark(),
+            Style::default().fg(theme.accent_success),
+        ),
+        "failed" | "interrupted" => (
+            crate::glyphs::ballot_x(),
+            Style::default().fg(theme.accent_error),
+        ),
+        "cancelled" => (
+            crate::glyphs::idle_mark(),
+            Style::default().fg(theme.gray_dim),
+        ),
+        _ => (
+            crate::glyphs::pause_mark(),
+            Style::default().fg(theme.warning),
+        ),
     }
 }
 
 fn agent_glyph_and_style(state: &str, theme: &Theme) -> (&'static str, Style) {
     match state {
-        "running" => ("●", Style::default().fg(theme.accent_plan)),
-        "done" => ("✓", Style::default().fg(theme.accent_success)),
-        "failed" => ("✗", Style::default().fg(theme.accent_error)),
-        _ => ("◌", Style::default().fg(theme.gray_dim)),
+        "running" => (
+            crate::glyphs::running_dot(),
+            Style::default().fg(theme.accent_plan),
+        ),
+        "done" => (
+            crate::glyphs::check_mark(),
+            Style::default().fg(theme.accent_success),
+        ),
+        "failed" => (
+            crate::glyphs::ballot_x(),
+            Style::default().fg(theme.accent_error),
+        ),
+        _ => (
+            crate::glyphs::idle_mark(),
+            Style::default().fg(theme.gray_dim),
+        ),
     }
 }
 
@@ -865,7 +1037,7 @@ fn render_detail(
         } else {
             run.agents_in_phase(Some(title))
                 .iter()
-                .filter(|agent| agent.state != "running")
+                .filter(|agent| WorkflowRunSnapshot::agent_is_finished(&agent.state))
                 .count()
         };
         let running_in = if all_agents_phase {
@@ -932,11 +1104,8 @@ fn render_detail(
         ));
     }
 
-    let roster_agents = if all_agents_phase {
-        run.agents_in_phase(None)
-    } else {
-        run.agents_in_phase(Some(selected_phase_title.as_str()))
-    };
+    let show_live_status = roster_width >= LIVE_STATUS_MIN_WIDTH;
+    let roster_agents = run.roster_for(Some(selected_phase_title.as_str()));
     let roster_inner = Rect::new(
         roster_area.x,
         body_y + 1,
@@ -1048,18 +1217,22 @@ fn render_detail(
             glyph_style,
             roster_inner.right(),
         );
-        let label = truncate_to_width(
-            &strip_control(&agent.label),
-            (roster_inner.width as usize).saturating_sub(4).min(28),
-        );
-        span_at(
-            buf,
-            roster_inner.x + 2,
-            y,
-            &label,
-            Style::default().fg(theme.text_primary),
-            meta_x,
-        );
+        let selected_agent = state.roster_focused
+            && state.selected_agent_id.as_deref() == Some(agent.agent_id.as_str());
+        let label_budget = if show_live_status {
+            (roster_inner.width as usize).saturating_sub(4).min(28)
+        } else {
+            meta_x.saturating_sub(roster_inner.x.saturating_add(2)) as usize
+        };
+        let label = truncate_to_width(&strip_control(&agent.label), label_budget);
+        let label_style = if selected_agent {
+            Style::default()
+                .fg(theme.text_primary)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_primary)
+        };
+        span_at(buf, roster_inner.x + 2, y, &label, label_style, meta_x);
         let label_w = unicode_width::UnicodeWidthStr::width(label.as_str()) as u16;
         let mut trail_x = roster_inner.x + 2 + label_w + 2;
         if let Some(model) = agent.model.as_deref() {
@@ -1074,7 +1247,8 @@ fn render_detail(
             );
             trail_x += unicode_width::UnicodeWidthStr::width(model_txt.as_str()) as u16 + 2;
         }
-        if let Some(activity) = live_status.and_then(|l| l.activity.as_deref()) {
+        if show_live_status && let Some(activity) = live_status.and_then(|l| l.activity.as_deref())
+        {
             let activity_txt = truncate_to_width(
                 &format!("· {}", strip_control(activity)),
                 meta_x.saturating_sub(trail_x + 1) as usize,
@@ -1888,5 +2062,197 @@ mod tests {
         state.normalize(&runs);
         assert_eq!(state.selected_run, 0);
         assert_eq!(state.selected_phase, 2);
+    }
+
+    fn agent_row(id: &str, label: &str, phase: Option<&str>, state: &str) -> WorkflowAgentRowView {
+        WorkflowAgentRowView {
+            agent_id: id.to_owned(),
+            label: label.to_owned(),
+            phase: phase.map(str::to_owned),
+            model: None,
+            state: state.to_owned(),
+            tokens_used: 0,
+            duration_ms: 0,
+        }
+    }
+
+    #[test]
+    fn outside_phase_agents_are_listed_and_only_finished_count_as_done() {
+        let mut run = make_run("wf_1", "deep-research", "active");
+        run.agents
+            .push(agent_row("a3", "failed-one", Some("Research"), "failed"));
+        run.agents
+            .push(agent_row("a4", "side-agent", Some("Sidequest"), "done"));
+        run.agents
+            .push(agent_row("a5", "unscoped-agent", None, "running"));
+        assert_eq!(run.done_agents(), 2);
+        let rail = phase_rail(&run);
+        assert!(
+            rail.iter().any(|(title, _)| title == "Sidequest"),
+            "{rail:?}"
+        );
+        assert!(
+            rail.iter().any(|(title, _)| title == OUTSIDE_PHASE_TITLE),
+            "{rail:?}"
+        );
+
+        let runs = vec![&run];
+        let mut state = WorkflowsViewState::default();
+        state.normalize(&runs);
+        let side = rail
+            .iter()
+            .position(|(title, _)| title == "Sidequest")
+            .expect("side phase");
+        state.select_phase(side, &run);
+        state.normalize(&runs);
+        let text = render_to_text(&runs, &state);
+        assert!(text.contains("side-agent"), "{text}");
+        assert!(!text.contains("unscoped-agent"), "{text}");
+        assert!(text.contains("2/5 agents"), "{text}");
+
+        let other = phase_rail(&run)
+            .iter()
+            .position(|(title, _)| title == OUTSIDE_PHASE_TITLE)
+            .expect("outside phase");
+        state.select_phase(other, &run);
+        state.normalize(&runs);
+        let text = render_to_text(&runs, &state);
+        assert!(text.contains("unscoped-agent"), "{text}");
+        assert!(!text.contains("side-agent"), "{text}");
+    }
+
+    #[test]
+    fn wheel_down_on_the_roster_moves_toward_newer_agents() {
+        let mut run = make_run("wf_big", "fanout", "active");
+        run.phases.clear();
+        run.current_phase = None;
+        run.agents = (0..30)
+            .map(|i| agent_row(&format!("a{i:02}"), &format!("agent-{i:02}"), None, "done"))
+            .collect();
+        let runs = vec![&run];
+        let area = Rect::new(0, 0, 100, 30);
+        let mut state = WorkflowsViewState::default();
+        state.normalize(&runs);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        let roster = state.roster_area.expect("roster area");
+        state.handle_scroll(-5, roster.x, roster.y, &runs);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        let older = state
+            .agent_hits
+            .first()
+            .map(|hit| hit.1.clone())
+            .expect("older top agent");
+        let scrolled = state.roster_scroll;
+        assert!(scrolled >= 5, "wheel up should pan toward older rows");
+        assert!(state.roster_top_agent_id.is_some());
+
+        state.handle_scroll(3, roster.x, roster.y, &runs);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        assert_eq!(state.roster_scroll, scrolled - 3);
+        let newer = state
+            .agent_hits
+            .first()
+            .map(|hit| hit.1.clone())
+            .expect("newer top agent");
+        assert!(
+            newer > older,
+            "wheel down must move toward newer agents, not snap back: older={older} newer={newer}"
+        );
+    }
+
+    #[test]
+    fn narrow_roster_hides_live_status_and_keeps_the_name() {
+        let mut run = make_run("wf_1", "deep-research", "active");
+        run.agents[1].label = "alphabetical-researcher".to_owned();
+        let runs = vec![&run];
+        let mut live = WorkflowAgentLiveMap::default();
+        live.insert(
+            "a2".to_owned(),
+            WorkflowAgentLiveStatus {
+                activity: Some("Reading the repository".to_owned()),
+                ..Default::default()
+            },
+        );
+
+        let wide = Rect::new(0, 0, 140, 30);
+        let mut wide_state = WorkflowsViewState::default();
+        wide_state.normalize(&runs);
+        let mut wide_buf = Buffer::empty(wide);
+        render_workflows(&mut wide_buf, wide, &runs, &mut wide_state, 0, &live);
+        let wide_text = buf_text(&wide_buf, wide);
+        let wide_roster = wide_state.roster_area.expect("wide roster").width;
+        assert!(
+            wide_roster >= LIVE_STATUS_MIN_WIDTH,
+            "fixture roster {wide_roster} should show live status"
+        );
+        assert!(wide_text.contains("Reading the repository"), "{wide_text}");
+
+        let narrow = Rect::new(0, 0, 64, 30);
+        let mut narrow_state = WorkflowsViewState::default();
+        narrow_state.normalize(&runs);
+        let mut narrow_buf = Buffer::empty(narrow);
+        render_workflows(&mut narrow_buf, narrow, &runs, &mut narrow_state, 0, &live);
+        let narrow_text = buf_text(&narrow_buf, narrow);
+        let narrow_roster = narrow_state.roster_area.expect("narrow roster").width;
+        assert!(
+            narrow_roster < LIVE_STATUS_MIN_WIDTH,
+            "fixture roster {narrow_roster} should hide live status"
+        );
+        assert!(
+            !narrow_text.contains("Reading the repository"),
+            "{narrow_text}"
+        );
+        assert!(
+            narrow_text.contains("alphabetical"),
+            "the agent name stays on the narrow row: {narrow_text}"
+        );
+    }
+
+    #[test]
+    fn workflow_row_marks_come_from_console_glyphs() {
+        let theme = crate::theme::Theme::current();
+        assert_eq!(
+            status_glyph_and_style("user_paused", &theme).0,
+            crate::glyphs::pause_mark()
+        );
+        assert_eq!(
+            status_glyph_and_style("cancelled", &theme).0,
+            crate::glyphs::idle_mark()
+        );
+        assert_eq!(
+            status_glyph_and_style("active", &theme).0,
+            crate::glyphs::running_dot()
+        );
+        assert_eq!(
+            agent_glyph_and_style("queued", &theme).0,
+            crate::glyphs::idle_mark()
+        );
+        assert_eq!(crate::glyphs::play_mark(), "\u{25B6}");
+        assert_eq!(crate::glyphs::pause_mark(), "\u{23F8}");
+        assert_eq!(crate::glyphs::idle_mark(), "\u{25CC}");
     }
 }
