@@ -1910,6 +1910,11 @@ async fn fetch_session_list_pushes_query_and_echoes_seq() {
     assert_eq!(j(nth(&captured, 2), "headless"), "exclude");
     assert_eq!(j(nth(&captured, 2), "limit"), 100);
     assert_eq!(j(nth(&captured, 2), "cwd"), "/dashboard-cwd");
+    assert_eq!(
+        nth(&captured, 2).get("allFolders").and_then(|v| v.as_bool()),
+        Some(true),
+        "dashboard /resume lists every folder"
+    );
     assert_eq!(j(nth(&captured, 3), "headless"), "exclude");
     assert_eq!(j(nth(&captured, 0), "cwd"), ".");
     assert!(

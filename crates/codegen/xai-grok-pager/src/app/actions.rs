@@ -112,7 +112,8 @@ pub enum Action {
         session_id: String,
     },
     /// Open the session picker overlay (from within an active session via /resume).
-    ShowSessionPicker,
+    /// `Some` pre-fills the search with an id or title (`/resume <query>`).
+    ShowSessionPicker(Option<String>),
     /// The session picker overlay was dismissed without a pick.
     /// Invalidate any in-flight list/search/foreign scan so a late response can't fall through to the welcome picker fields.
     SessionPickerClosed,

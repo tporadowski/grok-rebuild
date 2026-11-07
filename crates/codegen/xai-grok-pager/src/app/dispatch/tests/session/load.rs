@@ -2480,6 +2480,36 @@ fn build_welcome_esc_dismisses_spinner_only_loading_picker() {
     let _ = dispatch(Action::SessionPickerClosed, &mut app);
     assert!(!app.session_picker_loading, "picker fully dismissed");
 }
+/// In-session `/resume` follows `[cli].session_picker_grouped`, the same flag the welcome picker uses.
+#[test]
+fn in_session_resume_picker_uses_the_grouped_setting() {
+    use crate::views::modal::ActiveModal;
+    let mut app = test_app_with_agent();
+    app.session_picker_grouped = false;
+    let _ = dispatch(Action::ShowSessionPicker(None), &mut app);
+    let Some(ActiveModal::SessionPicker { grouped, .. }) = get_active_agent(&app)
+        .and_then(|agent| agent.active_modal.as_ref())
+    else {
+        panic!("expected the in-session resume picker");
+    };
+    assert!(
+        !grouped,
+        "ungrouped setting must open a flat in-session resume list"
+    );
+
+    app.session_picker_grouped = true;
+    let _ = dispatch(Action::ShowSessionPicker(None), &mut app);
+    let Some(ActiveModal::SessionPicker { grouped, .. }) = get_active_agent(&app)
+        .and_then(|agent| agent.active_modal.as_ref())
+    else {
+        panic!("expected the in-session resume picker");
+    };
+    assert!(
+        grouped,
+        "grouped setting must keep repo headers in the in-session resume list"
+    );
+}
+
 /// Build mode: an Only-policy modal fetch completing after close and reopen is dropped by the host and incarnation routing.
 /// It cannot leak its rows or query stamp into the replacement Exclude-policy modal.
 #[test]
@@ -2487,7 +2517,7 @@ fn build_mode_close_and_reopen_drop_opposite_policy_response() {
     use xai_grok_shell::session::unified_list::HeadlessPolicy;
     let mut app = test_app_with_agent();
     assert!(!app.chat_mode);
-    let _ = dispatch(Action::ShowSessionPicker, &mut app);
+    let _ = dispatch(Action::ShowSessionPicker(None), &mut app);
     let old_generation = modal_picker_generation(&app);
     let only_effects = dispatch(Action::CycleSessionSourceFilter, &mut app);
     let [
@@ -2508,7 +2538,7 @@ fn build_mode_close_and_reopen_drop_opposite_policy_response() {
         .expect("active agent")
         .active_modal = None;
     let _ = dispatch(Action::SessionPickerClosed, &mut app);
-    let exclude_effects = dispatch(Action::ShowSessionPicker, &mut app);
+    let exclude_effects = dispatch(Action::ShowSessionPicker(None), &mut app);
     let Some(Effect::FetchSessionList {
         host: SessionPickerHost::AgentModal,
         generation: new_generation,
@@ -2963,7 +2993,7 @@ fn picker_generations_reallocate_on_fetch_and_dismissal() {
     let _ = dispatch(Action::FetchSessionList, &mut app);
     let welcome_after_fetch = app.session_picker_generation;
     assert!(welcome_after_fetch > 0, "fetch must allocate a generation");
-    let _ = dispatch(Action::ShowSessionPicker, &mut app);
+    let _ = dispatch(Action::ShowSessionPicker(None), &mut app);
     let Some(&ActiveModal::SessionPicker { generation, .. }) = get_active_agent(&app)
         .expect("active agent")
         .active_modal
@@ -3001,7 +3031,7 @@ fn reopened_modal_drops_prior_incarnation_list_result() {
     use crate::views::modal::ActiveModal;
     let mut app = test_app_with_agent();
     assert!(!app.chat_mode);
-    let effects = dispatch(Action::ShowSessionPicker, &mut app);
+    let effects = dispatch(Action::ShowSessionPicker(None), &mut app);
     let first_generation = modal_picker_generation(&app);
     let [
         Effect::FetchSessionList {
@@ -3020,7 +3050,7 @@ fn reopened_modal_drops_prior_incarnation_list_result() {
         .expect("active agent")
         .active_modal = None;
     let _ = dispatch(Action::SessionPickerClosed, &mut app);
-    let second_effects = dispatch(Action::ShowSessionPicker, &mut app);
+    let second_effects = dispatch(Action::ShowSessionPicker(None), &mut app);
     let second_generation = modal_picker_generation(&app);
     let [
         Effect::FetchSessionList {
@@ -3178,7 +3208,7 @@ fn welcome_fetch_response_does_not_retarget_open_modal() {
     };
     let welcome_generation = *welcome_generation;
     let welcome_seq = *welcome_seq;
-    let _ = dispatch(Action::ShowSessionPicker, &mut app);
+    let _ = dispatch(Action::ShowSessionPicker(None), &mut app);
     let effects = dispatch(
         Action::TaskComplete(TaskResult::SessionListLoaded {
             host: SessionPickerHost::Welcome,
@@ -3358,7 +3388,7 @@ fn modal_result_does_not_cross_agents_and_background_modal_starves() {
     use crate::views::modal::ActiveModal;
     let mut app = test_app_with_agent();
     assert!(!app.chat_mode);
-    let a_effects = dispatch(Action::ShowSessionPicker, &mut app);
+    let a_effects = dispatch(Action::ShowSessionPicker(None), &mut app);
     let a_generation = modal_picker_generation(&app);
     let [Effect::FetchSessionList { seq: a_seq, .. }] = a_effects.as_slice() else {
         panic!("expected agent A modal fetch, got {a_effects:?}");
@@ -3366,7 +3396,7 @@ fn modal_result_does_not_cross_agents_and_background_modal_starves() {
     let a_seq = *a_seq;
     insert_placeholder_agent(&mut app, AgentId(1));
     app.active_view = ActiveView::Agent(AgentId(1));
-    let _ = dispatch(Action::ShowSessionPicker, &mut app);
+    let _ = dispatch(Action::ShowSessionPicker(None), &mut app);
     let b_generation = modal_picker_generation(&app);
     assert_ne!(a_generation, b_generation);
     let effects = dispatch(
@@ -3480,7 +3510,7 @@ fn background_modal_card_detail_survives_welcome_refetch() {
     use crate::views::modal::ActiveModal;
     let mut app = test_app_with_agent();
     assert!(!app.chat_mode);
-    let modal_effects = dispatch(Action::ShowSessionPicker, &mut app);
+    let modal_effects = dispatch(Action::ShowSessionPicker(None), &mut app);
     let modal_generation = modal_picker_generation(&app);
     let [Effect::FetchSessionList { seq: modal_seq, .. }] = modal_effects.as_slice() else {
         panic!("expected modal fetch, got {modal_effects:?}");

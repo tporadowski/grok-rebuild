@@ -1313,20 +1313,34 @@ async fn resolve_session_by_title(
     cwd: &str,
     selection: RecentSessionSelection,
 ) -> anyhow::Result<Option<ResolvedExisting>> {
-    let summaries = xai_grok_shell::session::persistence::list_summaries(Some(cwd)).await?;
+    let summaries = xai_grok_shell::session::persistence::list_summaries(None).await?;
     let candidates: Vec<_> = summaries
         .into_iter()
         .filter(|summary| selection.admits(summary))
         .collect();
-    let Some(chosen) = super::session_title_resolve::select_by_title(arg, &candidates)? else {
+    let Some(chosen) =
+        super::session_title_resolve::select_by_title_in(arg, &candidates, Some(cwd))?
+    else {
+        let titles = candidates
+            .iter()
+            .map(|summary| summary.display_title().to_string())
+            .collect::<Vec<_>>();
+        if let Some(message) =
+            super::session_title_resolve::title_miss_with_similar(arg, &titles)
+        {
+            anyhow::bail!(message);
+        }
         return Ok(None);
     };
     let id = chosen.info.id.to_string();
+    let found_cwd = chosen.info.cwd.trim_end_matches(['/', '\\']);
+    let launch_cwd = cwd.trim_end_matches(['/', '\\']);
+    let original_cwd = (found_cwd != launch_cwd).then(|| PathBuf::from(chosen.info.cwd.clone()));
     tracing::info!(session_id = %id, "Session resolved by title");
     eprintln!("Resuming session {} (matched by title)", id);
     Ok(Some(ResolvedExisting {
         id,
-        original_cwd: None,
+        original_cwd,
         title: chosen.display_title_opt(),
         deferred_local_miss: false,
         suppress_code_restore: false,

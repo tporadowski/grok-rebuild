@@ -1,6 +1,7 @@
 //! Session loading, session pickers, and deep-search dispatchers.
 use super::foreign::{
-    dispatch_fetch_session_list, invalidate_foreign_picker, next_picker_list_generation,
+    dispatch_fetch_session_list, dispatch_fetch_session_list_query, invalidate_foreign_picker,
+    next_picker_list_generation,
 };
 use super::fork::build_child_fork_marker;
 use super::lifecycle::{
@@ -585,6 +586,7 @@ pub(in crate::app::dispatch) fn remove_session_from_pickers(
             entries_query,
             pending_delete,
             detail_seq,
+            grouped,
             ..
         }) = agent.active_modal.as_mut()
     {
@@ -610,7 +612,7 @@ pub(in crate::app::dispatch) fn remove_session_from_pickers(
                 state.query(),
                 entries_query.as_deref(),
             ),
-            true,
+            *grouped,
             *content_loading,
             *source_filter,
             Some(current_repo.as_str()),
@@ -1650,11 +1652,21 @@ pub(in crate::app::dispatch) fn handle_deep_search_results(
     *target.content_loading = false;
     vec![]
 }
-pub(in crate::app::dispatch) fn dispatch_show_session_picker(app: &mut AppView) -> Vec<Effect> {
+pub(in crate::app::dispatch) fn dispatch_show_session_picker(
+    app: &mut AppView,
+    query: Option<String>,
+) -> Vec<Effect> {
     with_active_agent(app, |agent| {
         agent.active_modal = Some(crate::views::modal::session_picker_modal(None));
+        if let Some(query) = query.as_deref().filter(|query| !query.is_empty())
+            && let Some(crate::views::modal::ActiveModal::SessionPicker { state, .. }) =
+                agent.active_modal.as_mut()
+        {
+            state.set_query(query);
+            state.search_active = true;
+        }
     });
-    dispatch_fetch_session_list(app)
+    dispatch_fetch_session_list_query(app, query)
 }
 /// The picker (modal `/resume` or welcome screen) was dismissed without a pick.
 /// A modal's fields (and generation) die with it, so its in-flight fetches are dropped by host liveness.

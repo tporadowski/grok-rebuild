@@ -293,13 +293,13 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         } => dispatch_startup_fork_session(app, parent_session_id, parent_cwd, new_session_id),
         Action::FetchSessionList => dispatch_fetch_session_list(app),
         Action::CycleSessionSourceFilter => dispatch_cycle_session_source_filter(app),
-        Action::ShowSessionPicker => {
+        Action::ShowSessionPicker(query) => {
             if app.workspace_dashboard_enabled
                 && matches!(app.active_view, ActiveView::AgentDashboard)
             {
-                dispatch_dashboard_open_session_picker(app)
+                dispatch_dashboard_open_session_picker(app, query)
             } else {
-                dispatch_show_session_picker(app)
+                dispatch_show_session_picker(app, query)
             }
         }
         Action::SessionPickerClosed => dispatch_session_picker_closed(app),
@@ -982,21 +982,17 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                     || Some(window.get()) != models.window_after_switch_to(&choice.model_id)
             });
             let Some(session_id) = agent.session.session_id.clone() else {
-                if choice.context_window_selection.is_some() {
-                    agent
-                        .scrollback
-                        .push_block(
-                            crate::scrollback::block::RenderBlock::system(
-                                "Context window applies once the session starts; run /context-window then",
-                            ),
-                        );
-                }
                 let ModelChoice {
-                    model_id, effort, ..
+                    model_id,
+                    effort,
+                    context_window_selection,
                 } = choice;
                 let prev_model = agent.session.models.current.clone();
                 let prev_effort = agent.session.models.reasoning_effort;
                 agent.session.models.set_current(model_id.clone(), effort);
+                if let Some(selection) = context_window_selection {
+                    agent.session.models.context_window_selection = Some(selection.get());
+                }
                 let resolved_effort = agent.session.models.reasoning_effort;
                 let unchanged =
                     prev_model.as_ref() == Some(&model_id) && prev_effort == resolved_effort;
@@ -1011,6 +1007,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                         model_id: model_id.clone(),
                         effort,
                         prev_model_id: rollback_prev,
+                        context_window_selection,
                     });
                 return if unchanged {
                     vec![]

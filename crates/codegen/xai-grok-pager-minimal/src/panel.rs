@@ -634,6 +634,7 @@ mod tests {
             source_filter: xai_grok_pager::views::session_picker::SourceFilter::default(),
             pending_delete: None,
             entries_query: None,
+            grouped: true,
         });
         a
     }

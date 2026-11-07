@@ -68,7 +68,7 @@ fn dashboard_resume_owns_picker_lifecycle_and_leaves_welcome_untouched() {
         Some("welcome-marker")
     );
     assert!(
-        dispatch(Action::ShowSessionPicker, &mut app).is_empty(),
+        dispatch(Action::ShowSessionPicker(None), &mut app).is_empty(),
         "open is idempotent"
     );
     assert_eq!(
@@ -137,7 +137,7 @@ fn session_picker_routing_remains_unchanged_outside_dashboard_v2() {
     let mut v1 = test_app();
     v1.active_view = ActiveView::AgentDashboard;
     ensure_dashboard_state(&mut v1);
-    let effects = dispatch(Action::ShowSessionPicker, &mut v1);
+    let effects = dispatch(Action::ShowSessionPicker(None), &mut v1);
     assert!(v1.dashboard_session_picker.is_none());
     assert!(matches!(
         effects.as_slice(),
@@ -149,7 +149,7 @@ fn session_picker_routing_remains_unchanged_outside_dashboard_v2() {
     ));
     let mut agent_view = test_app_with_agent();
     agent_view.workspace_dashboard_enabled = true;
-    let effects = dispatch(Action::ShowSessionPicker, &mut agent_view);
+    let effects = dispatch(Action::ShowSessionPicker(None), &mut agent_view);
     assert!(agent_view.dashboard_session_picker.is_none());
     assert!(matches!(
         effects.as_slice(),
@@ -1515,6 +1515,7 @@ fn dashboard_confirm_worktree_applies_pending_model_and_plan() {
             id: model_id.clone(),
             effort: Some(xai_grok_shell::sampling::types::ReasoningEffort::High),
             display: "Grok 4.5".to_string(),
+            context_window_selection: None,
         });
         d.pending_mode = crate::views::dashboard::DashboardDispatchMode::Plan;
         d.dispatch.set_text("do the thing");
@@ -1542,6 +1543,7 @@ fn dashboard_confirm_worktree_applies_pending_model_and_plan() {
             model_id,
             effort: Some(xai_grok_shell::sampling::types::ReasoningEffort::High),
             prev_model_id: None,
+            context_window_selection: None,
         }),
         "effort must be stashed for the shell",
     );
@@ -3702,6 +3704,7 @@ fn dashboard_open_reseeds_pending_model_and_mode() {
             id: acp::ModelId::new(std::sync::Arc::from("grok-4.5")),
             effort: None,
             display: "Grok 4.5".to_string(),
+            context_window_selection: None,
         });
         d.pending_mode = DashboardDispatchMode::Plan;
     }
@@ -3738,7 +3741,7 @@ fn dashboard_open_seeds_auto_from_app_permission_mode() {
         "a gated-off Auto default must seed Normal"
     );
 }
-/// Peek status follows the LIVE turn activity while running: a turn that's running with no live activity (e.g. permission just granted, waiting for tool results) reports "Working" even though a prior agent message is the newest scrollback block, never the stale "Response". When the turn goes idle the same message becomes the final "Response". An actively streaming message (tracker `Responding`) reads "Response".
+/// Peek status follows the LIVE turn activity while running: a turn that's running with no live activity (e.g. permission just granted, waiting for tool results) reports "Working" even though a prior agent message is the newest scrollback block, never the stale "Response". When the turn goes idle the same message becomes the final "Response". An actively streaming message (tracker `Responding`) reads "Responding".
 #[test]
 fn extract_response_type_running_no_activity_is_working() {
     use crate::acp::meta::NotificationMeta;
@@ -3767,7 +3770,7 @@ fn extract_response_type_running_no_activity_is_working() {
         agent.session.turn_activity(),
         Some(crate::acp::tracker::TurnActivity::Responding)
     ));
-    assert_eq!(extract_last_response_type(agent), "Response");
+    assert_eq!(extract_last_response_type(agent), "Responding");
 }
 /// Peek status: when a tool is actively running (`turn_activity()` is
 /// `ToolRunning`) the live activity overrides the scrollback scan: even a still-streaming agent message that's the newest block reports "Working" rather than the stale "Response", because the agent has moved on to the (granted) tool whose own block isn't the newest entry yet.
@@ -3978,6 +3981,7 @@ fn dashboard_dispatch_applies_pending_model_and_plan() {
             id: model_id.clone(),
             effort: Some(xai_grok_shell::sampling::types::ReasoningEffort::High),
             display: "Grok 4.5".to_string(),
+            context_window_selection: None,
         });
         d.pending_mode = crate::views::dashboard::DashboardDispatchMode::Plan;
     }
@@ -3995,6 +3999,7 @@ fn dashboard_dispatch_applies_pending_model_and_plan() {
             model_id,
             effort: Some(xai_grok_shell::sampling::types::ReasoningEffort::High),
             prev_model_id: None,
+            context_window_selection: None,
         }),
         "effort must be stashed for the shell"
     );
@@ -4003,6 +4008,37 @@ fn dashboard_dispatch_applies_pending_model_and_plan() {
         Some(xai_grok_tools::types::SessionMode::Plan),
     );
     assert_eq!(agent.plan_mode_pending, Some(true));
+}
+/// A dashboard model pick that includes a context window keeps that window on the spawned session.
+#[serial_test::serial(GROK_AGENT_DASHBOARD)]
+#[test]
+fn dashboard_dispatch_keeps_the_picked_context_window() {
+    use std::num::NonZeroU64;
+    let mut app = test_app();
+    seed_model(&mut app, "grok-4.5", "Grok 4.5");
+    open_dashboard(&mut app);
+    let model_id = acp::ModelId::new(std::sync::Arc::from("grok-4.5"));
+    let window = NonZeroU64::new(128_000);
+    if let Some(d) = app.dashboard.as_mut() {
+        d.pending_model = Some(crate::views::dashboard::PendingDispatchModel {
+            id: model_id.clone(),
+            effort: None,
+            display: "Grok 4.5".to_string(),
+            context_window_selection: window,
+        });
+    }
+    let _ = dispatch_dashboard_dispatch(&mut app, "do the thing".into(), false);
+    let new_id = *app.agents.keys().next().unwrap();
+    let agent = test_agent(&app, new_id);
+    assert_eq!(
+        agent
+            .session
+            .deferred_model_switch
+            .as_ref()
+            .and_then(|switch| switch.context_window_selection),
+        window,
+        "the picked context window must ride on the deferred model switch"
+    );
 }
 /// The `[+ New Agent]` button path (`DashboardCreateNewAgentWithDetail`, no queued prompt) applies the same staged model and mode as the dispatch path: the model id threads into `CreateSession`, the effort is stashed as a deferred switch, and plan mode is deferred and optimistic.
 #[serial_test::serial(GROK_AGENT_DASHBOARD)]
@@ -4017,6 +4053,7 @@ fn dashboard_new_agent_button_applies_pending_model_and_plan() {
             id: model_id.clone(),
             effort: Some(xai_grok_shell::sampling::types::ReasoningEffort::High),
             display: "Grok 4.5".to_string(),
+            context_window_selection: None,
         });
         d.pending_mode = crate::views::dashboard::DashboardDispatchMode::Plan;
     }
@@ -4034,6 +4071,7 @@ fn dashboard_new_agent_button_applies_pending_model_and_plan() {
             model_id,
             effort: Some(xai_grok_shell::sampling::types::ReasoningEffort::High),
             prev_model_id: None,
+            context_window_selection: None,
         }),
         "effort must be stashed for the shell"
     );

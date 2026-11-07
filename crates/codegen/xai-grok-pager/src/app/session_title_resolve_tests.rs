@@ -458,3 +458,30 @@ async fn duplicate_legacy_id_is_not_title_addressable() {
         "duplicate-id session must fail closed, not resume: {msg}"
     );
 }
+
+#[test]
+fn separator_insensitive_and_fuzzy_words_select_one_session() {
+    let sessions = [
+        summary("a", Some("Fix login bug"), false),
+        summary("b", Some("Blog prefix cleanup"), false),
+    ];
+    assert_eq!(
+        id_of(select_by_title("fix-login-bug", &sessions).unwrap()),
+        "a"
+    );
+    assert_eq!(id_of(select_by_title("bug fix", &sessions).unwrap()), "a");
+    // "log" is a prefix of "login", so this is the one fuzzy match, not a miss.
+    assert_eq!(id_of(select_by_title("log fix", &sessions).unwrap()), "a");
+}
+
+#[test]
+fn title_miss_lists_similar_titles() {
+    let hint = title_miss_with_similar(
+        "fixx",
+        &["Fix login bug".into(), "Unrelated notes".into()],
+    )
+    .expect("near title");
+    assert!(hint.contains("Similar titles"), "{hint}");
+    assert!(hint.contains("Fix login bug"), "{hint}");
+    assert!(!hint.contains("Unrelated"), "{hint}");
+}

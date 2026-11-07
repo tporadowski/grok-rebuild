@@ -36,34 +36,82 @@ pub(crate) fn select_by_title<'a>(
     arg: &str,
     summaries: &'a [Summary],
 ) -> anyhow::Result<Option<&'a Summary>> {
+    select_by_title_in(arg, summaries, None)
+}
+
+/// Same as [`select_by_title`]. `current_cwd` only orders an ambiguous listing: the current folder, then its checkouts, newest first inside each band.
+pub(crate) fn select_by_title_in<'a>(
+    arg: &str,
+    summaries: &'a [Summary],
+    current_cwd: Option<&str>,
+) -> anyhow::Result<Option<&'a Summary>> {
+    use xai_grok_shell::session::resume_match::{
+        folder_band, query_matches, separator_insensitive_title,
+    };
     if is_uuid_shaped(arg) {
         return Ok(None);
     }
-    let needle = title_key(arg);
-    if needle.is_empty() {
+    if title_key(arg).is_empty() {
         return Ok(None);
     }
-    let matches: Vec<&Summary> = summaries
-        .iter()
-        .filter(|s| title_key(s.display_title()) == needle)
-        .collect();
-    match matches.as_slice() {
+    let mut exact: Vec<&Summary> = Vec::new();
+    let mut fuzzy: Vec<&Summary> = Vec::new();
+    for summary in summaries {
+        if separator_insensitive_title(summary.display_title(), arg) {
+            exact.push(summary);
+        } else if query_matches(
+            "",
+            &[summary.display_title(), summary.session_summary.as_str()],
+            arg,
+        ) {
+            fuzzy.push(summary);
+        }
+    }
+    let tier = if !exact.is_empty() { exact } else { fuzzy };
+    match tier.as_slice() {
         [] => Ok(None),
         [only] => Ok(Some(*only)),
         _ => {
-            let manual: Vec<&&Summary> = matches
+            let manual: Vec<&&Summary> = tier
                 .iter()
-                .filter(|s| {
-                    s.manual_title_opt()
-                        .is_some_and(|t| title_key(&t) == needle)
+                .filter(|summary| {
+                    summary
+                        .manual_title_opt()
+                        .is_some_and(|title| separator_insensitive_title(&title, arg))
                 })
                 .collect();
             if let [only] = manual.as_slice() {
                 return Ok(Some(**only));
             }
-            let listing = matches
+            let mut ordered = tier.clone();
+            ordered.sort_by(|left, right| {
+                folder_band(
+                    &left.info.cwd,
+                    left.git_root_dir.as_deref(),
+                    left.source_workspace_dir.as_deref(),
+                    left.worktree_label.as_deref(),
+                    current_cwd,
+                )
+                .cmp(&folder_band(
+                    &right.info.cwd,
+                    right.git_root_dir.as_deref(),
+                    right.source_workspace_dir.as_deref(),
+                    right.worktree_label.as_deref(),
+                    current_cwd,
+                ))
+                .then(right.updated_at.cmp(&left.updated_at))
+                .then(left.info.id.to_string().cmp(&right.info.id.to_string()))
+            });
+            let listing = ordered
                 .iter()
-                .map(|s| format!("  {}  {:?}", s.info.id, s.display_title()))
+                .map(|summary| {
+                    format!(
+                        "  {}  {:?}  updated {}",
+                        summary.info.id,
+                        summary.display_title(),
+                        summary.updated_at.to_rfc3339()
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             anyhow::bail!(
@@ -73,6 +121,21 @@ pub(crate) fn select_by_title<'a>(
             );
         }
     }
+}
+
+/// Miss text plus up to five near titles, newest-first as the caller ordered `titles`.
+pub(crate) fn title_miss_with_similar(arg: &str, titles: &[String]) -> Option<String> {
+    let similar = xai_grok_shell::session::resume_match::similar_titles(arg, titles);
+    if similar.is_empty() {
+        return None;
+    }
+    let mut message = title_miss_hint(arg);
+    message.push_str("\nSimilar titles:");
+    for title in similar {
+        message.push_str("\n  ");
+        message.push_str(&format!("{title:?}"));
+    }
+    Some(message)
 }
 
 /// Outcome of the pre-sandbox resolution of an explicit resume arg.
@@ -120,19 +183,26 @@ pub(crate) fn presandbox_resume_target(
     if xai_grok_shell::session::resolve_local_session_any_cwd(arg).is_some() {
         return Ok(PinnedResumeTarget::Id(arg.to_string()));
     }
-    let summaries =
-        xai_grok_shell::session::persistence::local_summaries_for_cwd_sync(cwd, selection)
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to list local sessions while resolving --resume {arg:?}: {e}"
-                )
-            })?;
-    Ok(select_by_title(arg, &summaries)?
-        .map(|s| PinnedResumeTarget::Title {
-            id: s.info.id.to_string(),
-            sandbox_profile: s.sandbox_profile.clone(),
-        })
-        .unwrap_or(PinnedResumeTarget::Unresolved))
+    let summaries = xai_grok_shell::session::persistence::local_summaries_all_sync(selection)
+        .map_err(|e| {
+            anyhow::anyhow!("failed to list local sessions while resolving --resume {arg:?}: {e}")
+        })?;
+    match select_by_title_in(arg, &summaries, Some(cwd))? {
+        Some(summary) => Ok(PinnedResumeTarget::Title {
+            id: summary.info.id.to_string(),
+            sandbox_profile: summary.sandbox_profile.clone(),
+        }),
+        None => {
+            let titles = summaries
+                .iter()
+                .map(|summary| summary.display_title().to_string())
+                .collect::<Vec<_>>();
+            if let Some(message) = title_miss_with_similar(arg, &titles) {
+                anyhow::bail!(message);
+            }
+            Ok(PinnedResumeTarget::Unresolved)
+        }
+    }
 }
 
 /// `local_miss_target` is `Some(arg)` only when materialization deferred exactly this target after missing local id/title resolution.

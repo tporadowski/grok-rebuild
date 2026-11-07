@@ -46,6 +46,13 @@ pub(in crate::app::dispatch) fn next_picker_list_generation(app: &mut AppView) -
 }
 
 pub(in crate::app::dispatch) fn dispatch_fetch_session_list(app: &mut AppView) -> Vec<Effect> {
+    dispatch_fetch_session_list_query(app, None)
+}
+
+pub(in crate::app::dispatch) fn dispatch_fetch_session_list_query(
+    app: &mut AppView,
+    query: Option<String>,
+) -> Vec<Effect> {
     // The wipe below destroys the welcome picker state that any still-pending result was issued for So the welcome generation reallocates on every call, even when the fetch belongs to an open modal, which gets its own fresh generation
     // So the welcome generation reallocates on every call, even when the fetch belongs to an open modal, which gets its own fresh generation
     app.session_picker_generation = app.alloc_picker_generation();
@@ -83,7 +90,7 @@ pub(in crate::app::dispatch) fn dispatch_fetch_session_list(app: &mut AppView) -
         host,
         cwd_override: None,
         generation,
-        query: None,
+        query: query.filter(|text| !text.is_empty()),
         seq,
         kind_filter,
         headless_policy: active_picker_headless_policy(app),
@@ -102,12 +109,21 @@ pub(in crate::app::dispatch) fn dispatch_fetch_session_list(app: &mut AppView) -
         )
     };
     let foreign_loading = foreign_effect.is_some();
+    let picker_grouped = app.session_picker_grouped;
     let mut modal_lanes_set = false;
     if let Some(agent) = get_active_agent_mut(app)
         && let Some(ActiveModal::SessionPicker {
-            lanes, generation, ..
+            lanes,
+            generation,
+            grouped,
+            ..
         }) = agent.active_modal.as_mut()
     {
+        // Generation 0 is the fresh modal from `session_picker_modal`. A helper-seeded
+        // modal already has a real generation and keeps the grouped value it was built with.
+        if *generation == 0 {
+            *grouped = picker_grouped;
+        }
         lanes.foreign_loading = foreign_loading;
         lanes.pending_notice = None;
         if let Some(fresh) = modal_generation {
@@ -268,6 +284,7 @@ pub(in crate::app::dispatch) fn handle_foreign_sessions_scanned(
             detail_seq,
             entries_query,
             source_filter,
+            grouped,
             ..
         }) = agent.active_modal.as_mut()
             && lanes.foreign_loading
@@ -282,7 +299,7 @@ pub(in crate::app::dispatch) fn handle_foreign_sessions_scanned(
                 content_loading,
                 entries_query,
                 source_filter: *source_filter,
-                grouped: true,
+                grouped: *grouped,
                 current_repo,
                 generation: *generation,
                 list_seq,

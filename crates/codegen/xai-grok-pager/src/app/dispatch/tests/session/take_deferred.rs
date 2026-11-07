@@ -220,5 +220,6 @@ fn switch(model_id: acp::ModelId, effort: Option<ReasoningEffort>) -> DeferredMo
         model_id,
         effort,
         prev_model_id: None,
+        context_window_selection: None,
     }
 }

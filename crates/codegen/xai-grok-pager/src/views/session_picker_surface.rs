@@ -255,7 +255,8 @@ fn render_simple_session_picker_modal(
         })
         .collect();
     let current_repo = crate::views::session_picker::repo_name_from_cwd(&ctx.cwd.to_string_lossy());
-    let (entries, non_selectable) = crate::views::session_picker::build_grouped_picker_entries(
+    let (entries, non_selectable) = crate::views::session_picker::build_visible_picker_entries(
+        ctx.grouped,
         sessions,
         &filtered,
         &built,

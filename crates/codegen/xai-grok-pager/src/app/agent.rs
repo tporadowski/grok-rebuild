@@ -651,6 +651,8 @@ pub struct DeferredModelSwitch {
     pub effort: Option<ReasoningEffort>,
     /// Displayed model at stash time, the rollback target (`Effect::SwitchModel.prev_model_id`) if the switch fails.
     pub prev_model_id: Option<acp::ModelId>,
+    /// Context window to apply with the switch. `None` leaves the session selection alone.
+    pub context_window_selection: Option<std::num::NonZeroU64>,
 }
 /// Cap on remembered prompts, shared by every recall list.
 pub const PROMPT_HISTORY_CAP: usize = 200;

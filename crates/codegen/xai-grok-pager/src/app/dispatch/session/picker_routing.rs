@@ -117,6 +117,7 @@ pub(in crate::app::dispatch) fn picker_for_host(
                 detail_seq,
                 entries_query,
                 source_filter,
+                grouped,
                 ..
             }) = agent.active_modal.as_mut()
             else {
@@ -131,7 +132,7 @@ pub(in crate::app::dispatch) fn picker_for_host(
                 content_loading,
                 entries_query,
                 source_filter: *source_filter,
-                grouped: true,
+                grouped: *grouped,
                 current_repo,
                 generation: *generation,
                 list_seq,

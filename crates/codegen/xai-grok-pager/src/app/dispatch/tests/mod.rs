@@ -902,6 +902,7 @@ fn open_session_picker_with(
         entries_query: None,
         source_filter: crate::views::session_picker::SourceFilter::default(),
         pending_delete: None,
+        grouped: true,
     });
 }
 /// Live generation of the active agent's SessionPicker modal, for stamping modal-host results the way the executors echo them.

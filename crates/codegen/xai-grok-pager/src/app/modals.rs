@@ -955,6 +955,7 @@ impl AgentView {
                 entries_query,
                 source_filter,
                 pending_delete,
+                grouped,
                 ..
             } => {
                 use crate::views::session_picker::{
@@ -972,7 +973,7 @@ impl AgentView {
                     entries.as_deref(),
                     content_results.as_deref(),
                     effective_filter_query(state.query(), entries_query.as_deref()),
-                    true,
+                    *grouped,
                     *content_loading,
                     *source_filter,
                     Some(current_repo.as_str()),
@@ -1874,6 +1875,7 @@ impl AgentView {
                 entries_query,
                 source_filter,
                 pending_delete,
+                grouped,
                 ..
             } = active_modal
             {
@@ -2024,7 +2026,8 @@ impl AgentView {
                         &self.session.cwd.to_string_lossy(),
                     );
                     let (mut picker_entries, mut non_sel_flags) =
-                        crate::views::session_picker::build_grouped_picker_entries(
+                        crate::views::session_picker::build_visible_picker_entries(
+                            *grouped,
                             entries_data,
                             &filtered_indices,
                             &built,
@@ -2453,6 +2456,7 @@ mod session_picker_delete_tests {
             entries_query: None,
             source_filter: crate::views::session_picker::SourceFilter::default(),
             pending_delete: None,
+            grouped: true,
         });
     }
 

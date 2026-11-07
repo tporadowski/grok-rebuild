@@ -715,6 +715,14 @@ pub(crate) fn execute(
                                 serde_json::Value::Bool(true),
                             );
                         }
+                        if host
+                            == crate::views::session_picker_surface::SessionPickerHost::Dashboard
+                        {
+                            obj.insert(
+                                "allFolders".into(),
+                                serde_json::Value::Bool(true),
+                            );
+                        }
                         if let Some(kinds) = &kind_filter {
                             obj.insert(
                                 "_meta".into(),

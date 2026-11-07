@@ -172,6 +172,8 @@ pub fn session_picker_modal(previous_palette: Option<PaletteSnapshot>) -> Active
         entries_query: None,
         source_filter: crate::views::session_picker::SourceFilter::default(),
         pending_delete: None,
+        // Fetch stamps the real `[cli].session_picker_grouped` value while generation is still 0.
+        grouped: true,
     }
 }
 /// The currently active modal dialog, if any.
@@ -243,6 +245,9 @@ pub enum ActiveModal {
         source_filter: crate::views::session_picker::SourceFilter,
         /// Session armed for delete via `d` (see [`crate::views::session_picker::PendingDelete`]).
         pending_delete: Option<crate::views::session_picker::PendingDelete>,
+        /// Same flag as the welcome picker (`[cli].session_picker_grouped`).
+        /// `false` is the flat list; the modal used to ignore the flag and always group.
+        grouped: bool,
     },
     /// How-to documentation list modal (wider picker style).
     DocPicker {

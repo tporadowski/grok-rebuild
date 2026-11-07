@@ -297,7 +297,10 @@ fn rearm_session_overlay(app: &mut AppView, id: AgentId) {
         d.attached_agent = Some(id);
     }
 }
-pub(super) fn dispatch_dashboard_open_session_picker(app: &mut AppView) -> Vec<Effect> {
+pub(super) fn dispatch_dashboard_open_session_picker(
+    app: &mut AppView,
+    query: Option<String>,
+) -> Vec<Effect> {
     use crate::views::session_picker::SourceFilter;
     use crate::views::session_picker_surface::{SessionPickerHost, SessionPickerSurface};
     if !app.workspace_dashboard_enabled
@@ -312,6 +315,10 @@ pub(super) fn dispatch_dashboard_open_session_picker(app: &mut AppView) -> Vec<E
         .map_or_else(|| app.cwd.clone(), |dashboard| dashboard.cwd.clone());
     let generation = app.alloc_picker_generation();
     let mut surface = SessionPickerSurface::new(generation);
+    if let Some(query) = query.as_deref().filter(|query| !query.is_empty()) {
+        surface.state.set_query(query);
+        surface.state.search_active = true;
+    }
     surface.source_filter = SourceFilter::Local;
     surface.loading = true;
     surface.list_seq += 1;
@@ -322,7 +329,7 @@ pub(super) fn dispatch_dashboard_open_session_picker(app: &mut AppView) -> Vec<E
         host: SessionPickerHost::Dashboard,
         cwd_override: Some(cwd),
         generation,
-        query: None,
+        query: query.filter(|text| !text.is_empty()),
         seq,
         kind_filter: Some(vec!["build".to_owned()]),
         headless_policy,
@@ -805,7 +812,9 @@ pub(super) fn dispatch_dashboard_open_location_picker(app: &mut AppView) -> Vec<
     }
     let cwd = app.cwd.clone();
     let recent = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(crate::recent_dirs::collect_recent_dirs(10))
+        tokio::runtime::Handle::current().block_on(crate::recent_dirs::collect_recent_dirs(
+            crate::recent_dirs::DASHBOARD_RECENT_FOLDER_LIMIT,
+        ))
     });
     let worktrees = crate::git_info::worktree_label_index();
     let worktree_label = |path: &std::path::Path| -> Option<String> {
@@ -1268,18 +1277,16 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
             dispatch(Action::ExitDashboard, app)
         }
         CommandResult::Action(Action::SwitchModel(choice)) => {
-            stage_dashboard_model(app, choice.model_id, choice.effort);
-            if choice.context_window_selection.is_some()
-                && let Some(d) = app.dashboard.as_mut()
-            {
-                d.error_toast = Some(
-                    "Context window applies per session; run /context-window after spawn".into(),
-                );
-            }
+            stage_dashboard_model(
+                app,
+                choice.model_id,
+                choice.effort,
+                choice.context_window_selection,
+            );
             vec![]
         }
         CommandResult::Action(Action::SetDefaultModel(model_id)) => {
-            stage_dashboard_model(app, model_id, None);
+            stage_dashboard_model(app, model_id, None, None);
             vec![]
         }
         CommandResult::Action(Action::SetPlanMode(_)) => {
@@ -1343,6 +1350,7 @@ fn stage_dashboard_model(
     app: &mut AppView,
     model_id: acp::ModelId,
     effort: Option<xai_grok_shell::sampling::types::ReasoningEffort>,
+    context_window_selection: Option<std::num::NonZeroU64>,
 ) {
     let display = app
         .models
@@ -1358,6 +1366,7 @@ fn stage_dashboard_model(
             id: model_id,
             effort,
             display,
+            context_window_selection,
         });
     }
 }
@@ -1371,11 +1380,14 @@ pub(super) fn apply_pending_dispatch_config(
     policy_block: Option<&'static str>,
 ) {
     use crate::views::dashboard::DashboardDispatchMode;
-    if let Some(m) = pending_model {
-        agent.session.deferred_model_switch = m.effort.map(|e| DeferredModelSwitch {
+    if let Some(m) = pending_model
+        && (m.effort.is_some() || m.context_window_selection.is_some())
+    {
+        agent.session.deferred_model_switch = Some(DeferredModelSwitch {
             model_id: m.id.clone(),
-            effort: Some(e),
+            effort: m.effort,
             prev_model_id: None,
+            context_window_selection: m.context_window_selection,
         });
     }
     let pending_mode =

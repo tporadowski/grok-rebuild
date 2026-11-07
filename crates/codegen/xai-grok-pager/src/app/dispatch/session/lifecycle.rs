@@ -46,6 +46,7 @@ pub(crate) fn take_deferred_model_switch(
         model_id,
         mut effort,
         prev_model_id,
+        context_window_selection,
     }) = stashed
     {
         let effort_error = match cli_effort_token {
@@ -65,6 +66,7 @@ pub(crate) fn take_deferred_model_switch(
                 model_id,
                 effort,
                 prev_model_id,
+                context_window_selection,
             }),
             effort_error,
         };
@@ -91,6 +93,7 @@ pub(crate) fn take_deferred_model_switch(
                 model_id: current,
                 effort: Some(effort),
                 prev_model_id: None,
+                context_window_selection: None,
             }),
             effort_error: None,
         },
@@ -1477,6 +1480,7 @@ pub(in crate::app::dispatch) fn handle_session_created(
                 session_id: session_id_clone.clone(),
                 choice: ModelChoice {
                     effort: switch.effort,
+                    context_window_selection: switch.context_window_selection,
                     ..ModelChoice::new(switch.model_id)
                 },
                 prev_model_id: switch.prev_model_id,
@@ -1615,6 +1619,7 @@ pub(in crate::app::dispatch) fn handle_worktree_session_created(
                 session_id: session_id_clone.clone(),
                 choice: ModelChoice {
                     effort: switch.effort,
+                    context_window_selection: switch.context_window_selection,
                     ..ModelChoice::new(switch.model_id)
                 },
                 prev_model_id: switch.prev_model_id,
@@ -2003,6 +2008,7 @@ pub(in crate::app::dispatch) fn dispatch_agent_type_mismatch_answered(
                     model_id,
                     effort,
                     prev_model_id: None,
+                    context_window_selection: None,
                 });
             }
         }

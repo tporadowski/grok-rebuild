@@ -383,11 +383,10 @@ fn selectable_fallback<T>(map: &[Option<T>], preferred: usize) -> Option<usize> 
                 .find(|&index| map.get(index).is_some_and(Option::is_some))
         })
 }
-/// Case-insensitive substring match (callers pass a pre-lowercased query). Deliberately not an
-/// ordered-chars subsequence match. That matched so loosely (e.g. "rc" hitting "rust-check") that
-/// spurious title rows drowned out the results users actually searched for.
+/// Resume text match: separator-insensitive title, then fuzzy words.
+/// A word matches the start of a word. "rc" does not hit "rust-check", and "log" does not hit "Blog".
 pub(crate) fn fuzzy_matches_session(name: &str, query: &str) -> bool {
-    query.is_empty() || name.to_lowercase().contains(query)
+    xai_grok_shell::session::resume_match::query_matches("", &[name], query)
 }
 /// The query the picker's local fuzzy filter should apply on top of the current entries. The server
 /// matches message content as well as title, so the local fuzzy match is skipped: re-applying it
@@ -413,15 +412,16 @@ pub(crate) fn filter_session_entries(
     let Some(entries) = entries else {
         return vec![];
     };
-    let q = query.to_lowercase();
     entries
         .iter()
         .enumerate()
         .filter(|(_, e)| {
             source_filter.matches(&e.source, e.session_kind.as_deref())
-                && (query.is_empty()
-                    || fuzzy_matches_session(&e.id, &q)
-                    || fuzzy_matches_session(&e.summary, &q))
+                && xai_grok_shell::session::resume_match::query_matches(
+                    &e.id,
+                    &[&e.summary],
+                    query,
+                )
         })
         .map(|(i, _)| i)
         .collect()
@@ -736,6 +736,49 @@ pub(crate) fn build_session_entry_data(
         })
         .collect()
 }
+/// Grouped rows when `grouped` is set; otherwise a flat list in the caller's order.
+/// The dashboard resume list stays flat so the current folder and its checkouts stay ahead of other folders.
+pub(crate) fn build_visible_picker_entries<'a>(
+    grouped: bool,
+    entries_data: &'a [SessionPickerEntry],
+    filtered_indices: &[usize],
+    built: &'a [SessionEntryData],
+    fields_vecs: &'a [Vec<PickerField<'a>>],
+    state: &PickerState,
+    current_repo: Option<&str>,
+) -> (Vec<PickerEntry<'a>>, Vec<bool>) {
+    if grouped {
+        return build_grouped_picker_entries(
+            entries_data,
+            filtered_indices,
+            built,
+            fields_vecs,
+            state,
+            current_repo,
+        );
+    }
+    let mut entries = Vec::with_capacity(built.len());
+    let mut non_selectable = Vec::with_capacity(built.len());
+    for (row, fields) in built.iter().zip(fields_vecs.iter()) {
+        non_selectable.push(false);
+        entries.push(PickerEntry::Row(PickerRow {
+            label: &row.summary,
+            right_label: &row.right_text,
+            selected: row.is_selected,
+            expanded: row.is_expanded,
+            fields,
+            description_lines: &[],
+            summary_lines: &[],
+            dimmed: false,
+            indent: 0,
+            badge: row.badge,
+            badge_color: None,
+            collapsible: row.collapsible,
+            underline_last_desc: false,
+        }));
+    }
+    (entries, non_selectable)
+}
 /// Build grouped picker entries: sessions grouped by `repo_name`, with non-selectable `Header` rows separating each group.
 /// The current working directory's repo group is pinned first, the rest are alphabetical.
 /// Returns the entry list and a boolean mask where `true` marks non-selectable header rows.
@@ -954,15 +997,57 @@ mod tests {
     fn repo_name_from_cwd_single_dir() {
         assert_eq!(repo_name_from_cwd("/xai"), "xai");
     }
-    /// Substring-only title matching: the old ordered-chars fallback let short queries match most titles, drowning real hits in junk rows.
+    /// Word-prefix resume match: separators are ignored, words match in any order, and a fragment inside a word does not.
     #[test]
-    fn fuzzy_matches_session_is_substring_only() {
+    fn fuzzy_matches_session_uses_final_resume_rule() {
         assert!(fuzzy_matches_session("Rust-Check pipeline", "rust-check"));
         assert!(fuzzy_matches_session("Fix session picker", "picker"));
+        assert!(fuzzy_matches_session("Fix login bug", "fix-login-bug"));
+        assert!(fuzzy_matches_session("Fix login bug", "bug fix"));
         assert!(fuzzy_matches_session("anything", ""));
         assert!(
             !fuzzy_matches_session("rust-check", "rc"),
             "ordered-chars subsequence must no longer match"
+        );
+        assert!(
+            !fuzzy_matches_session("Blog prefix cleanup", "log fix"),
+            "log is not at the start of Blog"
+        );
+    }
+    #[test]
+    fn flat_resume_list_keeps_caller_order_without_repo_headers() {
+        let entries = vec![make_entry("s0", "repo-b"), make_entry("s1", "repo-a")];
+        let indices = vec![0, 1];
+        let state = PickerState::default();
+        let built = build_session_entry_data(&entries, &indices, &state, 80);
+        let fields: Vec<Vec<PickerField>> = built.iter().map(|_| Vec::new()).collect();
+        let (rows, non_sel) = build_visible_picker_entries(
+            false,
+            &entries,
+            &indices,
+            &built,
+            &fields,
+            &state,
+            Some("repo-a"),
+        );
+        assert!(
+            rows.iter().all(|row| matches!(row, PickerEntry::Row(_))),
+            "ungrouped resume list has no repo headers"
+        );
+        assert_eq!(non_sel, vec![false, false]);
+        let (grouped, _) = build_visible_picker_entries(
+            true,
+            &entries,
+            &indices,
+            &built,
+            &fields,
+            &state,
+            Some("repo-a"),
+        );
+        assert!(
+            grouped
+                .iter()
+                .any(|row| matches!(row, PickerEntry::Header { .. }))
         );
     }
     /// Entries stamped as server search results for the live query skip the local title/id fuzzy match.
