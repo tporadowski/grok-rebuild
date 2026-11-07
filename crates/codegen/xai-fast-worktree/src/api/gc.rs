@@ -14,8 +14,8 @@ use crate::git::{KeepReason, RECLAIMED_LIFETIME, Reclaim, collect_reclaimed_name
 
 mod process_scan;
 
-pub(crate) use process_scan::{LiveCwdScan, is_pid_alive, live_process_cwds, usable_cwds};
 use process_scan::cwd_within;
+pub(crate) use process_scan::{LiveCwdScan, is_pid_alive, live_process_cwds, usable_cwds};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct GcOptions {
@@ -381,6 +381,9 @@ fn reclaim_dead_records(db: &WorktreeDb, opts: &GcOptions, report: &mut GcReport
         ..Default::default()
     })?;
     for rec in dead {
+        if std::fs::symlink_metadata(&rec.path).is_err() {
+            super::prune_missing_worktree_registration(&rec.source_repo, &rec.path);
+        }
         if unregister_logged(db, &rec.id) {
             report.dead_removed += 1;
         }

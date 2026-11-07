@@ -617,6 +617,11 @@ fn remove_worktree_inner(
 ) -> Result<RemoveReport> {
     #[cfg(not(feature = "metadata"))]
     let _ = registry_home;
+    // The folder is already gone, so its `.git` file cannot point at
+    // `.git/worktrees/<name>`. Drop that registration from the source repo
+    // or the next `-w NAME` fails with "already exists".
+    #[cfg(feature = "metadata")]
+    prune_registration_if_folder_missing(registry_home, worktree_path);
     let start = std::time::Instant::now();
     let report = remove_worktree_from_disk(worktree_path, delegate)?;
     let method = report.dispose_method();
@@ -864,6 +869,103 @@ fn try_overlay_remove(
     }
 
     Ok(None)
+}
+
+/// Drop `.git/worktrees/<name>` when `worktree_path` was deleted by hand.
+/// A live directory is left alone; its own `.git` file is the removal path.
+#[cfg(feature = "metadata")]
+pub(crate) fn prune_missing_worktree_registration(
+    source_repo: &std::path::Path,
+    worktree_path: &std::path::Path,
+) -> bool {
+    if std::fs::symlink_metadata(worktree_path).is_ok() {
+        return false;
+    }
+    let Some(registrations) = main_git_worktrees_dir(source_repo) else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(&registrations) else {
+        return false;
+    };
+    let mut removed = false;
+    for entry in entries.flatten() {
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(dir.join("gitdir")) else {
+            continue;
+        };
+        let pointed = text.trim();
+        let pointed = if std::path::Path::new(pointed).is_absolute() {
+            std::path::PathBuf::from(pointed)
+        } else {
+            dir.join(pointed)
+        };
+        let pointed_wt = pointed.parent().unwrap_or(pointed.as_path());
+        if same_worktree_path(pointed_wt, worktree_path) && std::fs::remove_dir_all(&dir).is_ok() {
+            removed = true;
+        }
+    }
+    removed
+}
+
+#[cfg(feature = "metadata")]
+fn prune_registration_if_folder_missing(
+    registry_home: Option<&std::path::Path>,
+    worktree_path: &std::path::Path,
+) {
+    if std::fs::symlink_metadata(worktree_path).is_ok() {
+        return;
+    }
+    let opened = match registry_home {
+        Some(home) => crate::db::WorktreeDb::open(home),
+        None => crate::db::WorktreeDb::open_default(),
+    };
+    let Ok(db) = opened else {
+        return;
+    };
+    let Ok(Some(rec)) = db.get(&worktree_path.to_string_lossy()) else {
+        return;
+    };
+    prune_missing_worktree_registration(&rec.source_repo, worktree_path);
+}
+
+#[cfg(feature = "metadata")]
+fn main_git_worktrees_dir(source_repo: &std::path::Path) -> Option<std::path::PathBuf> {
+    let git = source_repo.join(".git");
+    if git.is_dir() {
+        let dir = git.join("worktrees");
+        return dir.is_dir().then_some(dir);
+    }
+    let text = std::fs::read_to_string(&git).ok()?;
+    let gitdir = text.trim().strip_prefix("gitdir: ")?;
+    let gitdir_path = {
+        let path = std::path::Path::new(gitdir);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            source_repo.join(path)
+        }
+    };
+    let parent = gitdir_path.parent()?;
+    if parent.file_name() == Some(std::ffi::OsStr::new("worktrees")) {
+        return Some(parent.to_path_buf());
+    }
+    let dir = gitdir_path.join("worktrees");
+    dir.is_dir().then_some(dir)
+}
+
+#[cfg(feature = "metadata")]
+fn same_worktree_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    let plain = |path: &std::path::Path| path.to_string_lossy().trim_end_matches('/').to_string();
+    if plain(left) == plain(right) {
+        return true;
+    }
+    match (dunce::canonicalize(left), dunce::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 /// Resolved `gitdir:` registration path from a linked worktree's `.git` file.

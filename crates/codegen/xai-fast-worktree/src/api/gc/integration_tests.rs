@@ -1156,3 +1156,83 @@ fn dry_run_counts_per_kind_cutoffs() {
     assert_eq!(dry0.expired_removed, 2);
     assert!(dry0.never_expiring >= 1);
 }
+
+fn deleted_linked_name(
+    repo_name: &str,
+    label: &str,
+) -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    use xai_test_utils::git::{git_commit_all, init_git_repo};
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = dunce::canonicalize(temp.path()).unwrap();
+    let repo = root.join(repo_name);
+    std::fs::create_dir_all(&repo).unwrap();
+    init_git_repo(&repo);
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    git_commit_all(&repo, "initial");
+    let wt = root.join("worktrees").join(label);
+    std::fs::create_dir_all(wt.parent().unwrap()).unwrap();
+    let added = std::process::Command::new("git")
+        .current_dir(&repo)
+        .args(["worktree", "add", "--detach"])
+        .arg(&wt)
+        .status()
+        .unwrap();
+    assert!(added.success(), "git worktree add");
+    std::fs::remove_dir_all(&wt).unwrap();
+    assert!(
+        repo.join(".git")
+            .join("worktrees")
+            .read_dir()
+            .unwrap()
+            .next()
+            .is_some(),
+        "deleting the folder must leave the git worktree name"
+    );
+    (temp, repo, wt)
+}
+
+fn name_can_be_added_again(repo: &std::path::Path, wt: &std::path::Path) {
+    let added = std::process::Command::new("git")
+        .current_dir(repo)
+        .args(["worktree", "add", "--detach"])
+        .arg(wt)
+        .output()
+        .unwrap();
+    assert!(
+        added.status.success(),
+        "the name is still reserved: {}",
+        String::from_utf8_lossy(&added.stderr)
+    );
+}
+
+#[test]
+fn rm_frees_a_name_after_the_folder_was_deleted() {
+    xai_test_utils::require_git!();
+    let fx = crate::db::GrokHomeFixture::new();
+    let (_temp, repo, wt) = deleted_linked_name("repo-rm", "fix");
+    let repo = dunce::canonicalize(&repo).unwrap();
+    let mut record = crate::test_support::worktree_record("fix-rm", &wt);
+    record.source_repo = repo.clone();
+    record.creation_mode = "linked".into();
+    let db = crate::db::WorktreeDb::open(&fx.home).unwrap();
+    db.register(&record).unwrap();
+
+    crate::api::remove_worktree(&wt).unwrap();
+    name_can_be_added_again(&repo, &wt);
+}
+
+#[test]
+fn gc_frees_a_name_after_the_folder_was_deleted() {
+    xai_test_utils::require_git!();
+    let fx = crate::db::GrokHomeFixture::new();
+    let (_temp, repo, wt) = deleted_linked_name("repo-gc", "fix");
+    let repo = dunce::canonicalize(&repo).unwrap();
+    let mut record = crate::test_support::worktree_record("fix-gc", &wt);
+    record.source_repo = repo.clone();
+    record.creation_mode = "linked".into();
+    let db = crate::db::WorktreeDb::open(&fx.home).unwrap();
+    db.register(&record).unwrap();
+
+    gc::gc_worktrees(&db, &expire_now()).unwrap();
+    name_can_be_added_again(&repo, &wt);
+}
