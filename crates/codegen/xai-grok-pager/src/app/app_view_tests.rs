@@ -2872,11 +2872,17 @@ fn welcome_ctrl_w_opens_new_worktree_dialog() {
     ));
 }
 #[test]
-fn welcome_ctrl_w_noop_outside_git_repo() {
+fn welcome_ctrl_w_outside_git_repo_explains_nothing_was_created() {
     let mut app = test_app();
     app.cwd_has_git_ancestor = false;
     let outcome = app.handle_input(&key_event(KeyCode::Char('w'), KeyModifiers::CONTROL));
-    assert!(matches!(outcome, InputOutcome::Unchanged));
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert!(app.new_worktree_dialog.is_none());
+    let toast = app
+        .welcome_toast
+        .as_ref()
+        .map(|(message, _)| message.as_str());
+    assert_eq!(toast, Some(crate::startup::NO_WORKTREE_OUTSIDE_GIT));
 }
 #[test]
 fn welcome_trust_decline_keys_quit() {
@@ -3242,7 +3248,9 @@ fn quit_without_a_running_workflow_keeps_the_plain_label() {
     let outcome = app.handle_input(&ctrl_q());
     assert!(matches!(outcome, InputOutcome::Changed));
     assert_eq!(
-        app.pending_action.as_ref().and_then(|pending| pending.label),
+        app.pending_action
+            .as_ref()
+            .and_then(|pending| pending.label),
         Some("quit")
     );
 }

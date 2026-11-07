@@ -4,6 +4,10 @@
 
 pub(crate) const DOCTOR_ACTION: &str = "Run /doctor for details and fixes.";
 
+/// `-w` and Ctrl+W say this when the directory is not a git repository. Nothing is created.
+pub(crate) const NO_WORKTREE_OUTSIDE_GIT: &str =
+    "No worktree was created: this directory is not a git repository";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionableStartupWarning {
     warning: StartupWarning,
@@ -98,7 +102,7 @@ mod tests {
     #[test]
     fn banner_warning_runtime_pushed_warning_displaces_info() {
         // An Info entry holds index 0 (e.g. a Claude import result).
-        // A Warning pushed later (e.g. "Not inside a git repository") must still win the single banner slot.
+        // A Warning pushed later (e.g. "No worktree was created") must still win the single banner slot.
         let list = [
             entry(WarningSeverity::Info, "info note"),
             entry(WarningSeverity::Warning, "real problem"),

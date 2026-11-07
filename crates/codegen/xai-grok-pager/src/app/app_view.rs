@@ -2401,6 +2401,7 @@ impl AppView {
                     has_pending_update: self.pending_update_version.is_some(),
                     has_foreign_resume,
                     cwd_has_git_ancestor: self.cwd_has_git_ancestor,
+                    welcome_toast: &mut self.welcome_toast,
                     session_picker_grouped: self.session_picker_grouped,
                     sp_source_filter: &mut self.session_picker_source_filter,
                     sp_pending_delete: &mut self.session_picker_pending_delete,
@@ -3099,6 +3100,8 @@ struct WelcomeInputCtx<'a> {
     /// A recent foreign session is available to resume when no update is pending.
     has_foreign_resume: bool,
     cwd_has_git_ancestor: bool,
+    /// Welcome toast slot. Ctrl+W outside a git repo explains that no worktree was created.
+    welcome_toast: &'a mut Option<(String, Instant)>,
     session_picker_grouped: bool,
     sp_source_filter: &'a mut crate::views::session_picker::SourceFilter,
     sp_pending_delete: &'a mut Option<crate::views::session_picker::PendingDelete>,
@@ -3643,8 +3646,16 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     xai_grok_telemetry::events::AnnouncementCtaSurface::Keyboard,
                 ));
             }
-            if key!('w', CONTROL).matches(key) && ctx.cwd_has_git_ancestor {
-                return InputOutcome::Action(Action::OpenNewWorktreeDialog);
+            if key!('w', CONTROL).matches(key) {
+                if ctx.cwd_has_git_ancestor {
+                    return InputOutcome::Action(Action::OpenNewWorktreeDialog);
+                }
+                *ctx.welcome_toast = Some((
+                    crate::glyphs::sanitize_toast_message(crate::startup::NO_WORKTREE_OUTSIDE_GIT)
+                        .into_owned(),
+                    Instant::now() + WELCOME_TOAST_DURATION,
+                ));
+                return InputOutcome::Changed;
             }
             if ctx.registry.matches_id(ActionId::OpenSessions, key) {
                 return InputOutcome::Action(Action::FetchSessionList);

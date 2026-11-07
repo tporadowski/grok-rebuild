@@ -1190,9 +1190,10 @@ pub(in crate::app::dispatch) fn dispatch_new_worktree_session(
         return vec![];
     }
     if !app.cwd_has_git_ancestor {
-        let msg: String = "Not inside a git repository. Navigate to a git repo \
-                      or run 'git init' first."
-            .into();
+        let msg = format!(
+            "{}. Navigate to a git repo or run 'git init' first.",
+            crate::startup::NO_WORKTREE_OUTSIDE_GIT
+        );
         if !app.startup_warnings.iter().any(|w| w.message == msg) {
             app.startup_warnings.push(crate::startup::StartupWarning {
                 severity: crate::startup::WarningSeverity::Warning,

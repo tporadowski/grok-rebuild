@@ -581,7 +581,7 @@ pub(super) fn dispatch_dashboard_toggle_worktree(app: &mut AppView) -> Vec<Effec
             d.dispatch_worktree = !d.dispatch_worktree;
         } else {
             d.dispatch_worktree = false;
-            d.set_error_toast("Not a git repository: worktrees need one");
+            d.set_error_toast(crate::startup::NO_WORKTREE_OUTSIDE_GIT);
         }
     }
     vec![]
@@ -921,7 +921,7 @@ pub(super) fn dispatch_dashboard_confirm_worktree(
             if let Some(p) = prompt {
                 d.dispatch.restore(p);
             }
-            d.set_error_toast("Not a git repository: can't create a worktree here");
+            d.set_error_toast(crate::startup::NO_WORKTREE_OUTSIDE_GIT);
         }
         return vec![];
     }

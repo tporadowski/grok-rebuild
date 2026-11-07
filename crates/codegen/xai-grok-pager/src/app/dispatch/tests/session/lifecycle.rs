@@ -619,11 +619,20 @@ fn new_worktree_session_rejects_non_git_cwd() {
     assert!(effects.is_empty());
     assert!(app.agents.is_empty());
     assert!(matches!(app.active_view, ActiveView::Welcome));
-    let warning = app
-        .startup_warnings
-        .iter()
-        .find(|warning| warning.message.contains("Not inside a git repository"))
-        .expect("expected git-repo warning");
+    let warning = crate::startup::banner_warning(&app.startup_warnings)
+        .expect("welcome banner shows the refusal");
+    assert!(
+        warning
+            .message
+            .contains(crate::startup::NO_WORKTREE_OUTSIDE_GIT),
+        "the banner must say no worktree was created, got {}",
+        warning.message
+    );
+    assert!(
+        warning.message.contains("git init"),
+        "the banner keeps the git-init guidance, got {}",
+        warning.message
+    );
     assert_eq!(warning.severity, crate::startup::WarningSeverity::Warning);
     assert!(warning.action.is_none());
 }

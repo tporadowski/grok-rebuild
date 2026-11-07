@@ -1309,8 +1309,11 @@ fn dashboard_toggle_worktree_outside_git_repo_is_noop_with_toast() {
         "worktree mode must stay off outside a git repo",
     );
     assert!(
-        d.error_toast.is_some(),
-        "a toast must explain why the toggle is unavailable",
+        d.error_toast
+            .as_deref()
+            .is_some_and(|toast| { toast.contains(crate::startup::NO_WORKTREE_OUTSIDE_GIT) }),
+        "the toast must say no worktree was created, got {:?}",
+        d.error_toast
     );
 }
 /// `+ New Agent` with worktree mode armed opens the worktree-label
@@ -1499,6 +1502,13 @@ fn dashboard_confirm_worktree_without_git_repo_creates_nothing() {
     assert!(
         d.pending_worktree_prompt.is_none(),
         "the stash must be consumed",
+    );
+    assert!(
+        d.error_toast
+            .as_deref()
+            .is_some_and(|toast| { toast.contains(crate::startup::NO_WORKTREE_OUTSIDE_GIT) }),
+        "the toast must say no worktree was created, got {:?}",
+        d.error_toast
     );
 }
 /// The worktree dispatch path threads the dashboard's staged `/model` and `/plan` through the same way the normal path does: the model id rides on the `CreateWorktreeSession` effect, the effort is stashed as a deferred switch, and plan mode is deferred and optimistic. Regression: the worktree branch used to drop the staged config entirely.
