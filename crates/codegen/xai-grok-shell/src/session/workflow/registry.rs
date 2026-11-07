@@ -39,6 +39,9 @@ pub(crate) enum WorkflowSource {
 pub(crate) enum ResolveError {
     #[error("unknown workflow: {0}")]
     UnknownName(String),
+    /// A workflow file failed to parse. Cite the file so the user does not see a bare unknown name.
+    #[error("{path}: {error}")]
+    InvalidScript { path: String, error: String },
     #[error(
         "invalid workflow name '{0}': expected 1-64 lowercase letters, digits, or single hyphens"
     )]
@@ -78,6 +81,18 @@ pub(crate) fn bundled_workflow_dir() -> PathBuf {
 pub(crate) struct WorkflowRegistry {
     entries: Vec<RegistryEntry>,
     duplicate_names: BTreeMap<String, &'static str>,
+    parse_failures: Vec<WorkflowParseFailure>,
+}
+
+struct WorkflowParseFailure {
+    stem: String,
+    path: String,
+    error: String,
+}
+
+struct DirectoryScan {
+    entries: Vec<RegistryEntry>,
+    parse_failures: Vec<WorkflowParseFailure>,
 }
 
 struct RegistryEntry {
@@ -124,10 +139,13 @@ impl WorkflowRegistry {
     pub(crate) fn scan(session_cwd: Option<&Path>) -> Self {
         let mut entries = Vec::new();
         let mut duplicate_names = BTreeMap::new();
+        let mut parse_failures = Vec::new();
 
         // Bundled first so a GCS-shipped `deep-research.rhai` shadows include_str!.
         // Project/user still cannot override a compiled-in name
-        let mut bundled_entries = scan_directory(&bundled_workflow_dir(), "bundled");
+        let mut bundled = scan_directory(&bundled_workflow_dir(), "bundled");
+        parse_failures.append(&mut bundled.parse_failures);
+        let mut bundled_entries = bundled.entries;
         reject_same_scope_duplicates(&mut bundled_entries, "bundled", &mut duplicate_names);
         merge_scope(&mut entries, bundled_entries);
 
@@ -145,19 +163,39 @@ impl WorkflowRegistry {
 
         for (dir, source_label) in dirs {
             let mut scoped = scan_directory(&dir, source_label);
-            reject_same_scope_duplicates(&mut scoped, source_label, &mut duplicate_names);
-            merge_scope(&mut entries, scoped);
+            parse_failures.append(&mut scoped.parse_failures);
+            let mut scoped_entries = scoped.entries;
+            reject_same_scope_duplicates(&mut scoped_entries, source_label, &mut duplicate_names);
+            merge_scope(&mut entries, scoped_entries);
         }
 
         Self {
             entries,
             duplicate_names,
+            parse_failures,
         }
     }
 
     pub(crate) fn resolve_by_name(&self, name: &str) -> Result<ResolvedWorkflow, ResolveError> {
         validate_workflow_name(name)?;
-        Ok(resolved_entry(self.resolve_entry(name)?))
+        match self.resolve_entry(name) {
+            Ok(entry) => Ok(resolved_entry(entry)),
+            Err(ResolveError::UnknownName(missing)) => {
+                if let Some(failure) = self
+                    .parse_failures
+                    .iter()
+                    .find(|failure| failure.stem == missing)
+                {
+                    Err(ResolveError::InvalidScript {
+                        path: failure.path.clone(),
+                        error: failure.error.clone(),
+                    })
+                } else {
+                    Err(ResolveError::UnknownName(missing))
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn resolve_entry(&self, name: &str) -> Result<&RegistryEntry, ResolveError> {
@@ -230,16 +268,20 @@ fn reject_same_scope_duplicates(
     }
 }
 
-fn scan_directory(dir: &Path, source_label: &'static str) -> Vec<RegistryEntry> {
+fn scan_directory(dir: &Path, source_label: &'static str) -> DirectoryScan {
+    let empty = || DirectoryScan {
+        entries: Vec::new(),
+        parse_failures: Vec::new(),
+    };
     let Ok(dir_meta) = std::fs::symlink_metadata(dir) else {
-        return Vec::new();
+        return empty();
     };
     if dir_meta.file_type().is_symlink() || !dir_meta.is_dir() {
-        return Vec::new();
+        return empty();
     }
 
     let Ok(read_dir) = std::fs::read_dir(dir) else {
-        return Vec::new();
+        return empty();
     };
     let mut paths: Vec<PathBuf> = read_dir
         .filter_map(Result::ok)
@@ -248,28 +290,47 @@ fn scan_directory(dir: &Path, source_label: &'static str) -> Vec<RegistryEntry> 
         .collect();
     paths.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
 
-    paths
-        .into_iter()
-        .filter_map(|path| {
-            let script = read_trusted_source(&path).ok()?;
-            let meta = parse_workflow(&script, Some(&path)).ok()?;
-            // A GCS update of a compiled-in name stays privileged (fork context, telemetry name, not user-savable)
-            let compiled_in = source_label == "bundled"
-                && is_compiled_in_builtin(&meta.name)
-                && bundled_file_is_managed(&path);
-            Some(RegistryEntry {
-                meta,
-                script,
-                source: if compiled_in {
-                    WorkflowSource::Builtin
-                } else {
-                    WorkflowSource::File(path.clone())
-                },
-                source_label: if compiled_in { "builtin" } else { source_label },
-                path: Some(path),
-            })
-        })
-        .collect()
+    let mut entries = Vec::new();
+    let mut parse_failures = Vec::new();
+    for path in paths {
+        let Ok(script) = read_trusted_source(&path) else {
+            continue;
+        };
+        match parse_workflow(&script, Some(&path)) {
+            Ok(meta) => {
+                // A GCS update of a compiled-in name stays privileged (fork context, telemetry name, not user-savable)
+                let compiled_in = source_label == "bundled"
+                    && is_compiled_in_builtin(&meta.name)
+                    && bundled_file_is_managed(&path);
+                entries.push(RegistryEntry {
+                    meta,
+                    script,
+                    source: if compiled_in {
+                        WorkflowSource::Builtin
+                    } else {
+                        WorkflowSource::File(path.clone())
+                    },
+                    source_label: if compiled_in { "builtin" } else { source_label },
+                    path: Some(path),
+                });
+            }
+            Err(ResolveError::Meta(error)) => {
+                let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                    continue;
+                };
+                parse_failures.push(WorkflowParseFailure {
+                    stem: stem.to_string(),
+                    path: path.display().to_string(),
+                    error: error.to_string(),
+                });
+            }
+            Err(_) => {}
+        }
+    }
+    DirectoryScan {
+        entries,
+        parse_failures,
+    }
 }
 
 fn is_compiled_in_builtin(name: &str) -> bool {
@@ -680,6 +741,41 @@ mod tests {
     }
 
     #[test]
+    fn parse_failure_names_the_file_instead_of_unknown_workflow() {
+        let dir = tempfile::tempdir().unwrap();
+        git2::Repository::init(dir.path()).unwrap();
+        let wf_dir = dir.path().join(".grok").join("workflows");
+        std::fs::create_dir_all(&wf_dir).unwrap();
+        let path = wf_dir.join("broken.rhai");
+        std::fs::write(
+            &path,
+            "let meta = #{ name: \"broken\", description: \"d\" };\nthis is not rhai {{\n",
+        )
+        .unwrap();
+
+        let registry = WorkflowRegistry::scan(Some(dir.path()));
+        let Err(err) = registry.resolve_by_name("broken") else {
+            panic!("expected a parse error");
+        };
+        let text = err.to_string();
+        assert!(
+            text.contains("broken.rhai"),
+            "error must name the file: {text}"
+        );
+        assert!(
+            text.contains("parse") || text.contains("script"),
+            "error must include the parse failure: {text}"
+        );
+        assert!(
+            !text.contains("unknown workflow"),
+            "parse failure must not look like a missing name: {text}"
+        );
+        assert!(matches!(
+            registry.resolve_by_name("missing"),
+            Err(ResolveError::UnknownName(_))
+        ));
+    }
+
     fn inline_resolution_validates_name_and_size() {
         let ok = resolve_inline(script("valid-name"));
         assert_eq!(ok.unwrap().meta.name, "valid-name");
@@ -780,7 +876,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut entries = scan_directory(&bundled, "bundled");
+        let mut entries = scan_directory(&bundled, "bundled").entries;
         merge_scope(&mut entries, cached_builtin_entries());
         let hit = entries
             .iter()
@@ -807,7 +903,7 @@ mod tests {
         });
         std::fs::write(root.join("manifest.json"), manifest.to_string()).unwrap();
 
-        let entries = scan_directory(&workflows, "bundled");
+        let entries = scan_directory(&workflows, "bundled").entries;
         let hit = entries
             .iter()
             .find(|entry| entry.meta.name == "deep-research")
@@ -824,7 +920,7 @@ mod tests {
         std::fs::create_dir_all(&bundled).unwrap();
         std::fs::write(bundled.join("bundle-only.rhai"), script("bundle-only")).unwrap();
 
-        let entries = scan_directory(&bundled, "bundled");
+        let entries = scan_directory(&bundled, "bundled").entries;
         let hit = entries
             .iter()
             .find(|entry| entry.meta.name == "bundle-only")
@@ -836,7 +932,7 @@ mod tests {
     #[test]
     fn compiled_in_workflow_remains_when_bundled_dir_is_missing() {
         let dir = tempfile::tempdir().unwrap();
-        let mut entries = scan_directory(&dir.path().join("missing"), "bundled");
+        let mut entries = scan_directory(&dir.path().join("missing"), "bundled").entries;
         merge_scope(&mut entries, cached_builtin_entries());
         let hit = entries
             .iter()
@@ -867,6 +963,7 @@ mod tests {
         let registry = WorkflowRegistry {
             entries,
             duplicate_names: BTreeMap::new(),
+            parse_failures: Vec::new(),
         };
         let listed = registry.list();
         let [first] = listed.as_slice() else {
@@ -902,6 +999,7 @@ mod tests {
         let registry = WorkflowRegistry {
             entries,
             duplicate_names,
+            parse_failures: Vec::new(),
         };
         assert!(matches!(
             registry.resolve_by_name("dup"),
