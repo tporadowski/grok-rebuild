@@ -140,6 +140,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-024 — W6 memory follow-through
 `web_fetch` rejects a body from `Content-Length` before reading it, and stops the byte stream at the cap (`v50-x22`). `memory_get` uses the topic read limit and does not return a larger file (`v50-x23`). CJK queries that FTS5 unicode61 cannot match inside a longer token are found by a substring scan of chunk text (`v50-x25`). The main and subagent prompts include `<memory-status>` when memory is off, and the existing `<memory>` block when it is on, so a resumed head still reconciles on the on-block only (`v51-x100`). Search snippet lines keep the query match instead of a prefix cut (`v54-x08`). A symlinked note is skipped in `/memory` listing; a symlinked topics or inbox directory still fails the listing (`v54-x09`). `v73-x12` is Kitty image memory, not this cluster.
 
+### D-026 — W3 permissions, sandbox, and config
+The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
+
 ### D-025 — W15 classifications
 `v54-p01` is already the slow welcome tick (`view_tick_demand` returns `TickDemand::Slow`, 83 ms). `v54-p04` is already `evict_offscreen_render_caches`, which drops off-screen render caches and keeps heights. `v69-p01` is already `run_and_shutdown`: `shutdown_timeout` is a ceiling, and its test checks that a clean exit returns before the grace. `v73-p01` is deferred: auth startup, `read_auth_json`, managed policy, and the config watcher have no ~100 ms wait on a missing sign-in file. The other 20 performance rows still need code. `v74-p01` is the later markdown-layout release and stays pending even though `v54-p04` already drops render caches.
 
@@ -175,7 +178,7 @@ Refresh these numbers at the end of a session.
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 7 | 0 | 0 | 0 | 0 |
-| W3 | Permissions, sandbox, and config | 27 | 0 | 0 | 0 | 0 |
+| W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 36 | 0 | 0 | 0 | 0 |
 | W5 | Workflows and goals | 29 | 0 | 0 | 0 | 0 |
@@ -191,9 +194,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 558. Skipped: 8. Done: 12. Already: 3. Deferred: 2.
+Catalog rows: 583. Pending: 531. Skipped: 8. Done: 23. Already: 13. Deferred: 8.
 
-**Next:** W2, `v50-x09`. W2, W3, W5, W8, W11, W12, and W13 are in isolated worktrees and are not done until their commits are in this checkout.
+**Next:** W2, `v50-x09`. W3 commits are in this checkout; their tests are recorded in D-026. W2, W5, W8, W11, W12, and W13 stay in worktrees until their commits land here.
 
 ## Waves
 
@@ -207,7 +210,7 @@ Pending: 7. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/m
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 27. Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode.
+Pending: 0. Done: 11. Already: 10. Deferred: 6 (D-026). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode.
 
 ### W6 — Memory
 
@@ -278,33 +281,33 @@ id | status | wave | kind | flag | covered | note
 - v51-x117 | pending | W2 | Bug Fixes |  |  | **disable_zdr_incompatible_tools** changes now apply to new turns without restarting the worker.
 - v53-f03 | pending | W2 | Features |  |  | **`--tools` and `--disallowed-tools`** also apply in the interactive TUI.
 - v74-f10 | pending | W2 | Features |  |  | **Picked `@` files in the prompt** can be edited in place: `Backspace` at the end of one reopens the picker on its path, and `Left` or `Right` puts the cursor inside it to change the path.
-- v46-x04 | pending | W3 | Bug Fixes |  |  | **Permission rules** with relative paths now correctly apply even when the cwd contains symlinks.
-- v48-x02 | pending | W3 | Bug Fixes |  |  | Custom model tables in config.toml now preserve the original model's notice banner.
-- v50-x01 | pending | W3 | Bug Fixes |  |  | **Shell permission decisions** now correctly prompt or approve commands matching the permission manager.
-- v50-x08 | pending | W3 | Bug Fixes |  |  | **Permission rules** now accept native tool names such as `run_terminal_command` and `Shell`.
-- v50-x56 | pending | W3 | Bug Fixes |  |  | Managed permission files with one bad key no longer lose all their valid rules.
-- v50-x60 | pending | W3 | Bug Fixes |  |  | **Permission rules** with one bad entry no longer lose the other rules in the same section.
-- v51-f24 | pending | W3 | Features |  |  | config.toml now accepts an [update] section without breaking other commands.
-- v51-x04 | pending | W3 | Bug Fixes |  |  | Always-approve mode now automatically approves web requests without extra prompts.
-- v51-x27 | pending | W3 | Bug Fixes |  |  | **Permission prompts** that fail now show a clearer message without blaming the interface.
-- v51-x31 | pending | W3 | Bug Fixes |  |  | Typing, arrows or Enter while an approval card appears no longer accidentally approve the action or enable always-approve mode.
-- v51-x67 | pending | W3 | Bug Fixes |  |  | **Typing while a permission or ask card is visible** no longer selects or answers the card.
-- v51-x69 | pending | W3 | Bug Fixes |  |  | **Auto mode** now asks before deleting files that the classifier has not already allowed.
-- v51-x72 | pending | W3 | Bug Fixes |  |  | **Settings saves** no longer re-insert the built-in default fork model into config.toml.
-- v51-x75 | pending | W3 | Bug Fixes |  |  | **/new** now inherits always-approve mode from the tab it was run from instead of another tab.
-- v51-x88 | pending | W3 | Bug Fixes |  |  | Delete operations now respect the same permission rules as shell rm commands.
-- v52-x10 | pending | W3 | Bug Fixes |  |  | Permission prompts now show which session needs approval.
-- v52-x20 | pending | W3 | Bug Fixes |  |  | An invalid shell_environment_policy table in config.toml now causes grok to exit with a clear error instead of silently using the full environment.
-- v52-x25 | pending | W3 | Bug Fixes |  |  | **Minimal mode** now shows the permission prompt instead of a hidden plan or cancel panel when both are present.
-- v52-x28 | pending | W3 | Bug Fixes |  |  | **Unrecognized permission keys** or [permissions] sections now appear as skipped entries in grok inspect.
-- v52-x30 | pending | W3 | Bug Fixes |  |  | Shell redirects to wildcard or variable paths now correctly respect deny rules in Auto mode.
-- v53-x22 | pending | W3 | Bug Fixes |  |  | **`grok inspect`** warns when a known `[features]` key in config.toml has a non-boolean value.
-- v64-f04 | pending | W3 | Features |  |  | **Auto mode** runs `make --version`, `cmake --version`, and `just --version` without asking.
-- v65-f02 | pending | W3 | Features |  |  | **`--permission-mode plan`** starts the session in plan mode, as documented, instead of the default mode.
-- v74-x21 | pending | W3 | Bug Fixes |  |  | **macOS**: the TUI no longer freezes when it runs inside a sandbox that blocks the window server.
-- v75-f01 | pending | W3 | Features |  |  | **Permission rules that don't load**, such as a rule that doesn't parse or a `.claude/settings.json` that isn't valid JSON, show a warning when a session opens instead of being skipped silently.
-- v75-x19 | pending | W3 | Bug Fixes |  |  | **Turning a skill on or off** in the Skills tab saves only `[skills].disabled` to `config.toml`, so an organization's managed skill folders and ignore list keep applying.
-- v78-x01 | pending | W3 | Bug Fixes |  |  | **Always-approve help text** now correctly says the setting is saved to config.
+- v46-x04 | already | W3 | Bug Fixes |  |  | **Permission rules** with relative paths now correctly apply even when the cwd contains symlinks.
+- v48-x02 | already | W3 | Bug Fixes |  |  | Custom model tables in config.toml now preserve the original model's notice banner.
+- v50-x01 | deferred | W3 | Bug Fixes |  |  | **Shell permission decisions** now correctly prompt or approve commands matching the permission manager.
+- v50-x08 | done | W3 | Bug Fixes |  |  | **Permission rules** now accept native tool names such as `run_terminal_command` and `Shell`.
+- v50-x56 | already | W3 | Bug Fixes |  |  | Managed permission files with one bad key no longer lose all their valid rules.
+- v50-x60 | already | W3 | Bug Fixes |  |  | **Permission rules** with one bad entry no longer lose the other rules in the same section.
+- v51-f24 | already | W3 | Features |  |  | config.toml now accepts an [update] section without breaking other commands.
+- v51-x04 | already | W3 | Bug Fixes |  |  | Always-approve mode now automatically approves web requests without extra prompts.
+- v51-x27 | done | W3 | Bug Fixes |  |  | **Permission prompts** that fail now show a clearer message without blaming the interface.
+- v51-x31 | deferred | W3 | Bug Fixes |  |  | Typing, arrows or Enter while an approval card appears no longer accidentally approve the action or enable always-approve mode.
+- v51-x67 | already | W3 | Bug Fixes |  |  | **Typing while a permission or ask card is visible** no longer selects or answers the card.
+- v51-x69 | deferred | W3 | Bug Fixes |  |  | **Auto mode** now asks before deleting files that the classifier has not already allowed.
+- v51-x72 | done | W3 | Bug Fixes |  |  | **Settings saves** no longer re-insert the built-in default fork model into config.toml.
+- v51-x75 | done | W3 | Bug Fixes |  |  | **/new** now inherits always-approve mode from the tab it was run from instead of another tab.
+- v51-x88 | deferred | W3 | Bug Fixes |  |  | Delete operations now respect the same permission rules as shell rm commands.
+- v52-x10 | already | W3 | Bug Fixes |  |  | Permission prompts now show which session needs approval.
+- v52-x20 | done | W3 | Bug Fixes |  |  | An invalid shell_environment_policy table in config.toml now causes grok to exit with a clear error instead of silently using the full environment.
+- v52-x25 | done | W3 | Bug Fixes |  |  | **Minimal mode** now shows the permission prompt instead of a hidden plan or cancel panel when both are present.
+- v52-x28 | done | W3 | Bug Fixes |  |  | **Unrecognized permission keys** or [permissions] sections now appear as skipped entries in grok inspect.
+- v52-x30 | deferred | W3 | Bug Fixes |  |  | Shell redirects to wildcard or variable paths now correctly respect deny rules in Auto mode.
+- v53-x22 | already | W3 | Bug Fixes |  |  | **`grok inspect`** warns when a known `[features]` key in config.toml has a non-boolean value.
+- v64-f04 | already | W3 | Features |  |  | **Auto mode** runs `make --version`, `cmake --version`, and `just --version` without asking.
+- v65-f02 | done | W3 | Features |  |  | **`--permission-mode plan`** starts the session in plan mode, as documented, instead of the default mode.
+- v74-x21 | deferred | W3 | Bug Fixes |  |  | **macOS**: the TUI no longer freezes when it runs inside a sandbox that blocks the window server.
+- v75-f01 | done | W3 | Features |  |  | **Permission rules that don't load**, such as a rule that doesn't parse or a `.claude/settings.json` that isn't valid JSON, show a warning when a session opens instead of being skipped silently.
+- v75-x19 | done | W3 | Bug Fixes |  |  | **Turning a skill on or off** in the Skills tab saves only `[skills].disabled` to `config.toml`, so an organization's managed skill folders and ignore list keep applying.
+- v78-x01 | done | W3 | Bug Fixes |  |  | **Always-approve help text** now correctly says the setting is saved to config.
 - v50-x22 | done | W6 | Bug Fixes |  |  | **web_fetch** no longer downloads huge files into memory before rejecting them.
 - v50-x23 | done | W6 | Bug Fixes |  |  | **memory_get** no longer returns huge files that exceed the read limit.
 - v50-x25 | done | W6 | Bug Fixes |  |  | **memory_search** now finds Japanese, Chinese, and Korean words inside longer notes.
