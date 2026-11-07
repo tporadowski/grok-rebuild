@@ -93,6 +93,11 @@ pub(crate) struct HookBatch {
     pub(crate) prompt_id: Option<String>,
 }
 
+/// SubagentStart and Notification hooks still run. Their activity is not drawn in the UI.
+pub(crate) fn hook_activity_reported_to_ui(event_name: &str) -> bool {
+    event_name != "subagent_start" && event_name != "notification"
+}
+
 impl HookBatch {
     pub(crate) fn from_envelope(envelope: &xai_grok_hooks::event::HookEventEnvelope) -> Self {
         Self {
@@ -148,7 +153,7 @@ impl SessionActor {
     ) -> HookBatch {
         let batch = HookBatch::from_envelope(envelope);
         let count = xai_grok_hooks::dispatcher::runnable_count(registry, envelope, ctx);
-        if count > 0 {
+        if count > 0 && hook_activity_reported_to_ui(&batch.event_name) {
             self.send_xai_notification_transient(XaiSessionUpdate::HookRunStarted {
                 event_name: batch.event_name.clone(),
                 tool_name: batch.tool_name.clone(),
@@ -164,7 +169,8 @@ impl SessionActor {
         batch: &HookBatch,
         results: &[xai_grok_hooks::result::HookRunResult],
     ) {
-        if results.is_empty()
+        if !hook_activity_reported_to_ui(&batch.event_name)
+            || results.is_empty()
             || results
                 .iter()
                 .all(|r| matches!(r, xai_grok_hooks::result::HookRunResult::Skipped { .. }))
@@ -611,5 +617,12 @@ mod notification_hook_filter_tests {
             will_wake: false,
         };
         assert!(notification_hook_for_update(&update).is_none());
+    }
+
+    #[test]
+    fn subagent_start_and_notification_hooks_stay_off_the_ui() {
+        assert!(!super::hook_activity_reported_to_ui("subagent_start"));
+        assert!(!super::hook_activity_reported_to_ui("notification"));
+        assert!(super::hook_activity_reported_to_ui("pre_tool_use"));
     }
 }
