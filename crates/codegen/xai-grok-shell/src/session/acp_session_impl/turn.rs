@@ -523,6 +523,12 @@ impl SessionActor {
             traceparent: _,
             start_gate: _,
         } = request;
+        self.goal_tracker
+            .lock()
+            .set_turn_is_goal_continuation(matches!(
+                input_origin.as_prompt_origin(),
+                crate::session::PromptOrigin::GoalSummary
+            ));
         let prompt_id = prompt_id.as_str();
         let handle_prompt_start = std::time::Instant::now();
         self.chat_state_handle
@@ -1935,6 +1941,34 @@ impl SessionActor {
         if turn_succeeded && goal_active_now {
             self.goal_continuation_streak
                 .store(0, std::sync::atomic::Ordering::Relaxed);
+            let decision = {
+                let tracker = self.goal_tracker.lock();
+                no_tool_continuation_after_turn(
+                    tracker.turn_is_goal_continuation(),
+                    self.events.tool_count_this_turn(),
+                    tracker.no_tool_continuation_streak(),
+                )
+            };
+            match decision {
+                NoToolContinuation::Pause => {
+                    self.goal_tracker.lock().set_no_tool_continuation_streak(0);
+                    self.auto_pause_goal_if_active(
+                        crate::session::goal_tracker::GoalPauseReason::NoProgress,
+                    )
+                    .await;
+                    self.send_slash_command_output(&format!(
+                        "Goal paused after {GOAL_NO_TOOL_CONTINUATION_PAUSE} continuations in a \
+                         row with no tool call. Use /goal resume to continue."
+                    ))
+                    .await;
+                    return;
+                }
+                NoToolContinuation::Continue { streak } => {
+                    self.goal_tracker
+                        .lock()
+                        .set_no_tool_continuation_streak(streak);
+                }
+            }
             if !suppress_goal_continuation {
                 self.maybe_queue_goal_continuation().await;
             }

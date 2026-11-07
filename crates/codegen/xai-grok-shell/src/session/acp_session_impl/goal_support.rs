@@ -6,6 +6,35 @@ use super::*;
 /// Compile-time constant for v1; remote tunability is a deferred follow-up.
 pub(super) const GOAL_CONTINUATION_BACKOFF_THRESHOLD: u32 = 3;
 
+/// Goal continuations in a row with no tool call before `/goal` pauses. `/goal resume` clears it.
+pub(crate) const GOAL_NO_TOOL_CONTINUATION_PAUSE: u32 = 3;
+
+/// What to do after a successful goal turn, given whether it was a continuation and how many tools it called.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoToolContinuation {
+    /// Keep going. `streak` is the updated count of tool-less continuations (0 when this turn broke the run).
+    Continue { streak: u32 },
+    /// Three tool-less continuations in a row. Pause instead of queueing another one.
+    Pause,
+}
+
+pub(crate) fn no_tool_continuation_after_turn(
+    is_goal_continuation: bool,
+    tool_calls: u32,
+    streak: u32,
+) -> NoToolContinuation {
+    if is_goal_continuation && tool_calls == 0 {
+        let next = streak.saturating_add(1);
+        if next >= GOAL_NO_TOOL_CONTINUATION_PAUSE {
+            NoToolContinuation::Pause
+        } else {
+            NoToolContinuation::Continue { streak: next }
+        }
+    } else {
+        NoToolContinuation::Continue { streak: 0 }
+    }
+}
+
 /// Upper bound on planner attempts per `maybe_run_goal_planner` call, so repeated steering / interruptions cannot spin the retry loop forever.
 pub(super) const GOAL_PLANNER_MAX_ATTEMPTS: u32 = 5;
 
@@ -1803,6 +1832,30 @@ impl SessionActor {
                 xai_grok_tools::implementations::grok_build::task::types::GoalLoopActive(active),
             )
             .await;
+    }
+}
+
+#[cfg(test)]
+mod no_tool_continuation_tests {
+    use super::{NoToolContinuation, no_tool_continuation_after_turn};
+
+    #[test]
+    fn three_toolless_continuations_pause_and_a_tool_call_resets() {
+        let first = no_tool_continuation_after_turn(true, 0, 0);
+        assert_eq!(first, NoToolContinuation::Continue { streak: 1 });
+        let second = no_tool_continuation_after_turn(true, 0, 1);
+        assert_eq!(second, NoToolContinuation::Continue { streak: 2 });
+        let third = no_tool_continuation_after_turn(true, 0, 2);
+        assert_eq!(third, NoToolContinuation::Pause);
+        assert_eq!(
+            no_tool_continuation_after_turn(true, 1, 2),
+            NoToolContinuation::Continue { streak: 0 }
+        );
+        assert_eq!(
+            no_tool_continuation_after_turn(false, 0, 2),
+            NoToolContinuation::Continue { streak: 0 },
+            "a user turn with no tool call is not a continuation"
+        );
     }
 }
 
