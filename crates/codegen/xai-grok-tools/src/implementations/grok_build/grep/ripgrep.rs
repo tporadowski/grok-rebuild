@@ -70,3 +70,46 @@ fn rg_from_path_or_runfiles() -> PathBuf {
     }
     PathBuf::from("rg")
 }
+
+/// Directory of the extracted bundled `rg`, when this build has one on disk.
+/// A bare `rg` name (the PATH fallback) is not a directory to inject.
+pub fn bundled_rg_dir() -> Option<PathBuf> {
+    let path = rg_path().ok()?;
+    if !path.is_absolute() || !path.is_file() {
+        return None;
+    }
+    path.parent().map(std::path::Path::to_path_buf)
+}
+
+/// Append `dir` to a `PATH` string when that directory is not already an entry.
+pub fn append_os_path(path: &std::ffi::OsStr, dir: &std::path::Path) -> std::ffi::OsString {
+    if std::env::split_paths(path).any(|entry| entry == dir) {
+        return path.to_os_string();
+    }
+    let mut out = path.to_os_string();
+    if !out.is_empty() {
+        out.push(if cfg!(windows) { ";" } else { ":" });
+    }
+    out.push(dir);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_os_path;
+    use std::ffi::{OsStr, OsString};
+    use std::path::Path;
+
+    #[test]
+    fn append_os_path_adds_a_missing_dir_once() {
+        let dir = Path::new("/opt/grok-rg");
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        assert_eq!(
+            append_os_path(OsStr::new(""), dir),
+            OsString::from("/opt/grok-rg")
+        );
+        let once = append_os_path(OsStr::new("/usr/bin"), dir);
+        assert_eq!(once, OsString::from(format!("/usr/bin{sep}/opt/grok-rg")));
+        assert_eq!(append_os_path(&once, dir), once);
+    }
+}

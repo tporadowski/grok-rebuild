@@ -3320,6 +3320,36 @@ fn apply_child_env(
     cmd.envs(crate::util::pager_env());
     layer_login_path(cmd, login_env, active_policy);
     crate::util::apply_grok_agent_marker(cmd);
+    append_bundled_rg_path(
+        cmd,
+        active_policy.is_none_or(|p| p.allows_with_inherit("PATH")),
+    );
+}
+
+/// Put the extracted bundled `rg` on the child's `PATH` so a shell command can
+/// run `rg` on an image that did not install ripgrep. Existing `rg` entries stay
+/// ahead of the bundle. A policy that drops `PATH`, or an explicit removal, is left alone.
+fn append_bundled_rg_path(cmd: &mut tokio::process::Command, allow_path: bool) {
+    if !allow_path {
+        return;
+    }
+    let Some(dir) = crate::implementations::grok_build::grep::ripgrep::bundled_rg_dir() else {
+        return;
+    };
+    let explicit = cmd
+        .as_std()
+        .get_envs()
+        .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+        .map(|(_, value)| value.map(std::ffi::OsString::from));
+    let tail = match explicit {
+        Some(None) => return,
+        Some(Some(value)) => value,
+        None => std::env::var_os("PATH").unwrap_or_default(),
+    };
+    let next = crate::implementations::grok_build::grep::ripgrep::append_os_path(&tail, &dir);
+    if next != tail {
+        cmd.env("PATH", next);
+    }
 }
 
 /// The sandbox side of one shell spawn: the hook that may wrap the command (`None` runs it as
@@ -3401,6 +3431,10 @@ fn spawn_shell_command(
             xai_tty_utils::PathBase::Process
         };
         xai_tty_utils::prepend_bundled_git_path(cmd.as_std_mut(), path_base);
+        append_bundled_rg_path(
+            &mut cmd,
+            active_policy.is_none_or(|p| p.allows_with_inherit("PATH")),
+        );
         crate::sandbox_launch::prepare(
             sandbox.hook,
             &mut cmd,
