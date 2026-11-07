@@ -1,7 +1,8 @@
 //! Why `grok worktree rm` without `-f` must stop.
 //!
-//! In-use worktrees (a live creator pid, or a process whose cwd is inside the
-//! worktree) and worktrees with unsaved changes are refused. `-f` skips this.
+//! In-use worktrees (a live creator pid, a process whose cwd is inside the
+//! worktree, or an open session whose cwd is) and worktrees with unsaved
+//! changes are refused. `-f` skips this.
 
 use std::path::Path;
 use std::time::Duration;
@@ -11,18 +12,32 @@ use crate::git::{KeepReason, Reclaim};
 /// `Some(message)` when removal without `-f` must fail.
 #[cfg(feature = "metadata")]
 pub fn refuse_unforced_removal(path: &Path) -> Option<String> {
-    if worktree_in_use(path) {
-        return Some(
-            "worktree is in use by a running process; pass -f to remove it anyway".to_string(),
-        );
+    match worktree_in_use(path) {
+        InUse::Session => {
+            return Some(
+                "worktree is in use by an open session; pass -f to remove it anyway".to_string(),
+            );
+        }
+        InUse::Process => {
+            return Some(
+                "worktree is in use by a running process; pass -f to remove it anyway".to_string(),
+            );
+        }
+        InUse::SessionUnreadable => {
+            return Some(
+                "could not check whether an open session is using this worktree; pass -f to remove it anyway"
+                    .to_string(),
+            );
+        }
+        InUse::No => {}
     }
     if !path.exists() {
         return None;
     }
     match crate::git::reclaimable_within(path, None, Duration::from_secs(15)) {
-        Reclaim::Keep(KeepReason::Dirty | KeepReason::HiddenFromStatus) => Some(
-            "worktree has unsaved changes; pass -f to remove it anyway".to_string(),
-        ),
+        Reclaim::Keep(KeepReason::Dirty | KeepReason::HiddenFromStatus) => {
+            Some("worktree has unsaved changes; pass -f to remove it anyway".to_string())
+        }
         Reclaim::Keep(KeepReason::CheckFailed | KeepReason::GateTimedOut) => Some(
             "could not check the worktree for unsaved changes; pass -f to remove it anyway"
                 .to_string(),
@@ -32,21 +47,42 @@ pub fn refuse_unforced_removal(path: &Path) -> Option<String> {
 }
 
 #[cfg(feature = "metadata")]
-fn worktree_in_use(path: &Path) -> bool {
+enum InUse {
+    No,
+    Session,
+    Process,
+    SessionUnreadable,
+}
+
+#[cfg(feature = "metadata")]
+fn worktree_in_use(path: &Path) -> InUse {
     if let Ok(db) = crate::db::WorktreeDb::open_default() {
         let key = path.display().to_string();
         if let Ok(Some(rec)) = db.get(&key) {
             if rec.creator_pid.is_some_and(super::gc::is_pid_alive) {
-                return true;
+                return InUse::Process;
+            }
+        }
+    }
+    if path.exists() {
+        match super::gc::live_session_cwds() {
+            super::gc::SessionCwdScan::Unreadable => return InUse::SessionUnreadable,
+            super::gc::SessionCwdScan::Ok(cwds) => {
+                let worktree = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+                if super::gc::cwd_within(&worktree, &cwds) {
+                    return InUse::Session;
+                }
             }
         }
     }
     let Ok(canon) = dunce::canonicalize(path) else {
-        return false;
+        return InUse::No;
     };
     match super::gc::live_process_cwds() {
-        super::gc::LiveCwdScan::Ok(cwds) => cwds.iter().any(|cwd| cwd_inside(cwd, &canon)),
-        _ => false,
+        super::gc::LiveCwdScan::Ok(cwds) if cwds.iter().any(|cwd| cwd_inside(cwd, &canon)) => {
+            InUse::Process
+        }
+        _ => InUse::No,
     }
 }
 

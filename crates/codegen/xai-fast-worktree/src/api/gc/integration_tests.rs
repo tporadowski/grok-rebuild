@@ -323,6 +323,71 @@ fn gc_cwd_guard_skips_then_reclaims_expired_worktree() {
 }
 
 #[test]
+fn open_session_keeps_a_worktree_rm_and_gc_would_delete() {
+    let fx = crate::db::GrokHomeFixture::new();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let db = db_at(&tmp);
+    let held = deletable_linked_worktree(tmp.path(), "session-held");
+    let free = deletable_linked_worktree(tmp.path(), "session-free");
+    let nested = held.join("notes");
+    std::fs::create_dir_all(&nested).unwrap();
+    db.register(&crate::test_support::worktree_record("held", held.clone()))
+        .unwrap();
+    db.register(&crate::test_support::worktree_record("free", free.clone()))
+        .unwrap();
+    write_open_sessions(
+        &fx.home,
+        &[(std::process::id(), &nested), (u32::MAX, free.as_path())],
+    );
+    let listed = xai_grok_active_sessions::list_in(&fx.home).unwrap();
+    assert_eq!(listed.len(), 2, "the registry must contain both sessions");
+
+    let held_reason = refuse_unforced_removal(&held);
+    assert!(
+        held_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("open session")),
+        "a live session cwd inside the worktree must refuse rm, got {held_reason:?}"
+    );
+    assert!(
+        refuse_unforced_removal(&free).is_none(),
+        "a dead session pid must not refuse rm"
+    );
+    assert!(held.exists());
+
+    let report = gc::gc_worktrees(&db, &expire_now()).unwrap();
+    assert!(
+        held.exists(),
+        "gc must keep the worktree an open session is using"
+    );
+    assert!(
+        !free.exists(),
+        "gc must still remove a worktree whose session process is dead"
+    );
+    assert_eq!(report.expired_removed, 1);
+    assert!(report.skipped_alive >= 1);
+}
+
+fn write_open_sessions(home: &std::path::Path, sessions: &[(u32, &std::path::Path)]) {
+    let entries: Vec<_> = sessions
+        .iter()
+        .map(|(pid, cwd)| {
+            serde_json::json!({
+                "session_id": format!("session-{pid}"),
+                "pid": pid,
+                "cwd": cwd.display().to_string(),
+                "opened_at": "2026-11-07T00:00:00Z",
+            })
+        })
+        .collect();
+    std::fs::write(
+        home.join("active_sessions.json"),
+        serde_json::to_vec_pretty(&entries).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
 fn gc_dry_run_with_max_age_does_not_remove_expired() {
     // An expired worktree whose dir exists must be previewed (counted)
     // but never removed under dry_run.

@@ -13517,6 +13517,7 @@ dependencies = [
  "uuid",
  "xai-dirs",
  "xai-gix-status",
+ "xai-grok-active-sessions",
  "xai-sqlite-journal",
  "xai-test-utils",
  "xai-tty-utils",

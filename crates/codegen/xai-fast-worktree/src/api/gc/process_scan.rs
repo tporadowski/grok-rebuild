@@ -37,6 +37,33 @@ pub(crate) enum LiveCwdScan {
     Failed,
 }
 
+/// Cwds recorded for grok sessions whose process is still alive.
+/// `Unreadable` means the registry could not be read, so the caller must not delete.
+#[derive(Debug)]
+pub(crate) enum SessionCwdScan {
+    Ok(Vec<PathBuf>),
+    Unreadable,
+}
+
+pub(crate) fn live_session_cwds() -> SessionCwdScan {
+    let Some(home) = xai_dirs::resolve_grok_home() else {
+        return SessionCwdScan::Ok(Vec::new());
+    };
+    match xai_grok_active_sessions::list_in(&home) {
+        Ok(sessions) => SessionCwdScan::Ok(
+            sessions
+                .into_iter()
+                .filter(|session| is_pid_alive(session.pid))
+                .map(|session| PathBuf::from(session.cwd))
+                .collect(),
+        ),
+        Err(error) => {
+            tracing::warn!(%error, "open-session registry unreadable");
+            SessionCwdScan::Unreadable
+        }
+    }
+}
+
 pub(crate) fn usable_cwds(scan: &LiveCwdScan, force: bool) -> Option<&[PathBuf]> {
     match scan {
         LiveCwdScan::Ok(cwds) => Some(cwds),
@@ -185,7 +212,7 @@ fn macos_list_all_pids() -> Option<Vec<i32>> {
     None
 }
 
-pub(super) fn cwd_within(wt_path: &Path, live_cwds: &[PathBuf]) -> bool {
+pub(crate) fn cwd_within(wt_path: &Path, live_cwds: &[PathBuf]) -> bool {
     let wt_canon = dunce::canonicalize(wt_path).unwrap_or_else(|_| wt_path.to_path_buf());
     live_cwds.iter().any(|cwd| {
         if cwd.starts_with(wt_path) || cwd.starts_with(&wt_canon) {

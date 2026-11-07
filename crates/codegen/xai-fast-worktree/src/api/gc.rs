@@ -14,8 +14,10 @@ use crate::git::{KeepReason, RECLAIMED_LIFETIME, Reclaim, collect_reclaimed_name
 
 mod process_scan;
 
-use process_scan::cwd_within;
-pub(crate) use process_scan::{LiveCwdScan, is_pid_alive, live_process_cwds, usable_cwds};
+pub(crate) use process_scan::{
+    LiveCwdScan, SessionCwdScan, cwd_within, is_pid_alive, live_process_cwds, live_session_cwds,
+    usable_cwds,
+};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct GcOptions {
@@ -117,11 +119,21 @@ fn recheck_holds(
     db: &WorktreeDb,
     rec: &crate::db::WorktreeRecord,
     now: i64,
-    live_cwds: &[PathBuf],
+    process_cwds: &[PathBuf],
     opts: &GcOptions,
     report: &mut GcReport,
 ) -> ControlFlow<()> {
-    match still_reclaimable(db, rec, now, live_cwds, opts) {
+    // The gate can run for minutes. Read the session registry again so a
+    // session that opened during the gate still keeps its worktree.
+    let Some(live_cwds) = cwds_with_open_sessions(process_cwds) else {
+        tracing::warn!(
+            path = %rec.path.display(),
+            "open-session registry unreadable; keeping this worktree"
+        );
+        report.skipped_alive += 1;
+        return ControlFlow::Break(());
+    };
+    match still_reclaimable(db, rec, now, &live_cwds, opts) {
         StillReclaimable::Yes => ControlFlow::Continue(()),
         StillReclaimable::Held => {
             report.skipped_alive += 1;
@@ -294,6 +306,19 @@ fn rec_cwd_within(rec: &crate::db::WorktreeRecord, live_cwds: &[PathBuf]) -> boo
 
 fn is_guarded(rec: &crate::db::WorktreeRecord, live_cwds: &[PathBuf]) -> bool {
     rec.creator_pid.is_some_and(is_pid_alive) || rec_cwd_within(rec, live_cwds)
+}
+
+/// Process cwds plus cwds of live open sessions. `None` means the session
+/// registry could not be read and the caller must not delete.
+fn cwds_with_open_sessions(process_cwds: &[PathBuf]) -> Option<Vec<PathBuf>> {
+    match live_session_cwds() {
+        SessionCwdScan::Unreadable => None,
+        SessionCwdScan::Ok(sessions) => {
+            let mut all = process_cwds.to_vec();
+            all.extend(sessions);
+            Some(all)
+        }
+    }
 }
 
 /// True when one of `in_use` lies at or inside the worktree dest
@@ -496,8 +521,12 @@ fn reclaim_expired_worktrees(
     } else {
         live_process_cwds()
     };
-    let Some(live_cwds) = usable_cwds(&cwd_scan, opts.force) else {
+    let Some(process_cwds) = usable_cwds(&cwd_scan, opts.force) else {
         tracing::warn!("process CWD scan failed or unusable; skipping age-expiry (fail closed)");
+        return Ok(());
+    };
+    let Some(live_cwds) = cwds_with_open_sessions(process_cwds) else {
+        tracing::warn!("open-session registry unreadable; skipping age-expiry (fail closed)");
         return Ok(());
     };
     let mut alive = db.list(&ListFilter::default())?;
@@ -516,7 +545,7 @@ fn reclaim_expired_worktrees(
     let deadline = Instant::now() + pass.budget;
     let mut stopped_at = None;
     for rec in alive {
-        match classify(&rec, now, live_cwds, opts) {
+        match classify(&rec, now, &live_cwds, opts) {
             Eligibility::NeverExpires => {
                 count_never_expiring(&rec, now, opts, report);
                 continue;
@@ -546,7 +575,7 @@ fn reclaim_expired_worktrees(
         }
         if !opts.force
             && !opts.dry_run
-            && recheck_holds(db, &rec, now, live_cwds, opts, report).is_break()
+            && recheck_holds(db, &rec, now, process_cwds, opts, report).is_break()
         {
             continue;
         }
@@ -566,9 +595,10 @@ fn reclaim_expired_worktrees(
             hook(Entered::AfterGate);
         }
         // Re-check after the gate (can run for minutes): a session that
-        // re-registered with a live creator_pid must not be removed. The CWD
-        // list is the pass-start snapshot, so a later bare chdir is not seen.
-        if !opts.force && recheck_holds(db, &rec, now, live_cwds, opts, report).is_break() {
+        // re-registered with a live creator_pid, or an open session whose cwd
+        // is inside the worktree, must not be removed. The process CWD list is
+        // the pass-start snapshot, so a later bare chdir is not seen.
+        if !opts.force && recheck_holds(db, &rec, now, process_cwds, opts, report).is_break() {
             continue;
         }
         // Re-judge immediately before the irreversible removal: the first
