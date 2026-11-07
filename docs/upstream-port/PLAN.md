@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-030 — W2 is complete, plus tested CLI rows
+Pager tests passed for rewind leaving the caret at the end of the restored prompt (`v50-x09`), ghost suggestions that do not cover text after the cursor (`v51-x01`), editable `@` file chips (`v74-f10`), and interactive `--tools` / `--disallowed-tools` (`v53-f03`). Also tested: narrow home and login wrapping (`v47-x01`), plugin suggestions hidden when plugins are disabled (`v64-f06`), a case-insensitive single title match (`v59-f02`), a local title miss that does not start a remote restore (`v60-x01`), and `--allowed-tools` as an alias (`v51-f34`). `--add-dir` refuses a missing or untrusted directory; that behavior is tested and has no separate catalog row.
+
 ### D-029 — Tested dashboard slice
 On `rebuild`, with pager tests: closed stdout is a clean stop (`v62-x04`); Left on an empty focused prompt opens the dashboard (`v75-f06`); the folder picker keeps 50 recent folders (`v65-f03`); closing the peek cancels a waiting reply (`v59-x01`); the path field starts unfocused (`v68-f05`); the peek says Responding and the footer says new agent (`v74-x29`); `/resume` filters by id or title (`v54-f01`); `grok --resume <title>` orders matches and names similar titles (`v60-f01`); words match in any order at word starts (`v61-f01`, `v65-x01`); the in-session picker follows the grouped setting (`v52-x31`); a model pick keeps its context window (`v68-x03`). Not in this slice: direct open on one `/resume` match (`v61-f02`), and typo or transcript search (`v65-f01`).
 
@@ -186,7 +189,7 @@ Refresh these numbers at the end of a session.
 | Wave | Name | Pending | Skipped | Done | Already | Deferred |
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
-| W2 | CLI surface | 4 | 0 | 3 | 0 | 0 |
+| W2 | CLI surface | 0 | 0 | 7 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 36 | 0 | 0 | 0 | 0 |
@@ -195,17 +198,17 @@ Refresh these numbers at the end of a session.
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
-| W11 | Headless mode and tools | 39 | 0 | 2 | 0 | 0 |
+| W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
-| W13 | Update, install, and sign-in | 26 | 0 | 1 | 0 | 0 |
+| W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 497. Skipped: 8. Done: 57. Already: 13. Deferred: 8.
+Catalog rows: 583. Pending: 488. Skipped: 8. Done: 66. Already: 13. Deferred: 8.
 
-**Next:** W2, `v50-x09`. The tested dashboard slice is on `rebuild` (D-029). `/resume` still opens the picker when one session matches (`v61-f02`), and search does not tolerate typos or scan transcript paths (`v65-f01`).
+**Next:** W4 hooks. W2 is complete (D-030). `/resume` still opens the picker on one match (`v61-f02`), and search does not tolerate typos (`v65-f01`). Minimal sign-in uses the error color in the wrap commit, but `v74-x32` stays pending until a color assertion exists.
 
 ## Waves
 
@@ -215,7 +218,7 @@ Pending: 0. Done: 5. Deferred: 1 (`v51-b01`, D-020). Look first: Share: `crates/
 
 ### W2 — CLI surface
 
-Pending: 4. Done: 3. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented.
+Pending: 0. Done: 7. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented.
 
 ### W3 — Permissions, sandbox, and config
 
@@ -251,7 +254,7 @@ Pending: 45. Look first: `show_timestamps` is a bool today. Extend it to off / m
 
 ### W11 — Headless mode and tools
 
-Pending: 39. Done: 2. Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat.
+Pending: 38. Done: 3. Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat.
 
 ### W12 — MCP, web, images, and browser
 
@@ -259,7 +262,7 @@ Pending: 50. Done: 9. Look first: MCP crate `xai-grok-mcp`. Web and image tools 
 
 ### W13 — Update, install, and sign-in
 
-Pending: 26. Done: 1. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download.
+Pending: 22. Done: 5. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download.
 
 ### W14 — Pager and remaining bug fixes
 
@@ -283,13 +286,13 @@ id | status | wave | kind | flag | covered | note
 - v51-b03 | done | W1 | Breaking Changes |  |  | **Removed the `/share` command** and related session sharing features from the CLI and SDK.
 - v63-b01 | done | W1 | Breaking Changes |  |  | **Memory** always uses the concise `MEMORY.md` index of topic titles and paths, and `/memory` lists topics by how often Grok reads them. The `[memory_v2] compact_index_enabled` setting no longer has an effect.
 - v64-b01 | done | W1 | Breaking Changes |  |  | **Untrusted folders** run only your organization's managed hooks. User, project, plugin, and agent hooks wait until you trust the folder. Headless sessions treat user hooks as trusted.
-- v50-x09 | pending | W2 | Bug Fixes |  |  | **/rewind** now places the cursor at the end of the restored prompt.
+- v50-x09 | done | W2 | Bug Fixes |  |  | **/rewind** now places the cursor at the end of the restored prompt.
 - v50-x12 | done | W2 | Bug Fixes |  |  | **Fixed --disallowed-tools** when only one scheduler tool is named; the other two no longer cause startup failure.
 - v51-f01 | done | W2 | Features |  |  | **Inline viewports** can now be restored at a previously saved screen area without extra cursor queries.
-- v51-x01 | pending | W2 | Bug Fixes |  |  | Slash command suggestions no longer make the text after the cursor disappear while typing.
+- v51-x01 | done | W2 | Bug Fixes |  |  | Slash command suggestions no longer make the text after the cursor disappear while typing.
 - v51-x117 | done | W2 | Bug Fixes |  |  | **disable_zdr_incompatible_tools** changes now apply to new turns without restarting the worker.
-- v53-f03 | pending | W2 | Features |  |  | **`--tools` and `--disallowed-tools`** also apply in the interactive TUI.
-- v74-f10 | pending | W2 | Features |  |  | **Picked `@` files in the prompt** can be edited in place: `Backspace` at the end of one reopens the picker on its path, and `Left` or `Right` puts the cursor inside it to change the path.
+- v53-f03 | done | W2 | Features |  |  | **`--tools` and `--disallowed-tools`** also apply in the interactive TUI.
+- v74-f10 | done | W2 | Features |  |  | **Picked `@` files in the prompt** can be edited in place: `Backspace` at the end of one reopens the picker on its path, and `Left` or `Right` puts the cursor inside it to change the path.
 - v46-x04 | already | W3 | Bug Fixes |  |  | **Permission rules** with relative paths now correctly apply even when the cwd contains symlinks.
 - v48-x02 | already | W3 | Bug Fixes |  |  | Custom model tables in config.toml now preserve the original model's notice banner.
 - v50-x01 | deferred | W3 | Bug Fixes |  |  | **Shell permission decisions** now correctly prompt or approve commands matching the permission manager.
@@ -570,7 +573,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x49 | pending | W11 | Bug Fixes |  |  | **Compaction messages** now scroll into view instead of appearing below the bottom of the screen after a turn finishes.
 - v50-x63 | pending | W11 | Bug Fixes |  |  | **Grep** now respects Read deny rules that use a leading `./`.
 - v51-f32 | pending | W11 | Features |  |  | `grok agent stdio` now supports listing sessions via ACP and returns consistent reply envelopes.
-- v51-f34 | pending | W11 | Features |  |  | **--allowed-tools** is now accepted as an alias for --allow in headless mode.
+- v51-f34 | done | W11 | Features |  |  | **--allowed-tools** is now accepted as an alias for --allow in headless mode.
 - v51-x23 | pending | W11 | Bug Fixes |  |  | **Headless JSON output** now reports the correct stop reason when the turn limit is reached and removes duplicate error prefixes.
 - v51-x71 | pending | W11 | Bug Fixes |  |  | **grok -p -s** with a reused session id now shows the plain refusal message instead of JSON-RPC noise.
 - v51-x95 | pending | W11 | Bug Fixes |  |  | Background shell commands now fail immediately when the working directory does not exist.
@@ -655,7 +658,7 @@ id | status | wave | kind | flag | covered | note
 - v77-x02 | pending | W12 | Bug Fixes |  |  | MCP server connections no longer restart unnecessarily on session reloads or updates.
 - v78-x02 | pending | W12 | Bug Fixes |  |  | **Dropped-image notice** no longer appears inside the user's own message in transcripts or history.
 - v46-x01 | pending | W13 | Bug Fixes |  |  | **MCP server sources** are now correctly reported by `grok inspect` and the MCP doctor.
-- v47-x01 | pending | W13 | Bug Fixes |  |  | Error messages on the home and login screens now wrap properly in narrow terminals.
+- v47-x01 | done | W13 | Bug Fixes |  |  | Error messages on the home and login screens now wrap properly in narrow terminals.
 - v48-x06 | pending | W13 | Bug Fixes |  |  | **Authentication recovery** no longer automatically retries refused prompts after login; the sign-in block now requires manual resend.
 - v50-x33 | done | W13 | Bug Fixes |  |  | **The bundled ripgrep** is now available to terminal commands even on images that do not install it.
 - v50-x38 | pending | W13 | Bug Fixes |  |  | **grok doctor** now reports the exact config file or setting that prevents Grok from starting instead of saying zero issues.
@@ -663,10 +666,10 @@ id | status | wave | kind | flag | covered | note
 - v51-f29 | pending | W13 | Features |  |  | grok -p now runs auth_provider_command when no login is stored.
 - v51-x12 | pending | W13 | Bug Fixes |  |  | Sign-in failures now show a clear plain-English message with the next step instead of raw errors.
 - v53-x14 | pending | W13 | Bug Fixes |  |  | **`grok plugin install`** interrupted mid-clone on Linux no longer leaves a partial folder that blocks the retry.
-- v59-f02 | pending | W13 | Features |  |  | **`grok --resume <title>`** matches a title whatever separates its words, so `fix-login-bug` finds "Fix login bug".
-- v60-x01 | pending | W13 | Bug Fixes |  |  | **`grok --resume <title>`** with a title that matches no local session reports the miss right away instead of trying a remote restore and asking you to sign in.
+- v59-f02 | done | W13 | Features |  |  | **`grok --resume <title>`** matches a title whatever separates its words, so `fix-login-bug` finds "Fix login bug".
+- v60-x01 | done | W13 | Bug Fixes |  |  | **`grok --resume <title>`** with a title that matches no local session reports the miss right away instead of trying a remote restore and asking you to sign in.
 - v62-x05 | pending | W13 | Bug Fixes |  |  | **`grok update`** and **`grok login`** no longer crash when stdout or stderr is closed or unwritable.
-- v64-f06 | pending | W13 | Features |  |  | **Plugin install suggestions** above the prompt are off when `disable_plugins = true` is set.
+- v64-f06 | done | W13 | Features |  |  | **Plugin install suggestions** above the prompt are off when `disable_plugins = true` is set.
 - v69-x02 | pending | W13 | Bug Fixes |  |  | **`grok doctor`** and `/doctor` now point out a leftover `[ui] vim_mode` key (now `[keys] vim`) or the retired `[ui] simple_mode` key in your config.
 - v73-f04 | pending | W13 | Features |  |  | **Automatic updates** stop retrying a new version that fails to start on this machine until a newer version is out, and each launch says to run `grok update` to see why.
 - v74-f03 | pending | W13 | Features |  |  | **`/mcps`**: when a browser can't open an MCP server's sign-in URL, the URL shows in a panel you can copy with `c` or the `[copy the url]` button.
