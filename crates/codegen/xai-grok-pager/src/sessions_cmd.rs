@@ -1,4 +1,9 @@
 use anyhow::Result;
+
+fn outln(line: impl std::fmt::Display) -> Result<()> {
+    // `println!` panics when stdout closes (`grok sessions | head`) or the device is full.
+    Ok(crate::util::println_stdout(line)?)
+}
 use clap::Subcommand;
 use xai_grok_login::{AuthManager, try_ensure_fresh_auth};
 use xai_grok_shell::agent::config::Config as AgentConfig;
@@ -71,7 +76,7 @@ pub async fn run(args: SessionsArgs, agent_config: &AgentConfig) -> Result<()> {
                 xai_grok_shell::session::visibility::HeadlessPolicy::Include,
             )
             .await;
-            print_sessions_grouped(&sessions);
+            print_sessions_grouped(&sessions)?;
         }
         SessionsCommand::Search { query, limit } => {
             use std::collections::HashSet;
@@ -130,14 +135,14 @@ pub async fn run(args: SessionsArgs, agent_config: &AgentConfig) -> Result<()> {
                             .to_string()
                     })
                     .unwrap_or_default();
-                println!(
+                outln(format!(
                     "{} (score: {:.2})  {}\n  {}\n  {}",
                     hit.session_id,
                     hit.score,
                     time,
                     title,
                     hit.snippet.as_deref().unwrap_or("")
-                );
+                ))?;
             }
 
             let remaining = limit.saturating_sub(resp.results.len());
@@ -164,14 +169,14 @@ pub async fn run(args: SessionsArgs, agent_config: &AgentConfig) -> Result<()> {
                     .chars()
                     .take(80)
                     .collect();
-                println!(
+                outln(format!(
                     "{} (remote)  {}\n  {}\n  {}",
                     r.session_id, time, title, snippet
-                );
+                ))?;
                 remote_shown += 1;
             }
 
-            println!("\nTotal: {}", resp.results.len() + remote_shown);
+            outln(format!("\nTotal: {}", resp.results.len() + remote_shown))?;
         }
         SessionsCommand::Delete { id } => {
             // Always attempt the remote delete when authenticated and not ZDR; `list` and `search` likewise query remote
@@ -192,9 +197,9 @@ pub async fn run(args: SessionsArgs, agent_config: &AgentConfig) -> Result<()> {
             .await?;
 
             if deletion.any_removed() {
-                println!("Deleted session {id}");
+                outln(format!("Deleted session {id}"))?;
             } else {
-                println!("No session found with id {id}.");
+                outln(format!("No session found with id {id}."))?;
             }
         }
     }
@@ -212,10 +217,9 @@ pub(crate) fn summary_or_untitled(title: &str) -> &str {
 }
 
 /// Print sessions grouped by worktree label, preserving the original table format with a `Label: <label>` header before each group.
-fn print_sessions_grouped(sessions: &[MergedSession]) {
+fn print_sessions_grouped(sessions: &[MergedSession]) -> Result<()> {
     if sessions.is_empty() {
-        println!("No sessions found.");
-        return;
+        return outln("No sessions found.");
     }
 
     // Group by worktree_label, sort alphabetically, None last.
@@ -235,9 +239,9 @@ fn print_sessions_grouped(sessions: &[MergedSession]) {
 
     // Labeled groups first (alphabetical), then unlabeled last.
     let none_group = groups.remove(&None);
-    let print_group = |label_line: &str, members: &[&MergedSession]| {
-        println!("\n{label_line}");
-        println!("{header}");
+    let print_group = |label_line: &str, members: &[&MergedSession]| -> Result<()> {
+        outln(format!("\n{label_line}"))?;
+        outln(&header)?;
         for s in members {
             let first_line;
             let summary: &str = if !s.summary.is_empty() {
@@ -259,18 +263,20 @@ fn print_sessions_grouped(sessions: &[MergedSession]) {
                 .updated_at
                 .get(..s.updated_at.len().min(10))
                 .unwrap_or(s.updated_at.as_str());
-            println!(
+            outln(format!(
                 "{}  {}  {}  {}  {}",
                 s.session_id, created, updated, s.source, truncated
-            );
+            ))?;
         }
+        Ok(())
     };
 
     for (label, members) in &groups {
         let line = format!("Label: {}", label.unwrap_or(""));
-        print_group(&line, members);
+        print_group(&line, members)?;
     }
     if let Some(members) = &none_group {
-        print_group("(no label)", members);
+        print_group("(no label)", members)?;
     }
+    Ok(())
 }

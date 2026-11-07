@@ -7,12 +7,25 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub use xai_grok_config::grok_home;
 pub use xai_grok_tools::util::format_bytes;
 
-/// A closed stdout (`grok du | head`) is a clean stop, not a failure.
+/// A closed stdout (`grok du | head`) or a full output device is a clean stop, not a failure.
 pub fn ignore_broken_pipe(result: std::io::Result<()>) -> std::io::Result<()> {
     match result {
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::StorageFull
+            ) =>
+        {
+            Ok(())
+        }
         other => other,
     }
+}
+
+/// One stdout line. `println!` panics when the pipe closes; this returns success instead.
+pub fn println_stdout(line: impl std::fmt::Display) -> std::io::Result<()> {
+    use std::io::Write;
+    ignore_broken_pipe(writeln!(std::io::stdout(), "{line}"))
 }
 
 /// Path to `$GROK_HOME/pager.toml`.
@@ -254,6 +267,16 @@ pub fn group_thousands(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closed_pipe_and_full_device_are_clean_stops() {
+        let broken = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe");
+        let full = std::io::Error::new(std::io::ErrorKind::StorageFull, "full");
+        assert!(ignore_broken_pipe(Err(broken)).is_ok());
+        assert!(ignore_broken_pipe(Err(full)).is_ok());
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no");
+        assert!(ignore_broken_pipe(Err(denied)).is_err());
+    }
 
     #[test]
     fn format_age_buckets_relative_to_now() {

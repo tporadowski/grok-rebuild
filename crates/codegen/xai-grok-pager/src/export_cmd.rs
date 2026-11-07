@@ -78,8 +78,9 @@ pub fn run(args: ExportArgs) -> Result<()> {
             lines
         );
     } else {
-        std::io::stdout().write_all(md.as_bytes())?;
-        std::io::stdout().write_all(b"\n")?;
+        let mut stdout = std::io::stdout().lock();
+        crate::util::ignore_broken_pipe(stdout.write_all(md.as_bytes()))?;
+        crate::util::ignore_broken_pipe(stdout.write_all(b"\n"))?;
     }
 
     Ok(())
