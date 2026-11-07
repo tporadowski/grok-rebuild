@@ -13,10 +13,24 @@ pub(crate) fn is_uuid_shaped(arg: &str) -> bool {
     uuid::Uuid::try_parse(arg).is_ok()
 }
 
-/// Canonical key for title equality: trimmed `str::to_lowercase`.
-/// Plain case-insensitive equality, not full Unicode caseless matching.
+/// Canonical key for title equality.
+/// Case-insensitive, and every run of non-alphanumeric characters is one space, so
+/// `fix-login-bug` matches "Fix login bug". Not full Unicode caseless matching.
 fn title_key(s: &str) -> String {
-    s.trim().to_lowercase()
+    let mut out = String::new();
+    let mut spaced = false;
+    for ch in s.trim().chars() {
+        if ch.is_alphanumeric() {
+            spaced = false;
+            for lower in ch.to_lowercase() {
+                out.push(lower);
+            }
+        } else if !spaced && !out.is_empty() {
+            spaced = true;
+            out.push(' ');
+        }
+    }
+    out
 }
 
 /// Hint appended to every terminal failure for a non-id resume target.

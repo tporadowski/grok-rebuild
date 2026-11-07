@@ -1326,7 +1326,7 @@ pub(in crate::app::dispatch) fn handle_session_loaded(
             agent_id,
             session_id: hydrate_sid.clone(),
         });
-        if app.plugin_cta_enabled {
+        if app.plugin_cta_enabled && !app.appearance.disable_plugins {
             effects.push(Effect::FetchPluginCtaCatalog {
                 agent_id,
                 session_id: hydrate_sid.clone(),

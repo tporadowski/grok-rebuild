@@ -1122,6 +1122,13 @@ pub(crate) fn plan_remote_miss(ctx: MaterializeCtx, arg_is_uuid: bool) -> Remote
             title_miss_hint: !arg_is_uuid,
         };
     }
+    // A title is not a remote session id. Missing it locally is the answer; do not
+    // start a remote restore that asks the user to sign in.
+    if !arg_is_uuid {
+        return RemoteMissPlan::NotFound {
+            title_miss_hint: true,
+        };
+    }
     RemoteMissPlan::RestoreConversation
 }
 /// Remote-restore tail of [`resolve_existing_session`], split out so non-id targets can wrap every failure with the title-miss hint.
@@ -1980,6 +1987,12 @@ mod tests {
         assert_eq!(
             plan_remote_miss(remote_miss_ctx(false, false), true),
             RemoteMissPlan::RestoreConversation
+        );
+        assert_eq!(
+            plan_remote_miss(remote_miss_ctx(false, false), false),
+            RemoteMissPlan::NotFound {
+                title_miss_hint: true,
+            }
         );
     }
     #[test]

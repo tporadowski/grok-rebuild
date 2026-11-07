@@ -35,6 +35,8 @@ fn single_match_is_case_insensitive_and_trimmed() {
         summary("b", Some("Other"), false),
     ];
     assert_eq!(id_of(select_by_title("  FIX login bug ", &s).unwrap()), "a");
+    assert_eq!(id_of(select_by_title("fix-login-bug", &s).unwrap()), "a");
+    assert_eq!(id_of(select_by_title("fix_login_bug", &s).unwrap()), "a");
 }
 
 /// The contract is a simple lowercase comparison: accented letters match across case, but one-to-many case folds do not.

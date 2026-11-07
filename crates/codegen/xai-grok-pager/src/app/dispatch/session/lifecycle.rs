@@ -1463,7 +1463,7 @@ pub(in crate::app::dispatch) fn handle_session_created(
             agent_id,
             session_id: session_id_clone.clone(),
         });
-        if app.plugin_cta_enabled {
+        if app.plugin_cta_enabled && !app.appearance.disable_plugins {
             effects.push(Effect::FetchPluginCtaCatalog {
                 agent_id,
                 session_id: session_id_clone.clone(),
@@ -1602,7 +1602,7 @@ pub(in crate::app::dispatch) fn handle_worktree_session_created(
             agent_id,
             session_id: session_id_clone.clone(),
         });
-        if app.plugin_cta_enabled {
+        if app.plugin_cta_enabled && !app.appearance.disable_plugins {
             effects.push(Effect::FetchPluginCtaCatalog {
                 agent_id,
                 session_id: session_id_clone.clone(),
