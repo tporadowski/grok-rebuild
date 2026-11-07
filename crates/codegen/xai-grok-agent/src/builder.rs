@@ -1030,6 +1030,11 @@ impl AgentBuilder {
         tool_config
             .tools
             .retain(|tc| definition.session_tools_allowed(&tc.id));
+        let mut scheduler_denies = definition.disallowed_tools.clone();
+        if let Some(session_deny) = &definition.session_tools_denylist {
+            scheduler_denies.extend(session_deny.iter().cloned());
+        }
+        crate::tool_list::drop_denied_scheduler_bundle(&mut tool_config.tools, &scheduler_denies);
         {
             let saw_directive = definition
                 .tools
@@ -2336,6 +2341,21 @@ mod tests {
             .await
             .expect("finalize must insert Params for the injected ask_user_question");
         assert_eq!(applied.0.non_interactive, Some(true));
+    }
+    #[tokio::test]
+    async fn disallowed_one_scheduler_tool_does_not_fail_startup() {
+        let agent = build_with_tools(vec![], vec!["scheduler_create".into()]).await;
+        let names: Vec<String> = agent
+            .tool_definitions()
+            .await
+            .into_iter()
+            .map(|definition| definition.function.name)
+            .collect();
+        assert!(
+            names.iter().all(|name| !name.starts_with("scheduler_")),
+            "{names:?}"
+        );
+        assert!(names.iter().any(|name| name == "read_file"), "{names:?}");
     }
     async fn build_with_tools(tools: Vec<String>, disallowed: Vec<String>) -> crate::agent::Agent {
         use xai_grok_tools::computer::local::LocalTerminalBackend;

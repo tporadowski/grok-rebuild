@@ -16,6 +16,29 @@ fn ids<'a>(listed: &ListedTools<'a>) -> Vec<&'a str> {
 }
 
 #[test]
+fn denied_scheduler_tool_drops_the_other_two() {
+    let mut toolset = vec![
+        tool("GrokBuild:scheduler_create", ToolKind::Read),
+        tool("GrokBuild:scheduler_delete", ToolKind::Read),
+        tool("GrokBuild:scheduler_list", ToolKind::Read),
+        tool("GrokBuild:read_file", ToolKind::Read),
+    ];
+    drop_denied_scheduler_bundle(&mut toolset, &entries(&["scheduler_create"]));
+    let ids: Vec<_> = toolset.iter().map(|tool| tool.id.as_str()).collect();
+    assert_eq!(ids, vec!["GrokBuild:read_file"]);
+}
+
+#[test]
+fn unrelated_deny_keeps_the_scheduler_bundle() {
+    let mut toolset = vec![
+        tool("GrokBuild:scheduler_create", ToolKind::Read),
+        tool("GrokBuild:read_file", ToolKind::Read),
+    ];
+    drop_denied_scheduler_bundle(&mut toolset, &entries(&["web_search"]));
+    assert_eq!(toolset.len(), 2);
+}
+
+#[test]
 fn denylist_matches_tool_ids_only() {
     let toolset = [
         tool("GrokBuild:read_file", ToolKind::Read),

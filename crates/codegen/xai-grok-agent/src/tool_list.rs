@@ -10,6 +10,24 @@ use crate::config::{AGENT_TASK_CLASSIFIER_RE, short_tool_name, tool_id_eq, tool_
 /// An `Agent` or `Task` allowlist entry keeps the task tool and its lifecycle companions.
 const TASK_DEPS: &[&str] = &["task", "get_task_output", "kill_task", "wait_tasks"];
 
+/// The scheduler tools require each other. Leaving two after a denylist names one fails startup.
+const SCHEDULER_TOOLS: &[&str] = &["scheduler_create", "scheduler_delete", "scheduler_list"];
+
+/// Drop every scheduler tool when a denylist names any of them.
+/// A partial bundle fails toolset validation (`scheduler_bundle_requires_expr`), which is the
+/// `--disallowed-tools scheduler_create` startup failure.
+pub fn drop_denied_scheduler_bundle(tools: &mut Vec<ToolConfig>, denied: &[String]) {
+    let names_one = denied.iter().any(|entry| {
+        SCHEDULER_TOOLS
+            .iter()
+            .any(|name| tool_id_eq(entry, name) || entry.ends_with(&format!(":{name}")))
+    });
+    if !names_one {
+        return;
+    }
+    tools.retain(|tool| !SCHEDULER_TOOLS.contains(&short_tool_name(&tool.id)));
+}
+
 /// The Grok [`ToolKind`] a vendor-compat `tools:` allowlist entry resolves to, so a plugin's upstream allowlist still binds.
 /// Backed by the shared vendor-to-Grok tool registry in `xai-grok-tools` (also used by the hook matcher).
 fn claude_tool_kind(name: &str) -> Option<ToolKind> {
