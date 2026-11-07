@@ -34,6 +34,64 @@ async fn resilient_transport_skips_undecodable_line_and_keeps_stream_alive() {
     );
 }
 
+/// A read interrupted mid-line must keep the bytes already taken, then finish the JSON-RPC message.
+#[tokio::test]
+async fn stdio_read_interrupted_keeps_partial_line() {
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, ReadBuf};
+
+    struct Scripted {
+        steps: Vec<Result<&'static [u8], ()>>,
+        i: usize,
+    }
+    impl AsyncRead for Scripted {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            if self.i >= self.steps.len() {
+                return Poll::Ready(Ok(()));
+            }
+            let step = self.steps[self.i];
+            self.i += 1;
+            match step {
+                Err(()) => Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "interrupted",
+                ))),
+                Ok(bytes) => {
+                    let n = bytes.len().min(buf.remaining());
+                    buf.put_slice(&bytes[..n]);
+                    Poll::Ready(Ok(()))
+                }
+            }
+        }
+    }
+
+    // Same notification shape the undecodable-line test already decodes.
+    let line = b"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n";
+    let split = 20;
+    let (head, tail) = line.split_at(split);
+    let reader = Scripted {
+        steps: vec![Ok(head), Err(()), Ok(tail)],
+        i: 0,
+    };
+    let mut transport = ResilientRwTransport::new(
+        reader,
+        tokio::io::sink(),
+        "stdio".to_string(),
+        xai_grok_session_events::EventWriter::noop(),
+    );
+    let msg = transport
+        .receive()
+        .await
+        .expect("interrupted read must still deliver the full line");
+    let rendered = serde_json::to_string(&msg).unwrap();
+    assert!(rendered.contains("list_changed"), "{rendered}");
+}
+
 fn make_stdio_server(name: &str, command: &str) -> acp::McpServer {
     acp::McpServer::Stdio(acp::McpServerStdio::new(name, PathBuf::from(command)))
 }
@@ -56,7 +114,7 @@ fn make_http_server(name: &str, url: &str) -> acp::McpServer {
 #[test]
 fn plan_stdio_spawn_windows_resolves_bare_launcher_to_cmd_shim() {
     let args = vec!["-y".to_string(), "@scope/pkg".to_string()];
-    let (program, spawn_args) = plan_stdio_spawn("npx", &args, true, |c| {
+    let (program, spawn_args) = plan_stdio_spawn("npx", &args, true, None, |c| {
         assert_eq!(c, "npx");
         Some(PathBuf::from(r"C:\path\npx.cmd"))
     });
@@ -67,7 +125,7 @@ fn plan_stdio_spawn_windows_resolves_bare_launcher_to_cmd_shim() {
 #[test]
 fn plan_stdio_spawn_windows_unresolved_falls_back_to_raw_command() {
     let args = vec!["-y".to_string(), "@scope/pkg".to_string()];
-    let (program, spawn_args) = plan_stdio_spawn("npx", &args, true, |_| None);
+    let (program, spawn_args) = plan_stdio_spawn("npx", &args, true, None, |_| None);
     assert_eq!(program, OsString::from("npx"));
     assert_eq!(spawn_args, args);
 }
@@ -75,7 +133,7 @@ fn plan_stdio_spawn_windows_unresolved_falls_back_to_raw_command() {
 #[test]
 fn plan_stdio_spawn_windows_backslash_path_command_used_as_is_without_resolving() {
     let args = vec!["--config".to_string(), "x.json".to_string()];
-    let (program, spawn_args) = plan_stdio_spawn(r"C:\tools\server.exe", &args, true, |_| {
+    let (program, spawn_args) = plan_stdio_spawn(r"C:\tools\server.exe", &args, true, None, |_| {
         panic!("resolver must not be consulted for a command with a backslash separator")
     });
     assert_eq!(program, OsString::from(r"C:\tools\server.exe"));
@@ -85,7 +143,7 @@ fn plan_stdio_spawn_windows_backslash_path_command_used_as_is_without_resolving(
 #[test]
 fn plan_stdio_spawn_windows_forward_slash_path_command_used_as_is_without_resolving() {
     let args = vec!["--port".to_string(), "8080".to_string()];
-    let (program, spawn_args) = plan_stdio_spawn("C:/tools/server.exe", &args, true, |_| {
+    let (program, spawn_args) = plan_stdio_spawn("C:/tools/server.exe", &args, true, None, |_| {
         panic!("resolver must not be consulted for a command with a forward-slash separator")
     });
     assert_eq!(program, OsString::from("C:/tools/server.exe"));
@@ -93,9 +151,39 @@ fn plan_stdio_spawn_windows_forward_slash_path_command_used_as_is_without_resolv
 }
 
 #[test]
+fn http_mcp_client_accepts_compressed_responses() {
+    let client = super::with_response_compression(reqwest::Client::builder())
+        .build()
+        .expect("compressed client");
+    drop(client);
+}
+
+#[test]
+fn plan_stdio_spawn_expands_leading_tilde_in_command_and_args() {
+    let home = std::path::Path::new("/home/user");
+    let args = vec![
+        "~/srv/index.js".to_string(),
+        "~other".to_string(),
+        "~".to_string(),
+    ];
+    let (program, spawn_args) = plan_stdio_spawn("~/bin/server", &args, false, Some(home), |_| {
+        panic!("expanded command has a separator, so the resolver must not run")
+    });
+    assert_eq!(program, OsString::from("/home/user/bin/server"));
+    assert_eq!(
+        spawn_args,
+        vec![
+            "/home/user/srv/index.js".to_string(),
+            "~other".to_string(),
+            "/home/user".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn plan_stdio_spawn_non_windows_never_resolves() {
     let args = vec!["-y".to_string(), "pkg".to_string()];
-    let (program, spawn_args) = plan_stdio_spawn("npx", &args, false, |_| {
+    let (program, spawn_args) = plan_stdio_spawn("npx", &args, false, None, |_| {
         panic!("resolver must not be consulted on non-Windows")
     });
     assert_eq!(program, OsString::from("npx"));

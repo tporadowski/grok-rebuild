@@ -270,6 +270,10 @@ pub fn shared_client() -> reqwest::Client {
             let _timer = startup_timer!("startup.http_client_build");
             xai_grok_extra_ca::build_reqwest_client(|builder| {
                 builder
+                    .gzip(true)
+                    .brotli(true)
+                    .deflate(true)
+                    .zstd(true)
                     .connect_timeout(std::time::Duration::from_secs(30))
                     .user_agent(process_user_agent_string())
                     .pool_idle_timeout(std::time::Duration::from_secs(30))
@@ -490,6 +494,18 @@ pub fn shared_startup_blocking_client() -> reqwest::blocking::Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_http_stack_accepts_compressed_responses() {
+        let client = reqwest::Client::builder()
+            .gzip(true)
+            .brotli(true)
+            .deflate(true)
+            .zstd(true)
+            .build()
+            .expect("compression features enabled");
+        drop(client);
+    }
 
     #[test]
     fn error_cause_chain_appends_hidden_sources() {

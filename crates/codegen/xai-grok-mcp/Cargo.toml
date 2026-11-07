@@ -22,9 +22,13 @@ xai-grok-version = { workspace = true }
 # - `query`/`form` opt-in features stay off; rmcp transports don't use them.
 reqwest = { version = "0.13", default-features = false, features = [
     "blocking",
+    "brotli",
+    "deflate",
+    "gzip",
     "json",
     "rustls",
     "stream",
+    "zstd",
 ] }
 
 # Deps for credentials.rs + oauth.rs.
@@ -40,6 +44,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 webbrowser = { workspace = true }
+xai-dirs = { workspace = true }
 xai-grok-config = { workspace = true }
 
 # For mcp_http_client.rs (rmcp trait signatures). Must match rmcp 3.x's own

@@ -62,9 +62,14 @@ pub use xai_grok_workspace_types::MCP_TOOL_NAME_DELIMITER;
 pub const GROK_AGENT_ID_HEADER: &str = "X-Grok-Agent-ID";
 
 /// Reqwest 0.13 twin of the 0.12 adapters in `xai_grok_extra_ca`.
-fn with_extra_root_certificates(mut builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+/// Remote MCP accepts the same compressed response encodings as the shared HTTP client.
+fn with_response_compression(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    builder.gzip(true).brotli(true).zstd(true).deflate(true)
+}
+
+fn with_extra_root_certificates(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     xai_grok_extra_ca::ensure_default_crypto_provider();
-    builder = builder.tls_backend_rustls();
+    let mut builder = with_response_compression(builder).tls_backend_rustls();
     for der in xai_grok_extra_ca::extra_root_ders() {
         match reqwest::Certificate::from_der(der) {
             Ok(cert) => builder = builder.add_root_certificate(cert),
@@ -2613,11 +2618,13 @@ where
     }
 
     async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {
+        // Keep the buffer across EINTR. A fresh `Vec` per attempt would drop the bytes already read of a long tools/list line.
+        let mut line = Vec::new();
         loop {
-            let mut line = Vec::new();
             match self.read.read_until(b'\n', &mut line).await {
                 Ok(0) => return None, // genuine end-of-stream
                 Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => {
                     tracing::debug!(
                         server = %self.server_name,
@@ -2634,6 +2641,7 @@ where
                 line.pop();
             }
             if line.is_empty() {
+                line.clear();
                 continue;
             }
 
@@ -2649,6 +2657,7 @@ where
                     } else {
                         self.record_decode_error(&line, &err);
                     }
+                    line.clear();
                     continue;
                 }
             }
@@ -4662,23 +4671,45 @@ fn expand_session_id_headers(
         .collect()
 }
 
+/// Expand a leading `~` or `~/` (and `~\`) against `home`. `~other` is left alone.
+fn expand_leading_tilde(raw: &str, home: Option<&std::path::Path>) -> String {
+    let Some(home) = home else {
+        return raw.to_string();
+    };
+    if raw == "~" {
+        return home.to_string_lossy().into_owned();
+    }
+    let rest = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\"));
+    match rest {
+        Some(rest) => home.join(rest).to_string_lossy().into_owned(),
+        None => raw.to_string(),
+    }
+}
+
 /// Decide the actual (program, args) to spawn for a stdio MCP server.
 /// `CreateProcessW` only appends `.exe` and ignores `PATHEXT`, so `Command::new("npx")` fails with "file not found".
 /// On non-Windows we never touch the command. A command containing a path separator is used as-is.
+/// A leading `~` in the command or an argument is expanded to `home` before that decision.
 fn plan_stdio_spawn(
     command: &str,
     args: &[String],
     is_windows: bool,
+    home: Option<&std::path::Path>,
     resolve: impl Fn(&str) -> Option<std::path::PathBuf>,
 ) -> (OsString, Vec<String>) {
+    let command = expand_leading_tilde(command, home);
+    let args: Vec<String> = args
+        .iter()
+        .map(|arg| expand_leading_tilde(arg, home))
+        .collect();
     if is_windows
         && !command.contains('/')
         && !command.contains('\\')
-        && let Some(resolved) = resolve(command)
+        && let Some(resolved) = resolve(&command)
     {
-        return (resolved.into_os_string(), args.to_vec());
+        return (resolved.into_os_string(), args);
     }
-    (OsString::from(command), args.to_vec())
+    (OsString::from(command), args)
 }
 
 fn is_figma_mcp(server_name: &str, url: &str) -> bool {
@@ -4857,8 +4888,12 @@ pub async fn start_mcp_server(
                     xai_grok_telemetry::instrumentation::timer("mcp_stdio_spawn");
                 stdio_spawn_timer.with_server(name.as_str());
                 let path_override = stdio_path_override(&env);
-                let (program, spawn_args) =
-                    plan_stdio_spawn(&command_str, &args, cfg!(windows), |c| {
+                let (program, spawn_args) = plan_stdio_spawn(
+                    &command_str,
+                    &args,
+                    cfg!(windows),
+                    xai_dirs::home_dir().as_deref(),
+                    |c| {
                         if let Some(path) = path_override
                             && let Ok(cwd) = std::env::current_dir()
                         {
@@ -4866,7 +4901,8 @@ pub async fn start_mcp_server(
                         } else {
                             which::which(c).ok()
                         }
-                    });
+                    },
+                );
                 let mut cmd = Command::new(&program);
                 cmd.kill_on_drop(true).args(&spawn_args);
                 apply_stdio_env(&mut cmd, &env, ctx.session_id);
