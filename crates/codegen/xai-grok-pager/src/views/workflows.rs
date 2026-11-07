@@ -658,7 +658,7 @@ fn status_glyph_and_style(status: &str, theme: &Theme) -> (&'static str, Style) 
     match status {
         "active" => (
             crate::glyphs::running_dot(),
-            Style::default().fg(theme.accent_plan),
+            Style::default().fg(theme.running),
         ),
         "complete" => (
             crate::glyphs::check_mark(),
@@ -683,7 +683,7 @@ fn agent_glyph_and_style(state: &str, theme: &Theme) -> (&'static str, Style) {
     match state {
         "running" => (
             crate::glyphs::running_dot(),
-            Style::default().fg(theme.accent_plan),
+            Style::default().fg(theme.running),
         ),
         "done" => (
             crate::glyphs::check_mark(),
@@ -1053,7 +1053,7 @@ fn render_detail(
         let marker = if selected { "❯" } else { " " };
         let num_style = match effective_state {
             "done" => Style::default().fg(theme.accent_success),
-            "active" => Style::default().fg(theme.accent_plan),
+            "active" => Style::default().fg(theme.running),
             _ => Style::default().fg(theme.gray_dim),
         };
         let title_style = if selected {
@@ -1073,7 +1073,7 @@ fn render_detail(
             String::new()
         };
         let count_style = if running_in {
-            Style::default().fg(theme.accent_plan)
+            Style::default().fg(theme.running)
         } else {
             Style::default().fg(theme.gray_dim)
         };
@@ -1173,7 +1173,7 @@ fn render_detail(
             let frames = crate::glyphs::dot_spinner_frames();
             (
                 frames.get((tick / 4) % frames.len()).copied().unwrap_or(""),
-                Style::default().fg(theme.accent_plan),
+                Style::default().fg(theme.running),
             )
         } else {
             agent_glyph_and_style(&agent.state, theme)
@@ -2254,5 +2254,18 @@ mod tests {
         assert_eq!(crate::glyphs::play_mark(), "\u{25B6}");
         assert_eq!(crate::glyphs::pause_mark(), "\u{23F8}");
         assert_eq!(crate::glyphs::idle_mark(), "\u{25CC}");
+    }
+
+    #[test]
+    fn running_markers_use_the_theme_running_color() {
+        let theme = crate::theme::Theme::current();
+        let (_, run_style) = status_glyph_and_style("active", &theme);
+        let (_, agent_style) = agent_glyph_and_style("running", &theme);
+        assert_eq!(run_style.fg, Some(theme.running));
+        assert_eq!(agent_style.fg, Some(theme.running));
+        assert_eq!(
+            crate::views::mcps_modal::McpServerDisplayStatus::Initializing.theme_color(&theme),
+            theme.running
+        );
     }
 }
