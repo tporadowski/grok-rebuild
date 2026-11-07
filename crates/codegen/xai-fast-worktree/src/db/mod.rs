@@ -383,6 +383,11 @@ impl WorktreeDb {
         queries::get_by_label(&self.conn, label)
     }
 
+    /// Every record with this label, newest first.
+    pub fn list_by_label(&self, label: &str) -> Result<Vec<WorktreeRecord>> {
+        queries::list_by_label(&self.conn, label)
+    }
+
     pub fn list(&self, filter: &ListFilter) -> Result<Vec<WorktreeRecord>> {
         queries::list(&self.conn, filter)
     }

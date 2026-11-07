@@ -127,6 +127,16 @@ pub fn get_by_label(conn: &Connection, label: &str) -> Result<Option<WorktreeRec
     )
 }
 
+/// Every record with this label, newest first. `get_by_label` returns only the newest.
+pub fn list_by_label(conn: &Connection, label: &str) -> Result<Vec<WorktreeRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM worktrees WHERE json_valid(metadata) AND json_extract(metadata, '$.label') = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![label], row_to_record)?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 pub fn get_by_path(conn: &Connection, path: &Path) -> Result<Option<WorktreeRecord>> {
     get_one(
         conn,

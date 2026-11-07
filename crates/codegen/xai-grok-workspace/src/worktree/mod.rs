@@ -3236,6 +3236,12 @@ pub fn worktree_db_path() -> Result<std::path::PathBuf> {
 /// is already a grok worktree directory.
 pub fn resolve_worktree_by_id_or_path(id_or_path: &str) -> Result<Option<std::path::PathBuf>> {
     let db = open_db()?;
+    // A path contains `/` and is not a label. An exact id wins over a label of
+    // the same text. A bare label used by live worktrees in more than one
+    // source repo is ambiguous, so removal must not pick the newest one.
+    if !id_or_path.contains('/') && db.get_by_id(id_or_path)?.is_none() {
+        refuse_label_in_multiple_repos(&db, id_or_path)?;
+    }
     if let Some(rec) = db.get(id_or_path)? {
         return Ok(Some(rec.path));
     }
@@ -3244,6 +3250,30 @@ pub fn resolve_worktree_by_id_or_path(id_or_path: &str) -> Result<Option<std::pa
         return Ok(Some(p));
     }
     Ok(None)
+}
+
+/// `Err` when live worktrees in more than one source repo share `label`.
+fn refuse_label_in_multiple_repos(db: &WorktreeDb, label: &str) -> Result<()> {
+    let mut repos: Vec<std::path::PathBuf> = Vec::new();
+    for rec in db.list_by_label(label)? {
+        if rec.status != xai_fast_worktree::WorktreeStatus::Alive {
+            continue;
+        }
+        if !repos.iter().any(|repo| repo == &rec.source_repo) {
+            repos.push(rec.source_repo);
+        }
+    }
+    if repos.len() > 1 {
+        let listed = repos
+            .iter()
+            .map(|repo| repo.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        anyhow::bail!(
+            "label {label} exists in multiple repositories ({listed}); pass the worktree path"
+        );
+    }
+    Ok(())
 }
 
 /// A directory grok created: registered, or living under `<grok home>/worktrees`.
@@ -4571,6 +4601,150 @@ mod tests {
         .await
         .expect("a directory under the managed worktree root can still be removed");
         assert!(!managed.exists());
+    }
+
+    #[tokio::test]
+    async fn rm_by_label_refuses_when_the_label_is_in_multiple_repos() {
+        xai_test_utils::require_git!();
+        use xai_test_utils::git::{git_commit_all, init_git_repo};
+        let temp = tempfile::TempDir::new().unwrap();
+        let home = dunce::canonicalize(temp.path()).unwrap().join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &home);
+        let db = WorktreeDb::open(&home).unwrap();
+
+        let git_dir = |rel: &str| {
+            let path = home.join(rel);
+            std::fs::create_dir_all(&path).unwrap();
+            init_git_repo(&path);
+            std::fs::write(path.join("keep.txt"), "stay").unwrap();
+            git_commit_all(&path, "initial");
+            path
+        };
+        let register = |id: &str,
+                        path: &std::path::Path,
+                        source: &str,
+                        label: Option<&str>,
+                        created_at: i64,
+                        alive: bool| {
+            db.register(&WorktreeRecord {
+                id: id.to_string(),
+                path: path.to_path_buf(),
+                source_repo: source.into(),
+                repo_name: "repo".into(),
+                kind: WorktreeKind::Session,
+                creation_mode: "linked".into(),
+                git_ref: None,
+                head_commit: None,
+                session_id: None,
+                creator_pid: None,
+                created_at,
+                last_accessed_at: None,
+                status: if alive {
+                    xai_fast_worktree::WorktreeStatus::Alive
+                } else {
+                    xai_fast_worktree::WorktreeStatus::Dead
+                },
+                metadata: label.map(|label| build_label_metadata(label, true)),
+            })
+            .unwrap();
+        };
+        let rm = |name: &str| {
+            let name = name.to_string();
+            async move {
+                remove_worktree(
+                    &RemoveWorktreeRequest {
+                        worktree_path: None,
+                        id_or_path: Some(name),
+                        force: false,
+                        dry_run: false,
+                    },
+                    &BackgroundCopyContext::new(),
+                )
+                .await
+            }
+        };
+
+        let repo_a = git_dir("worktrees/repo-a/shared");
+        let repo_b = git_dir("worktrees/repo-b/shared");
+        register("wt-a", &repo_a, "/src/repo-a", Some("shared"), 100, true);
+        register("wt-b", &repo_b, "/src/repo-b", Some("shared"), 200, true);
+        let err = rm("shared")
+            .await
+            .expect_err("a label in two repositories must be refused");
+        assert!(
+            err.to_string().contains("multiple"),
+            "expected a multiple-repo refusal, got {err}"
+        );
+        assert!(repo_a.join("keep.txt").is_file());
+        assert!(repo_b.join("keep.txt").is_file());
+
+        let older = git_dir("worktrees/repo-a/older");
+        let newer = git_dir("worktrees/repo-a/newer");
+        register(
+            "wt-old",
+            &older,
+            "/src/repo-a",
+            Some("same-repo"),
+            100,
+            true,
+        );
+        register(
+            "wt-new",
+            &newer,
+            "/src/repo-a",
+            Some("same-repo"),
+            200,
+            true,
+        );
+        rm("same-repo")
+            .await
+            .expect("one repository keeps the newest match");
+        assert!(!newer.exists());
+        assert!(older.join("keep.txt").is_file());
+
+        let live = git_dir("worktrees/repo-a/live");
+        let dead = home.join("worktrees/repo-b/dead");
+        std::fs::create_dir_all(&dead).unwrap();
+        std::fs::write(dead.join("keep.txt"), "stay").unwrap();
+        register(
+            "wt-live",
+            &live,
+            "/src/repo-a",
+            Some("only-live"),
+            300,
+            true,
+        );
+        register(
+            "wt-dead",
+            &dead,
+            "/src/repo-b",
+            Some("only-live"),
+            100,
+            false,
+        );
+        rm("only-live")
+            .await
+            .expect("a dead record in another repo is not a second live label");
+        assert!(!live.exists());
+        assert!(dead.join("keep.txt").is_file());
+
+        let by_id = git_dir("worktrees/repo-a/by-id");
+        let by_label = git_dir("worktrees/repo-b/by-label");
+        register("exact-id", &by_id, "/src/repo-a", None, 100, true);
+        register(
+            "wt-label",
+            &by_label,
+            "/src/repo-b",
+            Some("exact-id"),
+            200,
+            true,
+        );
+        rm("exact-id")
+            .await
+            .expect("an id is not ambiguous with a label of the same text");
+        assert!(!by_id.exists());
+        assert!(by_label.join("keep.txt").is_file());
     }
 
     #[tokio::test]
