@@ -171,6 +171,9 @@ pub(crate) fn parse_create_response(
 ) -> Result<CreatedWorktree, String> {
     let result = ext_result(raw)?;
     let worktree_root = required_path(&result, "worktreePath")?;
+    // `$GROK_HOME` may be a symlink. The session is resumed from `current_dir()`,
+    // which is the physical path, so the opened cwd has to be that same path.
+    let worktree_root = dunce::canonicalize(&worktree_root).unwrap_or(worktree_root);
     let offset = worktree_session_cwd(
         &worktree_root,
         result.get("sourceGitRoot").and_then(|v| v.as_str()),
@@ -384,6 +387,7 @@ mod tests {
             repo.display()
         );
         let created = parse_create_response(&raw, &launch).unwrap();
+        let wt = dunce::canonicalize(&wt).unwrap();
         assert_eq!(created.worktree_root, wt);
         assert_eq!(created.session_cwd, wt.join("crates").join("pager"));
         assert!(created.strategy_summary.is_none());
@@ -407,13 +411,40 @@ mod tests {
             repo.display()
         );
         let created = parse_create_response(&raw, &launch).unwrap();
-        assert_eq!(created.session_cwd, wt);
+        assert_eq!(created.session_cwd, dunce::canonicalize(&wt).unwrap());
         let note = created
             .strategy_summary
             .expect("missing folder leaves a note");
         assert!(
             note.contains("not in the new worktree"),
             "note should name the missing folder, got {note}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_response_uses_the_physical_path_when_grok_home_is_a_symlink() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let real = root.join("real").join("worktrees").join("repo").join("fix");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = root.join("link");
+        std::os::unix::fs::symlink(root.join("real"), &link).unwrap();
+        let via_link = link.join("worktrees").join("repo").join("fix");
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let raw = serde_json::json!({
+            "result": {
+                "worktreePath": via_link,
+                "sourceGitRoot": repo,
+            }
+        });
+        let created = parse_create_response(&raw.to_string(), &repo).unwrap();
+        let physical = dunce::canonicalize(&real).unwrap();
+        assert_eq!(created.worktree_root, physical);
+        assert_eq!(
+            created.session_cwd, physical,
+            "the session cwd is the path resume later reads from current_dir()"
         );
     }
 

@@ -979,7 +979,7 @@ pub fn worktree_base_dir_for_source_in(
 ) -> Result<std::path::PathBuf> {
     let worktrees_dir = grok_home.join("worktrees");
 
-    if let Ok(suffix) = source_path.strip_prefix(&worktrees_dir) {
+    if let Some(suffix) = suffix_under(source_path, &worktrees_dir) {
         if let Some(component) = suffix.components().next() {
             Ok(worktrees_dir.join(component))
         } else {
@@ -989,6 +989,22 @@ pub fn worktree_base_dir_for_source_in(
         let git_root = find_main_repo_root_from_path(source_path)?;
         Ok(worktree_base_dir_in(grok_home, &git_root))
     }
+}
+
+/// `path` relative to `dir`, after resolving a symlinked `dir` such as `$GROK_HOME`.
+///
+/// `current_dir()` is the physical path. `$GROK_HOME` is the env spelling. A raw
+/// `strip_prefix` then misses a worktree that was created under the link.
+fn suffix_under(path: &Path, dir: &Path) -> Option<std::path::PathBuf> {
+    if let Ok(suffix) = path.strip_prefix(dir) {
+        return Some(suffix.to_path_buf());
+    }
+    let path_canon = dunce::canonicalize(path).ok()?;
+    let dir_canon = dunce::canonicalize(dir).ok()?;
+    path_canon
+        .strip_prefix(&dir_canon)
+        .ok()
+        .map(|suffix| suffix.to_path_buf())
 }
 
 /// Dest is already pinned; do not use launch cwd as `source_git_root` on a Grove parent.
@@ -1040,10 +1056,17 @@ fn worktree_record_for_cwd(cwd: &str) -> Option<(WorktreeDb, WorktreeRecord)> {
 /// [`worktree_record_for_cwd`] against the `worktrees.db` and worktree root under an explicit grok home.
 fn worktree_record_for_cwd_in(grok_home: &Path, cwd: &str) -> Option<(WorktreeDb, WorktreeRecord)> {
     let worktrees_dir = grok_home.join("worktrees");
-    let mut path = Path::new(cwd);
-    if !path.starts_with(&worktrees_dir) {
-        return None;
-    }
+    let cwd_path = Path::new(cwd);
+    let (mut path, bound) = if cwd_path.starts_with(&worktrees_dir) {
+        (cwd_path.to_path_buf(), worktrees_dir.clone())
+    } else {
+        let cwd_canon = dunce::canonicalize(cwd_path).ok()?;
+        let bound = dunce::canonicalize(&worktrees_dir).ok()?;
+        if !cwd_canon.starts_with(&bound) {
+            return None;
+        }
+        (cwd_canon, bound)
+    };
     let db = match WorktreeDb::open(grok_home) {
         Ok(db) => db,
         Err(e) => {
@@ -1052,11 +1075,11 @@ fn worktree_record_for_cwd_in(grok_home: &Path, cwd: &str) -> Option<(WorktreeDb
             return None;
         }
     };
-    while path.starts_with(&worktrees_dir) && path != worktrees_dir {
+    while path.starts_with(&bound) && path != bound {
         if let Ok(Some(record)) = db.get(&path.to_string_lossy()) {
             return Some((db, record));
         }
-        path = path.parent()?;
+        path = path.parent()?.to_path_buf();
     }
     None
 }
@@ -1865,7 +1888,7 @@ fn resolve_fork_worktree_path(
 ) -> String {
     let grok_home = grok_home();
     let worktrees_dir = grok_home.join("worktrees");
-    let base = if let Ok(suffix) = source_worktree_path.strip_prefix(&worktrees_dir) {
+    let base = if let Some(suffix) = suffix_under(source_worktree_path, &worktrees_dir) {
         if let Some(component) = suffix.components().next() {
             worktrees_dir.join(component)
         } else {
@@ -3342,12 +3365,7 @@ fn path_is_grok_worktree_dir(path: &Path) -> bool {
     let Ok(home) = resolve_grok_home() else {
         return false;
     };
-    let root = home.join("worktrees");
-    let under = |candidate: &Path| candidate.starts_with(&root);
-    if under(path) {
-        return true;
-    }
-    std::fs::canonicalize(path).is_ok_and(|canon| under(&canon))
+    suffix_under(path, &home.join("worktrees")).is_some()
 }
 
 /// Build a deduplicated, deterministically-ordered list of candidate cwds for the same repository as `current_cwd`.
@@ -3879,6 +3897,60 @@ mod tests {
             Some("my-label")
         );
         assert_eq!(lookup_worktree_label("/elsewhere"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_grok_home_still_tracks_the_worktree() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let real_home = root.join("real-home");
+        let wt = real_home.join("worktrees").join("repo").join("fix");
+        let nested = wt.join("src");
+        std::fs::create_dir_all(&nested).unwrap();
+        let link_home = root.join("link-home");
+        std::os::unix::fs::symlink(&real_home, &link_home).unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &link_home);
+
+        let db = WorktreeDb::open(&link_home).unwrap();
+        db.register(&WorktreeRecord {
+            id: "fix".into(),
+            path: dunce::canonicalize(&wt).unwrap(),
+            source_repo: root.join("repo"),
+            repo_name: "repo".into(),
+            kind: WorktreeKind::Session,
+            creation_mode: "linked".into(),
+            git_ref: None,
+            head_commit: None,
+            session_id: Some("sess-fix".into()),
+            creator_pid: None,
+            created_at: 1,
+            last_accessed_at: None,
+            status: xai_fast_worktree::WorktreeStatus::Alive,
+            metadata: Some(build_label_metadata("fix", true)),
+        })
+        .unwrap();
+
+        let physical = dunce::canonicalize(&nested).unwrap();
+        assert_eq!(
+            lookup_worktree_label(&physical.to_string_lossy()).as_deref(),
+            Some("fix")
+        );
+        touch_worktree_for_cwd(&physical.to_string_lossy());
+        let touched = WorktreeDb::open(&link_home)
+            .unwrap()
+            .get_by_id("fix")
+            .unwrap()
+            .unwrap();
+        assert!(
+            touched.last_accessed_at.is_some(),
+            "gc and resume must see a worktree opened through the symlinked home"
+        );
+        let base = worktree_base_dir_for_source(&physical).unwrap();
+        assert_eq!(
+            dunce::canonicalize(&base).unwrap(),
+            dunce::canonicalize(real_home.join("worktrees").join("repo")).unwrap()
+        );
     }
 
     /// A `worktrees.db` under `home` with one record at `<home>/worktrees/repo/wt`, no env involved.
