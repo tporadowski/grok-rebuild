@@ -60,6 +60,7 @@ pub fn print_table(records: &[WorktreeRecord], out: &mut impl Write) -> std::io:
             age,
             path,
         )?;
+        write_problem_lines(out, rec)?;
     }
     let total = records.len();
     let by_kind: std::collections::BTreeMap<&str, usize> =
@@ -73,7 +74,30 @@ pub fn print_table(records: &[WorktreeRecord], out: &mut impl Write) -> std::io:
     writeln!(out, "  {} worktrees ({})", total, breakdown.join(", "))
 }
 pub fn print_json(records: &[WorktreeRecord], out: &mut impl Write) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(records).unwrap_or_else(|_| "[]".to_string());
+    let mut values = serde_json::to_value(records).unwrap_or_else(|_| serde_json::json!([]));
+    if let Some(rows) = values.as_array_mut() {
+        for (row, rec) in rows.iter_mut().zip(records.iter()) {
+            let problems = worktree_problems(rec);
+            if problems.is_empty() {
+                continue;
+            }
+            if let Some(obj) = row.as_object_mut() {
+                obj.insert(
+                    "problems".to_string(),
+                    serde_json::json!(
+                        problems
+                            .iter()
+                            .map(|(problem, repair)| serde_json::json!({
+                                "problem": problem,
+                                "repair": repair,
+                            }))
+                            .collect::<Vec<_>>()
+                    ),
+                );
+            }
+        }
+    }
+    let json = serde_json::to_string_pretty(&values).unwrap_or_else(|_| "[]".to_string());
     writeln!(out, "{json}")
 }
 pub fn print_show(
@@ -108,6 +132,10 @@ pub fn print_show(
         writeln!(out, "  Creator PID:    {pid}")?;
     }
     writeln!(out, "  Status:         {}", rec.status.as_ref())?;
+    for (problem, repair) in worktree_problems(rec) {
+        writeln!(out, "  Problem:        {problem}")?;
+        writeln!(out, "  Repair:         {repair}")?;
+    }
     if let Some(label) = rec.label() {
         writeln!(out, "  Label:          {label}")?;
     }
@@ -207,6 +235,53 @@ fn format_timestamp(ts: i64) -> String {
 fn abbreviate_home(path: &Path) -> String {
     crate::util::abbreviate_path(&path.to_string_lossy()).into_owned()
 }
+
+fn write_problem_lines(out: &mut impl Write, rec: &WorktreeRecord) -> std::io::Result<()> {
+    for (problem, repair) in worktree_problems(rec) {
+        writeln!(out, "  ! {}: {problem}. {repair}", rec.id)?;
+    }
+    Ok(())
+}
+
+/// A missing worktree directory, or a recorded source that is no longer there.
+fn worktree_problems(rec: &WorktreeRecord) -> Vec<(String, String)> {
+    let mut problems = Vec::new();
+    if path_is_missing(&rec.path) {
+        problems.push((
+            "folder missing".to_string(),
+            format!("grok worktree rm {} drops this record", rec.id),
+        ));
+    }
+    if source_repo_moved(&rec.source_repo) {
+        problems.push((
+            "source repository moved".to_string(),
+            format!(
+                "grok worktree rm {} and create the worktree again from the repository's new location",
+                rec.id
+            ),
+        ));
+    }
+    problems
+}
+
+fn path_is_missing(path: &Path) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => false,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(_) => false,
+    }
+}
+
+fn source_repo_moved(source: &Path) -> bool {
+    if !source.is_absolute() {
+        return false;
+    }
+    match std::fs::metadata(source) {
+        Ok(meta) => !meta.is_dir(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(_) => false,
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,5 +320,80 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("组件更新"));
         crate::test_util::assert_path_column_aligned(&text, "/tmp/wt-");
+    }
+
+    #[test]
+    fn list_and_show_mark_a_missing_folder_and_a_moved_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let present = tmp.path().join("present");
+        let source = tmp.path().join("source");
+        std::fs::create_dir(&present).unwrap();
+        std::fs::create_dir(&source).unwrap();
+        let mut healthy = make_record("healthy", "ok");
+        healthy.path = present;
+        healthy.source_repo = source;
+
+        let mut missing = make_record("gone-id", "gone");
+        missing.path = tmp.path().join("does-not-exist");
+        missing.source_repo = healthy.source_repo.clone();
+
+        let still = tmp.path().join("still");
+        std::fs::create_dir(&still).unwrap();
+        let mut moved = make_record("moved-id", "moved");
+        moved.path = still;
+        moved.source_repo = tmp.path().join("old-source");
+
+        let mut unknown = make_record("unknown-id", "unknown");
+        unknown.path = healthy.path.clone();
+        unknown.source_repo = std::path::PathBuf::from("unknown");
+
+        let mut out = Vec::new();
+        print_table(&[healthy.clone(), unknown.clone()], &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            !text.contains("folder missing") && !text.contains("source repository moved"),
+            "a present folder and an unknown source are not problems: {text}"
+        );
+
+        let mut out = Vec::new();
+        print_table(&[missing.clone(), moved.clone()], &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.contains("gone-id: folder missing. grok worktree rm gone-id drops this record"),
+            "{text}"
+        );
+        assert!(
+            text.contains("moved-id: source repository moved. grok worktree rm moved-id and create the worktree again"),
+            "{text}"
+        );
+
+        let mut out = Vec::new();
+        print_show(&missing, None, &mut out).unwrap();
+        let show = String::from_utf8(out).unwrap();
+        assert!(show.contains("Problem:        folder missing"), "{show}");
+        assert!(
+            show.contains("Repair:         grok worktree rm gone-id drops this record"),
+            "{show}"
+        );
+        assert!(!show.contains("source repository moved"), "{show}");
+
+        let mut out = Vec::new();
+        print_show(&moved, None, &mut out).unwrap();
+        let show = String::from_utf8(out).unwrap();
+        assert!(
+            show.contains("Problem:        source repository moved"),
+            "{show}"
+        );
+        assert!(show.contains("repository's new location"), "{show}");
+        assert!(!show.contains("folder missing"), "{show}");
+
+        let mut out = Vec::new();
+        print_json(&[missing, moved], &mut out).unwrap();
+        let json = String::from_utf8(out).unwrap();
+        assert!(json.contains("\"problem\": \"folder missing\""), "{json}");
+        assert!(
+            json.contains("\"problem\": \"source repository moved\""),
+            "{json}"
+        );
     }
 }
