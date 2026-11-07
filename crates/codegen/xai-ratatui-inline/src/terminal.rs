@@ -167,6 +167,8 @@ where
     /// Last known position of the cursor. Used to find the new area when the viewport is inlined
     /// and the terminal resized.
     last_known_cursor_pos: Position,
+    /// Inline screen area saved when leaving inline mode, restored without a cursor query.
+    saved_inline_area: Option<Rect>,
     /// Decides where an inline resize finds the previous viewport top relative to the cursor.
     width_shrink: WidthShrink,
     /// Number of frames rendered up until current time.
@@ -295,6 +297,7 @@ where
             viewport_area,
             last_known_area: area,
             last_known_cursor_pos: cursor_pos,
+            saved_inline_area: None,
             width_shrink: WidthShrink::default(),
             frame_count: 0,
             link_ids: [vec![0; link_len], vec![0; link_len]],
@@ -1274,8 +1277,13 @@ impl<B: Backend> Terminal<B> {
     }
 
     /// Switch the viewport kind in place, keeping the backend alive. `Viewport::Inline` issues a cursor-position query
-    /// (caller must be the only stdin reader), and both buffers reset — follow with a full redraw.
+    /// (caller must be the only stdin reader) unless a previous inline area of the same height was saved, and both
+    /// buffers reset — follow with a full redraw.
     pub fn set_viewport(&mut self, viewport: Viewport) -> io::Result<()> {
+        if matches!(self.viewport, Viewport::Inline(_)) && !matches!(viewport, Viewport::Inline(_))
+        {
+            self.saved_inline_area = Some(self.viewport_area);
+        }
         let area = match viewport {
             Viewport::Fullscreen | Viewport::Inline(_) => {
                 Rect::from((Position::ORIGIN, self.backend.size()?))
@@ -1285,7 +1293,24 @@ impl<B: Backend> Terminal<B> {
         let (viewport_area, cursor_pos) = match viewport {
             Viewport::Fullscreen => (area, Position::ORIGIN),
             Viewport::Inline(height) => {
-                compute_inline_size(&mut self.backend, height, area.as_size(), 0)?
+                if let Some(saved) = self.saved_inline_area
+                    && saved.height == height
+                    && saved.width == area.width
+                    && saved.y.saturating_add(height) <= area.height
+                {
+                    self.saved_inline_area = None;
+                    (
+                        Rect {
+                            x: 0,
+                            width: area.width,
+                            ..saved
+                        },
+                        Position { x: 0, y: saved.y },
+                    )
+                } else {
+                    self.saved_inline_area = None;
+                    compute_inline_size(&mut self.backend, height, area.as_size(), 0)?
+                }
             }
             Viewport::Fixed(area) => (area, area.as_position()),
         };
@@ -1409,6 +1434,23 @@ mod inline_resize_tests {
                 assert_eq!(f.area(), Rect::new(0, 0, 80, 24));
             })
             .unwrap();
+    }
+
+    /// Leaving inline and coming back reuses the saved screen area. A fresh cursor query would
+    /// anchor at row 0 on this backend.
+    #[test]
+    fn inline_viewport_restores_saved_area_without_cursor_query() {
+        let mut terminal = Terminal::with_options(
+            TestBackend::new(80, 24),
+            TerminalOptions {
+                viewport: Viewport::Inline(8),
+            },
+        )
+        .unwrap();
+        terminal.set_viewport_area(Rect::new(0, 12, 80, 8));
+        terminal.set_viewport(Viewport::Fullscreen).unwrap();
+        terminal.set_viewport(Viewport::Inline(8)).unwrap();
+        assert_eq!(terminal.viewport_area(), Rect::new(0, 12, 80, 8));
     }
 
     /// Growth after a shrink must expand again — the viewport tracks the live
