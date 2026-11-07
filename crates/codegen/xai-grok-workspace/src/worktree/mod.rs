@@ -836,21 +836,116 @@ pub fn repo_slug(git_root: &Path) -> String {
     }
 }
 
+/// Directory of in-flight name claims, next to the worktree folders.
+const LABEL_CLAIM_DIR: &str = ".grok-wt-claim";
+
 /// Resolve a worktree directory name, appending a numeric suffix on collision.
 ///
-/// Checks whether `base_dir/label` already exists on disk; if so, tries `label-2`, `label-3`, ... up to [`MAX_COLLISION_SUFFIX`].
+/// A name is taken when its directory exists or another create in this or another
+/// live process has already claimed it. The claim is what lets two simultaneous
+/// creates of the same label both succeed: the second gets `label-2` instead of
+/// failing later with "already exists".
 pub fn resolve_label_collision(base_dir: &Path, label: &str) -> String {
-    let candidate = base_dir.join(label);
-    if !candidate.exists() {
+    if claim_worktree_label(base_dir, label) {
         return label.to_owned();
     }
     for i in 2..=MAX_COLLISION_SUFFIX {
         let suffixed = format!("{label}-{i}");
-        if !base_dir.join(&suffixed).exists() {
+        if claim_worktree_label(base_dir, &suffixed) {
             return suffixed;
         }
     }
-    auto_label()
+    let fallback = auto_label();
+    let _ = claim_worktree_label(base_dir, &fallback);
+    fallback
+}
+
+/// `true` when this call now owns the in-flight claim for `name`.
+fn claim_worktree_label(base_dir: &Path, name: &str) -> bool {
+    if base_dir.join(name).exists() {
+        return false;
+    }
+    let claims = base_dir.join(LABEL_CLAIM_DIR);
+    if std::fs::create_dir_all(&claims).is_err() {
+        return false;
+    }
+    let path = claims.join(name);
+    for _ in 0..2 {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                use std::io::Write;
+                let _ = writeln!(file, "{}", std::process::id());
+                return true;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if label_claim_is_live(&path) {
+                    return false;
+                }
+                let _ = std::fs::remove_file(&path);
+            }
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
+fn label_claim_is_live(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(pid) = text.trim().parse::<u32>() else {
+        return false;
+    };
+    if pid == 0 {
+        return false;
+    }
+    if pid == std::process::id() {
+        return true;
+    }
+    process_is_alive(pid)
+}
+
+#[cfg(target_os = "linux")]
+fn process_is_alive(pid: u32) -> bool {
+    Path::new(&format!("/proc/{pid}")).exists()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn process_is_alive(pid: u32) -> bool {
+    let _ = pid;
+    true
+}
+
+/// Drop the in-flight claim for a resolved worktree path. The directory, once
+/// created, is what keeps the name taken. A deleted folder can be used again.
+pub(crate) fn release_label_claim(worktree_path: &str) {
+    let path = Path::new(worktree_path);
+    let Some(name) = path.file_name() else {
+        return;
+    };
+    let Some(base) = path.parent() else {
+        return;
+    };
+    let _ = std::fs::remove_file(base.join(LABEL_CLAIM_DIR).join(name));
+}
+
+/// Releases the claim when the create function returns, success or failure.
+struct HeldLabelClaim(String);
+
+impl HeldLabelClaim {
+    fn hold(worktree_path: &str) -> Self {
+        Self(worktree_path.to_owned())
+    }
+}
+
+impl Drop for HeldLabelClaim {
+    fn drop(&mut self) {
+        release_label_claim(&self.0);
+    }
 }
 
 /// Grok home for worktree paths: the same resolver as `worktrees.db`, with a `temp_dir()/.grok` last resort.
@@ -1017,6 +1112,7 @@ pub async fn prepare_worktree_creation(req: &CreateWorktreeRequest) -> PrepareWo
     let source_git_root = layout.source_git_root.clone();
 
     if is_worktree_in_progress(&req.session_id).await {
+        release_label_claim(&worktree_path);
         return PrepareWorktreeResult {
             response: Ok(CreateWorktreeResponse::Creating {
                 session_id: req.session_id.clone(),
@@ -1031,6 +1127,7 @@ pub async fn prepare_worktree_creation(req: &CreateWorktreeRequest) -> PrepareWo
         let commit = git_cli(Path::new(&worktree_path), &["rev-parse", "HEAD"])
             .await
             .unwrap_or_default();
+        release_label_claim(&worktree_path);
         return PrepareWorktreeResult {
             response: Ok(CreateWorktreeResponse::Exists {
                 session_id: req.session_id.clone(),
@@ -1053,6 +1150,7 @@ pub async fn prepare_worktree_creation(req: &CreateWorktreeRequest) -> PrepareWo
             req.grove_gate_source.as_deref(),
             req.worktree_type.unwrap_or(WorktreeType::Linked),
         );
+        release_label_claim(&worktree_path);
         return PrepareWorktreeResult {
             response: Err(anyhow::anyhow!("Not a git repository or worktree")),
             spawn_task: false,
@@ -1178,6 +1276,9 @@ pub async fn create_worktree_streaming_in<N: WorktreeNotificationSender>(
             }
         }
     };
+    // Held until this create returns. Prepare claimed the name; releasing here
+    // frees a failed create and leaves a successful directory as the only marker.
+    let _held_label = HeldLabelClaim::hold(&worktree_path_str);
 
     tracing::info!(
         target: WORKTREE_LOG,
@@ -1825,6 +1926,7 @@ pub async fn prepare_worktree_from_worktree(
     let git_root_str = layout.source_git_root;
 
     if is_worktree_in_progress(&req.new_session_id).await {
+        release_label_claim(&worktree_path);
         return PrepareWorktreeResult {
             response: Ok(CreateWorktreeResponse::Creating {
                 session_id: req.new_session_id.clone(),
@@ -1839,6 +1941,7 @@ pub async fn prepare_worktree_from_worktree(
         let commit = git_cli(Path::new(&worktree_path), &["rev-parse", "HEAD"])
             .await
             .unwrap_or_default();
+        release_label_claim(&worktree_path);
         return PrepareWorktreeResult {
             response: Ok(CreateWorktreeResponse::Exists {
                 session_id: req.new_session_id.clone(),
@@ -1969,6 +2072,7 @@ pub async fn create_worktree_from_worktree_streaming<N: WorktreeNotificationSend
             }
         }
     };
+    let _held_label = HeldLabelClaim::hold(&worktree_path_str);
 
     notifier
         .send_worktree_status(WorktreeStatus::Analyzing {
@@ -2289,6 +2393,7 @@ pub async fn create_worktree_from_worktree_sync(
     let source_git_root = layout.source_git_root.clone();
     let worktree_path_str =
         resolve_fork_worktree_path(source_path, &layout.git_root, req.label.as_deref());
+    let _held_label = HeldLabelClaim::hold(&worktree_path_str);
 
     if tokio::fs::metadata(&worktree_path_str).await.is_ok() {
         let commit = git_cli(Path::new(&worktree_path_str), &["rev-parse", "HEAD"])
@@ -2707,6 +2812,7 @@ pub async fn create_jj_workspace(
     .await
     .context("jj dest slug join failed")?;
     let dest = resolve_fork_worktree_path(source_path, &dest_slug, req.label.as_deref());
+    let _held_label = HeldLabelClaim::hold(&dest);
 
     if tokio::fs::metadata(&dest).await.is_ok() {
         let commit = jj_commit_id(Path::new(&dest)).await;
@@ -4278,6 +4384,89 @@ mod tests {
             "AHEAD"
         );
         assert_eq!(resolve_label_collision(base, "fresh"), "fresh");
+    }
+
+    #[test]
+    fn simultaneous_same_label_claims_distinct_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let first = resolve_label_collision(base, "same");
+        let second = resolve_label_collision(base, "same");
+        assert_eq!(first, "same");
+        assert_eq!(second, "same-2");
+        assert!(!base.join("same").exists());
+        assert!(!base.join("same-2").exists());
+
+        let raced = tmp.path().join("raced");
+        std::fs::create_dir_all(&raced).unwrap();
+        let (left, right) = std::thread::scope(|scope| {
+            let a = scope.spawn(|| resolve_label_collision(&raced, "race"));
+            let b = scope.spawn(|| resolve_label_collision(&raced, "race"));
+            (a.join().unwrap(), b.join().unwrap())
+        });
+        let mut names = [left, right];
+        names.sort();
+        assert_eq!(names, ["race".to_string(), "race-2".to_string()]);
+
+        release_label_claim(&base.join("same").to_string_lossy());
+        assert_eq!(
+            resolve_label_collision(base, "same"),
+            "same",
+            "a released claim must not keep the label taken"
+        );
+    }
+
+    #[test]
+    fn dead_claim_lets_the_label_be_used_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let claims = base.join(".grok-wt-claim");
+        std::fs::create_dir_all(&claims).unwrap();
+        std::fs::write(claims.join("same"), "999999999\n").unwrap();
+        assert_eq!(resolve_label_collision(base, "same"), "same");
+    }
+
+    #[tokio::test]
+    async fn two_prepares_with_the_same_label_choose_different_directories() {
+        xai_test_utils::require_git!();
+        use xai_test_utils::git::{git_commit_all, init_git_repo};
+        let temp = tempfile::TempDir::new().unwrap();
+        let home = temp.path().join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_git_repo(&repo);
+        std::fs::write(repo.join("tracked.txt"), "x").unwrap();
+        git_commit_all(&repo, "initial");
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &home);
+        let req = |session_id: &str| CreateWorktreeRequest {
+            session_id: session_id.to_owned(),
+            source_path: repo.to_string_lossy().into_owned(),
+            worktree_path: None,
+            copy_mode: WorktreeCopyMode::Dirty,
+            git_ref: None,
+            copy_ignored_in_background: false,
+            ignored_skip_patterns: vec![],
+            worktree_type: Some(WorktreeType::Linked),
+            label: Some("same".into()),
+            grove_worktree: None,
+            grove_gate_source: None,
+            resolved_source_git_root: None,
+        };
+        let first = prepare_worktree_creation(&req("same-a")).await;
+        let second = prepare_worktree_creation(&req("same-b")).await;
+        assert!(first.spawn_task && second.spawn_task);
+        let name = |result: PrepareWorktreeResult| match result.response {
+            Ok(CreateWorktreeResponse::Creating { worktree_path, .. }) => Path::new(&worktree_path)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            other => panic!("expected Creating, got {other:?}"),
+        };
+        let mut names = [name(first), name(second)];
+        names.sort();
+        assert_eq!(names, ["same".to_string(), "same-2".to_string()]);
     }
 
     #[tokio::test]
