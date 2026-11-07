@@ -432,7 +432,7 @@ fn open_previous_actions_button_is_v2_only_and_follows_new_agent() {
     });
     assert!(matches!(
         v2_state.handle_input(&click, &crate::actions::ActionRegistry::defaults()),
-        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker)
+        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(None))
     ));
     assert!(v2_state.open_session_button_focused());
     assert!(!v2_state.new_agent_button_focused());
@@ -443,7 +443,7 @@ fn open_previous_actions_button_is_v2_only_and_follows_new_agent() {
     ));
     assert!(matches!(
         v2_state.handle_input(&enter, &crate::actions::ActionRegistry::defaults()),
-        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker)
+        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(None))
     ));
 
     // Visual order: `+ New Agent` → (Right) `Open Previous` → (Left) back
@@ -460,7 +460,7 @@ fn open_previous_actions_button_is_v2_only_and_follows_new_agent() {
     assert!(v2_state.open_session_button_focused());
     assert!(matches!(
         v2_state.handle_input(&enter, &crate::actions::ActionRegistry::defaults()),
-        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker)
+        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(None))
     ));
     let left = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Left,
@@ -3826,8 +3826,8 @@ fn render_footer_peek_mode_shows_peek_hints() {
     );
     let content = buf_to_text(&buf);
     assert!(
-        content.contains(":open") && content.contains(":New Agent"),
-        "peek-mode footer must include open + New Agent (unselect) hints, got: {content:?}",
+        content.contains(":open") && content.contains(":new agent"),
+        "peek-mode footer must include open + new agent (unselect) hints, got: {content:?}",
     );
     assert!(
         content.contains(":delete"),
@@ -4285,8 +4285,8 @@ fn render_footer_section_selected_shows_toggle_no_stop() {
         "expanded section footer must hint Enter:collapse, got: {content:?}",
     );
     assert!(
-        content.contains("New Agent"),
-        "section footer must hint Esc:New Agent, got: {content:?}",
+        content.contains("new agent"),
+        "section footer must hint Esc:new agent, got: {content:?}",
     );
     assert!(
         !content.contains(":stop") && !content.contains(":close"),

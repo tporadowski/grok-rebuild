@@ -698,7 +698,7 @@ pub fn extract_last_response_type(agent: &AgentView) -> String {
     if running {
         match agent.session.turn_activity() {
             Some(TurnActivity::Thinking) => return "Thinking".to_string(),
-            Some(TurnActivity::Responding) => return "Response".to_string(),
+            Some(TurnActivity::Responding) => return "Responding".to_string(),
             Some(TurnActivity::AutoCompacting) => return "Compacting".to_string(),
             Some(TurnActivity::Retrying { .. }) => return "Retrying".to_string(),
             // A tool is executing: fall through to the scan to recover its specific label (Bash/Read/…)

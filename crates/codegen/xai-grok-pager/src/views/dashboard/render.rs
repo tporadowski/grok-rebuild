@@ -317,7 +317,7 @@ pub(crate) fn render_dashboard(
                 content_loading: false,
                 entries_query: surface.entries_query.as_deref(),
                 tick: state.spinner_tick,
-                grouped: true,
+                grouped: false,
                 source_filter: surface.source_filter,
                 pending_delete: false,
                 chat_mode: false,
@@ -2818,7 +2818,7 @@ fn render_footer(
             .as_ref()
             .is_some_and(|p| p.selected_option.is_some());
         let reply_empty = state.peek_reply.text().trim().is_empty();
-        let esc_label = if reply_empty { "New Agent" } else { "back" };
+        let esc_label = if reply_empty { "new agent" } else { "back" };
         // Pin Esc when it clears a draft (`back`) so compact doesn't drop it behind stop/help; that matches its importance in handle_peek_key
         let esc_hint = {
             let h = HintItem::new(esc, esc_label);
@@ -2915,7 +2915,7 @@ fn render_footer(
             };
             vec![
                 HintItem::new(enter, toggle),
-                HintItem::new(key!(Esc), "New Agent"),
+                HintItem::new(key!(Esc), "new agent"),
             ]
         } else {
             // Typed text dispatches a NEW agent (a section header is never a reply target)
@@ -2937,7 +2937,7 @@ fn render_footer(
             };
             vec![
                 HintItem::new(enter, toggle),
-                HintItem::new(key!(Esc), "New Agent"),
+                HintItem::new(key!(Esc), "new agent"),
             ]
         } else {
             vec![

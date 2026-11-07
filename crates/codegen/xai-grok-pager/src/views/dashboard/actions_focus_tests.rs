@@ -181,7 +181,7 @@ fn enter_acts_like_a_click_on_the_focused_actions_item() {
     state.focus_action(ActionsFocus::OpenPrevious);
     assert!(matches!(
         press(&mut state, Enter),
-        InputOutcome::Action(Action::ShowSessionPicker)
+        InputOutcome::Action(Action::ShowSessionPicker(None))
     ));
     state.focus_action(ActionsFocus::Worktree);
     assert!(matches!(
