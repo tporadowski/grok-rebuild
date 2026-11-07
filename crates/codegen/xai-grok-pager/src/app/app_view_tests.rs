@@ -3165,6 +3165,89 @@ fn welcome_consent_hover_tracks_the_menu_row_and_the_link() {
     ));
 }
 #[test]
+fn quit_with_a_running_workflow_warns_and_confirms() {
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    app.agents.get_mut(&id).unwrap().workflow_runs.push(
+        crate::views::workflows::WorkflowRunSnapshot {
+            run_id: "wf-1".into(),
+            name: "review".into(),
+            objective: "obj".into(),
+            status: "active".into(),
+            management_available: true,
+            builtin: false,
+            phases: Vec::new(),
+            current_phase: None,
+            agents: Vec::new(),
+            agent_budget: None,
+            agents_used: 0,
+            agents_reserved: 0,
+            agents_remaining: None,
+            agent_usage_incomplete: false,
+            active_agents: 1,
+            elapsed_ms: 1_000,
+            received_at: std::time::Instant::now(),
+            pause_message: None,
+            result_summary: None,
+        },
+    );
+    assert_eq!(
+        super::quit_confirm_label_for(true),
+        "stop the running workflow and quit"
+    );
+
+    let outcome = app.handle_input(&ctrl_c());
+    assert!(matches!(outcome, InputOutcome::Changed));
+    let pending = app.pending_action.as_ref().expect("quit is armed");
+    assert!(matches!(pending.action, Action::Quit));
+    assert_eq!(
+        pending.label,
+        Some("stop the running workflow and quit"),
+        "the first quit warns that it stops the running workflow"
+    );
+
+    let outcome = app.handle_input(&ctrl_c());
+    assert!(matches!(outcome, InputOutcome::Action(Action::Quit)));
+    assert!(app.pending_action.is_none());
+}
+
+#[test]
+fn quit_without_a_running_workflow_keeps_the_plain_label() {
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    app.agents.get_mut(&id).unwrap().workflow_runs.push(
+        crate::views::workflows::WorkflowRunSnapshot {
+            run_id: "wf-done".into(),
+            name: "review".into(),
+            objective: "obj".into(),
+            status: "complete".into(),
+            management_available: true,
+            builtin: false,
+            phases: Vec::new(),
+            current_phase: None,
+            agents: Vec::new(),
+            agent_budget: None,
+            agents_used: 0,
+            agents_reserved: 0,
+            agents_remaining: None,
+            agent_usage_incomplete: false,
+            active_agents: 0,
+            elapsed_ms: 1_000,
+            received_at: std::time::Instant::now(),
+            pause_message: None,
+            result_summary: None,
+        },
+    );
+
+    let outcome = app.handle_input(&ctrl_q());
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert_eq!(
+        app.pending_action.as_ref().and_then(|pending| pending.label),
+        Some("quit")
+    );
+}
+
+#[test]
 fn welcome_ctrl_c_requires_confirmation() {
     let mut app = test_app();
     let outcome = app.handle_input(&ctrl_c());

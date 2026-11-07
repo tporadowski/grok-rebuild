@@ -430,6 +430,14 @@ impl PendingAction {
         Instant::now() >= self.expires_at
     }
 }
+/// Confirm label for quit. A running workflow is stopped by exit, so the second press names that.
+pub(crate) fn quit_confirm_label_for(running_workflow: bool) -> &'static str {
+    if running_workflow {
+        "stop the running workflow and quit"
+    } else {
+        "quit"
+    }
+}
 /// Cap for the `GROK_ESC_DOUBLE_PRESS_MS` override; the pty_e2e suite sets exactly this value.
 pub const ESC_DOUBLE_PRESS_TEST_MS: u64 = 60_000;
 /// Idle-Esc double-press confirm window, `GROK_ESC_DOUBLE_PRESS_MS`-overridable (read once, bounded).
@@ -2891,7 +2899,7 @@ impl AppView {
             self.pending_action = Some(PendingAction::new(
                 Action::Quit,
                 KeyShortcut::from(*key),
-                "quit",
+                self.quit_confirm_label(),
             ));
             return InputOutcome::Changed;
         }
@@ -2936,7 +2944,12 @@ impl AppView {
             } else {
                 action
             };
-            self.pending_action = Some(PendingAction::new(action, shortcut, def.label));
+            let label = if action_id == ActionId::Quit {
+                self.quit_confirm_label()
+            } else {
+                def.label
+            };
+            self.pending_action = Some(PendingAction::new(action, shortcut, label));
             InputOutcome::Changed
         } else {
             InputOutcome::Action(action)
@@ -2956,11 +2969,23 @@ impl AppView {
         };
         if def.requires_confirmation {
             let shortcut = KeyShortcut::from(*key);
-            self.pending_action = Some(PendingAction::new(Action::Quit, shortcut, def.label));
+            self.pending_action = Some(PendingAction::new(
+                Action::Quit,
+                shortcut,
+                self.quit_confirm_label(),
+            ));
             InputOutcome::Changed
         } else {
             InputOutcome::Action(Action::Quit)
         }
+    }
+    fn has_running_workflow(&self) -> bool {
+        self.agents
+            .values()
+            .any(|agent| agent.workflow_runs.iter().any(|run| run.is_active()))
+    }
+    fn quit_confirm_label(&self) -> &'static str {
+        quit_confirm_label_for(self.has_running_workflow())
     }
     /// Apply exit-session confirmation (double-press).
     /// Works like quit confirmation but transitions to the welcome screen instead of quitting.
