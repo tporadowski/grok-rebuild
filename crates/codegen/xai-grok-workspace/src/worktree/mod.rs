@@ -738,14 +738,28 @@ pub use xai_fast_worktree::META_KEY_LABEL;
 /// Unlike META_KEY_LABEL, nothing below this crate reads this key from the worktree record.
 pub const META_KEY_USER_PROVIDED: &str = "user_provided";
 
-/// Sanitize a user-provided label into a filesystem-safe directory name. Lowercases, maps spaces and underscores to hyphens, and strips every other character that is not alphanumeric or a hyphen.
+/// Shown when a typed worktree name starts with `-`, which would be read as a flag.
+pub const WORKTREE_NAME_LEADING_DASH: &str = "worktree name must not start with '-'";
+/// Shown when a worktree ref starts with `-`, which would be read as a git flag.
+pub const WORKTREE_REF_LEADING_DASH: &str = "worktree ref must not start with '-'";
+
+/// A trimmed value that starts with `-` is refused. Empty values are not this error.
+pub fn reject_leading_dash(message: &str, value: Option<&str>) -> Result<(), String> {
+    if value.map(str::trim).is_some_and(|s| s.starts_with('-')) {
+        Err(message.to_owned())
+    } else {
+        Ok(())
+    }
+}
+
+/// Sanitize a user-provided label into a filesystem-safe directory name. Lowercases, maps spaces and underscores to hyphens, and keeps Unicode letters such as `é`. Every other character that is not alphanumeric or a hyphen is stripped.
 pub fn sanitize_label(name: &str) -> String {
     let lower = name.to_lowercase();
     let mut out = String::with_capacity(lower.len());
     for ch in lower.chars() {
         match ch {
             ' ' | '_' => out.push('-'),
-            c if c.is_ascii_alphanumeric() || c == '-' => out.push(c),
+            c if c.is_alphanumeric() || c == '-' => out.push(c),
             _ => {}
         }
     }
@@ -795,17 +809,18 @@ pub fn auto_label() -> String {
     format!("{date}-{short}")
 }
 
-pub fn derive_worktree_label(user_input: Option<&str>) -> String {
+pub fn derive_worktree_label(user_input: Option<&str>) -> Result<String, String> {
+    reject_leading_dash(WORKTREE_NAME_LEADING_DASH, user_input)?;
     match user_input {
         Some(name) if !name.trim().is_empty() => {
             let sanitized = sanitize_label(name);
             if sanitized.is_empty() {
-                auto_label()
+                Ok(auto_label())
             } else {
-                sanitized
+                Ok(sanitized)
             }
         }
-        _ => auto_label(),
+        _ => Ok(auto_label()),
     }
 }
 
@@ -1020,15 +1035,21 @@ pub(crate) fn source_git_root_for_pinned_dest(
     git_or_grove_root(source, grove_enabled).map(|p| p.to_string_lossy().into_owned())
 }
 
-fn resolve_worktree_path(grok_home: &Path, req: &CreateWorktreeRequest, git_root: &Path) -> String {
+fn resolve_worktree_path(
+    grok_home: &Path,
+    req: &CreateWorktreeRequest,
+    git_root: &Path,
+) -> Result<String, String> {
+    reject_leading_dash(WORKTREE_NAME_LEADING_DASH, req.label.as_deref())?;
+    reject_leading_dash(WORKTREE_REF_LEADING_DASH, req.git_ref.as_deref())?;
     if let Some(ref path) = req.worktree_path {
-        return path.clone();
+        return Ok(path.clone());
     }
 
     let base = worktree_base_dir_in(grok_home, git_root);
-    let label = derive_worktree_label(req.label.as_deref());
+    let label = derive_worktree_label(req.label.as_deref())?;
     let dir_name = resolve_label_collision(&base, &label);
-    base.join(dir_name).to_string_lossy().to_string()
+    Ok(base.join(dir_name).to_string_lossy().to_string())
 }
 
 /// Build the label metadata JSON to persist in the worktree DB record.
@@ -1131,7 +1152,15 @@ pub async fn prepare_worktree_creation(req: &CreateWorktreeRequest) -> PrepareWo
         }
     };
 
-    let worktree_path = resolve_worktree_path(&grok_home(), req, &layout.git_root);
+    let worktree_path = match resolve_worktree_path(&grok_home(), req, &layout.git_root) {
+        Ok(path) => path,
+        Err(message) => {
+            return PrepareWorktreeResult {
+                response: Err(anyhow::anyhow!(message)),
+                spawn_task: false,
+            };
+        }
+    };
     let source_git_root = layout.source_git_root.clone();
 
     if is_worktree_in_progress(&req.session_id).await {
@@ -1256,6 +1285,16 @@ pub async fn create_worktree_streaming_in<N: WorktreeNotificationSender>(
     let session_id = req.session_id.clone();
     let grove_enabled = req.grove_worktree.unwrap_or(false);
     let (worktree_path_str, source_git_root) = if let Some(pinned) = &req.worktree_path {
+        if let Err(message) =
+            reject_leading_dash(WORKTREE_NAME_LEADING_DASH, req.label.as_deref()).and(
+                reject_leading_dash(WORKTREE_REF_LEADING_DASH, req.git_ref.as_deref()),
+            )
+        {
+            return WorktreeStatus::Error {
+                session_id,
+                message,
+            };
+        }
         let source_buf = source_path.to_path_buf();
         let resolved = req.resolved_source_git_root.clone();
         let source_git_root = blocking_copy_on_write(move || {
@@ -1267,10 +1306,15 @@ pub async fn create_worktree_streaming_in<N: WorktreeNotificationSender>(
         (pinned.clone(), source_git_root)
     } else {
         match create_root::resolve_create_source_layout(source_path, grove_enabled).await {
-            Ok(layout) => (
-                resolve_worktree_path(grok_home, req, &layout.git_root),
-                layout.source_git_root,
-            ),
+            Ok(layout) => match resolve_worktree_path(grok_home, req, &layout.git_root) {
+                Ok(path) => (path, layout.source_git_root),
+                Err(message) => {
+                    return WorktreeStatus::Error {
+                        session_id,
+                        message,
+                    };
+                }
+            },
             Err(e) => {
                 tracing::warn!(
                     target: WORKTREE_LOG,
@@ -1886,7 +1930,9 @@ fn resolve_fork_worktree_path(
     source_worktree_path: &Path,
     git_root: &Path,
     label: Option<&str>,
-) -> String {
+    git_ref: Option<&str>,
+) -> Result<String, String> {
+    reject_leading_dash(WORKTREE_REF_LEADING_DASH, git_ref)?;
     let grok_home = grok_home();
     let worktrees_dir = grok_home.join("worktrees");
     let base = if let Some(suffix) = suffix_under(source_worktree_path, &worktrees_dir) {
@@ -1898,9 +1944,9 @@ fn resolve_fork_worktree_path(
     } else {
         worktree_base_dir_in(&grok_home, git_root)
     };
-    let dir_name = derive_worktree_label(label);
+    let dir_name = derive_worktree_label(label)?;
     let dir_name = resolve_label_collision(&base, &dir_name);
-    base.join(dir_name).to_string_lossy().into_owned()
+    Ok(base.join(dir_name).to_string_lossy().into_owned())
 }
 
 /// Prepare for creating a worktree from another worktree (fork flow).
@@ -1949,8 +1995,20 @@ pub async fn prepare_worktree_from_worktree(
         };
     }
 
-    let worktree_path =
-        resolve_fork_worktree_path(source_path, &layout.git_root, req.label.as_deref());
+    let worktree_path = match resolve_fork_worktree_path(
+        source_path,
+        &layout.git_root,
+        req.label.as_deref(),
+        req.git_ref.as_deref(),
+    ) {
+        Ok(path) => path,
+        Err(message) => {
+            return PrepareWorktreeResult {
+                response: Err(anyhow::anyhow!(message)),
+                spawn_task: false,
+            };
+        }
+    };
     let git_root_str = layout.source_git_root;
 
     if is_worktree_in_progress(&req.new_session_id).await {
@@ -2061,6 +2119,16 @@ pub async fn create_worktree_from_worktree_streaming<N: WorktreeNotificationSend
 
     let grove_enabled = req.grove_worktree.unwrap_or(false);
     let (worktree_path_str, source_git_root) = if let Some(resolved) = pinned_dest_path {
+        if let Err(message) =
+            reject_leading_dash(WORKTREE_NAME_LEADING_DASH, req.label.as_deref()).and(
+                reject_leading_dash(WORKTREE_REF_LEADING_DASH, req.git_ref.as_deref()),
+            )
+        {
+            return WorktreeStatus::Error {
+                session_id,
+                message,
+            };
+        }
         let source_buf = source_path.to_path_buf();
         let pin = req.resolved_source_git_root.clone();
         let source_git_root = blocking_copy_on_write(move || {
@@ -2072,10 +2140,22 @@ pub async fn create_worktree_from_worktree_streaming<N: WorktreeNotificationSend
         (resolved, source_git_root)
     } else {
         match create_root::resolve_create_source_layout(source_path, grove_enabled).await {
-            Ok(layout) => (
-                resolve_fork_worktree_path(source_path, &layout.git_root, req.label.as_deref()),
-                layout.source_git_root,
-            ),
+            Ok(layout) => {
+                match resolve_fork_worktree_path(
+                    source_path,
+                    &layout.git_root,
+                    req.label.as_deref(),
+                    req.git_ref.as_deref(),
+                ) {
+                    Ok(path) => (path, layout.source_git_root),
+                    Err(message) => {
+                        return WorktreeStatus::Error {
+                            session_id,
+                            message,
+                        };
+                    }
+                }
+            }
             Err(e) => {
                 let requested_type = req.worktree_type.unwrap_or(WorktreeType::Linked);
                 strategy::emit_worktree_ended(strategy::WorktreeEndedEmit {
@@ -2419,8 +2499,15 @@ pub async fn create_worktree_from_worktree_sync(
         }
     };
     let source_git_root = layout.source_git_root.clone();
-    let worktree_path_str =
-        resolve_fork_worktree_path(source_path, &layout.git_root, req.label.as_deref());
+    let worktree_path_str = match resolve_fork_worktree_path(
+        source_path,
+        &layout.git_root,
+        req.label.as_deref(),
+        req.git_ref.as_deref(),
+    ) {
+        Ok(path) => path,
+        Err(message) => return Err(anyhow::anyhow!(message)),
+    };
     let _held_label = HeldLabelClaim::hold(&worktree_path_str);
 
     if tokio::fs::metadata(&worktree_path_str).await.is_ok() {
@@ -2839,7 +2926,13 @@ pub async fn create_jj_workspace(
     })
     .await
     .context("jj dest slug join failed")?;
-    let dest = resolve_fork_worktree_path(source_path, &dest_slug, req.label.as_deref());
+    let dest = resolve_fork_worktree_path(
+        source_path,
+        &dest_slug,
+        req.label.as_deref(),
+        req.git_ref.as_deref(),
+    )
+    .map_err(anyhow::Error::msg)?;
     let _held_label = HeldLabelClaim::hold(&dest);
 
     if tokio::fs::metadata(&dest).await.is_ok() {

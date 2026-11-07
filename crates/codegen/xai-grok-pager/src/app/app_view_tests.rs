@@ -5048,6 +5048,45 @@ fn worktree_dialog_esc_closes() {
     assert!(app.new_worktree_dialog.is_none());
 }
 #[test]
+fn worktree_dialog_keeps_unicode_letters() {
+    let mut app = test_app();
+    app.auth_state = AuthState::Done;
+    app.new_worktree_dialog = Some(NewWorktreeDialogState::new());
+    for ch in ['c', 'a', 'f', 'é'] {
+        let outcome = app.handle_input(&key_event(KeyCode::Char(ch), KeyModifiers::NONE));
+        assert!(matches!(outcome, InputOutcome::Changed));
+    }
+    assert_eq!(app.new_worktree_dialog.as_ref().unwrap().label(), "café");
+    let outcome = app.handle_input(&key_event(KeyCode::Enter, KeyModifiers::NONE));
+    match outcome {
+        InputOutcome::Action(Action::NewWorktreeSession { label, .. }) => {
+            assert_eq!(label.as_deref(), Some("café"));
+        }
+        other => panic!("expected the typed name to be submitted, got {other:?}"),
+    }
+}
+
+#[test]
+fn worktree_dialog_refuses_a_name_that_starts_with_a_dash() {
+    let mut app = test_app();
+    app.auth_state = AuthState::Done;
+    let mut dialog = NewWorktreeDialogState::new();
+    dialog.set_label("-secret");
+    app.new_worktree_dialog = Some(dialog);
+    let outcome = app.handle_input(&key_event(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert!(app.new_worktree_dialog.is_some(), "the dialog stays open");
+    let toast = app
+        .welcome_toast
+        .as_ref()
+        .map(|(message, _)| message.as_str());
+    assert_eq!(
+        toast,
+        Some(xai_grok_workspace::worktree::WORKTREE_NAME_LEADING_DASH)
+    );
+}
+
+#[test]
 fn worktree_dialog_typing_updates_label() {
     let mut app = test_app();
     app.auth_state = AuthState::Done;

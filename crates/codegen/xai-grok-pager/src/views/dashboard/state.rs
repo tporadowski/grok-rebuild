@@ -3939,6 +3939,10 @@ impl DashboardState {
                 self.worktree_dialog = None;
                 InputOutcome::Action(Action::DashboardConfirmWorktree { label })
             }
+            NewWorktreeDialogOutcome::Rejected => {
+                self.set_error_toast(xai_grok_workspace::worktree::WORKTREE_NAME_LEADING_DASH);
+                InputOutcome::Changed
+            }
             NewWorktreeDialogOutcome::Cancelled => {
                 self.worktree_dialog = None;
                 // Don't silently discard the user's typed prompt; restore the stashed prompt (from the prompt-send

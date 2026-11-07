@@ -171,7 +171,8 @@ fn dest_slug_from_mountpoint_groups_subdirectory_cwd() {
         &home,
         &create_req("s".into(), cwd, Some(true), Some("probe-wt")),
         &layout.git_root,
-    );
+    )
+    .expect("probe-wt");
     let expected_base = home
         .join("worktrees")
         .join(repo_slug(Path::new("/mnt/grove/acme")));
@@ -240,7 +241,8 @@ fn dest_slug_from_source_path_is_under_grok_worktrees() {
         &home,
         &create_req("s".into(), &source, Some(true), Some("probe-wt")),
         &layout.git_root,
-    );
+    )
+    .expect("probe-wt");
     let expected_base = home.join("worktrees").join(repo_slug(&source));
     assert!(
         Path::new(&dest).starts_with(&expected_base),
@@ -248,6 +250,42 @@ fn dest_slug_from_source_path_is_under_grok_worktrees() {
         expected_base.display()
     );
     assert!(dest.ends_with("probe-wt"), "{dest}");
+}
+
+#[test]
+fn unicode_worktree_name_is_kept_and_a_leading_dash_is_refused() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("repo");
+    std::fs::create_dir_all(&root).unwrap();
+    let kept = crate::worktree::resolve_worktree_path(
+        home.path(),
+        &create_req("cafe".into(), &root, None, Some("Café")),
+        &root,
+    )
+    .expect("unicode name");
+    assert!(
+        kept.ends_with("café"),
+        "the directory name must keep the Unicode letter, got {kept}"
+    );
+    assert_eq!(crate::worktree::sanitize_label("my-feature"), "my-feature");
+
+    let name_err = crate::worktree::resolve_worktree_path(
+        home.path(),
+        &create_req("dash-name".into(), &root, None, Some("-secret")),
+        &root,
+    )
+    .expect_err("leading dash name");
+    assert_eq!(name_err, crate::worktree::WORKTREE_NAME_LEADING_DASH);
+    let base = home.path().join("worktrees").join(repo_slug(&root));
+    assert!(!base.join("-secret").exists());
+    assert!(!base.join("secret").exists());
+
+    let mut ref_req = create_req("dash-ref".into(), &root, None, Some("ok-name"));
+    ref_req.git_ref = Some("-main".into());
+    let ref_err = crate::worktree::resolve_worktree_path(home.path(), &ref_req, &root)
+        .expect_err("leading dash ref");
+    assert_eq!(ref_err, crate::worktree::WORKTREE_REF_LEADING_DASH);
+    assert!(!base.join("ok-name").exists());
 }
 
 #[tokio::test]

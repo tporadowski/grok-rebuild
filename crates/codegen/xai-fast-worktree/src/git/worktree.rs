@@ -8,6 +8,9 @@ use crate::git::checkout::git_command;
 
 /// Create a git worktree with `--no-checkout`. Blocking.
 pub(crate) fn worktree_add_no_checkout(source: &Path, dest: &str, git_ref: &str) -> Result<()> {
+    if git_ref.trim().starts_with('-') {
+        anyhow::bail!("worktree ref must not start with '-'");
+    }
     let output = git_command()
         .current_dir(source)
         .args([
@@ -202,6 +205,13 @@ pub(crate) fn normalized_for_match(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_add_refuses_a_leading_dash() {
+        let err = worktree_add_no_checkout(Path::new("/tmp/not-a-repo"), "/tmp/dest", "-main")
+            .expect_err("a ref that starts with - is refused");
+        assert!(err.to_string().contains("must not start with '-'"), "{err}");
+    }
 
     /// Hermetic git (pinned binary, masked global/system config) so a
     /// developer's `~/.gitconfig` cannot steer these registration tests.

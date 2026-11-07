@@ -78,6 +78,9 @@ impl NewWorktreeDialogState {
         match key.code {
             KeyCode::Enter if key.modifiers.is_empty() => {
                 let label = self.label().trim().to_string();
+                if label.starts_with('-') {
+                    return NewWorktreeDialogOutcome::Rejected;
+                }
                 NewWorktreeDialogOutcome::Submitted(if label.is_empty() {
                     None
                 } else {
@@ -123,6 +126,8 @@ pub enum NewWorktreeDialogOutcome {
     /// User pressed Enter: create the worktree.
     /// `None` means auto-generate the name.
     Submitted(Option<String>),
+    /// The typed name starts with `-` and was not submitted.
+    Rejected,
     /// User pressed Esc: close without creating.
     Cancelled,
     /// Input changed (redraw needed).
@@ -3215,6 +3220,13 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
             }
             NewWorktreeDialogOutcome::Cancelled => {
                 *ctx.new_worktree_dialog = None;
+                return InputOutcome::Changed;
+            }
+            NewWorktreeDialogOutcome::Rejected => {
+                *ctx.welcome_toast = Some((
+                    xai_grok_workspace::worktree::WORKTREE_NAME_LEADING_DASH.to_owned(),
+                    Instant::now() + WELCOME_TOAST_DURATION,
+                ));
                 return InputOutcome::Changed;
             }
             NewWorktreeDialogOutcome::Changed => return InputOutcome::Changed,

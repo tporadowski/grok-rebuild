@@ -351,6 +351,9 @@ fn lfs_tracked_paths(worktree: &Path, nul_paths: &[u8]) -> Result<Vec<PathBuf>> 
 
 /// Run `git checkout <ref>`. Blocking.
 pub(crate) fn checkout_ref(worktree_path: &Path, git_ref: &str) -> Result<()> {
+    if git_ref.trim().starts_with('-') {
+        anyhow::bail!("worktree ref must not start with '-'");
+    }
     let output = git_command()
         .current_dir(worktree_path)
         .args(["checkout", git_ref])
@@ -864,6 +867,13 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use xai_test_utils::git::{git_commit_all, init_git_repo};
+
+    #[test]
+    fn checkout_ref_refuses_a_leading_dash() {
+        let err = checkout_ref(std::path::Path::new("/tmp/not-a-worktree"), " -main")
+            .expect_err("a ref that starts with - is refused");
+        assert!(err.to_string().contains("must not start with '-'"), "{err}");
+    }
 
     #[test]
     fn test_git_reset_hard_command() {
