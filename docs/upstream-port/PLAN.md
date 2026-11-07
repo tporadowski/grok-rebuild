@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-042 — Goal chip with workflow runs
+Clicking the goal status chip opens the goal panel when a goal is active, including while workflow runs exist. It no longer toggles the workflow overlay instead (`v47-x02`).
+
 ### D-041 — Remaining W4 hook notes
 `[[ui.notifications.hooks]]` commands run from `NotificationService::notify` when the hook's event list matches. An empty list matches every kind. `only_unfocused` waits until the terminal loses focus (`v50-x18`). `/hooks` lists `load_errors` and the expanded row keeps the full message (`v51-f25`). Plugin inline hooks and the main agent's inline hooks are included in that list (`v53-f02`). Tool hooks for one session take a turnstile in `run_hook`, so parallel tool calls do not overlap. Cancel and exit still kill the hook process group (`v51-x63`, `command_hook_session_close_reaps_whole_group`). `TaskCompleted` fires a `task_complete` Notification hook, and `send_xai_notification` awaits that dispatch before it returns (`v51-x91`). A PowerShell command that reads `$input` runs, with a warning, instead of being refused as a missing environment variable (`v59-x03`). A spawn failure names the program, including `powershell.exe` or Git Bash (`v61-x03`).
 
@@ -230,7 +233,7 @@ Refresh these numbers at the end of a session.
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
-| W5 | Workflows and goals | 25 | 0 | 4 | 0 | 0 |
+| W5 | Workflows and goals | 24 | 0 | 5 | 0 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
@@ -243,9 +246,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 452. Skipped: 8. Done: 90. Already: 23. Deferred: 10.
+Catalog rows: 583. Pending: 451. Skipped: 8. Done: 91. Already: 23. Deferred: 10.
 
-**Next:** W5 workflows and goals. W4 is complete (D-041). Kitty image free (`v73-x12`) is still the open W6 row. `/resume` still opens the picker on one match (`v61-f02`), and search does not tolerate typos (`v65-f01`). Minimal sign-in uses the error color in the wrap commit, but `v74-x32` stays pending until a color assertion exists.
+**Next:** W5 workflows and goals, after the goal chip (D-042). W4 is complete (D-041). Kitty image free (`v73-x12`) is still the open W6 row. `/resume` still opens the picker on one match (`v61-f02`), and search does not tolerate typos (`v65-f01`). Minimal sign-in uses the error color in the wrap commit, but `v74-x32` stays pending until a color assertion exists.
 
 ## Waves
 
@@ -271,7 +274,7 @@ Pending: 0. Done: 24. Already: 10. Deferred: 2 (`v51-x37`, `v52-x17`, D-041). Lo
 
 ### W5 — Workflows and goals
 
-Pending: 25. Done: 4. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior.
+Pending: 24. Done: 5. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042).
 
 ### W7 — Worktrees
 
@@ -400,7 +403,7 @@ id | status | wave | kind | flag | covered | note
 - v67-x03 | done | W4 | Bug Fixes |  |  | **Quitting a session with hooks configured** is faster: the session-end `Stop` hook runs at the same time as the `SessionEnd` hooks and gets at most 1.5 seconds.
 - v71-f04 | done | W4 | Features |  |  | **Hooks** accept `"failClosed": true`: when such a `PreToolUse` or `UserPromptSubmit` hook times out or crashes, the tool call is denied or the prompt is blocked instead of going ahead.
 - v75-x18 | done | W4 | Bug Fixes |  |  | **Disabling a project's hook** in `/hooks` applies only to that repository, instead of also skipping hooks with the same name in other repositories.
-- v47-x02 | pending | W5 | Bug Fixes |  |  | **Clicking the Goal chip** now opens the goal panel even when workflow runs are present.
+- v47-x02 | done | W5 | Bug Fixes |  |  | **Clicking the Goal chip** now opens the goal panel even when workflow runs are present.
 - v50-x28 | done | W5 | Bug Fixes |  |  | A workflow file that fails to parse now reports the exact file and parse error instead of 'unknown workflow'.
 - v51-f02 | pending | W5 | Features |  |  | Headless `grok -p` now waits for background goals to finish and reports their outcome.
 - v51-f19 | pending | W5 | Features |  |  | **--background-wait-timeout** now also stops an active headless goal after the timeout and exits with an error.

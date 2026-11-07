@@ -58,14 +58,17 @@ impl AgentView {
                     return InputOutcome::Changed;
                 }
                 if self.hit_goal_status.contains(mouse.column, mouse.row) {
-                    if !self.workflow_runs.is_empty() {
+                    if self.goal_state.is_some() {
+                        self.show_goal_detail = !self.show_goal_detail;
+                        if self.show_goal_detail {
+                            self.show_workflows = false;
+                        }
+                    } else if !self.workflow_runs.is_empty() {
                         self.show_workflows = !self.show_workflows;
                         if self.show_workflows {
                             self.workflows_view.reset();
                             self.show_goal_detail = false;
                         }
-                    } else if self.goal_state.is_some() {
-                        self.show_goal_detail = !self.show_goal_detail;
                     }
                     return InputOutcome::Changed;
                 }

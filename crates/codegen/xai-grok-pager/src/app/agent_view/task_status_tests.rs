@@ -63,6 +63,26 @@ fn mouse_down(column: u16, row: u16) -> Event {
     })
 }
 #[test]
+fn goal_chip_opens_the_goal_panel_while_workflows_are_running() {
+    let _theme = crate::theme::cache::pin_theme();
+    let registry = ActionRegistry::defaults();
+    let mut agent = test_fixtures::make_agent();
+    agent.last_terminal_size = (80, 30);
+    agent.goal_state = Some(crate::app::agent::GoalDisplayState::test_stub());
+    agent.workflow_runs = vec![workflow_run("running")];
+    agent.show_workflows = false;
+    let _ = draw_frame(&mut agent, &registry);
+    let rect = agent
+        .hit_goal_status
+        .rect
+        .expect("an active goal must arm the goal chip");
+    let outcome = agent.handle_input(&mouse_down(rect.x, rect.y), &registry);
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert!(agent.show_goal_detail);
+    assert!(!agent.show_workflows);
+}
+
+#[test]
 fn paused_status_has_one_click_target_that_clears_when_terminal() {
     let _theme = crate::theme::cache::pin_theme();
     let registry = ActionRegistry::defaults();
