@@ -71,6 +71,284 @@ pub(crate) fn git_clean_fd(worktree_path: &Path, include_ignored: bool) -> Resul
     Ok(())
 }
 
+/// After a `--worktree-ref` checkout, make the working tree match that commit.
+///
+/// Checkout runs with `GIT_LFS_SKIP_SMUDGE`, so an LFS-tracked file is the
+/// pointer text. It also does not move submodule checkouts, so a copied
+/// submodule stays at the source commit. This checks each submodule out at
+/// the gitlink the ref records and replaces a pointer whose object is already
+/// in the local store.
+pub(crate) fn materialize_ref_checkout(worktree: &Path) -> Result<()> {
+    checkout_recorded_submodules(worktree)?;
+    smudge_local_lfs_pointers(worktree)?;
+    Ok(())
+}
+
+fn checkout_recorded_submodules(worktree: &Path) -> Result<()> {
+    let gitlinks = recorded_gitlinks(worktree)?;
+    if gitlinks.is_empty() {
+        return Ok(());
+    }
+    let common = git_common_dir(worktree)?;
+    for (path, sha) in gitlinks {
+        checkout_gitlink(worktree, &common, &path, &sha)?;
+    }
+    Ok(())
+}
+
+/// Index lines `160000 <sha> <stage>\t<path>`.
+fn recorded_gitlinks(worktree: &Path) -> Result<Vec<(String, String)>> {
+    let listed = git_command()
+        .current_dir(worktree)
+        .args(["ls-files", "--stage"])
+        .output()
+        .context("failed to list the index for submodule gitlinks")?;
+    if !listed.status.success() {
+        anyhow::bail!(
+            "git ls-files failed in {}: {}",
+            worktree.display(),
+            String::from_utf8_lossy(&listed.stderr)
+        );
+    }
+    let mut links = Vec::new();
+    for line in String::from_utf8_lossy(&listed.stdout).lines() {
+        let Some((meta, path)) = line.split_once('\t') else {
+            continue;
+        };
+        let mut fields = meta.split_whitespace();
+        let Some(mode) = fields.next() else { continue };
+        let Some(sha) = fields.next() else { continue };
+        if mode == "160000" && !path.is_empty() {
+            links.push((path.to_string(), sha.to_string()));
+        }
+    }
+    Ok(links)
+}
+
+/// Check the gitlink out in this worktree. The objects already live in the
+/// superproject's `modules/` store from the source checkout, so this does not
+/// clone. A missing store falls back to `git submodule update --init`.
+fn checkout_gitlink(worktree: &Path, common: &Path, path: &str, sha: &str) -> Result<()> {
+    let module = common.join("modules").join(path);
+    let dest = worktree.join(path);
+    if module.join("HEAD").is_file() {
+        std::fs::create_dir_all(&dest)
+            .with_context(|| format!("failed to create submodule dir {}", dest.display()))?;
+        let output = git_command()
+            .args([
+                &format!("--git-dir={}", module.display()),
+                &format!("--work-tree={}", dest.display()),
+                "checkout",
+                "--detach",
+                "--force",
+                sha,
+            ])
+            .output()
+            .with_context(|| format!("failed to check out submodule {path} at {sha}"))?;
+        if output.status.success() {
+            std::fs::write(dest.join(".git"), format!("gitdir: {}\n", module.display()))
+                .with_context(|| format!("failed to write {}/.git", dest.display()))?;
+            return Ok(());
+        }
+        tracing::debug!(
+            path,
+            sha,
+            stderr = %String::from_utf8_lossy(&output.stderr),
+            "submodule checkout from the local module store failed; trying submodule update"
+        );
+    }
+    let output = git_command()
+        .current_dir(worktree)
+        .args([
+            "submodule",
+            "update",
+            "--init",
+            "--checkout",
+            "--force",
+            "--",
+            path,
+        ])
+        .output()
+        .with_context(|| format!("failed to run git submodule update for {path}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "submodule {path} at {sha} was not checked out in {}: {}",
+            worktree.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+fn smudge_local_lfs_pointers(worktree: &Path) -> Result<()> {
+    let Some(store) = lfs_object_store(worktree)? else {
+        return Ok(());
+    };
+    if !store.is_dir() {
+        return Ok(());
+    }
+    let listed = git_command()
+        .current_dir(worktree)
+        .args(["ls-files", "-z"])
+        .output()
+        .context("failed to list tracked files for LFS smudge")?;
+    if !listed.status.success() {
+        anyhow::bail!(
+            "git ls-files failed in {}: {}",
+            worktree.display(),
+            String::from_utf8_lossy(&listed.stderr)
+        );
+    }
+    if listed.stdout.is_empty() {
+        return Ok(());
+    }
+    let tracked = lfs_tracked_paths(worktree, &listed.stdout)?;
+    for rel in tracked {
+        let path = worktree.join(&rel);
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() || meta.len() >= 1024 {
+            continue;
+        }
+        let bytes =
+            std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+        let Some((oid, size)) = lfs_pointer_oid_and_size(&bytes) else {
+            continue;
+        };
+        let object = store.join(&oid[..2]).join(&oid[2..4]).join(oid);
+        if !object.is_file() {
+            continue;
+        }
+        let data = std::fs::read(&object)
+            .with_context(|| format!("failed to read LFS object {}", object.display()))?;
+        if data.len() as u64 != size {
+            continue;
+        }
+        std::fs::write(&path, &data)
+            .with_context(|| format!("failed to write smudged LFS file {}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// `oid` is the 64-hex sha256 from a spec pointer, and `size` is the object length.
+fn lfs_pointer_oid_and_size(bytes: &[u8]) -> Option<(String, u64)> {
+    if bytes.len() >= 1024 || !bytes.starts_with(b"version https://git-lfs.github.com/spec/v1\n") {
+        return None;
+    }
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut oid = None;
+    let mut size = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("oid sha256:")
+            && rest.len() == 64
+            && rest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            oid = Some(rest.to_ascii_lowercase());
+        } else if let Some(rest) = line.strip_prefix("size ") {
+            size = rest.parse().ok();
+        }
+    }
+    Some((oid?, size?))
+}
+
+fn lfs_object_store(worktree: &Path) -> Result<Option<PathBuf>> {
+    let configured = git_command()
+        .current_dir(worktree)
+        .args(["config", "--get", "lfs.storage"])
+        .output()
+        .context("failed to read lfs.storage")?;
+    let common = git_common_dir(worktree)?;
+    let storage = if configured.status.success() {
+        let raw = String::from_utf8_lossy(&configured.stdout)
+            .trim()
+            .to_string();
+        if raw.is_empty() {
+            None
+        } else {
+            let path = PathBuf::from(raw);
+            Some(if path.is_absolute() {
+                path
+            } else {
+                common.join(path)
+            })
+        }
+    } else {
+        None
+    };
+    let objects = match storage {
+        Some(path) => path.join("objects"),
+        None => common.join("lfs").join("objects"),
+    };
+    Ok(Some(objects))
+}
+
+fn git_common_dir(worktree: &Path) -> Result<PathBuf> {
+    let output = git_command()
+        .current_dir(worktree)
+        .args(["rev-parse", "--git-common-dir"])
+        .output()
+        .context("failed to resolve the common git dir")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "git rev-parse --git-common-dir failed in {}: {}",
+            worktree.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let path = PathBuf::from(raw);
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Ok(worktree.join(path))
+    }
+}
+
+fn lfs_tracked_paths(worktree: &Path, nul_paths: &[u8]) -> Result<Vec<PathBuf>> {
+    let mut cmd = git_command();
+    cmd.current_dir(worktree)
+        .args(["check-attr", "-z", "filter", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().context("failed to spawn git check-attr")?;
+    {
+        use std::io::Write;
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("git check-attr has no stdin")?;
+        stdin
+            .write_all(nul_paths)
+            .context("failed to write paths to git check-attr")?;
+    }
+    let output = child
+        .wait_with_output()
+        .context("failed to wait for git check-attr")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "git check-attr failed in {}: {}",
+            worktree.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let mut paths = Vec::new();
+    let mut parts = output.stdout.split(|byte| *byte == 0);
+    while let Some(path) = parts.next() {
+        let Some(attr) = parts.next() else { break };
+        let Some(value) = parts.next() else { break };
+        if path.is_empty() || attr != b"filter" || value != b"lfs" {
+            continue;
+        }
+        let Ok(rel) = std::str::from_utf8(path) else {
+            continue;
+        };
+        paths.push(PathBuf::from(rel));
+    }
+    Ok(paths)
+}
+
 /// Run `git checkout <ref>`. Blocking.
 pub(crate) fn checkout_ref(worktree_path: &Path, git_ref: &str) -> Result<()> {
     let output = git_command()

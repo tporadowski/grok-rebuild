@@ -461,6 +461,109 @@ mod tests {
         );
     }
     #[test]
+    fn test_worktree_ref_checks_out_recorded_submodule_and_lfs_bytes() {
+        xai_test_utils::require_git!();
+        let temp = TempDir::new().unwrap();
+        let sub = temp.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        init_git_repo(&sub);
+        std::fs::write(sub.join("readme.txt"), "version-a").unwrap();
+        git_commit_all(&sub, "a");
+        let sha_a = xai_test_utils::git::run_git(&sub, &["rev-parse", "HEAD"]);
+        std::fs::write(sub.join("readme.txt"), "version-b").unwrap();
+        git_commit_all(&sub, "b");
+        let sha_b = xai_test_utils::git::run_git(&sub, &["rev-parse", "HEAD"]);
+
+        let repo = temp.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        init_git_repo(&repo);
+        xai_test_utils::git::run_git(&repo, &["config", "protocol.file.allow", "always"]);
+        xai_test_utils::git::run_git(&repo, &["checkout", "-B", "main"]);
+        std::fs::write(repo.join("README"), "parent").unwrap();
+        git_commit_all(&repo, "init");
+        xai_test_utils::git::run_git(
+            &repo,
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                sub.to_str().unwrap(),
+                "vendor",
+            ],
+        );
+        xai_test_utils::git::run_git(&repo.join("vendor"), &["checkout", "--detach", &sha_a]);
+
+        let bytes_a = b"lfs-payload-a";
+        let bytes_b = b"lfs-payload-b-longer";
+        let oid_a = sha256_hex(bytes_a);
+        let oid_b = sha256_hex(bytes_b);
+        write_lfs_object(&repo, &oid_a, bytes_a);
+        write_lfs_object(&repo, &oid_b, bytes_b);
+        std::fs::write(
+            repo.join(".gitattributes"),
+            "*.bin filter=lfs diff=lfs merge=lfs -text\n",
+        )
+        .unwrap();
+        std::fs::write(repo.join("model.bin"), lfs_pointer(&oid_a, bytes_a.len())).unwrap();
+        git_commit_all(&repo, "main pins submodule A and lfs A");
+        let main_sha = xai_test_utils::git::run_git(&repo, &["rev-parse", "HEAD"]);
+
+        xai_test_utils::git::run_git(&repo, &["checkout", "-B", "feature"]);
+        xai_test_utils::git::run_git(&repo.join("vendor"), &["checkout", "--detach", &sha_b]);
+        std::fs::write(repo.join("model.bin"), lfs_pointer(&oid_b, bytes_b.len())).unwrap();
+        git_commit_all(&repo, "feature pins submodule B and lfs B");
+        assert_eq!(
+            std::fs::read_to_string(repo.join("vendor/readme.txt")).unwrap(),
+            "version-b",
+            "the source checkout is the other submodule commit"
+        );
+
+        let dest = temp.path().join("wt");
+        WorktreeBuilder::new(&repo, &dest)
+            .git_ref("main")
+            .working_tree_mode(WorkingTreeMode::CleanAll)
+            .create()
+            .unwrap();
+        assert_eq!(
+            xai_test_utils::git::run_git(&dest, &["rev-parse", "HEAD"]),
+            main_sha
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("vendor/readme.txt")).unwrap(),
+            "version-a"
+        );
+        assert_eq!(std::fs::read(dest.join("model.bin")).unwrap(), bytes_a);
+    }
+    fn sha256_hex(bytes: &[u8]) -> String {
+        let mut child = std::process::Command::new("sha256sum")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("sha256sum");
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(bytes).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "sha256sum failed");
+        String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_string()
+    }
+    fn lfs_pointer(oid: &str, size: usize) -> String {
+        format!("version https://git-lfs.github.com/spec/v1\noid sha256:{oid}\nsize {size}\n")
+    }
+    fn write_lfs_object(repo: &std::path::Path, oid: &str, bytes: &[u8]) {
+        let path = repo
+            .join(".git/lfs/objects")
+            .join(&oid[..2])
+            .join(&oid[2..4])
+            .join(oid);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+    #[test]
     fn test_worktree_with_dirty_files() {
         xai_test_utils::require_git!();
         let temp = TempDir::new().unwrap();

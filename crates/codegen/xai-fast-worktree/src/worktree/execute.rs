@@ -437,6 +437,8 @@ fn finalize_clean_and_ref(
         } else {
             git::checkout_ref(worktree_path, git_ref)?;
         }
+        git::materialize_ref_checkout(worktree_path)
+            .context("failed to materialize submodules and LFS files for the requested ref")?;
     }
     let dest_git = worktree_path.join(".git");
     let keep = copy::standalone::origin_keep_names_for_git_ref(&dest_git, git_ref);
@@ -878,6 +880,13 @@ fn execute_copy_worktree(plan: WorktreePlan) -> Result<CreateWorktreeResult> {
             Some(stats.stats)
         }
     };
+    if git_ref != "HEAD"
+        && !git_ref.is_empty()
+        && !matches!(working_tree, WorkingTreeMode::PreserveWorkingTree)
+    {
+        git::materialize_ref_checkout(&dest)
+            .context("failed to materialize submodules and LFS files for the requested ref")?;
+    }
     let commit = git::get_head_commit(&dest).context("failed to get HEAD commit")?;
     guard.disarm();
     tracing::info!(
@@ -1104,6 +1113,8 @@ fn execute_standalone_worktree(plan: WorktreePlan) -> Result<CreateWorktreeResul
         git::checkout_ref(&dest, &git_ref)?;
         copy::standalone::sanitize_standalone_git_dir_keeping(&dest.join(".git"), &origin_keep)
             .context("failed to sanitize standalone .git/ after checkout")?;
+        git::materialize_ref_checkout(&dest)
+            .context("failed to materialize submodules and LFS files for the requested ref")?;
     }
     let ignored_stats = match ignored_files {
         IgnoredFilesMode::Skip | IgnoredFilesMode::CopyOnly { .. } => None,
@@ -1218,6 +1229,12 @@ fn execute_git_checkout_worktree(plan: WorktreePlan) -> Result<CreateWorktreeRes
             untracked_files: 0,
             deleted_files: report.files_deleted,
         });
+        guard.disarm();
+    }
+    if git_ref != "HEAD" && !git_ref.is_empty() {
+        let guard = PartialWorktreeGuard::new(dest);
+        git::materialize_ref_checkout(dest)
+            .context("failed to materialize submodules and LFS files for the requested ref")?;
         guard.disarm();
     }
     let commit = git::get_head_commit(dest).context("failed to get HEAD commit")?;

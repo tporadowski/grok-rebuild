@@ -11,7 +11,7 @@ pub(crate) mod safety;
 pub(crate) mod status;
 pub(crate) mod worktree;
 
-pub(crate) use checkout::checkout_ref;
+pub(crate) use checkout::{checkout_ref, materialize_ref_checkout};
 pub(crate) use checkout::{git_clean_fd, git_reset_hard_command};
 // Only consumed by the Linux-only snapshot finalize path.
 #[cfg(target_os = "linux")]
