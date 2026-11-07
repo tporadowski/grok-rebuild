@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-069 — Worktree copy skips named pipes and sockets
+
+The parallel copy used for worktree creation treated every non-directory as a file. Opening a FIFO waits for a writer, so a repo that contains one never finished. Those entries, and Unix sockets, are now skipped (`v51-x34`, `copy_parallel_skips_a_fifo_and_a_socket`). Regular files in the same tree are still copied.
+
 ### D-068 — `grok worktree` treats a `.jj` checkout as Jujutsu
 
 Colocated repos were already sent to `jj workspace add` and `jj workspace forget`. A checkout libgit2 cannot open still has a `.jj` directory, and `checkout_is_jj` now accepts that too, which is what `grok worktree create` and resume consult (`v51-f26`, `checkout_is_jj_accepts_a_repo_without_git`). The created workspace is written into the worktree registry so `show` can find it by label (`jj_workspace_is_visible_to_worktree_show`).
@@ -327,7 +331,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 27 | 0 | 12 | 2 | 0 |
+| W7 | Worktrees | 26 | 0 | 13 | 2 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -339,9 +343,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 413. Skipped: 8. Done: 120. Already: 32. Deferred: 10.
+Catalog rows: 583. Pending: 412. Skipped: 8. Done: 121. Already: 32. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: worktree creation no longer hangs on named pipes or sockets (`v51-x34`).
+**Next:** W7 worktrees. First open row: `grok -w` opens at the worktree root when the launch folder is absent (`v51-x42`).
 
 ## Waves
 
@@ -371,7 +375,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 27. Done: 12 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 26. Done: 13 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -538,7 +542,7 @@ id | status | wave | kind | flag | covered | note
 - v51-f15 | done | W7 | Features |  |  | Headless JSON error output now includes the worktree folder when a session was started.
 - v51-f16 | done | W7 | Features |  |  | **grok sessions list** and /resume now show worktree sessions started from the same subfolder.
 - v51-f26 | done | W7 | Features |  |  | `grok worktree` commands now work correctly inside Jujutsu repositories.
-- v51-x34 | pending | W7 | Bug Fixes |  |  | **Worktree creation** no longer hangs when the repo contains named pipes or sockets.
+- v51-x34 | done | W7 | Bug Fixes |  |  | **Worktree creation** no longer hangs when the repo contains named pipes or sockets.
 - v51-x42 | pending | W7 | Bug Fixes |  |  | **grok -w** now opens the session at the worktree root (with a note) when the original launch folder does not exist in the new worktree.
 - v51-x55 | pending | W7 | Bug Fixes |  |  | **Worktrees created with -w** are now correctly tracked and resumable even when GROK_HOME is reached through a symlink.
 - v51-x56 | pending | W7 | Bug Fixes |  |  | `grok worktree rm` and `gc` now clean up names after manually deleting a worktree folder so `-w NAME` works again.

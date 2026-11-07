@@ -25,6 +25,20 @@ const MAX_PARALLEL_WORKERS: usize = 8;
 #[cfg(not(target_os = "macos"))]
 const MAX_PARALLEL_WORKERS: usize = 32;
 
+/// Named pipes and Unix sockets cannot be copied by reading them.
+fn is_fifo_or_socket(file_type: &std::fs::FileType) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        file_type.is_fifo() || file_type.is_socket()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = file_type;
+        false
+    }
+}
+
 pub(crate) fn copy_parallel(
     source: &Path,
     dest: &Path,
@@ -161,6 +175,12 @@ pub(crate) fn copy_parallel(
             }
 
             let file_type = entry.file_type();
+            // Opening a FIFO blocks until another process writes, and a socket
+            // is not a file. Leave both behind instead of hanging the copy.
+            if file_type.as_ref().is_some_and(is_fifo_or_socket) {
+                files_skipped.fetch_add(1, Ordering::Relaxed);
+                return WalkState::Continue;
+            }
             let is_dir = file_type.as_ref().map(|ft| ft.is_dir()).unwrap_or(false);
             let is_symlink = file_type
                 .as_ref()
@@ -430,6 +450,42 @@ mod tests {
         assert_eq!(
             std::fs::read_link(dest.path().join("link.txt")).unwrap(),
             PathBuf::from("target.txt")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_parallel_skips_a_fifo_and_a_socket() {
+        use std::os::unix::net::UnixListener;
+
+        let src = TempDir::new().unwrap();
+        let dest = TempDir::new().unwrap();
+        std::fs::write(src.path().join("keep.txt"), "ok").unwrap();
+        let pipe = src.path().join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .expect("mkfifo");
+        assert!(made.success(), "mkfifo failed");
+        let sock_path = src.path().join("sock");
+        let _listener = UnixListener::bind(&sock_path).unwrap();
+
+        let config = ParallelCopyConfig {
+            num_workers: 2,
+            channel_buffer: 64,
+            respect_gitignore: false,
+            ..Default::default()
+        };
+        let result =
+            copy_parallel(src.path(), dest.path(), config, CancellationToken::new()).unwrap();
+
+        assert_eq!(std::fs::read(dest.path().join("keep.txt")).unwrap(), b"ok");
+        assert!(!dest.path().join("pipe").exists());
+        assert!(!dest.path().join("sock").exists());
+        assert!(
+            result.stats.files_skipped >= 2,
+            "fifo and socket must be skipped, stats {:?}",
+            result.stats
         );
     }
 }
