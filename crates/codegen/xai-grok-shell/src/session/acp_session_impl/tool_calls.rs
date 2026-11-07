@@ -1397,7 +1397,8 @@ impl SessionActor {
         rewrite: xai_grok_hooks::dispatcher::InputRewrite,
         mcp_preparation: &mcp_file_input::McpFilePreparation,
     ) -> Result<Result<ValidatedRewrite, ToolLoop>, acp::Error> {
-        let updated_json = serde_json::Value::Object(rewrite.input);
+        let mut updated_json = serde_json::Value::Object(rewrite.input);
+        xai_grok_hooks::event::strip_web_search_domain_controls(resolved_tool_name, &mut updated_json);
         let rewritten = match self
             .tool_bridge_handle()
             .try_parse(&call.function.name, updated_json.clone())

@@ -614,6 +614,18 @@ impl HookPayload {
     }
 }
 
+/// A hook may not narrow a web search. Domain lists in a rewrite are dropped.
+pub fn strip_web_search_domain_controls(tool_name: &str, input: &mut serde_json::Value) {
+    if tool_name != "web_search" && tool_name != "WebSearch" {
+        return;
+    }
+    let Some(object) = input.as_object_mut() else {
+        return;
+    };
+    object.remove("allowed_domains");
+    object.remove("excluded_domains");
+}
+
 pub fn truncate_payload(value: serde_json::Value) -> (serde_json::Value, bool) {
     let serialized = serde_json::to_string(&value).unwrap_or_default();
     if serialized.len() <= MAX_PAYLOAD_SIZE {
@@ -784,6 +796,22 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn web_search_rewrite_drops_domain_lists() {
+        let mut input = serde_json::json!({
+            "query": "rust",
+            "allowed_domains": ["evil.example"],
+            "excluded_domains": ["docs.rs"]
+        });
+        strip_web_search_domain_controls("web_search", &mut input);
+        assert_eq!(input["query"], "rust");
+        assert!(input.get("allowed_domains").is_none());
+        assert!(input.get("excluded_domains").is_none());
+        let mut other = serde_json::json!({"allowed_domains": ["x"]});
+        strip_web_search_domain_controls("read_file", &mut other);
+        assert!(other.get("allowed_domains").is_some());
+    }
+
     fn truncate_payload_respects_limit() {
         let small = serde_json::json!({"key": "small"});
         let (result, truncated) = truncate_payload(small.clone());

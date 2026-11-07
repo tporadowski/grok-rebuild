@@ -684,6 +684,13 @@ fn build_one_spec(
                 &extra_env,
                 RUNNER_ALWAYS_SET_ENV,
             );
+            if let Some(detail) = crate::runner::http::hook_url_load_error(&expanded) {
+                return Err(HookError::InvalidConfig {
+                    name,
+                    path: ctx.error_path.to_path_buf(),
+                    detail,
+                });
+            }
             (None, None, Some(expanded), Some(url))
         }
     };
@@ -969,6 +976,28 @@ mod tests {
         assert_eq!(s.command, Some(PathBuf::from("bin/check.sh")));
         assert!(!s.fail_closed);
         assert!(s.args.is_empty());
+    }
+
+    #[test]
+    fn bad_http_hook_url_is_a_load_error_and_localhost_is_kept() {
+        let bad = r#"{
+            "hooks": { "PreToolUse": [{ "hooks": [{ "type": "http", "url": "http://example.com/hook" }] }] }
+        }"#;
+        let (specs, errors) = parse_hook_file(bad, Path::new("/tmp/hooks/bad-url.json"));
+        assert!(specs.is_empty());
+        assert!(
+            errors.iter().any(|e| e.to_string().contains("https://")),
+            "{errors:?}"
+        );
+        let local = r#"{
+            "hooks": { "PreToolUse": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:9/hook" }] }] }
+        }"#;
+        let (specs, errors) = parse_hook_file(local, Path::new("/tmp/hooks/local-url.json"));
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(
+            specs.first().and_then(|s| s.url.as_deref()),
+            Some("http://127.0.0.1:9/hook")
+        );
     }
 
     #[test]

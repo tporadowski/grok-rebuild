@@ -94,6 +94,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn web_search_and_list_dir_match_their_claude_names() {
+        let web = HookMatcher::new("WebSearch").unwrap();
+        assert!(web.is_match("web_search"));
+        let list = HookMatcher::new("Glob").unwrap();
+        assert!(list.is_match("list_dir"));
+    }
+
     fn exact_match() {
         let m = HookMatcher::new("run_terminal_command").unwrap();
         assert!(m.is_match("run_terminal_command"));

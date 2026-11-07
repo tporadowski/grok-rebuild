@@ -82,14 +82,39 @@ fn is_blocked_ip(ip: &IpAddr) -> bool {
     }
 }
 
-async fn validate_hook_url(url: &str) -> Result<(), String> {
-    let parsed = Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
+/// A hook URL that is syntactically unusable. Checked when the hook file loads, before any request.
+pub(crate) fn hook_url_load_error(url: &str) -> Option<String> {
+    if url.contains('$') {
+        return None;
+    }
+    let parsed = match Url::parse(url) {
+        Ok(parsed) => parsed,
+        Err(error) => return Some(format!("invalid URL: {error}")),
+    };
+    let Some(host) = parsed.host_str() else {
+        return Some("URL has no host".to_string());
+    };
+    match parsed.scheme() {
+        "https" => None,
+        "http" if is_localhost_host(host) => None,
+        scheme => Some(format!(
+            "only https:// URLs are allowed for HTTP hooks, got {scheme}://"
+        )),
+    }
+}
 
-    if parsed.scheme() != "https" {
-        return Err(format!(
-            "only https:// URLs are allowed for HTTP hooks, got {}://",
-            parsed.scheme()
-        ));
+fn is_localhost_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']);
+    host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1"
+}
+
+async fn validate_hook_url(url: &str) -> Result<(), String> {
+    if let Some(error) = hook_url_load_error(url) {
+        return Err(error);
+    }
+    let parsed = Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
+    if parsed.scheme() == "http" {
+        return Ok(());
     }
 
     let host = parsed
@@ -907,6 +932,20 @@ mod tests {
     }
 
     #[test]
+    fn bad_hook_urls_fail_at_load_and_localhost_http_is_allowed() {
+        assert!(hook_url_load_error("not a url").unwrap().contains("invalid URL"));
+        assert!(
+            hook_url_load_error("http://example.com/hook")
+                .unwrap()
+                .contains("https://")
+        );
+        assert!(hook_url_load_error("http://127.0.0.1/hook").is_none());
+        assert!(hook_url_load_error("http://localhost/hook").is_none());
+        assert!(hook_url_load_error("https://example.com/hook").is_none());
+        assert!(hook_url_load_error("https://hooks.example/${GROK_SESSION_ID}").is_none());
+    }
+
+    #[test]
     fn is_blocked_ip_classifies_ranges() {
         let blocked = [
             "10.0.0.1",
@@ -955,6 +994,12 @@ mod tests {
         validate_hook_url("https://1.1.1.1/hook")
             .await
             .expect("public https IP must pass");
+        validate_hook_url("http://127.0.0.1/hook")
+            .await
+            .expect("localhost http must pass");
+        validate_hook_url("http://localhost/hook")
+            .await
+            .expect("localhost name must pass");
         for (url, needle) in [
             ("http://example.com/hook", "https://"),
             ("ftp://example.com/hook", "https://"),
