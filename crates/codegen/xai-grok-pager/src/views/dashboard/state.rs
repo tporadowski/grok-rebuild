@@ -600,6 +600,8 @@ pub struct PendingDispatchModel {
     pub id: agent_client_protocol::ModelId,
     pub effort: Option<xai_grok_shell::sampling::types::ReasoningEffort>,
     pub display: String,
+    /// Carried onto the spawned session. `None` leaves that session's selection alone.
+    pub context_window_selection: Option<std::num::NonZeroU64>,
 }
 
 /// No `Debug` / `Clone` derive; `ShortcutsHelpEntry` lacks both, and this state is owned in-place
@@ -750,13 +752,13 @@ pub struct LocationPickerState {
 impl LocationPickerState {
     /// Build a fresh picker over the static `recents` list, resolving relative typed paths against `base_cwd`.
     /// `worktrees` is the root-path-to-label index used to tag worktree directories.
-    /// The search field is active so the cursor shows immediately and a path can be typed.
+    /// The path field starts unfocused, same as `/resume` search. Arrows move the list; `/` or typing focuses the path.
     pub fn new(
         recents: Vec<LocationCandidate>,
         base_cwd: PathBuf,
         worktrees: std::collections::HashMap<PathBuf, String>,
     ) -> Self {
-        let picker = crate::views::picker::PickerState::input_active();
+        let picker = crate::views::picker::PickerState::default();
         Self {
             picker,
             window: crate::views::modal_window::ModalWindowState::new(),
@@ -975,7 +977,7 @@ fn read_subdirs(
 }
 
 /// Per-call config for the location picker's shared-picker input handler.
-/// Search is always active (no `/` to start), search is not disabled, and rows are flat (no expand / tabs / filter / action keys).
+/// The path field starts unfocused. Search is not disabled, and rows are flat (no expand / tabs / filter / action keys).
 fn location_picker_config<'a>() -> crate::views::picker::PickerConfig<'a> {
     crate::views::picker::PickerConfig {
         title: None,
@@ -1317,7 +1319,7 @@ impl DashboardState {
     pub(crate) fn focused_action_click(&self) -> Option<Action> {
         Some(match self.actions_focus? {
             ActionsFocus::NewAgent => Action::DashboardCreateNewAgentWithDetail,
-            ActionsFocus::OpenPrevious => Action::ShowSessionPicker,
+            ActionsFocus::OpenPrevious => Action::ShowSessionPicker(None),
             ActionsFocus::Worktree => Action::DashboardToggleWorktree,
         })
     }
@@ -1847,6 +1849,9 @@ impl DashboardState {
         }
         let row_changed = peek.as_ref().map(|p| &p.row) != self.peek.as_ref().map(|p| &p.row);
         if row_changed {
+            if self.deferred_peek_send.is_some() {
+                self.set_error_toast("Reply canceled: peek panel changed");
+            }
             self.clear_peek_reply();
             self.deferred_peek_send = None;
         }
@@ -3651,7 +3656,7 @@ impl DashboardState {
                 self.focus_open_session_button();
                 self.set_list_focused(true);
                 self.manual_scroll_active = false;
-                return InputOutcome::Action(Action::ShowSessionPicker);
+                return InputOutcome::Action(Action::ShowSessionPicker(None));
             }
 
             if self.worktree_toggle_hit.contains(mouse.column, mouse.row) {

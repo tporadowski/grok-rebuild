@@ -3817,6 +3817,24 @@ fn completion_peek_dropped_when_panel_closed() {
     );
 }
 
+/// Esc or moving the peek drops a reply that was waiting on a clipboard paste, and says so.
+#[test]
+fn closing_the_peek_cancels_a_waiting_reply_with_a_toast() {
+    let mut state = state_with_open_peek();
+    let row = state.peek.as_ref().unwrap().row.clone();
+    state.deferred_peek_send = Some(DeferredPeekSend { row, attach: false });
+    state.set_peek(None);
+    assert!(state.deferred_peek_send.is_none());
+    assert!(
+        state
+            .error_toast
+            .as_deref()
+            .is_some_and(|toast| toast.contains("canceled")),
+        "closing the peek must toast, got {:?}",
+        state.error_toast
+    );
+}
+
 /// A peek completion arriving after the panel moved to ANOTHER row drops the attachment (never
 /// lands in a different agent's reply), and a peek send stashed for the old row is dropped at drain
 /// time — with a toast — instead of replying to the newly peeked agent.
@@ -5844,6 +5862,15 @@ fn visible_labels(lp: &LocationPickerState) -> Vec<String> {
         .into_iter()
         .map(|c| c.label)
         .collect()
+}
+
+#[test]
+fn location_picker_opens_with_the_path_field_unfocused() {
+    let picker = location_picker(vec![location_candidate("/home/me/alpha", "alpha")]);
+    assert!(
+        !picker.picker.search_active,
+        "Ctrl+L should open like /resume search, with the path field unfocused"
+    );
 }
 
 #[test]
