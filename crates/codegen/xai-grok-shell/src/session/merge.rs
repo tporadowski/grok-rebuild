@@ -87,6 +87,8 @@ pub enum CwdScope {
     WithSiblings,
     /// `WithSiblings`, widening past the cwd when it holds no messaged session.
     RelaxIfEmpty,
+    /// Every local folder. The request cwd still sorts its own sessions and checkouts first.
+    AllFolders,
 }
 
 /// Spellings a session may be stored under, since clients supply their own path: as given and canonicalized, each without a trailing separator.
@@ -121,7 +123,7 @@ pub async fn fetch_merged(
         repo_urls,
         ..
     } = fetch_lanes(client, cwd, scope, query, limit, headless).await;
-    merge(remote, local, query, &repo_urls, limit)
+    merge_with_preference(remote, local, query, &repo_urls, limit, cwd)
 }
 
 /// Retain summaries matching `repo_urls`; empty `repo_urls` leaves them unfiltered.
@@ -159,11 +161,27 @@ pub(crate) async fn fetch_lanes(
     };
 
     let local_fut = async {
+        let resume_scope = match scope {
+            CwdScope::Only => crate::session::resume_match::ResumeListScope::Only,
+            CwdScope::AllFolders => crate::session::resume_match::ResumeListScope::All,
+            CwdScope::WithSiblings | CwdScope::RelaxIfEmpty => {
+                crate::session::resume_match::ResumeListScope::Siblings
+            }
+        };
+        if crate::session::resume_match::lists_other_folders(resume_scope, query.is_some()) {
+            return match list_summaries(None).await {
+                Ok(rows) => rows,
+                Err(error) => {
+                    tracing::warn!(%error, "resume list failed to read every folder");
+                    Vec::new()
+                }
+            };
+        }
         // Aggregate sessions from worktree sibling CWDs when possible
         let cwds = if let Some(ref c) = cwd_owned {
             match scope {
                 CwdScope::Only => exact_keys.clone(),
-                CwdScope::WithSiblings | CwdScope::RelaxIfEmpty => {
+                CwdScope::WithSiblings | CwdScope::RelaxIfEmpty | CwdScope::AllFolders => {
                     crate::session::worktree::candidate_worktree_cwds_for_same_repo(
                         std::path::Path::new(c),
                     )
@@ -257,7 +275,7 @@ pub(crate) async fn fetch_lanes(
     }
 }
 
-/// Local results are optionally filtered by `query` (case-insensitive substring on summary, display title, and session ID).
+/// Local results are filtered by the final resume rule (exact id, separator-insensitive title, fuzzy words).
 /// Remote results are filtered by normalized repo URL when `local_repo_urls` is non-empty.
 /// Results are sorted by [`effective_sort_time`] descending and truncated to `limit`.
 pub fn merge(
@@ -267,15 +285,28 @@ pub fn merge(
     local_repo_urls: &[String],
     limit: usize,
 ) -> Vec<MergedSession> {
+    merge_with_preference(remote, local, query, local_repo_urls, limit, None)
+}
+
+/// Same as [`merge`], but sessions in `prefer_cwd` and its checkouts sort ahead of other folders.
+pub(crate) fn merge_with_preference(
+    remote: Vec<SessionRecord>,
+    local: Vec<Summary>,
+    query: Option<&str>,
+    local_repo_urls: &[String],
+    limit: usize,
+    prefer_cwd: Option<&str>,
+) -> Vec<MergedSession> {
     let mut by_id: HashMap<String, MergedSession> =
         HashMap::with_capacity(remote.len() + local.len());
 
-    let query_lower = query.map(|q| q.to_lowercase());
     for s in local {
-        if let Some(ref q) = query_lower
-            && !s.session_summary.to_lowercase().contains(q.as_str())
-            && !s.info.id.to_string().to_lowercase().contains(q.as_str())
-            && !s.display_title().to_lowercase().contains(q.as_str())
+        if let Some(q) = query
+            && !crate::session::resume_match::query_matches(
+                &s.info.id.to_string(),
+                &[s.session_summary.as_str(), s.display_title()],
+                q,
+            )
         {
             continue;
         }
@@ -376,7 +407,19 @@ pub fn merge(
     // Sort newest-first by the same key the picker UI shows, so the visible "time ago" column is monotonic with the list order
     // `sort_by_cached_key` parses each timestamp once instead of on every comparison
     // Sessions with an unparseable timestamp sort to the bottom; equal times tie-break on `session_id` ascending
-    merged.sort_by_cached_key(|s| (Reverse(effective_sort_time(s)), s.session_id.clone()));
+    merged.sort_by_cached_key(|s| {
+        (
+            crate::session::resume_match::folder_band(
+                &s.cwd,
+                s.git_root_dir.as_deref(),
+                s.source_workspace_dir.as_deref(),
+                s.worktree_label.as_deref(),
+                prefer_cwd,
+            ),
+            Reverse(effective_sort_time(s)),
+            s.session_id.clone(),
+        )
+    });
     // Dedup empty sessions BEFORE truncating so the final list has `limit` entries.
     dedup_empty_sessions(&mut merged);
     merged.truncate(limit);
@@ -885,6 +928,62 @@ mod tests {
         let merged = merge(Vec::new(), local, Some("kubernetes"), &[], 20);
         assert_eq!(merged.len(), 2);
         assert!(merged.iter().all(|r| r.session_id != "s2"));
+    }
+
+    #[test]
+    fn resume_query_matches_separator_insensitive_title_and_word_prefixes() {
+        let hit = make_summary("a", "Fix login bug", "2026-03-01T00:00:00Z");
+        let blog = make_summary("b", "Blog prefix cleanup", "2026-03-01T00:00:00Z");
+        let hyphen = merge(
+            Vec::new(),
+            vec![hit.clone(), blog.clone()],
+            Some("fix-login-bug"),
+            &[],
+            20,
+        );
+        assert_eq!(hyphen.len(), 1);
+        assert_eq!(first(&hyphen).session_id, "a");
+        let words = merge(
+            Vec::new(),
+            vec![hit, blog.clone()],
+            Some("bug fix"),
+            &[],
+            20,
+        );
+        assert_eq!(words.len(), 1);
+        assert_eq!(first(&words).session_id, "a");
+        let missed = merge(Vec::new(), vec![blog], Some("log fix"), &[], 20);
+        assert!(
+            missed.is_empty(),
+            "log must not match the middle of Blog"
+        );
+    }
+
+    #[test]
+    fn resume_order_puts_current_folder_and_checkouts_before_newer_other_folders() {
+        let mut current = make_summary("cur", "Current work", "2026-01-01T00:00:00Z");
+        current.info.cwd = "/repo".into();
+        let mut checkout = make_summary("wt", "Checkout work", "2026-06-01T00:00:00Z");
+        checkout.info.cwd = "/wt/feat".into();
+        checkout.git_root_dir = Some("/repo".into());
+        checkout.worktree_label = Some("feat".into());
+        let mut other = make_summary("other", "Other folder", "2026-08-01T00:00:00Z");
+        other.info.cwd = "/elsewhere".into();
+        let merged = merge_with_preference(
+            Vec::new(),
+            vec![other, checkout, current],
+            None,
+            &[],
+            20,
+            Some("/repo"),
+        );
+        assert_eq!(
+            merged
+                .iter()
+                .map(|row| row.session_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cur", "wt", "other"]
+        );
     }
 
     #[test]

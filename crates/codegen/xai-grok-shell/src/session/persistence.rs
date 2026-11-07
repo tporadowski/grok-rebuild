@@ -855,13 +855,26 @@ pub fn local_summaries_for_cwd_sync(
     local_summaries_for_cwd_sync_in_root(cwd, selection, &grok_home().join("sessions"))
 }
 
+/// Every local summary, not only `cwd`. Resume search includes other folders.
+pub fn local_summaries_all_sync(selection: RecentSessionSelection) -> io::Result<Vec<Summary>> {
+    local_summaries_in_root(None, selection, &grok_home().join("sessions"))
+}
+
 fn local_summaries_for_cwd_sync_in_root(
     cwd: &str,
     selection: RecentSessionSelection,
     sessions_root: &Path,
 ) -> io::Result<Vec<Summary>> {
+    local_summaries_in_root(Some(cwd), selection, sessions_root)
+}
+
+fn local_summaries_in_root(
+    cwd: Option<&str>,
+    selection: RecentSessionSelection,
+    sessions_root: &Path,
+) -> io::Result<Vec<Summary>> {
     let view = storage_view(sessions_root).map_err(io::Error::other)?;
-    let dirs = view.session_dirs(Some(cwd)).map_err(io::Error::other)?;
+    let dirs = view.session_dirs(cwd).map_err(io::Error::other)?;
     Ok(dirs
         .iter()
         .filter_map(|dir| read_summary_from_dir(dir).ok())

@@ -104,6 +104,9 @@ pub struct ListReq {
         deserialize_with = "cwd_scope_from_allow_relax"
     )]
     pub cwd_scope: CwdScope,
+    /// Dashboard `/resume`: list every folder. The cwd is still sent so the current folder sorts first.
+    #[serde(default)]
+    pub all_folders: bool,
     /// `session_kind=headless` policy: `"exclude"` | `"only"` | `"include"`.
     /// Omission preserves the legacy inclusive behavior; unknown explicit values fail closed to exclude.
     #[serde(default)]
@@ -205,11 +208,19 @@ pub(crate) fn force_kind(req: &mut ListReq, kind: SessionKind) {
     );
     req.meta = Some(serde_json::Value::Object(meta));
 }
+/// `allFolders` wins over `allowRelax`: the dashboard lists every folder, not only an empty cwd.
+pub(crate) fn apply_list_scope_flags(req: &mut ListReq) {
+    if req.all_folders {
+        req.cwd_scope = CwdScope::AllFolders;
+    }
+}
+
 pub async fn build_unified_list(
     registry_client: Option<&SessionRegistryClient>,
     conversations_client: Option<&ConversationsClient>,
     mut req: ListReq,
 ) -> UnifiedListResult {
+    apply_list_scope_flags(&mut req);
     if crate::agent::chat_modes::process_chat_mode_enabled() && !client_sent_kind_filter(&req) {
         force_kind_chat(&mut req);
     }
@@ -1112,6 +1123,15 @@ mod tests {
         assert_eq!(req.cwd_scope, CwdScope::RelaxIfEmpty);
         let req: ListReq = serde_json::from_str("{}").expect("parse");
         assert_eq!(req.cwd_scope, CwdScope::WithSiblings);
+    }
+    #[test]
+    fn list_req_all_folders_overrides_relax() {
+        let mut req: ListReq =
+            serde_json::from_str(r#"{"allowRelax": true, "allFolders": true}"#).expect("parse");
+        assert!(req.all_folders);
+        assert_eq!(req.cwd_scope, CwdScope::RelaxIfEmpty);
+        apply_list_scope_flags(&mut req);
+        assert_eq!(req.cwd_scope, CwdScope::AllFolders);
     }
     #[test]
     fn list_req_deserializes_headless_key() {
