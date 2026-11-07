@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-066 — Headless JSON names the worktree folder after the session starts
+
+`--output-format json` adds `worktreePath` to the result object when `-w` opened a session. That path is the created worktree root, so a label collision still reports `…/label-2`. The same field is added to a JSON error only after that session exists. Errors before the session starts omit it (`v51-f13`, `json_result_reports_the_opened_worktree_folder`; `v51-f15`, `json_error_includes_the_worktree_folder_after_the_session_starts`).
+
 ### D-065 — `rm` by label refuses when live worktrees in different repos share it
 
 `get_by_label` still returns the newest record. `resolve_worktree_by_id_or_path` now refuses a bare label when more than one alive record with that label has a different `source_repo`, including with `-f`, and tells the caller to pass the path (`v50-x62`, `rm_by_label_refuses_when_the_label_is_in_multiple_repos`). The same label inside one repo still removes the newest. A dead record does not count. An exact id still wins over a label of the same text.
@@ -315,7 +319,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 31 | 0 | 8 | 2 | 0 |
+| W7 | Worktrees | 29 | 0 | 10 | 2 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -327,9 +331,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 417. Skipped: 8. Done: 116. Already: 32. Deferred: 10.
+Catalog rows: 583. Pending: 415. Skipped: 8. Done: 118. Already: 32. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: `grok -p --output-format json` reports the exact worktree folder (`v51-f13`).
+**Next:** W7 worktrees. First open row: `grok sessions list` and `/resume` show worktree sessions started from the same subfolder (`v51-f16`).
 
 ## Waves
 
@@ -359,7 +363,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 31. Done: 8 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 29. Done: 10 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -522,8 +526,8 @@ id | status | wave | kind | flag | covered | note
 - v50-x57 | done | W7 | Bug Fixes |  |  | Simultaneous worktree creates with the same label now succeed instead of one failing with "already exists".
 - v50-x58 | done | W7 | Bug Fixes |  |  | `grok worktree rm` without `-f` no longer deletes arbitrary folders that happen to share a name with a removed worktree.
 - v50-x62 | done | W7 | Bug Fixes |  |  | **grok worktree rm** by label now refuses when the label exists in multiple repos.
-- v51-f13 | pending | W7 | Features |  |  | **grok -p --output-format json** now reports the exact worktree folder used (useful after -w name collisions).
-- v51-f15 | pending | W7 | Features |  |  | Headless JSON error output now includes the worktree folder when a session was started.
+- v51-f13 | done | W7 | Features |  |  | **grok -p --output-format json** now reports the exact worktree folder used (useful after -w name collisions).
+- v51-f15 | done | W7 | Features |  |  | Headless JSON error output now includes the worktree folder when a session was started.
 - v51-f16 | pending | W7 | Features |  |  | **grok sessions list** and /resume now show worktree sessions started from the same subfolder.
 - v51-f26 | pending | W7 | Features |  |  | `grok worktree` commands now work correctly inside Jujutsu repositories.
 - v51-x34 | pending | W7 | Bug Fixes |  |  | **Worktree creation** no longer hangs when the repo contains named pipes or sockets.

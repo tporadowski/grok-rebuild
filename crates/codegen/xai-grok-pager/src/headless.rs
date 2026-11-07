@@ -102,6 +102,9 @@ struct HeadlessEmitter {
     /// Schema-validated output read from the prompt-response `_meta`.
     structured_output: Option<Result<serde_json::Value, String>>,
     usage: Option<serde_json::Value>,
+    /// Worktree root once a `-w` session is open. Name collisions make this
+    /// differ from the label the user typed.
+    worktree_path: Option<String>,
     /// Reducer for the streaming formats; `None` for `plain`/`json`.
     reducer: Option<Box<dyn Reducer>>,
     /// Set when the prompt is sent; `result.duration_ms` on the terminal line is measured from it.
@@ -121,6 +124,7 @@ impl HeadlessEmitter {
             thought_buffer: String::new(),
             structured_output: None,
             usage: None,
+            worktree_path: None,
             reducer: reducer_for(format),
             prompt_started: None,
             out: std::io::stdout(),
@@ -297,8 +301,34 @@ impl HeadlessEmitter {
         if let Some(usage) = &self.usage {
             attach_result_usage(&mut result, usage);
         }
+        self.attach_worktree_path(&mut result);
         self.attach_structured_output(&mut result);
         result
+    }
+    /// Remember the worktree folder a started session is using.
+    fn note_opened_worktree(&mut self, root: &std::path::Path) {
+        self.worktree_path = Some(root.display().to_string());
+    }
+    fn attach_worktree_path(&self, target: &mut serde_json::Value) {
+        let Some(path) = &self.worktree_path else {
+            return;
+        };
+        if let Some(obj) = target.as_object_mut() {
+            obj.insert(
+                "worktreePath".into(),
+                serde_json::Value::String(path.clone()),
+            );
+        }
+    }
+    /// `--output-format json` error object. The worktree folder is present only
+    /// after [`Self::note_opened_worktree`].
+    fn json_error(&self, message: &str) -> serde_json::Value {
+        let mut err = serde_json::json!({"type":"error","message": message});
+        if let Some(usage) = &self.usage {
+            attach_result_usage(&mut err, usage);
+        }
+        self.attach_worktree_path(&mut err);
+        err
     }
     fn on_end(&mut self, stop_reason: &str, session_id: &str, request_id: &str) {
         match self.format {
@@ -353,11 +383,7 @@ impl HeadlessEmitter {
         match self.format {
             OutputFormat::Plain => eprint_line(message),
             OutputFormat::Json => {
-                let mut err = serde_json::json!({"type":"error","message": message});
-                if let Some(usage) = &self.usage {
-                    attach_result_usage(&mut err, usage);
-                }
-                self.emit_line(&err);
+                self.emit_line(&self.json_error(message));
             }
             OutputFormat::StreamingJson | OutputFormat::StreamingMessagesJson => {
                 let usage = self.usage.clone();
@@ -520,6 +546,8 @@ struct OpenedSession {
     models: ModelState,
     /// Directory the session is anchored to (launch cwd, resume `original_cwd`, or fork `write_cwd`).
     cwd: PathBuf,
+    /// Set when this session was opened inside a worktree grok just created.
+    worktree_root: Option<PathBuf>,
 }
 async fn open_session(
     acp_tx: &AcpAgentTx,
@@ -549,6 +577,7 @@ async fn open_session(
                 session_id: acp::SessionId::new(sid.to_string()),
                 models: ModelState::from(resp.models),
                 cwd: cwd.to_path_buf(),
+                worktree_root: None,
             });
         }
         anyhow::bail!("Session does not exist");
@@ -570,6 +599,7 @@ async fn open_session(
         session_id: new_resp.session_id,
         models: ModelState::from(new_resp.models),
         cwd: cwd.to_path_buf(),
+        worktree_root: None,
     })
 }
 async fn open_session_with_id(
@@ -598,6 +628,7 @@ async fn open_session_with_id(
         session_id: new_resp.session_id,
         models: ModelState::from(new_resp.models),
         cwd: cwd.to_path_buf(),
+        worktree_root: None,
     })
 }
 async fn fork_then_open(
@@ -664,12 +695,16 @@ async fn open_session_in_new_worktree(
         Some(sid) => open_session_with_id(acp_tx, &created.session_cwd, sid).await,
         None => open_session(acp_tx, &created.session_cwd, None, None).await,
     };
-    opened.map_err(|e| {
-        anyhow::anyhow!(
+    match opened {
+        Ok(mut session) => {
+            session.worktree_root = Some(created.worktree_root);
+            Ok(session)
+        }
+        Err(e) => Err(anyhow::anyhow!(
             "{}",
             note_orphaned_worktree(&e.to_string(), &created.worktree_root)
-        )
-    })
+        )),
+    }
 }
 /// Mirrors the `load_session_id` branch of `Effect::CreateWorktreeSession`: the agent creates the
 /// worktree and restores into it, then the session is loaded at the cwd it reports.
@@ -698,19 +733,23 @@ async fn resume_session_in_new_worktree(
         code_restored = resumed.code_restored,
         "headless: session resumed into worktree"
     );
-    open_session(
+    match open_session(
         acp_tx,
         &resumed.session_cwd,
         Some(&resumed.session_id),
         None,
     )
     .await
-    .map_err(|e| {
-        anyhow::anyhow!(
+    {
+        Ok(mut session) => {
+            session.worktree_root = Some(resumed.worktree_root);
+            Ok(session)
+        }
+        Err(e) => Err(anyhow::anyhow!(
             "{}",
             note_orphaned_worktree(&e.to_string(), &resumed.worktree_root)
-        )
-    })
+        )),
+    }
 }
 /// Apply `-m` / effort after session open.
 /// Effort is soft-ignored on a non-supporting model (still applying `-m`) but hard-fails on a genuinely unknown token.
@@ -1083,6 +1122,7 @@ pub async fn run_single_turn(
         session_id,
         models: session_models,
         cwd: session_cwd,
+        worktree_root,
     } = match opened {
         Ok(v) => v,
         Err(e) => {
@@ -1093,6 +1133,9 @@ pub async fn run_single_turn(
         }
     };
     PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Ok);
+    if let Some(root) = worktree_root.as_deref() {
+        emitter.note_opened_worktree(root);
+    }
     tracing::debug!(
         elapsed_ms = t_session.elapsed().as_millis() as u64,
         session_id = %session_id.0,

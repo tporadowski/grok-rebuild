@@ -732,6 +732,41 @@ fn structured_output_from_meta_wins_over_text_buffer() {
 }
 
 #[test]
+fn json_result_reports_the_opened_worktree_folder() {
+    let collided = std::path::Path::new("/home/me/.grok/worktrees/repo/feature-2");
+    let mut emitter = HeadlessEmitter::new(OutputFormat::Json, false);
+    let before = emitter.build_json_result("end_turn", "sess-1", "req-1");
+    assert!(before.get("worktreePath").is_none());
+
+    emitter.note_opened_worktree(collided);
+    let result = emitter.build_json_result("end_turn", "sess-1", "req-1");
+    assert_eq!(
+        result.get("worktreePath").and_then(|v| v.as_str()),
+        Some("/home/me/.grok/worktrees/repo/feature-2")
+    );
+}
+
+#[test]
+fn json_error_includes_the_worktree_folder_after_the_session_starts() {
+    let root = std::path::Path::new("/home/me/.grok/worktrees/repo/feature-2");
+    let emitter = HeadlessEmitter::new(OutputFormat::Json, false);
+    let early = emitter.json_error("Couldn't start session: boom");
+    assert!(early.get("worktreePath").is_none());
+    assert_eq!(
+        early.get("message").and_then(|v| v.as_str()),
+        Some("Couldn't start session: boom")
+    );
+
+    let mut emitter = HeadlessEmitter::new(OutputFormat::Json, false);
+    emitter.note_opened_worktree(root);
+    let late = emitter.json_error("Couldn't set model 'nope': missing");
+    assert_eq!(
+        late.get("worktreePath").and_then(|v| v.as_str()),
+        Some("/home/me/.grok/worktrees/repo/feature-2")
+    );
+}
+
+#[test]
 fn streaming_json_structured_output_emits_from_meta() {
     let mut emitter = HeadlessEmitter::new(OutputFormat::StreamingJson, true);
     emitter.on_text_chunk(r#"{"name":"#);
