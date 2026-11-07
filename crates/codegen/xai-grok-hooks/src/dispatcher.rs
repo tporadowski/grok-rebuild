@@ -89,7 +89,7 @@ struct SequentialGateOutcome {
     results: Vec<HookRunResult>,
 }
 
-// SECURITY: a hook that errors fails open (contributes nothing); only a healthy deny blocks.
+// SECURITY: a hook that errors fails open, except `failClosed` on PreToolUse and UserPromptSubmit.
 async fn dispatch_sequential_gate(
     registry: &HookRegistry,
     event: HookEventName,
@@ -229,6 +229,39 @@ async fn dispatch_sequential_gate(
                     });
                 }
                 HookRunnerResult::Failed(err) => {
+                    let close = spec.fail_closed
+                        && matches!(
+                            event,
+                            HookEventName::PreToolUse | HookEventName::UserPromptSubmit
+                        );
+                    if close {
+                        tracing::warn!(
+                            hook_name = %spec.name,
+                            elapsed_ms = elapsed.as_millis() as u64,
+                            hook_failure = %err,
+                            "failClosed hook failed; blocking"
+                        );
+                        let reason = format!("failClosed: {err}");
+                        run_results.push(HookRunResult::Blocked {
+                            hook_name: spec.name.clone(),
+                            detail: format!("{block_verb}: {reason}"),
+                            elapsed,
+                            http_info,
+                            system_message,
+                        });
+                        record_dispatch_counts(&span, &run_results);
+                        return SequentialGateOutcome {
+                            block: Some(GateBlock {
+                                hook_name: spec.name.clone(),
+                                reason,
+                            }),
+                            pending_ask: None,
+                            deferring_hook: None,
+                            updated_input: None,
+                            additional_context: Vec::new(),
+                            results: run_results,
+                        };
+                    }
                     tracing::warn!(
                         hook_name = %spec.name,
                         elapsed_ms = elapsed.as_millis() as u64,
@@ -1149,7 +1182,30 @@ mod tests {
             timeout_ms: 5000,
             source_dir: PathBuf::from("/tmp"),
             extra_env: HashMap::new(),
+            args: Vec::new(),
+            fail_closed: false,
             layer: crate::config::HookProvenance::File,
+        }
+    }
+
+    #[tokio::test]
+    async fn fail_closed_pre_tool_use_denies_a_missing_command() {
+        let mut spec = make_command_spec("guard", None, true, "missing/guard.sh");
+        spec.fail_closed = true;
+        spec.source_dir = std::env::temp_dir();
+        let registry = registry_from_specs(vec![spec]);
+        let result = dispatch_pre_tool_use(
+            &registry,
+            &pre_tool_use_envelope("read_file"),
+            &run_ctx(),
+        )
+        .await;
+        match result.decision {
+            HookDecision::Deny { reason, hook_name } => {
+                assert_eq!(hook_name, "guard");
+                assert!(reason.contains("failClosed"), "{reason}");
+            }
+            other => panic!("expected deny, got {other:?}"),
         }
     }
 

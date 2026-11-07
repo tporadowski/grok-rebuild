@@ -26,6 +26,8 @@ fn prompt_gate_registry(script: &str) -> xai_grok_hooks::discovery::HookRegistry
         timeout_ms: 5000,
         source_dir: std::path::PathBuf::from("/tmp"),
         extra_env: std::collections::HashMap::new(),
+        args: Vec::new(),
+        fail_closed: false,
         layer: xai_grok_hooks::config::HookProvenance::File,
     }]);
     registry

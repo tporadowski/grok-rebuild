@@ -118,7 +118,7 @@ pub async fn run_command_hook(
     let command_str = command.to_string_lossy();
 
     let stdin_json = match serde_json::to_string(&envelope.to_hook_json()) {
-        Ok(j) => j,
+        Ok(j) => hook_stdin_payload(&j),
         Err(e) => {
             let elapsed = start.elapsed();
             return (
@@ -138,16 +138,23 @@ pub async fn run_command_hook(
         );
     }
 
-    let is_shell_command = command_str.contains(' ')
-        || command_str.contains('|')
-        || command_str.contains('&')
-        || command_str.contains(';')
-        || command_str.contains('>')
-        || command_str.contains('<')
-        || command_str.contains('$')
-        || command_str.starts_with('~');
+    let is_shell_command = spec.args.is_empty()
+        && (command_str.contains(' ')
+            || command_str.contains('|')
+            || command_str.contains('&')
+            || command_str.contains(';')
+            || command_str.contains('>')
+            || command_str.contains('<')
+            || command_str.contains('$')
+            || command_str.starts_with('~'));
 
-    let mut cmd = if is_shell_command {
+    let mut cmd = if !spec.args.is_empty() {
+        let mut direct = direct_command(spec, command);
+        for arg in &spec.args {
+            direct.arg(expand_hook_arg(arg, spec, envelope, ctx));
+        }
+        direct
+    } else if is_shell_command {
         let unresolved = find_unresolved_env_vars(&command_str, &spec.extra_env);
         if !unresolved.is_empty() {
             let elapsed = start.elapsed();
@@ -179,20 +186,18 @@ pub async fn run_command_hook(
             c
         }
     } else {
-        let command_path = if command.is_absolute() {
-            command.clone()
-        } else {
-            spec.source_dir.join(command)
-        };
-        if !command_path.exists() {
-            let elapsed = start.elapsed();
-            return (
-                HookRunnerResult::Failed(format!("command not found: {}", command_path.display())),
-                elapsed,
-                None,
-            );
+        match located_command(spec, command) {
+            LocatedCommand::Path(path) => tokio::process::Command::new(path),
+            LocatedCommand::SearchPath(name) => tokio::process::Command::new(name),
+            LocatedCommand::Missing(path) => {
+                let elapsed = start.elapsed();
+                return (
+                    HookRunnerResult::Failed(format!("command not found: {}", path.display())),
+                    elapsed,
+                    None,
+                );
+            }
         }
-        tokio::process::Command::new(command_path)
     };
 
     xai_grok_tools::util::detach_command(&mut cmd);
@@ -986,6 +991,73 @@ fn truncate_output(bytes: &[u8]) -> String {
     }
 }
 
+/// JSON on the hook's stdin, terminated so a shell `read` receives one line.
+pub(crate) fn hook_stdin_payload(json: &str) -> String {
+    if json.ends_with('\n') {
+        json.to_string()
+    } else {
+        format!("{json}\n")
+    }
+}
+
+fn expand_hook_arg(
+    arg: &str,
+    spec: &HookSpec,
+    envelope: &HookEventEnvelope,
+    ctx: &RunContext<'_>,
+) -> String {
+    let mut env = spec.extra_env.clone();
+    env.insert(
+        "GROK_HOOK_EVENT".to_string(),
+        envelope.hook_event_name.to_string(),
+    );
+    env.insert("GROK_HOOK_NAME".to_string(), spec.name.clone());
+    env.insert("GROK_SESSION_ID".to_string(), ctx.session_id.to_string());
+    env.insert(
+        "GROK_WORKSPACE_ROOT".to_string(),
+        ctx.workspace_root.to_string(),
+    );
+    env.insert(
+        "CLAUDE_PROJECT_DIR".to_string(),
+        ctx.workspace_root.to_string(),
+    );
+    crate::env_expand::expand_env_vars_with_extra(arg, &env)
+}
+
+fn direct_command(spec: &HookSpec, command: &std::path::Path) -> tokio::process::Command {
+    match located_command(spec, command) {
+        LocatedCommand::Path(path) => tokio::process::Command::new(path),
+        LocatedCommand::SearchPath(name) | LocatedCommand::Missing(name) => {
+            tokio::process::Command::new(name)
+        }
+    }
+}
+
+enum LocatedCommand {
+    Path(std::path::PathBuf),
+    /// A single command name that is not next to the hook file. The process search path finds it.
+    SearchPath(std::path::PathBuf),
+    Missing(std::path::PathBuf),
+}
+
+fn located_command(spec: &HookSpec, command: &std::path::Path) -> LocatedCommand {
+    if command.is_absolute() {
+        return if command.exists() {
+            LocatedCommand::Path(command.to_path_buf())
+        } else {
+            LocatedCommand::Missing(command.to_path_buf())
+        };
+    }
+    let beside_hook = spec.source_dir.join(command);
+    if beside_hook.exists() {
+        return LocatedCommand::Path(beside_hook);
+    }
+    if command.components().count() == 1 {
+        return LocatedCommand::SearchPath(command.to_path_buf());
+    }
+    LocatedCommand::Missing(beside_hook)
+}
+
 pub fn resolve_command_path(spec: &HookSpec) -> Option<std::path::PathBuf> {
     let command = spec.command.as_ref()?;
     if command.is_absolute() {
@@ -1008,6 +1080,24 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn hook_stdin_ends_with_a_newline_for_read() {
+        assert_eq!(hook_stdin_payload(r#"{"a":1}"#), "{\"a\":1}\n");
+        assert_eq!(hook_stdin_payload("{\"a\":1}\n"), "{\"a\":1}\n");
+    }
+
+    #[test]
+    fn bare_command_missing_beside_the_hook_searches_path() {
+        let mut spec = make_shell_spec("ignored");
+        spec.command = Some(std::path::PathBuf::from("my-guard"));
+        spec.source_dir = std::env::temp_dir();
+        match located_command(&spec, spec.command.as_ref().unwrap()) {
+            LocatedCommand::SearchPath(name) => assert_eq!(name, std::path::PathBuf::from("my-guard")),
+            LocatedCommand::Path(_) => panic!("a missing bare name must not be a file path"),
+            LocatedCommand::Missing(path) => panic!("missing bare name was treated as absent: {}", path.display()),
+        }
+    }
+
     fn parse_rewrite_shapes() {
         let rewrite = |r: HookRunnerResult| match r {
             HookRunnerResult::Allow {
@@ -1957,6 +2047,8 @@ mod tests {
                 timeout_ms: 5000,
                 source_dir: std::path::PathBuf::from(source),
                 extra_env: std::collections::HashMap::new(),
+                args: Vec::new(),
+                fail_closed: false,
                 layer: crate::config::HookProvenance::File,
             };
         use crate::config::HandlerType;
@@ -1999,6 +2091,8 @@ mod tests {
             timeout_ms: 5000,
             source_dir: std::env::temp_dir(),
             extra_env: std::collections::HashMap::new(),
+            args: Vec::new(),
+            fail_closed: false,
             layer: crate::config::HookProvenance::File,
         }
     }
@@ -2295,6 +2389,8 @@ mod tests {
             timeout_ms: 5000,
             source_dir: std::env::temp_dir(),
             extra_env,
+            args: Vec::new(),
+            fail_closed: false,
             layer: crate::config::HookProvenance::File,
         };
 

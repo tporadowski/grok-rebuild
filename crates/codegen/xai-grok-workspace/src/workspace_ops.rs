@@ -2279,6 +2279,8 @@ mod tests {
             timeout_ms: 5000,
             source_dir: std::path::PathBuf::from("/home/u/.grok/hooks"),
             extra_env: std::collections::HashMap::from([("FOO".to_string(), "bar".to_string())]),
+            args: Vec::new(),
+            fail_closed: false,
             layer: xai_grok_hooks::config::HookProvenance::File,
         };
         let mut registry = xai_grok_hooks::discovery::HookRegistry::default();
@@ -2364,6 +2366,8 @@ mod tests {
                 timeout_ms,
                 source_dir,
                 extra_env,
+                args,
+                fail_closed,
                 layer,
             } = spec;
             let event = serde_json::from_value(serde_json::to_value(event).unwrap()).unwrap();
@@ -2380,6 +2384,8 @@ mod tests {
                 timeout_ms,
                 source_dir,
                 extra_env,
+                args,
+                fail_closed,
                 layer: layer.as_ref().to_string(),
             }
         }
@@ -2397,6 +2403,8 @@ mod tests {
             timeout_ms: 5000,
             source_dir: std::path::PathBuf::from("/home/u/.grok/hooks"),
             extra_env: std::collections::HashMap::from([("FOO".to_string(), "bar".to_string())]),
+            args: Vec::new(),
+            fail_closed: false,
             layer: xai_grok_hooks::config::HookProvenance::Managed,
         };
         assert_eq!(

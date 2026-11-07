@@ -108,6 +108,13 @@ pub struct RawHandler {
     /// Extra env vars, merged into [`HookSpec::extra_env`].
     #[serde(default, deserialize_with = "deserialize_optional_string_map")]
     pub env: HashMap<String, String>,
+    /// Arguments run with `command` as one program and no shell.
+    /// Hook variables such as `$GROK_SESSION_ID` are filled when the hook starts.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// When set, a timeout or crash on `PreToolUse` or `UserPromptSubmit` denies the call.
+    #[serde(default, rename = "failClosed")]
+    pub fail_closed: bool,
 }
 
 /// Treat `null` or an absent field as an empty map (serde otherwise rejects `null` for a `HashMap`).
@@ -225,6 +232,12 @@ pub struct HookSpec {
     /// Env injected into the hook process, and consulted by load-time `command`/`url` expansion.
     /// Precedence from low to high: user `env` (reserved keys stripped), plugin-injected, runner-injected at spawn (authentic identity always wins).
     pub extra_env: std::collections::HashMap<String, String>,
+    /// Direct arguments for `command`. Empty means the historical shell-or-path launch.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// A crash or timeout denies `PreToolUse` and blocks `UserPromptSubmit` instead of failing open.
+    #[serde(default)]
+    pub fail_closed: bool,
     /// The hook's origin and single source of truth for classification: `File` (JSON files, agent frontmatter), a config tier, or `Plugin`.
     /// `#[serde(default)]` maps specs serialized before this field existed to `File`.
     #[serde(default)]
@@ -689,6 +702,8 @@ fn build_one_spec(
         timeout_ms,
         source_dir: ctx.source_dir.to_path_buf(),
         extra_env,
+        args: handler.args,
+        fail_closed: handler.fail_closed,
         layer: ctx.provenance,
     })
 }
@@ -952,6 +967,33 @@ mod tests {
         assert!(s.enabled);
         assert_eq!(s.timeout_ms, 2000);
         assert_eq!(s.command, Some(PathBuf::from("bin/check.sh")));
+        assert!(!s.fail_closed);
+        assert!(s.args.is_empty());
+    }
+
+    #[test]
+    fn command_args_and_fail_closed_parse() {
+        let json = r#"{
+            "hooks": {
+                "PreToolUse": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "guard",
+                        "args": ["--session", "$GROK_SESSION_ID"],
+                        "failClosed": true
+                    }]
+                }]
+            }
+        }"#;
+        let (specs, errors) = parse_hook_file(json, Path::new("/tmp/hooks/args.json"));
+        assert!(errors.is_empty(), "{errors:?}");
+        let spec = specs.first().expect("spec");
+        assert_eq!(
+            spec.args,
+            vec!["--session".to_string(), "$GROK_SESSION_ID".to_string()]
+        );
+        assert!(spec.fail_closed);
+        assert_eq!(spec.command, Some(PathBuf::from("guard")));
     }
 
     #[test]

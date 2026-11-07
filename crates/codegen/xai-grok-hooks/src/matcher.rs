@@ -150,6 +150,16 @@ mod tests {
     }
 
     #[test]
+    fn comma_or_space_is_a_regex_not_a_name_list() {
+        let comma = HookMatcher::new("stop, fail").unwrap();
+        assert!(comma.is_match("stop, fail"));
+        assert!(!comma.is_match("stop"));
+        assert!(!comma.is_match("fail"));
+        let spaced = HookMatcher::new("error timeout").unwrap();
+        assert!(spaced.is_match("before error timeout after"));
+        assert!(!spaced.is_match("error"));
+    }
+
     fn star_and_empty_match_all() {
         for pat in ["*", ""] {
             let m = HookMatcher::new(pat).unwrap();

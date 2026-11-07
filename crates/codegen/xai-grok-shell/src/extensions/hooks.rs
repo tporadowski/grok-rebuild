@@ -295,6 +295,8 @@ mod tests {
             timeout_ms: 5000,
             source_dir: PathBuf::from("/tmp"),
             extra_env: HashMap::new(),
+            args: Vec::new(),
+            fail_closed: false,
             layer: xai_grok_hooks::config::HookProvenance::File,
         }
     }

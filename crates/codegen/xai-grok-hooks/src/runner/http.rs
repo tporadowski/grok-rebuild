@@ -991,6 +991,8 @@ mod tests {
             timeout_ms,
             source_dir: std::env::temp_dir(),
             extra_env,
+            args: Vec::new(),
+            fail_closed: false,
             layer: crate::config::HookProvenance::File,
         }
     }

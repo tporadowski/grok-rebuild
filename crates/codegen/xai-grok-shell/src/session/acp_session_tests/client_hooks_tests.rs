@@ -1127,6 +1127,8 @@ fn file_registry(
         timeout_ms: 5000,
         source_dir: std::path::PathBuf::from("/tmp"),
         extra_env: std::collections::HashMap::new(),
+        args: Vec::new(),
+        fail_closed: false,
         layer: xai_grok_hooks::config::HookProvenance::File,
     }]);
     registry

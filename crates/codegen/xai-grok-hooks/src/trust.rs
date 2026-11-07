@@ -64,6 +64,8 @@ pub enum HookSkipReason {
 pub struct DisabledHooks {
     names: std::collections::HashSet<String>,
     managed_only: bool,
+    /// The disabled-hooks file exists but could not be read. Non-managed hooks stay off.
+    unreadable: bool,
 }
 
 impl DisabledHooks {
@@ -71,23 +73,34 @@ impl DisabledHooks {
         Self {
             names: names.into_iter().collect(),
             managed_only,
+            unreadable: false,
         }
     }
 
     /// Read the disabled-hooks file under `grok_home`; `managed_only` is the resolved `allow_managed_hooks_only` pin, which the caller reads from managed settings.
+    /// A missing file disables nothing. A file that exists but cannot be read keeps every non-managed hook disabled.
     pub fn load(grok_home: Option<&Path>, managed_only: bool) -> Self {
-        let names = grok_home
-            .and_then(|grok_home| std::fs::read_to_string(grok_home.join(DISABLED_HOOKS_FILE)).ok())
-            .map(|content| {
+        let Some(grok_home) = grok_home else {
+            return Self::new([], managed_only);
+        };
+        match std::fs::read_to_string(grok_home.join(DISABLED_HOOKS_FILE)) {
+            Ok(content) => Self::new(
                 content
                     .lines()
                     .map(str::trim)
                     .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        Self::new(names, managed_only)
+                    .map(str::to_string),
+                managed_only,
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Self::new([], managed_only)
+            }
+            Err(_) => Self {
+                names: std::collections::HashSet::new(),
+                managed_only,
+                unreadable: true,
+            },
+        }
     }
 
     pub fn contains(&self, hook_name: &str) -> bool {
@@ -106,7 +119,10 @@ impl DisabledHooks {
         if self.managed_only {
             return Some(HookSkipReason::ManagedOnly);
         }
-        (!spec.enabled || self.names.contains(&spec.name)).then_some(HookSkipReason::UserDisabled)
+        if self.unreadable || !spec.enabled || self.names.contains(&spec.name) {
+            return Some(HookSkipReason::UserDisabled);
+        }
+        None
     }
 
     /// Whether dispatch skips `spec`; also what the modal shows as disabled.
@@ -201,6 +217,56 @@ fn disabled_hooks_file_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn unreadable_disabled_hooks_file_keeps_user_hooks_off() {
+        let dir = std::env::temp_dir().join(format!(
+            "grok-disabled-hooks-unreadable-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(DISABLED_HOOKS_FILE);
+        std::fs::write(&file, "kept-off\n").unwrap();
+        let mut perms = std::fs::metadata(&file).unwrap().permissions();
+        perms.set_mode(0);
+        std::fs::set_permissions(&file, perms).unwrap();
+        let loaded = DisabledHooks::load(Some(&dir), false);
+        let mut restore = std::fs::metadata(&file).unwrap().permissions();
+        restore.set_mode(0o644);
+        std::fs::set_permissions(&file, restore).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let user = spec_named("other");
+        let mut policy = spec_named("policy");
+        policy.layer = crate::config::HookProvenance::SystemManaged;
+        assert_eq!(
+            loaded.skip_reason(&user),
+            Some(HookSkipReason::UserDisabled)
+        );
+        assert_eq!(loaded.skip_reason(&policy), None);
+    }
+
+    fn spec_named(name: &str) -> crate::config::HookSpec {
+        crate::config::HookSpec {
+            name: name.to_string(),
+            event: crate::event::HookEventName::PreToolUse,
+            handler_type: crate::config::HandlerType::Command,
+            configured_matcher: None,
+            matcher: None,
+            enabled: true,
+            command: Some(PathBuf::from("guard")),
+            command_raw: Some("guard".to_string()),
+            url: None,
+            url_raw: None,
+            timeout_ms: 1000,
+            source_dir: PathBuf::from("/tmp"),
+            extra_env: std::collections::HashMap::new(),
+            args: Vec::new(),
+            fail_closed: false,
+            layer: crate::config::HookProvenance::File,
+        }
+    }
 
     /// Each test creates its own legacy file in its own temp dir, so no state is shared.
     fn trust_file_in(dir: &Path) -> PathBuf {

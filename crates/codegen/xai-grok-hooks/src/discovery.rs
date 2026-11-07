@@ -589,6 +589,8 @@ mod tests {
             timeout_ms: 1_000,
             source_dir: std::path::PathBuf::from("/tmp"),
             extra_env: std::collections::HashMap::new(),
+            args: Vec::new(),
+            fail_closed: false,
             layer,
         }
     }
@@ -996,6 +998,8 @@ mod tests {
             timeout_ms,
             source_dir: std::path::PathBuf::from("/tmp"),
             extra_env: std::collections::HashMap::new(),
+            args: Vec::new(),
+            fail_closed: false,
             layer,
         };
         use crate::config::HookProvenance;
@@ -1140,6 +1144,8 @@ mod tests {
             timeout_ms: 5000,
             source_dir: std::path::PathBuf::from("/tmp"),
             extra_env: std::collections::HashMap::new(),
+            args: Vec::new(),
+            fail_closed: false,
             layer: crate::config::HookProvenance::Requirements,
         };
         let mut registry = HookRegistry::default();
@@ -1379,6 +1385,8 @@ mod tests {
             timeout_ms: 5_000,
             source_dir: PathBuf::from("/tmp"),
             extra_env: Default::default(),
+            args: Vec::new(),
+            fail_closed: false,
             layer: crate::config::HookProvenance::File,
         }
     }

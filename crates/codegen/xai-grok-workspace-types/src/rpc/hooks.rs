@@ -37,6 +37,10 @@ pub struct HookSpecWire {
     pub timeout_ms: u64,
     pub source_dir: PathBuf,
     pub extra_env: HashMap<String, String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub fail_closed: bool,
     /// `default` decodes a server that predates this field as `file`.
     #[serde(default = "default_layer")]
     pub layer: String,

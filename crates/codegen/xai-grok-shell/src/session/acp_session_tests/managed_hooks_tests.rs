@@ -94,6 +94,8 @@ fn managed_registry(name: &str, layer: HookProvenance) -> xai_grok_hooks::discov
         timeout_ms: 5000,
         source_dir: std::env::temp_dir(),
         extra_env: std::collections::HashMap::new(),
+        args: Vec::new(),
+        fail_closed: false,
         layer,
     }])
 }
