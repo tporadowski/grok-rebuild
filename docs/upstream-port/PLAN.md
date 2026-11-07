@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-047 — Images on a skill command
+A pasted image on a skill command such as `/pr-workflow` stays on the queued skill row and is sent as an image block with the slash line (`v51-f27`, `skill_prompt_with_images_sends_them`). Expanded wire payloads (`/imagine`, `/loop`) and command rows (`/compact`) still drop images and say so.
+
 ### D-046 — Goal cancel, disabled `/goal`, and the bundle cache
 Ctrl+C cancels the turn through `SessionCommand::Cancel`, and that handler pauses an active goal with `GoalPauseReason::User` (`v51-f28`, `run_loop.rs`, `auto_pause_goal_if_active`). With the goal gate off, `resolve_human_intent` returns the `/goal` line as a normal prompt. With the gate on, the same line is `GoalSet` (`v51-x110`, `disabled_goal_line_passes_through_as_a_prompt`). A missing or unparseable bundled-skills manifest is not fresh, so the next sync refreshes skills, agents, and workflows (`v74-x01`, `bundle_cache_is_fresh`, `bundle_cache_is_fresh_false_for_corrupted_manifest`, `maybe_sync_runs_when_no_manifest_exists`).
 
@@ -247,7 +250,7 @@ Refresh these numbers at the end of a session.
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
-| W5 | Workflows and goals | 9 | 0 | 15 | 5 | 0 |
+| W5 | Workflows and goals | 8 | 0 | 16 | 5 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
@@ -260,9 +263,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 436. Skipped: 8. Done: 101. Already: 28. Deferred: 10.
+Catalog rows: 583. Pending: 435. Skipped: 8. Done: 102. Already: 28. Deferred: 10.
 
-**Next:** W5 workflows and goals. Still open: pasted images on a skill command (`v51-f27`), reopening a chat with an active goal (`v51-f30`), a spurious headless "Goal paused" (`v51-x92`), inline tags in replies (`v52-x23`), quit confirm for a running workflow (`v53-f05`), transcript result text (`v74-x19`), running color (`v74-x31`), mouse highlight (`v75-x11`), and dashboard Working rows (`v75-x16`). Kitty image free (`v73-x12`) is still the open W6 row.
+**Next:** W5 workflows and goals. Still open: reopening a chat with an active goal (`v51-f30`), a spurious headless "Goal paused" (`v51-x92`), inline tags in replies (`v52-x23`), quit confirm for a running workflow (`v53-f05`), transcript result text (`v74-x19`), running color (`v74-x31`), mouse highlight (`v75-x11`), and dashboard Working rows (`v75-x16`). Kitty image free (`v73-x12`) is still the open W6 row.
 
 ## Waves
 
@@ -288,7 +291,7 @@ Pending: 0. Done: 24. Already: 10. Deferred: 2 (`v51-x37`, `v52-x17`, D-041). Lo
 
 ### W5 — Workflows and goals
 
-Pending: 9. Done: 15. Already: 5. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046).
+Pending: 8. Done: 16. Already: 5. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046). A pasted image on `/pr-workflow` is sent with the skill line (`v51-f27`, D-047).
 
 ### W7 — Worktrees
 
@@ -423,7 +426,7 @@ id | status | wave | kind | flag | covered | note
 - v51-f19 | done | W5 | Features |  |  | **--background-wait-timeout** now also stops an active headless goal after the timeout and exits with an error.
 - v51-f21 | already | W5 | Features |  |  | **New `/workflow` commands** let you list, stop, and resume background workflow runs without sending them to the model.
 - v51-f22 | done | W5 | Features |  |  | **Background workflow runs** now appear in the tasks pane with a stop button.
-- v51-f27 | pending | W5 | Features |  |  | Images pasted with skill commands like /pr-workflow are now sent to the model.
+- v51-f27 | done | W5 | Features |  |  | Images pasted with skill commands like /pr-workflow are now sent to the model.
 - v51-f28 | already | W5 | Features |  |  | Pressing Ctrl+C on a goal now pauses the goal instead of letting it continue.
 - v51-f30 | pending | W5 | Features |  |  | Reopening a chat with an active goal now continues the goal automatically.
 - v51-x02 | already | W5 | Bug Fixes |  |  | Running workflows in the dock now show the same pulsing indicator as in the main scrollback.

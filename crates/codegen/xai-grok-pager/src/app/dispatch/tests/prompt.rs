@@ -6240,9 +6240,9 @@ fn compact_with_images_toasts_and_drops() {
     );
 }
 
-/// A skill prompt sends its wire blocks only; composer images are dropped with a toast.
+/// A skill command such as `/pr-workflow` sends the pasted image with the slash line.
 #[test]
-fn skill_prompt_with_images_toasts() {
+fn skill_prompt_with_images_sends_them() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);
     register_pr_workflow_skill(&mut app, id);
@@ -6260,15 +6260,26 @@ fn skill_prompt_with_images_toasts() {
     let effects = dispatch(Action::SendPrompt(text), &mut app);
 
     match effects.as_slice() {
-        [Effect::SendPromptBlocks { blocks, .. }] => assert!(
-            !blocks
-                .iter()
-                .any(|b| matches!(b, acp::ContentBlock::Image(_))),
-            "skill wire blocks must not carry composer images"
-        ),
+        [Effect::SendPromptBlocks { blocks, .. }] => {
+            assert!(
+                blocks.iter().any(|block| {
+                    matches!(
+                        block,
+                        acp::ContentBlock::Text(text) if text.text.contains("/pr-workflow")
+                    )
+                }),
+                "the skill line is still sent: {blocks:?}"
+            );
+            assert!(
+                blocks
+                    .iter()
+                    .any(|block| matches!(block, acp::ContentBlock::Image(_))),
+                "a pasted image on a skill command is sent to the model: {blocks:?}"
+            );
+        }
         other => panic!("expected the skill SendPromptBlocks, got {other:?}"),
     }
-    assert_eq!(
+    assert_ne!(
         toast_text(&app, id),
         Some("Images not sent with a skill prompt — paste them again")
     );

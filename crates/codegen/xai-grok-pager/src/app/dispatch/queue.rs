@@ -121,9 +121,11 @@ pub(super) fn attach_prompt_state_to_last_queued(
     attach_images_to_last_queued(agent, images, notices)
 }
 
-/// Hand `images` to the most recently enqueued `QueuedPrompt`. A skill row (`wire_blocks`) and a command
-/// row (`/compact`) cannot carry them: the user is told (a notice queued on `notices`) and they come
-/// back, as they all do when no row exists. The caller releases what comes back.
+/// Hand `images` to the most recently enqueued `QueuedPrompt`. A raw skill command
+/// (`display_as_skill`, such as `/pr-workflow`) keeps them so the drain can send the
+/// image blocks with the slash line (`v51-f27`). An expanded wire payload (`/imagine`,
+/// `/loop`) and a command row (`/compact`) cannot carry them: the user is told and the
+/// images come back. The caller releases what comes back.
 fn attach_images_to_last_queued(
     agent: &mut AgentView,
     images: Vec<crate::prompt_images::PastedImage>,
@@ -135,6 +137,10 @@ fn attach_images_to_last_queued(
     let Some(entry) = agent.session.pending_prompts.back_mut() else {
         return images;
     };
+    if entry.display_as_skill {
+        entry.images = images;
+        return Vec::new();
+    }
     let dropped_by = if entry.wire_blocks.is_some() {
         ImagesDroppedBy::SkillPrompt
     } else if entry.kind == crate::app::agent::QueueEntryKind::Command {
@@ -510,6 +516,22 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
             let combined_segs = queued.combined_texts.clone();
             let effects = if let Some(mut blocks) = queued.wire_blocks {
                 // Skill injection: send structured blocks.
+                // A pasted image on a skill command (for example `/pr-workflow`) rides along
+                // as its own image block. Expanded payloads such as `/imagine` never stored images.
+                if is_skill && !queued.images.is_empty() {
+                    let built = crate::prompt_images::build_content_blocks_with_workspace_report(
+                        String::new(),
+                        queued.images.clone(),
+                        Some(std::path::Path::new(&agent.session.cwd)),
+                    );
+                    notices.extend(agent.notice_skipped_sends(&built));
+                    blocks.extend(
+                        built
+                            .blocks
+                            .into_iter()
+                            .filter(|block| matches!(block, acp::ContentBlock::Image(_))),
+                    );
+                }
                 // Annotate the first text block's meta with the display text
                 // Without the annotation, replay shows the raw skill instructions instead of the user-facing display text
                 if let Some(acp::ContentBlock::Text(tb)) = blocks.first_mut() {
