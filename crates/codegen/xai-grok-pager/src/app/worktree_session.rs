@@ -171,15 +171,33 @@ pub(crate) fn parse_create_response(
 ) -> Result<CreatedWorktree, String> {
     let result = ext_result(raw)?;
     let worktree_root = required_path(&result, "worktreePath")?;
-    let session_cwd = worktree_session_cwd(
+    let offset = worktree_session_cwd(
         &worktree_root,
         result.get("sourceGitRoot").and_then(|v| v.as_str()),
         source_cwd,
     );
+    let (session_cwd, missing_subdir) = if offset != worktree_root && !offset.is_dir() {
+        (
+            worktree_root.clone(),
+            Some(format!(
+                "{} is not in the new worktree; opening the worktree root",
+                offset.display()
+            )),
+        )
+    } else {
+        (offset, None)
+    };
+    let mut strategy_summary = parse_worktree_strategy_summary(&result);
+    if let Some(note) = missing_subdir {
+        strategy_summary = Some(match strategy_summary {
+            Some(existing) => format!("{existing} {note}"),
+            None => note,
+        });
+    }
     Ok(CreatedWorktree {
         worktree_root,
         session_cwd,
-        strategy_summary: parse_worktree_strategy_summary(&result),
+        strategy_summary,
     })
 }
 
@@ -354,14 +372,49 @@ mod tests {
 
     #[test]
     fn create_response_lands_in_matching_subdirectory() {
-        let raw = r#"{"result":{"worktreePath":"/wt/x","sourceGitRoot":"/repo"}}"#;
-        let created = parse_create_response(raw, Path::new("/repo/crates/pager")).unwrap();
-        assert_eq!(created.worktree_root, PathBuf::from("/wt/x"));
-        assert_eq!(created.session_cwd, PathBuf::from("/wt/x/crates/pager"));
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let launch = repo.join("crates").join("pager");
+        std::fs::create_dir_all(&launch).unwrap();
+        let wt = temp.path().join("wt");
+        std::fs::create_dir_all(wt.join("crates").join("pager")).unwrap();
+        let raw = format!(
+            r#"{{"result":{{"worktreePath":"{}","sourceGitRoot":"{}"}}}}"#,
+            wt.display(),
+            repo.display()
+        );
+        let created = parse_create_response(&raw, &launch).unwrap();
+        assert_eq!(created.worktree_root, wt);
+        assert_eq!(created.session_cwd, wt.join("crates").join("pager"));
+        assert!(created.strategy_summary.is_none());
 
         let bare = r#"{"worktreePath":"/wt/y"}"#;
         let created = parse_create_response(bare, Path::new("/repo")).unwrap();
         assert_eq!(created.session_cwd, PathBuf::from("/wt/y"));
+    }
+
+    #[test]
+    fn create_response_opens_the_root_when_the_launch_folder_is_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let launch = repo.join("crates").join("pager");
+        std::fs::create_dir_all(&launch).unwrap();
+        let wt = temp.path().join("wt");
+        std::fs::create_dir_all(&wt).unwrap();
+        let raw = format!(
+            r#"{{"result":{{"worktreePath":"{}","sourceGitRoot":"{}"}}}}"#,
+            wt.display(),
+            repo.display()
+        );
+        let created = parse_create_response(&raw, &launch).unwrap();
+        assert_eq!(created.session_cwd, wt);
+        let note = created
+            .strategy_summary
+            .expect("missing folder leaves a note");
+        assert!(
+            note.contains("not in the new worktree"),
+            "note should name the missing folder, got {note}"
+        );
     }
 
     #[test]
