@@ -163,7 +163,7 @@ impl DiscoveredWorktree {
 
         WorktreeRecord {
             id: id_from_path(&path),
-            path,
+            path: path.clone(),
             source_repo,
             repo_name,
             kind: self.kind,
@@ -175,9 +175,19 @@ impl DiscoveredWorktree {
             created_at,
             last_accessed_at: None,
             status: WorktreeStatus::Alive,
-            metadata: None,
+            // The directory name is the name `show` and `rm` look up. A rebuild
+            // that drops it leaves the worktree on disk but unreachable by name.
+            metadata: directory_label(&path),
         }
     }
+}
+
+fn directory_label(path: &Path) -> Option<serde_json::Value> {
+    let name = path.file_name()?.to_str()?;
+    if name.is_empty() {
+        return None;
+    }
+    Some(serde_json::json!({ crate::db::META_KEY_LABEL: name }))
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -593,6 +603,25 @@ mod tests {
         let report = discover_worktrees(tmp.path());
         assert!(report.found.is_empty());
         assert_eq!(report.skipped, 0);
+    }
+
+    #[test]
+    fn rebuild_restores_the_directory_name_for_lookup() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let grok_home = tmp.path();
+        let wt = grok_home.join("worktrees/repo/my-feature");
+        make_fake_standalone_worktree(&wt);
+
+        let db = crate::db::WorktreeDb::open_in_memory().unwrap();
+        let report = rebuild_worktree_db_with_grove_data(&db, grok_home, None).unwrap();
+        assert_eq!(report.registered, 1);
+
+        let fetched = db
+            .get("my-feature")
+            .unwrap()
+            .expect("show and rm look the worktree up by this name");
+        assert_eq!(fetched.label(), Some("my-feature"));
+        assert_eq!(fetched.path, dunce::canonicalize(&wt).unwrap_or(wt));
     }
 
     #[test]
