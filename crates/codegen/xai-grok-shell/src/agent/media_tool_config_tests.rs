@@ -2,7 +2,9 @@ use pretty_assertions::assert_eq;
 use xai_grok_tools::implementations::grok_build::image_gen::ImageGenConfig;
 use xai_grok_tools::implementations::grok_build::video_gen::VideoGenConfig;
 
-use super::{MediaToolCredentials, image_gen_config, load_media_tool_config, video_gen_config};
+use super::{
+    MediaToolCredentials, apply_zdr_tools, image_gen_config, load_media_tool_config, video_gen_config,
+};
 
 fn config(toml: &str) -> super::Config {
     load_media_tool_config(&toml::from_str(toml).unwrap(), None).unwrap()
@@ -34,6 +36,18 @@ fn the_static_bearer_is_the_configured_key_and_nothing_else() {
         panic!("image tools are enabled by default");
     };
     assert_eq!(Some("xai-key".to_owned()), api_key);
+}
+
+#[test]
+fn apply_zdr_tools_updates_a_running_config() {
+    let mut cfg = config("");
+    assert!(!cfg.disable_zdr_incompatible_tools);
+    let tools = crate::config::ToolsConfig::resolve(
+        &toml::from_str("[tools]\ndisable_zdr_incompatible_tools = true\n").unwrap(),
+    );
+    apply_zdr_tools(&mut cfg, &tools);
+    assert!(cfg.disable_zdr_incompatible_tools);
+    xai_grok_tools::implementations::grok_build::video_gen::set_live_zdr_restricted(None);
 }
 
 /// Runtime resolution is what computes the ZDR guard; a host that skipped it would let a ZDR customer's

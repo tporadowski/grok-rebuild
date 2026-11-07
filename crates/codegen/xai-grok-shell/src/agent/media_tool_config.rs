@@ -69,6 +69,26 @@ pub fn image_gen_config(cfg: &Config, credentials: &MediaToolCredentials) -> Ima
     }
 }
 
+/// Copy a freshly resolved `[tools]` ZDR gate onto a running agent and the process-wide video client.
+/// Called at the start of each turn so a config edit applies without restarting the worker.
+pub fn apply_zdr_tools(cfg: &mut Config, tools: &crate::config::ToolsConfig) {
+    cfg.disable_zdr_incompatible_tools = tools.disable_zdr_incompatible_tools;
+    cfg.zdr_video_output_s3 = tools.zdr_video_output_s3.clone();
+    let restricted =
+        cfg.disable_zdr_incompatible_tools && cfg.zdr_video_output_s3.as_ref().is_none_or(|s3| !s3.is_valid());
+    xai_grok_tools::implementations::grok_build::video_gen::set_live_zdr_restricted(Some(
+        restricted,
+    ));
+}
+
+/// Re-read the effective config's ZDR gate. A missing file keeps the values already on `cfg`.
+pub fn refresh_zdr_tool_gate(cfg: &mut Config) {
+    let Ok(raw) = crate::config::load_effective_config() else {
+        return;
+    };
+    apply_zdr_tools(cfg, &crate::config::ToolsConfig::resolve(&raw));
+}
+
 pub fn video_gen_config(cfg: &Config, credentials: &MediaToolCredentials) -> VideoGenConfig {
     if !cfg.resolve_video_gen().value {
         return VideoGenConfig::Disabled;

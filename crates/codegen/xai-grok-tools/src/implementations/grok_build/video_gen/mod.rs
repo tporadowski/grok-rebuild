@@ -33,6 +33,30 @@ use crate::types::requirements::{Expr, ToolRequirement};
 use crate::types::resources::SessionFolder;
 use crate::types::tool::{ToolKind, ToolNamespace};
 
+/// `0` means the client keeps the flag it was built with. `1` forces off, `2` forces on.
+/// A running worker reads this on each call so a config change applies on the next turn
+/// without rebuilding the tool client.
+static LIVE_ZDR_RESTRICTED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Publish the ZDR video gate for clients already built in this process.
+/// `None` clears the override (startup value wins again).
+pub fn set_live_zdr_restricted(value: Option<bool>) {
+    let code = match value {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    };
+    LIVE_ZDR_RESTRICTED.store(code, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) fn effective_zdr_restricted(baked: bool) -> bool {
+    match LIVE_ZDR_RESTRICTED.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => baked,
+    }
+}
+
 const XAI_VIDEO_MODEL: &str = "grok-imagine-video-1.5";
 const VIDEO_START_TIMEOUT_SECS: u64 = 60;
 const VIDEO_GEN_TIMEOUT_SECS: u64 = 300;
@@ -288,7 +312,7 @@ impl VideoGenClient {
 
     /// See [`VideoGenConfig::Enabled`]'s `zdr_restricted`.
     pub(crate) fn is_zdr_restricted(&self) -> bool {
-        self.zdr_restricted
+        effective_zdr_restricted(self.zdr_restricted)
     }
 
     /// Wire a 401-attribution callback into this client. Idempotent;
@@ -1438,6 +1462,30 @@ impl xai_tool_runtime::Tool for ReferenceToVideoTool {
 
 #[cfg(test)]
 mod tests {
+    use super::effective_zdr_restricted;
+    use super::set_live_zdr_restricted;
+
+    struct RestoreLiveZdr;
+
+    impl Drop for RestoreLiveZdr {
+        fn drop(&mut self) {
+            set_live_zdr_restricted(None);
+        }
+    }
+
+    #[test]
+    fn live_zdr_override_applies_without_rebuilding_the_client() {
+        let _restore = RestoreLiveZdr;
+        assert!(!effective_zdr_restricted(false));
+        set_live_zdr_restricted(Some(true));
+        assert!(effective_zdr_restricted(false));
+        set_live_zdr_restricted(Some(false));
+        assert!(!effective_zdr_restricted(true));
+        set_live_zdr_restricted(None);
+        assert!(effective_zdr_restricted(true));
+        assert!(!effective_zdr_restricted(false));
+    }
+
     // Mirrors image_gen's post_json pinning: every start/poll request must
     // route through request(), which attaches both bearer and session id.
     #[tokio::test]

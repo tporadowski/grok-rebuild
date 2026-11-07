@@ -1040,6 +1040,10 @@ impl acp::Agent for MvpAgent {
             );
         }
         let preamble_span = region!("prompt.preamble", Parent::Inherit);
+        {
+            let mut cfg = self.cfg.borrow_mut();
+            crate::agent::media_tool_config::refresh_zdr_tool_gate(&mut cfg);
+        }
         tracing::debug!(
             target: "sampling_log",
             session_id = %arguments.session_id.0,
