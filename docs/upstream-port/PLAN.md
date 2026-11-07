@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-037 — Permission block keeps PreToolUse context
+When a permission rule blocks a tool, the context returned by its PreToolUse hooks is still queued for the model (`v52-x19`). The deny path uses `pre_tool_context_for_model`, and that helper is unit tested.
+
 ### D-036 — Subfolder project hooks
 Launching inside a repository subdirectory also loads that directory's `.grok/hooks`, in addition to the git root (`v52-f03`).
 
@@ -210,7 +213,7 @@ Refresh these numbers at the end of a session.
 | W2 | CLI surface | 0 | 0 | 7 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
-| W4 | Hooks | 19 | 0 | 14 | 3 | 0 |
+| W4 | Hooks | 18 | 0 | 15 | 3 | 0 |
 | W5 | Workflows and goals | 25 | 0 | 4 | 0 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
@@ -224,7 +227,7 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 471. Skipped: 8. Done: 80. Already: 16. Deferred: 8.
+Catalog rows: 583. Pending: 470. Skipped: 8. Done: 81. Already: 16. Deferred: 8.
 
 **Next:** W4 hooks, the rest of the loader and dispatcher. W2 is complete (D-030). `/resume` still opens the picker on one match (`v61-f02`), and search does not tolerate typos (`v65-f01`). Minimal sign-in uses the error color in the wrap commit, but `v74-x32` stays pending until a color assertion exists.
 
@@ -248,7 +251,7 @@ Pending: 1 (`v73-x12`). Done: 6. Look first: Do this after W1. Implementation li
 
 ### W4 — Hooks
 
-Pending: 19. Done: 14. Already: 3. Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema.
+Pending: 18. Done: 15. Already: 3. Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema.
 
 ### W5 — Workflows and goals
 
@@ -370,7 +373,7 @@ id | status | wave | kind | flag | covered | note
 - v52-f03 | done | W4 | Features |  |  | Project hooks placed in a repository subfolder are now loaded when you launch inside that folder.
 - v52-f04 | done | W4 | Features |  |  | HTTP hooks to localhost now work, and bad hook URLs are reported at load time.
 - v52-x17 | pending | W4 | Bug Fixes |  |  | Long tool turns that include PostToolUse hook output now compact correctly instead of hitting the prompt length limit.
-- v52-x19 | pending | W4 | Bug Fixes |  |  | When a permission rule blocks a tool call, any context returned by a PreToolUse hook still reaches the model.
+- v52-x19 | done | W4 | Bug Fixes |  |  | When a permission rule blocks a tool call, any context returned by a PreToolUse hook still reaches the model.
 - v52-x33 | already | W4 | Bug Fixes |  |  | StopFailure hook matchers containing commas or spaces are now treated as regex patterns.
 - v53-f02 | pending | W4 | Features |  |  | **`/hooks`** lists load errors from the main agent's inline hooks and from plugins.
 - v53-x15 | done | W4 | Bug Fixes |  |  | **Hooks you disabled** stay disabled when the disabled-hooks file cannot be read.

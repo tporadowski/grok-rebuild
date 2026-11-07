@@ -1956,6 +1956,14 @@ impl SessionActor {
                             reason: reason.clone(),
                         }
                     };
+                    for (name, text) in pre_tool_context_for_model(&hook_additional_context) {
+                        deferred_followups.push(self.wrap_hook_note(
+                            xai_grok_hooks::event::HookEventName::PreToolUse,
+                            HookNoteKind::Context,
+                            name,
+                            text,
+                        ));
+                    }
                     return Ok(Err(loop_action));
                 }
                 Decision::Cancelled => {
@@ -3361,6 +3369,34 @@ fn execute_tool_call_parts(
         ))],
     )
 }
+
+fn pre_tool_context_for_model(
+    contexts: &[xai_grok_hooks::dispatcher::AdditionalContext],
+) -> Vec<(&str, &str)> {
+    contexts
+        .iter()
+        .map(|context| (context.hook_name.as_str(), context.text.as_str()))
+        .collect()
+}
+
+#[cfg(test)]
+mod pre_tool_context_tests {
+    use super::pre_tool_context_for_model;
+    use xai_grok_hooks::dispatcher::AdditionalContext;
+
+    #[test]
+    fn permission_block_keeps_each_pre_tool_context() {
+        let contexts = vec![AdditionalContext {
+            hook_name: "guard".into(),
+            text: "the file is generated".into(),
+        }];
+        assert_eq!(
+            pre_tool_context_for_model(&contexts),
+            vec![("guard", "the file is generated")]
+        );
+    }
+}
+
 #[cfg(test)]
 mod execute_tool_call_parts_tests {
     use super::execute_tool_call_parts;
