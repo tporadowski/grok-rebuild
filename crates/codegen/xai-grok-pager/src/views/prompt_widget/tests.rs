@@ -4071,6 +4071,71 @@
     }
 
     #[test]
+    fn backspace_at_file_ref_end_reopens_the_picker() {
+        let mut pw = PromptWidget::new();
+        seed_at_completion(&mut pw, "READ", "README.md", false);
+        pw.handle_key(&key!(Tab).to_key_event());
+        pw.handle_key(&key!(Backspace).to_key_event());
+        assert!(
+            pw.textarea
+                .elements()
+                .iter()
+                .any(|e| e.kind == KIND_FILE_REF),
+            "the trailing space is not the chip"
+        );
+        pw.handle_key(&key!(Backspace).to_key_event());
+        assert!(
+            pw.textarea
+                .elements()
+                .iter()
+                .all(|e| e.kind != KIND_FILE_REF)
+        );
+        assert_eq!(pw.textarea.text(), "@README.md");
+        assert_eq!(pw.textarea.cursor(), "@README.md".len());
+        let ctx = pw.file_search.context().expect("picker reopens");
+        assert_eq!(ctx.query, "README.md");
+    }
+
+    #[test]
+    fn arrows_enter_a_picked_file_path() {
+        let mut pw = PromptWidget::new();
+        seed_at_completion(&mut pw, "READ", "README.md", false);
+        pw.handle_key(&key!(Tab).to_key_event());
+        let start = pw
+            .textarea
+            .elements()
+            .iter()
+            .find(|e| e.kind == KIND_FILE_REF)
+            .unwrap()
+            .range
+            .start;
+        pw.textarea.set_cursor(start);
+        pw.handle_key(&key!(Right).to_key_event());
+        assert!(
+            pw.textarea
+                .elements()
+                .iter()
+                .all(|e| e.kind != KIND_FILE_REF)
+        );
+        assert!(pw.textarea.cursor() > start);
+        assert!(pw.textarea.cursor() < "@README.md".len());
+
+        let mut pw = PromptWidget::new();
+        seed_at_completion(&mut pw, "READ", "README.md", false);
+        pw.handle_key(&key!(Tab).to_key_event());
+        pw.handle_key(&key!(Backspace).to_key_event());
+        pw.handle_key(&key!(Left).to_key_event());
+        assert!(
+            pw.textarea
+                .elements()
+                .iter()
+                .all(|e| e.kind != KIND_FILE_REF)
+        );
+        assert!(pw.textarea.cursor() < "@README.md".len());
+        assert!(pw.textarea.cursor() > 0);
+    }
+
+    #[test]
     fn tab_still_appends_trailing_space_on_file() {
         // Regression guard: Tab's existing behavior (insert file ref + a trailing space) must not be affected by the Right Arrow addition
         let mut pw = PromptWidget::new();
@@ -5006,6 +5071,33 @@
         assert_eq!(
             ghost_row1, "del",
             "ghost should render on line 2 (y=1), got: {ghost_row1:?}"
+        );
+    }
+
+    #[test]
+    fn inline_ghost_does_not_cover_text_after_the_cursor() {
+        let mut pw = PromptWidget::new();
+        pw.textarea.insert_str("/mo world");
+        pw.slash_state.replace(crate::slash::SlashSnapshot {
+            inline_ghost: Some(crate::slash::InlineGhost {
+                text: "del".into(),
+                token_range: 0..3,
+                full_name: "model".into(),
+                highlight: false,
+            }),
+            ..Default::default()
+        });
+        let area = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(area);
+        pw.draw(&mut buf, area, None, &ghost_test_style(), None, None);
+        let row = buf_text_at(&buf, 0, 20, 0);
+        assert!(
+            row.contains("world"),
+            "text after the cursor must stay visible, got {row:?}"
+        );
+        assert!(
+            !row.contains("del"),
+            "ghost must not paint over the following text, got {row:?}"
         );
     }
 

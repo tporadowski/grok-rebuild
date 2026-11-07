@@ -1609,6 +1609,38 @@ impl PromptWidget {
         None
     }
 
+    /// Backspace at the end of a picked `@` file reopens the picker on that path.
+    /// Left from the end, or Right from the start, drops the atomic chip and puts the cursor inside the path.
+    fn try_reopen_file_ref(&mut self, key: &KeyEvent) -> bool {
+        if !key.modifiers.is_empty() {
+            return false;
+        }
+        let cursor = self.textarea.cursor();
+        let Some(elem) = self
+            .textarea
+            .elements()
+            .iter()
+            .find(|e| e.kind == KIND_FILE_REF && (cursor == e.range.start || cursor == e.range.end))
+            .cloned()
+        else {
+            return false;
+        };
+        let text = self.textarea.text();
+        let inside = match key.code {
+            KeyCode::Backspace if cursor == elem.range.end => elem.range.end,
+            KeyCode::Left if cursor == elem.range.end => prev_char_boundary(text, elem.range.end),
+            KeyCode::Right if cursor == elem.range.start => {
+                next_char_boundary(text, elem.range.start)
+            }
+            _ => return false,
+        };
+        if !self.textarea.inline_element(elem.id) {
+            return false;
+        }
+        self.textarea.set_cursor(inside);
+        true
+    }
+
     /// Update file search context from current text and cursor position. Suppresses the context if the
     /// cursor is on or immediately after a file reference element. The `@` belongs to the atomic block
     /// and the dropdown can't edit it.
@@ -1907,6 +1939,11 @@ impl PromptWidget {
             self.textarea.set_selection(0, len);
             // Move the cursor to the end of the selection so the visible caret matches the typical GUI "head at end" convention after Cmd+A
             self.textarea.set_cursor(len);
+            return PromptEvent::Edited;
+        }
+
+        if self.try_reopen_file_ref(key) {
+            self.update_file_search_context();
             return PromptEvent::Edited;
         }
 
@@ -3231,8 +3268,10 @@ impl PromptWidget {
                 );
             }
 
-            // Args ghost text: show expected arguments after the cursor for skills and commands that declare an arg_placeholder
+            // Args ghost text: show expected arguments after the cursor for skills and commands that declare an arg_placeholder.
+            // Skip when the rest of the line is real text: set_string would paint over it.
             if snap.args_query_is_empty
+                && line_after_is_blank(self.textarea.text(), self.textarea.cursor())
                 && let Some(ref placeholder) = snap.args_placeholder
                 && let Some((start_x, row_y)) = self.textarea.screen_position_of(
                     self.textarea.cursor(),
@@ -3247,9 +3286,11 @@ impl PromptWidget {
                 }
             }
 
-            // Mid-text inline ghost text: show the completion suffix for a partial `/command` token under the cursor
+            // Mid-text inline ghost text: show the completion suffix for a partial `/command` token under the cursor.
+            // Only when nothing but whitespace follows on this line, so suggestions cannot hide text after the cursor.
             if let Some(ref ghost) = snap.inline_ghost
                 && ghost.token_range.end <= self.textarea.text().len()
+                && line_after_is_blank(self.textarea.text(), ghost.token_range.end)
                 && let Some((screen_x, screen_y)) = self.textarea.screen_position_of(
                     ghost.token_range.end,
                     ta_area,
@@ -3776,6 +3817,33 @@ fn strip_all_elements(
 
     let len = result.len();
     (result, adjusted_cursor.min(len))
+}
+
+/// True when `at` is a char boundary and the rest of its line is empty or whitespace.
+/// Ghost overlays use `Buffer::set_string`, which replaces cells, so they must not cover typed text.
+fn prev_char_boundary(text: &str, at: usize) -> usize {
+    let at = at.min(text.len());
+    text.get(..at)
+        .and_then(|prefix| prefix.char_indices().next_back().map(|(index, _)| index))
+        .unwrap_or(0)
+}
+
+fn next_char_boundary(text: &str, at: usize) -> usize {
+    let at = at.min(text.len());
+    text.get(at..)
+        .and_then(|rest| rest.chars().next().map(|ch| at + ch.len_utf8()))
+        .unwrap_or(at)
+}
+
+fn line_after_is_blank(text: &str, at: usize) -> bool {
+    let Some(rest) = text.get(at..) else {
+        return false;
+    };
+    rest.split('\n')
+        .next()
+        .unwrap_or("")
+        .chars()
+        .all(char::is_whitespace)
 }
 
 /// Map a byte offset in [`strip_all_elements`] output back to the raw buffer.
