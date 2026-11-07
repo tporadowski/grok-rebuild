@@ -6,6 +6,9 @@ use chrono::{DateTime, Utc};
 use xai_file_utils::workspace_classifier::is_project_dir;
 use xai_grok_shell::session::persistence::list_recent_summaries;
 
+/// Recent folders the dashboard `Ctrl+L` picker keeps. Was 10; the picker lists up to 50.
+pub const DASHBOARD_RECENT_FOLDER_LIMIT: usize = 50;
+
 pub async fn collect_recent_dirs(limit: usize) -> Vec<(PathBuf, DateTime<Utc>)> {
     let summaries = match list_recent_summaries(500).await {
         Ok(s) => s,
@@ -47,4 +50,15 @@ pub fn display_path(path: &Path) -> String {
         return format!("~/{}", rel.display());
     }
     path.display().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dashboard_folder_picker_lists_fifty_recent_folders() {
+        assert_eq!(DASHBOARD_RECENT_FOLDER_LIMIT, 50);
+        assert!(DASHBOARD_RECENT_FOLDER_LIMIT > 10);
+    }
 }
