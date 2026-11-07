@@ -1877,6 +1877,10 @@ pub(super) struct DashboardStopPlan {
     cancel_foreground: bool,
     running_background_tasks: Vec<String>,
     scheduled_tasks: Vec<String>,
+    /// `(subagent_id, attempt_id)` for running background subagents.
+    background_subagents: Vec<(String, Option<String>)>,
+    /// Names of active workflow runs. Stop sends `/workflow stop <name>`.
+    active_workflows: Vec<String>,
     discard_queued_prompts: bool,
 }
 impl DashboardStopPlan {
@@ -1901,6 +1905,35 @@ impl DashboardStopPlan {
             } else {
                 Vec::new()
             },
+            background_subagents: if has_session {
+                agent
+                    .subagent_sessions
+                    .values()
+                    .filter(|info| info.is_running() && info.attempt.is_background)
+                    .map(|info| {
+                        (
+                            info.subagent_id.to_string(),
+                            info.attempt
+                                .lifecycle
+                                .current_attempt_id()
+                                .map(str::to_owned),
+                        )
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            active_workflows: if has_session {
+                agent
+                    .workflow_runs
+                    .iter()
+                    .filter(|run| run.is_active())
+                    .map(|run| run.name.clone())
+                    .filter(|name| !name.trim().is_empty())
+                    .collect()
+            } else {
+                Vec::new()
+            },
             discard_queued_prompts: !agent.session.pending_prompts.is_empty(),
         }
     }
@@ -1913,13 +1946,20 @@ impl DashboardStopPlan {
             && (!agent.session.state.is_idle()
                 || agent.wake_turn_active()
                 || agent.session.has_running_bg_tasks()
-                || !agent.session.scheduled_tasks.is_empty()))
+                || !agent.session.scheduled_tasks.is_empty()
+                || agent
+                    .subagent_sessions
+                    .values()
+                    .any(|info| info.is_running() && info.attempt.is_background)
+                || agent.workflow_runs.iter().any(|run| run.is_active())))
             || !agent.session.pending_prompts.is_empty()
     }
     pub(super) fn is_empty(&self) -> bool {
         !self.cancel_foreground
             && self.running_background_tasks.is_empty()
             && self.scheduled_tasks.is_empty()
+            && self.background_subagents.is_empty()
+            && self.active_workflows.is_empty()
             && !self.discard_queued_prompts
     }
 }
@@ -1980,6 +2020,30 @@ fn stop_top_level_activity(agent: &mut crate::app::agent_view::AgentView) -> Opt
             effects.push(Effect::DeleteScheduledTask {
                 session_id: session_id.clone(),
                 task_id,
+            });
+        }
+        for (subagent_id, attempt_id) in plan.background_subagents {
+            if let Some(info) = agent
+                .subagent_sessions
+                .values_mut()
+                .find(|info| info.subagent_id.as_ref() == subagent_id)
+            {
+                info.attempt.pending_kill = true;
+                info.attempt.kill_requested_at = Some(std::time::Instant::now());
+            }
+            effects.push(Effect::KillSubagent {
+                session_id: session_id.clone(),
+                subagent_id,
+                attempt_id,
+            });
+        }
+        for name in plan.active_workflows {
+            effects.push(Effect::SendPrompt {
+                agent_id: agent.session.id,
+                session_id: session_id.clone(),
+                text: format!("/workflow stop {name}"),
+                prompt_id: uuid::Uuid::new_v4().to_string(),
+                skill_token_ranges: Vec::new(),
             });
         }
     }

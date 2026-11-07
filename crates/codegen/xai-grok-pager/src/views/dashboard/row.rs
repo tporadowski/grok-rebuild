@@ -384,7 +384,7 @@ pub fn classify_top_level(agent: &AgentView) -> RowState {
     RowState::Idle
 }
 /// Whether `agent` has live background work that keeps it out of the `Idle` group even when its
-/// turn is idle.
+/// turn is idle. A running background subagent or an active workflow run counts (`v75-x16`).
 pub fn has_background_work(agent: &AgentView) -> bool {
     agent
         .session
@@ -392,6 +392,12 @@ pub fn has_background_work(agent: &AgentView) -> bool {
         .values()
         .any(|t| t.status == crate::app::agent::BgTaskStatus::Running)
         || !agent.session.scheduled_tasks.is_empty()
+        || agent.subagent_sessions.values().any(|info| {
+            info.is_running()
+                && info.attempt.is_background
+                && info.attempt.workflow_run_id.is_none()
+        })
+        || agent.workflow_runs.iter().any(|run| run.is_active())
 }
 /// Sanitise every string derived from backend / model-controlled content before returning.
 /// The dashboard's renderer paints raw via `set_string`, which preserves embedded escape sequences in the ratatui buffer.

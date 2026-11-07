@@ -8223,3 +8223,69 @@ fn stop_readiness_predicate_matches_the_built_plan() {
     assert!(!DashboardStopPlan::would_stop_anything(agent));
     agree(agent);
 }
+
+#[test]
+fn dashboard_stop_ends_background_subagents_and_workflows() {
+    use crate::app::agent_view::test_fixtures::running_subagent_info;
+    use crate::views::workflows::WorkflowRunSnapshot;
+    let mut app = test_app_with_agent();
+    {
+        let agent = test_agent_mut(&mut app, AgentId(0));
+        agent.display_name = Some("port".into());
+        agent.session.session_id = Some(acp::SessionId::new("test-session"));
+        agent.session.state = crate::app::agent::AgentState::Idle;
+        let mut child = running_subagent_info("child");
+        child.attempt.is_background = true;
+        agent.subagent_sessions.insert("child".into(), child);
+        agent.workflow_runs.push(WorkflowRunSnapshot {
+            run_id: "wf-1".into(),
+            name: "deep-research".into(),
+            objective: String::new(),
+            status: "active".into(),
+            management_available: true,
+            builtin: false,
+            phases: Vec::new(),
+            current_phase: None,
+            agents: Vec::new(),
+            agent_budget: None,
+            agents_used: 0,
+            agents_reserved: 0,
+            agents_remaining: None,
+            agent_usage_incomplete: false,
+            active_agents: 0,
+            elapsed_ms: 0,
+            received_at: std::time::Instant::now(),
+            pause_message: None,
+            result_summary: None,
+        });
+    }
+    open_dashboard(&mut app);
+    if let Some(dashboard) = app.dashboard.as_mut() {
+        dashboard.selected = Some(crate::views::dashboard::DashboardRowId::TopLevel(AgentId(
+            0,
+        )));
+    }
+    let effects = dispatch_dashboard_stop(&mut app);
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::KillSubagent { subagent_id, .. } if subagent_id == "sa-child"
+        )),
+        "stop must cancel the background subagent, got {effects:?}"
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::SendPrompt { text, .. } if text == "/workflow stop deep-research"
+        )),
+        "stop must end the active workflow, got {effects:?}"
+    );
+    let agent = test_agent(&app, AgentId(0));
+    assert!(
+        agent
+            .subagent_sessions
+            .values()
+            .any(|info| info.attempt.pending_kill),
+        "the subagent row is marked stopping"
+    );
+}

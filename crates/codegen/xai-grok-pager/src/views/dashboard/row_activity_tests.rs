@@ -284,18 +284,34 @@ fn live_chips_update_on_completion_without_changing_row_classification() {
 }
 
 #[test]
-fn subagent_and_workflow_only_keep_existing_idle_classification() {
-    let mut agent = agent();
-    agent
+fn background_subagent_or_active_workflow_keeps_the_row_working() {
+    let mut background = agent();
+    let mut child = running_subagent_info("child");
+    child.attempt.is_background = true;
+    background
         .subagent_sessions
-        .insert("child".to_owned(), running_subagent_info("child"));
-    agent.workflow_runs.push(workflow("active"));
-    let row = row(agent);
-    assert_eq!(
-        (
-            RowState::Idle,
-            vec![RowBadge::Subagents(1), RowBadge::Workflows(1)]
-        ),
-        (row.state, row.badges)
-    );
+        .insert("child".to_owned(), child);
+    let background_row = row(background);
+    assert_eq!(RowState::Working, background_row.state);
+    assert_eq!(vec![RowBadge::Subagents(1)], background_row.badges);
+
+    let mut flow = agent();
+    flow.workflow_runs.push(workflow("active"));
+    let flow_row = row(flow);
+    assert_eq!(RowState::Working, flow_row.state);
+    assert_eq!(vec![RowBadge::Workflows(1)], flow_row.badges);
+
+    let mut idle = agent();
+    let mut finished = running_subagent_info("done");
+    finished.attempt.is_background = true;
+    finished.set_finished_for_test(true);
+    idle.subagent_sessions.insert("done".to_owned(), finished);
+    idle.workflow_runs.push(workflow("complete"));
+    assert_eq!(RowState::Idle, row(idle).state);
+
+    let mut foreground = agent();
+    foreground
+        .subagent_sessions
+        .insert("fg".to_owned(), running_subagent_info("fg"));
+    assert_eq!(RowState::Idle, row(foreground).state);
 }
