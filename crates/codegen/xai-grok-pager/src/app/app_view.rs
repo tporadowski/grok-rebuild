@@ -1616,6 +1616,7 @@ impl AppView {
             model_id: self.cli_model_override.clone()?,
             effort: None,
             prev_model_id: None,
+            context_window_selection: None,
         })
     }
     /// Voice capture is available: the in-prompt dictation overlay can show and Ctrl+Space can start capture.
@@ -2423,6 +2424,16 @@ impl AppView {
                     && let Event::Key(key) = ev
                     && key.kind != KeyEventKind::Release
                 {
+                    // Left on an empty prompt opens the dashboard from any session, not only an overlay.
+                    if key.code == KeyCode::Left
+                        && key.modifiers.is_empty()
+                        && self
+                            .agents
+                            .get(&id)
+                            .is_some_and(|agent| agent.is_empty_focused_prompt())
+                    {
+                        return InputOutcome::Action(Action::OpenDashboard);
+                    }
                     match self
                         .registry
                         .lookup(key, crate::actions::When::DashboardOverlay)
@@ -3633,6 +3644,16 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
             *ctx.prompt_focused = true;
             *ctx.menu_index = None;
             return InputOutcome::ActionThenForward(Action::LeaveHome);
+        }
+        if *ctx.prompt_focused
+            && matches!(ctx.auth_state, AuthState::Done)
+            && key.code == KeyCode::Left
+            && key.modifiers.is_empty()
+            && ctx.prompt.text().is_empty()
+            && ctx.prompt.textarea.selection_range().is_none()
+            && !ctx.prompt.history_search.is_active()
+        {
+            return InputOutcome::Action(Action::OpenDashboard);
         }
         if *ctx.prompt_focused {
             let had_highlight = ctx.prompt.textarea.selection_range().is_some();

@@ -819,6 +819,7 @@ fn tick_demand_fast_while_modal_session_picker_loads() {
             entries_query: None,
             source_filter: crate::views::session_picker::SourceFilter::default(),
             pending_delete: None,
+            grouped: true,
         });
     assert_eq!(
         app.tick_demand(),
@@ -6767,6 +6768,42 @@ fn overlay_q_esc_do_not_exit_while_input_overlay_pending() {
         }
     }
 }
+/// Left on an empty focused prompt opens the dashboard from a normal session and from the welcome screen.
+#[test]
+fn left_on_empty_prompt_opens_dashboard_outside_the_overlay() {
+    let mut app = test_app_with_agent();
+    let id = crate::app::agent::AgentId(0);
+    app.active_view = ActiveView::Agent(id);
+    app.agents.get_mut(&id).unwrap().active_pane = crate::app::agent_view::AgentPane::Prompt;
+    let outcome = app.handle_input(&key_event(KeyCode::Left, KeyModifiers::NONE));
+    assert!(
+        matches!(outcome, InputOutcome::Action(Action::OpenDashboard)),
+        "Left on an empty session prompt must open the dashboard, got {outcome:?}",
+    );
+
+    app.agents
+        .get_mut(&id)
+        .unwrap()
+        .prompt
+        .textarea
+        .insert_str("draft");
+    let typed = app.handle_input(&key_event(KeyCode::Left, KeyModifiers::NONE));
+    assert!(
+        !matches!(typed, InputOutcome::Action(Action::OpenDashboard)),
+        "Left inside a draft must move the cursor, got {typed:?}",
+    );
+
+    let mut welcome = test_app();
+    assert!(matches!(welcome.active_view, ActiveView::Welcome));
+    // `test_app` leaves the welcome prompt unfocused. Left only opens the dashboard from a focused prompt.
+    welcome.welcome_prompt_focused = true;
+    let welcome_left = welcome.handle_input(&key_event(KeyCode::Left, KeyModifiers::NONE));
+    assert!(
+        matches!(welcome_left, InputOutcome::Action(Action::OpenDashboard)),
+        "Left on the empty welcome prompt must open the dashboard, got {welcome_left:?}",
+    );
+}
+
 /// Left arrow on an empty, prompt-focused overlay backs out to the dashboard, the mirror of the dashboard's Right-arrow "open detail".
 /// Requires the prompt to be focused with an empty buffer.
 #[test]
