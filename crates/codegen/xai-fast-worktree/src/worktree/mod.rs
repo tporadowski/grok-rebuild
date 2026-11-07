@@ -414,6 +414,53 @@ mod tests {
         assert!(result.symlinks_copied >= 1);
     }
     #[test]
+    fn test_git_checkout_preserves_uncommitted_changes() {
+        xai_test_utils::require_git!();
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path().join("repo");
+        std::fs::create_dir(&repo_path).unwrap();
+        init_git_repo(&repo_path);
+        std::fs::write(repo_path.join("file.txt"), "original").unwrap();
+        std::fs::write(repo_path.join("gone.txt"), "remove me").unwrap();
+        git_commit_all(&repo_path, "initial");
+        std::fs::write(repo_path.join("file.txt"), "modified").unwrap();
+        std::fs::write(repo_path.join("new.txt"), "untracked").unwrap();
+        std::fs::remove_file(repo_path.join("gone.txt")).unwrap();
+
+        let kept = temp.path().join("kept");
+        let result = WorktreeBuilder::new(repo_path.clone(), kept.clone())
+            .creation_mode(crate::CreationMode::GitCheckout)
+            .working_tree_mode(WorkingTreeMode::PreserveWorkingTree)
+            .create()
+            .unwrap();
+        assert_eq!(result.resolved_strategy, STRATEGY_GIT);
+        assert_eq!(
+            std::fs::read_to_string(kept.join("file.txt")).unwrap(),
+            "modified"
+        );
+        assert_eq!(
+            std::fs::read_to_string(kept.join("new.txt")).unwrap(),
+            "untracked"
+        );
+        assert!(!kept.join("gone.txt").exists());
+
+        let clean = temp.path().join("clean");
+        WorktreeBuilder::new(repo_path, clean.clone())
+            .creation_mode(crate::CreationMode::GitCheckout)
+            .working_tree_mode(WorkingTreeMode::CleanAll)
+            .create()
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(clean.join("file.txt")).unwrap(),
+            "original"
+        );
+        assert!(!clean.join("new.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(clean.join("gone.txt")).unwrap(),
+            "remove me"
+        );
+    }
+    #[test]
     fn test_worktree_with_dirty_files() {
         xai_test_utils::require_git!();
         let temp = TempDir::new().unwrap();

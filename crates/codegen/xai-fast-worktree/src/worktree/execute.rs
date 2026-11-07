@@ -1159,6 +1159,7 @@ fn execute_git_checkout_worktree(plan: WorktreePlan) -> Result<CreateWorktreeRes
     let source = &plan.source;
     let dest = &plan.dest;
     let git_ref = &plan.git_ref;
+    let working_tree = plan.working_tree;
     let workers = plan.effective_parallelism();
     let source_root = git::find_worktree_root(source)
         .with_context(|| format!("failed to find git root for {}", source.display()))?;
@@ -1201,6 +1202,24 @@ fn execute_git_checkout_worktree(plan: WorktreePlan) -> Result<CreateWorktreeRes
         elapsed = ?start.elapsed(),
         "git worktree add (with checkout) complete"
     );
+    // `git worktree add` checks out the commit and drops the source working tree.
+    // `-w` asks to keep uncommitted changes when the ref is HEAD. A named `--ref`
+    // stays a clean checkout of that ref.
+    let preserve_dirty = matches!(working_tree, WorkingTreeMode::PreserveWorkingTree)
+        && (git_ref == "HEAD" || git_ref.is_empty());
+    let mut dirty_files_report = None;
+    if preserve_dirty {
+        let guard = PartialWorktreeGuard::new(dest);
+        let report = crate::sync::WorktreeSync::new(&source_root, dest)
+            .sync_dirty_state()
+            .context("failed to copy uncommitted changes into the git worktree")?;
+        dirty_files_report = Some(crate::copy::DirtyFilesReport {
+            modified_files: report.dirty_files_copied,
+            untracked_files: 0,
+            deleted_files: report.files_deleted,
+        });
+        guard.disarm();
+    }
     let commit = git::get_head_commit(dest).context("failed to get HEAD commit")?;
     tracing::info!(
         elapsed = ?start.elapsed(),
@@ -1213,7 +1232,7 @@ fn execute_git_checkout_worktree(plan: WorktreePlan) -> Result<CreateWorktreeRes
         commit,
         copy_stats: CopyStats::default(),
         ignored_stats: None,
-        dirty_files_report: None,
+        dirty_files_report,
         resolved_strategy: crate::worktree::STRATEGY_GIT,
         strategy_metadata: None,
         skipped: Vec::new(),
