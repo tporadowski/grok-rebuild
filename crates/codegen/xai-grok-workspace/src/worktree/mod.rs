@@ -1590,9 +1590,10 @@ pub async fn remove_worktree(
     };
     let worktree_path = Path::new(&resolved);
 
-    if !req.force && !may_unforced_remove(worktree_path, &resolved) {
-        anyhow::bail!("refusing to remove {resolved}: it is not a grok worktree");
-    }
+    // `-f` skips the unsaved-work and in-use checks below. It does not make a
+    // git repository, a `.git` directory, or any other folder grok did not
+    // create removable.
+    refuse_unowned_removal(worktree_path, &resolved)?;
 
     tracing::info!(
         target: WORKTREE_LOG,
@@ -3383,6 +3384,27 @@ fn refuse_label_in_multiple_repos(db: &WorktreeDb, label: &str) -> Result<()> {
     Ok(())
 }
 
+fn refuse_unowned_removal(path: &Path, resolved: &str) -> Result<()> {
+    if path_targets_git_dir(path) {
+        anyhow::bail!("refusing to remove {resolved}: it is a git directory");
+    }
+    if may_unforced_remove(path, resolved) {
+        return Ok(());
+    }
+    if path.join(".git").exists() {
+        anyhow::bail!("refusing to remove {resolved}: it is a git repository grok did not create");
+    }
+    anyhow::bail!("refusing to remove {resolved}: it is not a grok worktree");
+}
+
+/// The path is a `.git` directory or a bare repository, not a worktree checkout.
+fn path_targets_git_dir(path: &Path) -> bool {
+    if path.file_name().is_some_and(|name| name == ".git") {
+        return true;
+    }
+    path.join("HEAD").is_file() && path.join("objects").is_dir() && path.join("refs").is_dir()
+}
+
 /// A directory grok created: registered, or living under `<grok home>/worktrees`.
 fn may_unforced_remove(path: &Path, resolved: &str) -> bool {
     if path_is_grok_worktree_dir(path) {
@@ -5054,6 +5076,95 @@ mod tests {
         )
         .await
         .expect("a directory under the managed worktree root can still be removed");
+        assert!(!managed.exists());
+    }
+
+    #[tokio::test]
+    async fn forced_rm_refuses_a_repo_a_git_dir_and_an_unmanaged_folder() {
+        xai_test_utils::require_git!();
+        use xai_test_utils::git::{git_commit_all, init_git_repo};
+        let temp = tempfile::TempDir::new().unwrap();
+        let home = temp.path().join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &home);
+        let ctx = BackgroundCopyContext::new();
+        async fn force_rm(
+            ctx: &BackgroundCopyContext,
+            path: &std::path::Path,
+        ) -> anyhow::Result<RemoveWorktreeResponse> {
+            remove_worktree(
+                &RemoveWorktreeRequest {
+                    worktree_path: Some(path.to_string_lossy().into_owned()),
+                    id_or_path: None,
+                    force: true,
+                    dry_run: false,
+                },
+                ctx,
+            )
+            .await
+        }
+
+        let repo = temp.path().join("project");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_git_repo(&repo);
+        std::fs::write(repo.join("keep.txt"), "stay").unwrap();
+        git_commit_all(&repo, "initial");
+        let err = force_rm(&ctx, &repo)
+            .await
+            .expect_err("a git repository must be refused");
+        assert!(
+            err.to_string().contains("git repository"),
+            "expected a repository refusal, got {err}"
+        );
+        assert!(repo.join("keep.txt").is_file());
+
+        let git_dir = repo.join(".git");
+        let marker = git_dir.join("keep-marker");
+        std::fs::write(&marker, "stay").unwrap();
+        let err = force_rm(&ctx, &git_dir)
+            .await
+            .expect_err("a .git directory must be refused");
+        assert!(
+            err.to_string().contains("git directory"),
+            "expected a git-directory refusal, got {err}"
+        );
+        assert!(marker.is_file());
+
+        let plain = temp.path().join("notes");
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::write(plain.join("keep.txt"), "stay").unwrap();
+        let err = force_rm(&ctx, &plain)
+            .await
+            .expect_err("a directory grok did not create must be refused");
+        assert!(
+            err.to_string().contains("not a grok worktree"),
+            "expected an unmanaged-folder refusal, got {err}"
+        );
+        assert!(plain.join("keep.txt").is_file());
+
+        let nested_git = home
+            .join("worktrees")
+            .join("repo")
+            .join("name")
+            .join(".git");
+        std::fs::create_dir_all(&nested_git).unwrap();
+        std::fs::write(nested_git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let err = force_rm(&ctx, &nested_git)
+            .await
+            .expect_err("a .git directory under the managed root must be refused");
+        assert!(
+            nested_git.join("HEAD").is_file(),
+            "forced rm deleted .git: {err}"
+        );
+
+        let managed = home.join("worktrees").join("repo").join("feature");
+        std::fs::create_dir_all(&managed).unwrap();
+        init_git_repo(&managed);
+        std::fs::write(managed.join("gone.txt"), "remove").unwrap();
+        git_commit_all(&managed, "initial");
+        force_rm(&ctx, &managed)
+            .await
+            .expect("a directory under the managed worktree root can still be removed");
         assert!(!managed.exists());
     }
 
