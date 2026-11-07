@@ -117,6 +117,14 @@ fn select(paths: &[PathBuf], cwd_parent: Option<&Path>) -> Option<PathBuf> {
     selected.filter(|path| cwd_parent.is_none_or(|parent| path.parent() == Some(parent)))
 }
 
+/// One unreadable session directory must not fail `grok sessions list` or `/resume`.
+fn skip_unreadable(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+    )
+}
+
 fn load_candidates(sessions_root: &Path) -> Result<(SessionCandidates, SessionCandidates)> {
     let entries = match fs::read_dir(sessions_root) {
         Ok(entries) => entries,
@@ -140,19 +148,19 @@ fn load_candidates(sessions_root: &Path) -> Result<(SessionCandidates, SessionCa
         // cwd bucket after readdir(parent) and before we open it.
         let session_entries = match fs::read_dir(&cwd_path) {
             Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) if skip_unreadable(&error) => continue,
             Err(error) => return Err(io_error("read", &cwd_path, error)),
         };
         for session_entry in session_entries {
             let session_entry = match session_entry {
                 Ok(entry) => entry,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) if skip_unreadable(&error) => continue,
                 Err(error) => return Err(io_error("read", &cwd_path, error)),
             };
             let path = session_entry.path();
             let file_type = match session_entry.file_type() {
                 Ok(file_type) => file_type,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) if skip_unreadable(&error) => continue,
                 Err(error) => return Err(io_error("inspect", &path, error)),
             };
             let Some(id) = session_entry.file_name().to_str().map(str::to_owned) else {
@@ -169,7 +177,7 @@ fn load_candidates(sessions_root: &Path) -> Result<(SessionCandidates, SessionCa
                 {
                     persisted.entry(id).or_default().push(path);
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) if skip_unreadable(&error) => {}
                 Err(error) => return Err(io_error("inspect", &summary, error)),
                 Ok(_) => {}
             }
@@ -212,5 +220,47 @@ mod tests {
         }
         stop.store(true, Ordering::Relaxed);
         writer.join().expect("writer thread");
+    }
+
+    #[test]
+    fn load_skips_unreadable_session_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let sessions = tmp.path();
+        let good = sessions.join("good-cwd").join("good-session");
+        fs::create_dir_all(&good).unwrap();
+        fs::write(good.join("summary.json"), b"{}").unwrap();
+        let bad = sessions.join("bad-cwd").join("bad-session");
+        fs::create_dir_all(&bad).unwrap();
+        fs::write(bad.join("summary.json"), b"{}").unwrap();
+        let restore = bad.clone();
+        let _reset = scopeguard_perms(&restore);
+        let mut perms = fs::metadata(&bad).unwrap().permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&bad, perms).unwrap();
+
+        let view = RelocationView::load_for_sessions_root(sessions)
+            .expect("an unreadable session directory must not fail the list");
+        let dirs = view.session_dirs(None).expect("list");
+        assert!(
+            dirs.iter().any(|path| path.ends_with("good-session")),
+            "readable session stays listed: {dirs:?}"
+        );
+        assert!(
+            dirs.iter().all(|path| !path.ends_with("bad-session")),
+            "unreadable session is skipped: {dirs:?}"
+        );
+    }
+
+    fn scopeguard_perms(path: &std::path::Path) -> PermReset {
+        PermReset(path.to_path_buf())
+    }
+
+    struct PermReset(std::path::PathBuf);
+    impl Drop for PermReset {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700));
+        }
     }
 }
