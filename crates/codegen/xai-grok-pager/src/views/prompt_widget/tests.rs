@@ -755,10 +755,10 @@
     }
 
     #[test]
-    fn paste_single_line_trailing_crlf_preserved() {
+    fn paste_single_line_trailing_crlf_becomes_newline() {
         let mut pw = PromptWidget::new();
         assert_eq!(pw.handle_paste("hello world\r\n"), PromptEvent::Edited);
-        assert_eq!(pw.textarea.text(), "hello world\r\n");
+        assert_eq!(pw.textarea.text(), "hello world\n");
         assert!(pw.textarea.elements().is_empty());
     }
 
@@ -1342,7 +1342,7 @@
 
     #[test]
     fn repaste_with_bare_cr_expands_chip() {
-        // normalize_line_breaks is an identity on \r\n; bare \r is its non-identity case
+        // Bare `\r` and `\r\n` both become `\n` before the chip is stored.
         // The chip stores the \n form, so the repaste comparison must normalize the incoming bytes before comparing
         let mut pw = PromptWidget::new();
         let text = "line1\rline2\rline3\rline4";
@@ -1841,18 +1841,17 @@
     }
 
     #[test]
-    fn paste_crlf_preserved() {
+    fn paste_crlf_becomes_newlines() {
         let mut pw = PromptWidget::new();
         pw.handle_paste("a\r\nb\r\nc");
-        assert_eq!(pw.textarea.text(), "a\r\nb\r\nc");
+        assert_eq!(pw.textarea.text(), "a\nb\nc");
     }
 
     #[test]
     fn paste_mixed_cr_and_crlf() {
-        // \r\n stays, standalone \r becomes \n
         let mut pw = PromptWidget::new();
         pw.handle_paste("a\r\nb\rc");
-        assert_eq!(pw.textarea.text(), "a\r\nb\nc");
+        assert_eq!(pw.textarea.text(), "a\nb\nc");
     }
 
     #[test]
@@ -1921,13 +1920,13 @@
     }
 
     #[test]
-    fn normalize_line_breaks_crlf_preserved() {
-        assert_eq!(normalize_line_breaks("a\r\nb\r\nc"), "a\r\nb\r\nc");
+    fn normalize_line_breaks_crlf_becomes_newlines() {
+        assert_eq!(normalize_line_breaks("a\r\nb\r\nc"), "a\nb\nc");
     }
 
     #[test]
     fn normalize_line_breaks_mixed() {
-        assert_eq!(normalize_line_breaks("a\r\nb\rc"), "a\r\nb\nc");
+        assert_eq!(normalize_line_breaks("a\r\nb\rc"), "a\nb\nc");
     }
 
     #[test]
@@ -1938,9 +1937,9 @@
     #[test]
     fn normalize_line_breaks_unicode_separators() {
         assert_eq!(normalize_line_breaks("a\u{2028}b\u{2029}c"), "a\nb\nc");
-        assert_eq!(normalize_line_breaks("a\r\nb\u{2029}c"), "a\r\nb\nc");
+        assert_eq!(normalize_line_breaks("a\r\nb\u{2029}c"), "a\nb\nc");
         assert_eq!(normalize_line_breaks("a\r\u{2029}b"), "a\n\nb");
-        assert_eq!(normalize_line_breaks("a\u{2028}\r\nb"), "a\n\r\nb");
+        assert_eq!(normalize_line_breaks("a\u{2028}\r\nb"), "a\n\nb");
     }
 
     #[test]

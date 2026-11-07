@@ -144,7 +144,7 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
 ### D-027 — Cherry-picked workflow, image, MCP, and CLI commits
-Unit tests in this checkout passed for `v50-x12`, `v50-x27`, `v50-x28`, `v50-x29`, `v50-x32`, `v50-x33`, `v51-f01`, `v51-x86`, `v51-x117`, `v52-x08`, `v53-f04`, `v53-x07`, `v53-x08`, `v53-x19`, `v64-f05`, `v66-x02`, `v72-x09`, and `v74-x24`. `v54-x01` is only partly in those commits: stray markdown `!` and currency amounts are tested, and Windows paste newlines are a separate change still to land.
+Unit tests in this checkout passed for `v50-x12`, `v50-x27`, `v50-x28`, `v50-x29`, `v50-x32`, `v50-x33`, `v51-f01`, `v51-x86`, `v51-x117`, `v52-x08`, `v53-f04`, `v53-x07`, `v53-x08`, `v53-x19`, `v54-x01`, `v64-f05`, `v66-x02`, `v72-x09`, and `v74-x24`. `v54-x01` covers the stray markdown `!`, currency amounts, and Windows pastes: `\r\n` and bare `\r` become newlines in the composer.
 
 ### D-025 — W15 classifications
 `v54-p01` is already the slow welcome tick (`view_tick_demand` returns `TickDemand::Slow`, 83 ms). `v54-p04` is already `evict_offscreen_render_caches`, which drops off-screen render caches and keeps heights. `v69-p01` is already `run_and_shutdown`: `shutdown_timeout` is a ceiling, and its test checks that a clean exit returns before the grace. `v73-p01` is deferred: auth startup, `read_auth_json`, managed policy, and the config watcher have no ~100 ms wait on a missing sign-in file. The other 20 performance rows still need code. `v74-p01` is the later markdown-layout release and stays pending even though `v54-p04` already drops render caches.
@@ -190,16 +190,16 @@ Refresh these numbers at the end of a session.
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 39 | 0 | 2 | 0 | 0 |
-| W12 | MCP, web, images, and browser | 51 | 0 | 8 | 0 | 0 |
+| W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 26 | 0 | 1 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 513. Skipped: 8. Done: 41. Already: 13. Deferred: 8.
+Catalog rows: 583. Pending: 512. Skipped: 8. Done: 42. Already: 13. Deferred: 8.
 
-**Next:** W2, `v50-x09`. Cherry-picked workflow, tool, image, MCP, and CLI commits are tested (D-027). `v54-x01` still needs the Windows-paste newline half. W8 is still only in its worktree.
+**Next:** W2, `v50-x09`. Cherry-picked workflow, tool, image, MCP, and CLI commits are tested (D-027), including Windows paste newlines. W8 is still only in its worktree.
 
 ## Waves
 
@@ -249,7 +249,7 @@ Pending: 39. Done: 2. Look first: Headless entry points in `xai-grok-shell` and 
 
 ### W12 — MCP, web, images, and browser
 
-Pending: 51. Done: 8. Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing.
+Pending: 50. Done: 9. Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing.
 
 ### W13 — Update, install, and sign-in
 
@@ -625,7 +625,7 @@ id | status | wave | kind | flag | covered | note
 - v53-x11 | pending | W12 | Bug Fixes |  |  | **Parallel MCP tool calls** that ask for input each show their own prompt.
 - v53-x19 | done | W12 | Bug Fixes |  |  | **Stdio MCP servers** expand a leading `~` in their command and arguments to your home directory.
 - v53-x23 | pending | W12 | Bug Fixes |  |  | **Send now (Ctrl+Enter)** no longer answers the stop-subagents panel or an MCP prompt card.
-- v54-x01 | pending | W12 | Bug Fixes |  |  | **Pasted Windows line endings** reach the model as newlines, markdown images no longer show a stray "!", and dollar amounts that are not math stay plain text.
+- v54-x01 | done | W12 | Bug Fixes |  |  | **Pasted Windows line endings** reach the model as newlines, markdown images no longer show a stray "!", and dollar amounts that are not math stay plain text.
 - v54-x11 | pending | W12 | Bug Fixes |  |  | **Failed MCP tool rows** wrap the error to the screen width and keep its line breaks.
 - v63-x05 | pending | W12 | Bug Fixes |  |  | **Custom models on Chat Completions endpoints outside xAI** no longer fail turns with a tool schema error when MCP servers are connected.
 - v64-f05 | done | W12 | Features |  |  | **HTTP connections**, including remote MCP servers, accept gzip, brotli, zstd, and deflate compressed responses.

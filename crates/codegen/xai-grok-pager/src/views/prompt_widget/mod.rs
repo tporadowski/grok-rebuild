@@ -3853,15 +3853,20 @@ fn chip_line(label: String) -> Line<'static> {
     ])
 }
 
-/// Normalize bare `\r`, U+2028, and U+2029 to `\n`, leaving `\r\n` intact. Rust's `str::lines()`
-/// splits on none of these, so without this normalization such pastes count as a single line and
-/// the invisible separators break the textarea's width model.
+/// Normalize `\r\n`, bare `\r`, U+2028, and U+2029 to `\n`. The composer text is what the model
+/// receives, so a Windows paste must arrive as newlines. Bare `\r` and the unicode separators are
+/// not splits for `str::lines()`, and leaving them would break the textarea width model.
 fn normalize_line_breaks(text: &str) -> String {
     let mut s = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '\r' if chars.peek() != Some(&'\n') => s.push('\n'),
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                s.push('\n');
+            }
             '\u{2028}' | '\u{2029}' => s.push('\n'),
             _ => s.push(c),
         }
