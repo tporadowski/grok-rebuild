@@ -2854,6 +2854,13 @@ pub async fn create_jj_workspace(
 
     let commit = jj_commit_id(Path::new(&dest)).await;
     tracing::info!(dest = %dest, commit = ?commit, "jj workspace created");
+    register_created_jj_workspace(
+        Path::new(&dest),
+        source_path,
+        &req.new_session_id,
+        req.label.as_deref(),
+        commit.as_deref(),
+    );
 
     Ok(CreateWorktreeFromWorktreeResponse {
         status: "created".to_string(),
@@ -2864,6 +2871,50 @@ pub async fn create_jj_workspace(
         source_git_root,
         strategy: None,
     })
+}
+
+/// Remember a jj workspace so `grok worktree list` and `show` can see it.
+fn register_created_jj_workspace(
+    dest: &Path,
+    source: &Path,
+    session_id: &str,
+    label: Option<&str>,
+    commit: Option<&str>,
+) {
+    let Ok(home) = resolve_grok_home() else {
+        return;
+    };
+    let Ok(db) = WorktreeDb::open(&home) else {
+        return;
+    };
+    let path = dunce::canonicalize(dest).unwrap_or_else(|_| dest.to_path_buf());
+    let source_repo = create_root::jj_repo_root(source).unwrap_or_else(|| source.to_path_buf());
+    let source_repo = dunce::canonicalize(&source_repo).unwrap_or(source_repo);
+    let metadata = label
+        .filter(|label| !label.is_empty())
+        .map(|label| build_label_metadata(label, true));
+    let record = WorktreeRecord {
+        id: session_id.to_string(),
+        path,
+        source_repo: source_repo.clone(),
+        repo_name: source_repo
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "repo".to_string()),
+        kind: WorktreeKind::Manual,
+        creation_mode: "jj".to_string(),
+        git_ref: None,
+        head_commit: commit.map(str::to_owned),
+        session_id: Some(session_id.to_string()),
+        creator_pid: Some(std::process::id()),
+        created_at: xai_fast_worktree::now_epoch_secs(),
+        last_accessed_at: None,
+        status: xai_fast_worktree::WorktreeStatus::Alive,
+        metadata,
+    };
+    if let Err(error) = db.register(&record) {
+        tracing::warn!(%error, "failed to register jj workspace");
+    }
 }
 
 /// Remove a jj workspace: forget + delete directory.
@@ -3490,6 +3541,25 @@ mod tests {
         let outside =
             build_candidate_list("/repo/wt-1", "/repo/main", &[record_at("/repo/wt-a")], &[]);
         assert_eq!(outside, vec!["/repo/wt-1", "/repo/main", "/repo/wt-a"]);
+    }
+
+    #[test]
+    fn jj_workspace_is_visible_to_worktree_show() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = dunce::canonicalize(temp.path()).unwrap();
+        let home = root.join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &home);
+        let source = root.join("jj-repo");
+        std::fs::create_dir_all(source.join(".jj")).unwrap();
+        let dest = home.join("worktrees").join("jj-repo").join("feature");
+        std::fs::create_dir_all(&dest).unwrap();
+        register_created_jj_workspace(&dest, &source, "wt-jj-1", Some("feature"), Some("abc123"));
+        let shown = show_worktree("feature")
+            .unwrap()
+            .expect("show by label finds the jj workspace");
+        assert_eq!(shown.path, dunce::canonicalize(&dest).unwrap());
+        assert_eq!(shown.creation_mode, "jj");
     }
 
     /// A real `config.toml` is a document with table headers, not a bare value.

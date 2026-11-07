@@ -319,15 +319,32 @@ pub async fn git_or_grove_root_async(path: &Path, grove: bool) -> Option<PathBuf
         .flatten()
 }
 
+/// A checkout grok should drive with `jj`, including a repo libgit2 cannot open.
+pub fn checkout_is_jj(path: &Path, grove: bool) -> bool {
+    match git_or_grove_root(path, grove) {
+        Some(root) => crate::session::git::detect_vcs_kind(&root).is_jj(),
+        None => jj_repo_root(path).is_some(),
+    }
+}
+
+/// Nearest ancestor whose `.jj` directory marks a Jujutsu checkout.
+pub fn jj_repo_root(path: &Path) -> Option<PathBuf> {
+    let mut cur = Some(path);
+    while let Some(dir) = cur {
+        if dir.join(".jj").is_dir() {
+            return Some(dir.to_path_buf());
+        }
+        cur = dir.parent();
+    }
+    None
+}
+
 /// Discover + `.jj` check off the async runtime.
 pub async fn git_or_grove_is_jj_async(path: &Path, grove: bool) -> bool {
     let path = path.to_path_buf();
-    crate::worktree::blocking_copy_on_write(move || {
-        git_or_grove_root(&path, grove)
-            .is_some_and(|root| crate::session::git::detect_vcs_kind(&root).is_jj())
-    })
-    .await
-    .unwrap_or(false)
+    crate::worktree::blocking_copy_on_write(move || checkout_is_jj(&path, grove))
+        .await
+        .unwrap_or(false)
 }
 
 ///

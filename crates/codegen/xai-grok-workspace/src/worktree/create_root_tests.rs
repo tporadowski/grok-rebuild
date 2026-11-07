@@ -716,6 +716,20 @@ fn jj_slug_uses_main_repo_for_linked_worktree() {
 }
 
 #[test]
+fn checkout_is_jj_accepts_a_repo_without_git() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let repo = temp.path().join("jj-only");
+    let nested = repo.join("crates").join("pager");
+    std::fs::create_dir_all(repo.join(".jj")).unwrap();
+    std::fs::create_dir_all(&nested).unwrap();
+    assert!(
+        super::checkout_is_jj(&nested, false),
+        "a .jj directory is a Jujutsu checkout even when libgit2 finds no git root"
+    );
+    assert!(!super::checkout_is_jj(temp.path(), false));
+}
+
+#[test]
 fn probe_nested_git_inside_covering_mount_is_none() {
     let temp = tempfile::TempDir::new().unwrap();
     let dest = temp.path().join("acme");
