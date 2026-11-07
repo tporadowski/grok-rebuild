@@ -83,32 +83,37 @@ pub(super) async fn fire_session_end_hooks(
 ) {
     let span = session_end::span(Phase::Hooks);
     start.seal_and_join().await;
-    let envelope = session.fire_hook(
-        xai_grok_hooks::event::HookEventName::SessionEnd,
-        None,
-        xai_grok_hooks::event::HookPayload::SessionEnd {
-            reason: reason.to_string(),
-            subagent_type: session.subagent_type_label(),
-            turn_count: None,
-            tool_call_count: None,
-        },
-    );
-    if let Some(registry) = session.hook_registry.borrow().clone() {
-        let _dispatch = session_end::timed_child(timer, Phase::HooksDispatch, span.span());
-        let ctx = session.hook_run_ctx();
-        let results = xai_grok_hooks::dispatcher::dispatch_non_blocking(
-            &registry,
+    let session_end = async {
+        let envelope = session.fire_hook(
             xai_grok_hooks::event::HookEventName::SessionEnd,
-            &envelope,
-            &ctx,
-        )
-        .await;
-        session
-            .send_hook_execution(&HookBatch::from_envelope(&envelope), &results)
+            None,
+            xai_grok_hooks::event::HookPayload::SessionEnd {
+                reason: reason.to_string(),
+                subagent_type: session.subagent_type_label(),
+                turn_count: None,
+                tool_call_count: None,
+            },
+        );
+        if let Some(registry) = session.hook_registry.borrow().clone() {
+            let _dispatch = session_end::timed_child(timer, Phase::HooksDispatch, span.span());
+            let ctx = session.hook_run_ctx();
+            let results = xai_grok_hooks::dispatcher::dispatch_non_blocking(
+                &registry,
+                xai_grok_hooks::event::HookEventName::SessionEnd,
+                &envelope,
+                &ctx,
+            )
             .await;
-    }
-    let _stop = session_end::timed_child(timer, Phase::HooksStop, span.span());
-    session.dispatch_session_end_stop(reason).await;
+            session
+                .send_hook_execution(&HookBatch::from_envelope(&envelope), &results)
+                .await;
+        }
+    };
+    let stop = async {
+        let _stop = session_end::timed_child(timer, Phase::HooksStop, span.span());
+        session.dispatch_session_end_stop(reason).await;
+    };
+    tokio::join!(session_end, stop);
 }
 /// Cancel the feedback sync loop, drain/sync under exit budgets, persist background-task state, and drop scratch.
 /// Owns the single final signal sync via [`FeedbackManager::shutdown`]; the sync loop cancel arm does not sync.

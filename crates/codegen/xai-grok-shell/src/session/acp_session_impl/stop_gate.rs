@@ -8,7 +8,17 @@ use xai_grok_hooks::{dispatcher, result};
 
 pub const MAX_STOP_HOOK_CONTINUATIONS_PER_TURN: u32 = 8;
 
-const SESSION_END_STOP_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+const SESSION_END_STOP_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
+
+#[cfg(test)]
+mod session_end_budget_tests {
+    use super::SESSION_END_STOP_BUDGET;
+
+    #[test]
+    fn session_end_stop_budget_is_one_and_a_half_seconds() {
+        assert_eq!(SESSION_END_STOP_BUDGET.as_millis(), 1500);
+    }
+}
 
 fn commit_stop_report(claim: TurnReportClaim<'_>, prompt_id: &str) {
     if claim.commit() == CommitOutcome::LostToAnotherReporter {
