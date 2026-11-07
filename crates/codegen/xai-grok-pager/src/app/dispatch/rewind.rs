@@ -387,6 +387,9 @@ pub(super) fn dispatch_rewind_success(
 
     if let Some(ref prompt_text) = response.prompt_text {
         agent.prompt.set_text_discarding_images(prompt_text);
+        // set_text keeps the previous cursor. A rewind restores a prompt the user will edit, so the caret belongs at the end.
+        let end = agent.prompt.textarea.text().len();
+        agent.prompt.set_cursor(end);
     } else if let Some(draft) = stashed_draft {
         agent.prompt.restore(draft);
     }

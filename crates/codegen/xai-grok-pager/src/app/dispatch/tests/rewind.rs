@@ -561,6 +561,11 @@ fn rewind_success_nonzero_target_keeps_prefix_and_toasts() {
         agent.toast.as_ref().map(|(m, _)| m.as_str()),
         Some("Reverted conversation")
     );
+    assert_eq!(
+        agent.prompt.cursor(),
+        "turn 1".len(),
+        "rewind places the cursor at the end of the restored prompt"
+    );
 }
 
 /// Classic points-loaded path with confirm off executes immediately.
