@@ -78,7 +78,7 @@ mod tests {
         use crate::slash::command::SlashCommand;
         let description = AlwaysApproveCommand.description();
         assert!(
-            description.contains("saved to config"),
+            description.contains("Saved to config"),
             "{description}"
         );
     }
