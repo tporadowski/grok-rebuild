@@ -81,6 +81,31 @@ fn modified_or_untracked_file_keeps_the_worktree() {
 }
 
 #[test]
+fn empty_untracked_folders_do_not_keep_the_worktree() {
+    let fixture = Fixture::new("");
+    let empty = fixture.linked_worktree("empty-folders");
+    std::fs::create_dir_all(empty.join("notes/drafts")).unwrap();
+    std::fs::create_dir_all(empty.join("scratch")).unwrap();
+
+    assert_eq!(reclaim(&empty), Safety::Delete);
+    assert!(
+        !empty.exists(),
+        "a worktree whose only extra content is empty folders must be removed"
+    );
+
+    let with_file = fixture.linked_worktree("folder-with-file");
+    let written = with_file.join("notes/drafts/idea.md");
+    std::fs::create_dir_all(written.parent().unwrap()).unwrap();
+    std::fs::write(&written, b"keep me").unwrap();
+
+    assert_eq!(reclaim(&with_file), Safety::Keep(KeepReason::Dirty));
+    assert_eq!(
+        std::fs::read(&written).expect("the untracked file is gone"),
+        b"keep me"
+    );
+}
+
+#[test]
 fn embedded_repository_keeps_the_worktree_whatever_was_captured() {
     let fixture = Fixture::new("");
     let worktree = fixture.linked_worktree("embedded");

@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use gix::bstr::BString;
 use gix::dir::entry::{Kind as DirEntryKind, Status as DirEntryStatus};
 use gix::dir::walk::{CollapsedEntriesEmissionMode, EmissionMode, ForDeletionMode};
@@ -99,7 +101,24 @@ pub(super) fn find_working_tree_content(
                     {
                         return Some(KeepReason::EmbeddedRepo(entry.rela_path.to_string()));
                     }
-                    DirEntryStatus::Untracked => !is_build_output(repo, &entry),
+                    // Nested empty folders collapse into one untracked directory.
+                    // Git cannot store that, so it is not unsaved work. A file
+                    // anywhere under it still is. A read error keeps the worktree.
+                    DirEntryStatus::Untracked => {
+                        match directory_is_only_empty_folders(&workdir, &entry) {
+                            Ok(true) => false,
+                            Ok(false) => !is_build_output(repo, &entry),
+                            Err(error) => {
+                                tracing::warn!(
+                                    git_dir = %repo.git_dir().display(),
+                                    path = %entry.rela_path,
+                                    %error,
+                                    "failed to read an untracked directory"
+                                );
+                                return Some(KeepReason::CheckFailed);
+                            }
+                        }
+                    }
                     DirEntryStatus::Ignored(_) if is_build_output(repo, &entry) => false,
                     DirEntryStatus::Ignored(_) => {
                         ignored_content.get_or_insert_with(|| {
@@ -126,6 +145,21 @@ pub(super) fn find_working_tree_content(
         }
     }
     ignored_content
+}
+
+/// `Ok(true)` when `entry` is a directory whose tree contains only directories.
+fn directory_is_only_empty_folders(
+    workdir: &Path,
+    entry: &gix::dir::Entry,
+) -> std::io::Result<bool> {
+    let Some(kind) = entry.disk_kind else {
+        return Ok(false);
+    };
+    if kind == DirEntryKind::Repository || !kind.is_dir() {
+        return Ok(false);
+    }
+    let path = workdir.join(gix::path::from_byte_slice(&entry.rela_path));
+    has_any_file(&path).map(|found| !found)
 }
 
 pub(super) fn find_gitlink_content(repo: &gix::Repository) -> Option<KeepReason> {
