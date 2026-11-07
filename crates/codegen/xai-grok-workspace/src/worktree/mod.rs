@@ -3081,7 +3081,40 @@ pub fn list_worktrees(
         records.retain(|r| types.iter().any(|t| t == r.kind.as_ref()));
     }
 
+    // An interrupted create leaves a directory that was never registered.
+    // `grok worktree list` still shows it, including a copy with no `.git` yet.
+    if let Ok(home) = resolve_grok_home() {
+        let mut known: HashSet<std::path::PathBuf> = records
+            .iter()
+            .map(|record| record_path_key(&record.path))
+            .collect();
+        for found in xai_fast_worktree::discover_worktrees(&home).found {
+            let record = found.into_record();
+            if let Some(kind) = kind
+                && record.kind != kind
+            {
+                continue;
+            }
+            if types.len() > 1 && !types.iter().any(|t| t == record.kind.as_ref()) {
+                continue;
+            }
+            if let Some(repo_name) = repo
+                && record.repo_name != repo_name
+            {
+                continue;
+            }
+            let key = record_path_key(&record.path);
+            if known.insert(key) {
+                records.push(record);
+            }
+        }
+    }
+
     Ok(records)
+}
+
+fn record_path_key(path: &Path) -> std::path::PathBuf {
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub fn show_worktree(id_or_path: &str) -> Result<Option<WorktreeRecord>> {
@@ -4120,6 +4153,49 @@ mod tests {
         assert!(
             has(&from_main, &linked),
             "a linked worktree of this repo must stay visible: {from_main:?}"
+        );
+    }
+
+    #[test]
+    fn list_worktrees_shows_an_unfinished_copy() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let home = dunce::canonicalize(temp.path()).unwrap().join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &home);
+        let partial = home.join("worktrees").join("repo").join("half-copied");
+        std::fs::create_dir_all(&partial).unwrap();
+        std::fs::write(partial.join("README"), "still copying").unwrap();
+
+        let listed = list_worktrees(None, &[], false).unwrap();
+        let partial = dunce::canonicalize(&partial).unwrap();
+        assert!(
+            listed.iter().any(|record| record.path == partial),
+            "an interrupted copy must appear in grok worktree list, got {listed:?}"
+        );
+
+        let db = WorktreeDb::open(&home).unwrap();
+        db.register(&WorktreeRecord {
+            id: "half-copied".into(),
+            path: partial.clone(),
+            source_repo: "/repo".into(),
+            repo_name: "repo".into(),
+            kind: WorktreeKind::Session,
+            creation_mode: "linked".into(),
+            git_ref: None,
+            head_commit: None,
+            session_id: None,
+            creator_pid: None,
+            created_at: 1,
+            last_accessed_at: None,
+            status: xai_fast_worktree::WorktreeStatus::Alive,
+            metadata: None,
+        })
+        .unwrap();
+        let again = list_worktrees(None, &[], false).unwrap();
+        assert_eq!(
+            again.iter().filter(|record| record.path == partial).count(),
+            1,
+            "a registered copy must not be listed twice"
         );
     }
 
