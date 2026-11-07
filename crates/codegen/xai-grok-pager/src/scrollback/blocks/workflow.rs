@@ -34,6 +34,8 @@ pub struct WorkflowBlock {
     pub current_phase: Option<String>,
     pub active_agents: u32,
     pub elapsed: Duration,
+    /// What a finished run returned. The transcript line uses this instead of a bare colon.
+    pub result_summary: Option<String>,
 }
 
 impl WorkflowBlock {
@@ -51,7 +53,25 @@ impl WorkflowBlock {
             current_phase: None,
             active_agents: 0,
             elapsed: Duration::ZERO,
+            result_summary: None,
         }
+    }
+
+    /// Text after the status verb. A finished run prefers what it returned.
+    /// Newlines collapse so the transcript row stays one line.
+    fn detail_text(&self) -> String {
+        let objective = self.objective.replace('\n', " ");
+        let objective = objective.trim();
+        if !matches!(self.status, WorkflowBlockStatus::Running)
+            && let Some(summary) = self
+                .result_summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|summary| !summary.is_empty())
+        {
+            return summary.replace('\n', " ");
+        }
+        objective.to_string()
     }
 
     fn phase_trail(&self) -> Option<String> {
@@ -87,32 +107,37 @@ impl BlockContent for WorkflowBlock {
 
         let mut spans = vec![Span::styled("Workflow ", bold)];
         let verb = match &self.status {
-            WorkflowBlockStatus::Running => format!("{}: ", self.name),
+            WorkflowBlockStatus::Running => self.name.clone(),
             WorkflowBlockStatus::Done { elapsed } => {
-                format!("{} done in {}: ", self.name, format_duration(*elapsed))
+                format!("{} done in {}", self.name, format_duration(*elapsed))
             }
             WorkflowBlockStatus::Failed { elapsed } => {
-                format!("{} failed in {}: ", self.name, format_duration(*elapsed))
+                format!("{} failed in {}", self.name, format_duration(*elapsed))
             }
             WorkflowBlockStatus::Cancelled { elapsed } => {
                 format!(
-                    "{} {} cancelled after {}: ",
+                    "{} {} cancelled after {}",
                     self.name,
                     crate::glyphs::idle_mark(),
                     format_duration(*elapsed)
                 )
             }
             WorkflowBlockStatus::Paused { elapsed } => {
-                format!("{} paused at {}: ", self.name, format_duration(*elapsed))
+                format!("{} paused at {}", self.name, format_duration(*elapsed))
             }
+        };
+        let detail = self.detail_text();
+        let line = if detail.is_empty() {
+            verb
+        } else {
+            format!("{verb}: {detail}")
         };
         let text_style = if matches!(self.status, WorkflowBlockStatus::Cancelled { .. }) {
             theme.dim()
         } else {
             muted
         };
-        spans.push(Span::styled(verb, text_style));
-        spans.push(Span::styled(self.objective.replace('\n', " "), text_style));
+        spans.push(Span::styled(line, text_style));
         if let Some(trail) = self.phase_trail()
             && !trail.is_empty()
         {
@@ -306,5 +331,31 @@ mod tests {
         let text = line_text(&block);
         assert!(!text.contains('\n'));
         assert!(text.contains("line1 line2"));
+    }
+
+    #[test]
+    fn done_line_ends_with_the_result_instead_of_a_bare_colon() {
+        let mut block = WorkflowBlock::started("wf_1", "deep-research", "");
+        block.status = WorkflowBlockStatus::Done {
+            elapsed: Duration::from_secs(90),
+        };
+        block.result_summary = Some("shipped the port\nsee the report".into());
+        let text = line_text(&block);
+        assert!(
+            text.contains("deep-research done in 1m30s: shipped the port see the report"),
+            "got: {text}"
+        );
+        assert!(!text.trim_end().ends_with(':'), "got: {text}");
+    }
+
+    #[test]
+    fn done_line_without_result_or_objective_drops_the_colon() {
+        let mut block = WorkflowBlock::started("wf_1", "deep-research", "  ");
+        block.status = WorkflowBlockStatus::Done {
+            elapsed: Duration::from_secs(90),
+        };
+        let text = line_text(&block);
+        assert!(text.contains("deep-research done in 1m30s"), "got: {text}");
+        assert!(!text.contains(':'), "got: {text}");
     }
 }

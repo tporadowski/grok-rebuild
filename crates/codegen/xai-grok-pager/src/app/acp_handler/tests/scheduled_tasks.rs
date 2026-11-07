@@ -603,7 +603,7 @@
 
         let agent = app.agents.get(&AgentId(0)).unwrap();
         assert_eq!(
-            "Task (1):\n  scheduledloop \u{00b7} every 1 hour \u{00b7} keep the parent loop",
+            "Task (1):\n  scheduledloop \u{00b7} every 1 hour \u{00b7} keep the parent loop (due now)",
             crate::app::status_blocks::tasks_block_text(agent)
         );
     }

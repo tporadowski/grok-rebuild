@@ -145,8 +145,9 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
             .then(a.task_id.cmp(&b.task_id))
     });
     for info in sched {
+        let when = crate::views::scheduled_next::next_suffix(info, chrono::Utc::now());
         rows.push(format!(
-            "  {:<9}{} · {} · {}",
+            "  {:<9}{} · {} · {}{when}",
             "scheduled",
             info.tag,
             info.human_schedule,

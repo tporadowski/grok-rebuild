@@ -2414,6 +2414,10 @@ mod tests {
                 assert_eq!(m.mode, "poll");
                 assert_eq!(m.results.len(), 2);
                 assert!(m.results.iter().all(|r| r.status == "not_found"));
+                assert!(
+                    m.results.iter().all(|r| r.output.contains("not found")),
+                    "an unknown id keeps a row whose output is the error"
+                );
             }
             other => panic!("expected MultiResult, got {other:?}"),
         }

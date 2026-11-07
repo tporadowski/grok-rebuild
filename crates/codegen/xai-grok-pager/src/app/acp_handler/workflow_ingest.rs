@@ -11,6 +11,7 @@ fn upsert_workflow_block(
     current_phase: Option<&str>,
     active_agents: u32,
     elapsed_ms: u64,
+    result_summary: Option<&str>,
 ) {
     use crate::scrollback::blocks::{WorkflowBlock, WorkflowBlockPhase, WorkflowBlockStatus};
 
@@ -69,6 +70,11 @@ fn upsert_workflow_block(
         wb.current_phase = current_phase.map(str::to_owned);
         wb.active_agents = active_agents;
         wb.elapsed = elapsed;
+        wb.objective = objective.to_string();
+        wb.result_summary = result_summary
+            .map(str::trim)
+            .filter(|summary| !summary.is_empty())
+            .map(str::to_string);
         entry.invalidate_cache();
     }
     if is_running {
@@ -192,6 +198,7 @@ pub(super) fn ingest_workflow_update(agent: &mut AgentView, update: XaiSessionUp
         current_phase.as_deref(),
         active,
         elapsed_ms,
+        result_summary.as_deref(),
     );
     true
 }
