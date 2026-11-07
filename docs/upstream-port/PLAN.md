@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-046 — Goal cancel, disabled `/goal`, and the bundle cache
+Ctrl+C cancels the turn through `SessionCommand::Cancel`, and that handler pauses an active goal with `GoalPauseReason::User` (`v51-f28`, `run_loop.rs`, `auto_pause_goal_if_active`). With the goal gate off, `resolve_human_intent` returns the `/goal` line as a normal prompt. With the gate on, the same line is `GoalSet` (`v51-x110`, `disabled_goal_line_passes_through_as_a_prompt`). A missing or unparseable bundled-skills manifest is not fresh, so the next sync refreshes skills, agents, and workflows (`v74-x01`, `bundle_cache_is_fresh`, `bundle_cache_is_fresh_false_for_corrupted_manifest`, `maybe_sync_runs_when_no_manifest_exists`).
+
 ### D-045 — Workflow run roster
 Status lines already say how many agents are running. `activity_label` counts roster rows in `running`, and ingest ignores a stale `active_agents` value (`v75-f08`, `workflow_suffix_counts_only_running_roster_rows`, `workflow_snapshot_derives_active_count_from_roster`). A running workflow in the dock already spins (`v51-x02`, `dock_workflow_rows` sets `spinning` when the run is active, `running_workflow_is_a_dock_row_above_watchers`).
 
@@ -244,7 +247,7 @@ Refresh these numbers at the end of a session.
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
-| W5 | Workflows and goals | 12 | 0 | 14 | 3 | 0 |
+| W5 | Workflows and goals | 9 | 0 | 15 | 5 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
@@ -257,9 +260,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 439. Skipped: 8. Done: 100. Already: 26. Deferred: 10.
+Catalog rows: 583. Pending: 436. Skipped: 8. Done: 101. Already: 28. Deferred: 10.
 
-**Next:** W5 workflows and goals. The run roster, stop button, and headless goal wait are in (D-042, D-043, D-044, D-045). Still open in W5: pasted images on a skill command (`v51-f27`), Ctrl+C pausing a goal (`v51-f28`), reopening a chat with an active goal (`v51-f30`), a spurious headless "Goal paused" (`v51-x92`), `/goal` when goals are disabled (`v51-x110`), inline tags in replies (`v52-x23`), quit confirm for a running workflow (`v53-f05`), built-in cache refresh (`v74-x01`), transcript result text (`v74-x19`), running color (`v74-x31`), mouse highlight (`v75-x11`), and dashboard Working rows (`v75-x16`). Kitty image free (`v73-x12`) is still the open W6 row.
+**Next:** W5 workflows and goals. Still open: pasted images on a skill command (`v51-f27`), reopening a chat with an active goal (`v51-f30`), a spurious headless "Goal paused" (`v51-x92`), inline tags in replies (`v52-x23`), quit confirm for a running workflow (`v53-f05`), transcript result text (`v74-x19`), running color (`v74-x31`), mouse highlight (`v75-x11`), and dashboard Working rows (`v75-x16`). Kitty image free (`v73-x12`) is still the open W6 row.
 
 ## Waves
 
@@ -285,7 +288,7 @@ Pending: 0. Done: 24. Already: 10. Deferred: 2 (`v51-x37`, `v52-x17`, D-041). Lo
 
 ### W5 — Workflows and goals
 
-Pending: 12. Done: 14. Already: 3. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045).
+Pending: 9. Done: 15. Already: 5. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046).
 
 ### W7 — Worktrees
 
@@ -421,12 +424,12 @@ id | status | wave | kind | flag | covered | note
 - v51-f21 | already | W5 | Features |  |  | **New `/workflow` commands** let you list, stop, and resume background workflow runs without sending them to the model.
 - v51-f22 | done | W5 | Features |  |  | **Background workflow runs** now appear in the tasks pane with a stop button.
 - v51-f27 | pending | W5 | Features |  |  | Images pasted with skill commands like /pr-workflow are now sent to the model.
-- v51-f28 | pending | W5 | Features |  |  | Pressing Ctrl+C on a goal now pauses the goal instead of letting it continue.
+- v51-f28 | already | W5 | Features |  |  | Pressing Ctrl+C on a goal now pauses the goal instead of letting it continue.
 - v51-f30 | pending | W5 | Features |  |  | Reopening a chat with an active goal now continues the goal automatically.
 - v51-x02 | already | W5 | Bug Fixes |  |  | Running workflows in the dock now show the same pulsing indicator as in the main scrollback.
 - v51-x86 | done | W5 | Bug Fixes |  |  | **/workflow stop|resume <name>** now correctly targets the live run instead of an ended first run.
 - v51-x92 | pending | W5 | Bug Fixes |  |  | Headless goal runs no longer print a spurious "Goal paused" message after completion.
-- v51-x110 | pending | W5 | Bug Fixes |  |  | With goals disabled, a headless `/goal` line is now treated as a normal prompt instead of failing.
+- v51-x110 | done | W5 | Bug Fixes |  |  | With goals disabled, a headless `/goal` line is now treated as a normal prompt instead of failing.
 - v52-x23 | pending | W5 | Bug Fixes |  |  | Inline tags in agent replies no longer break line layout, and /workflow stop now picks the correct live run.
 - v53-f04 | done | W5 | Features |  |  | **`/goal`** pauses after three continuations in a row with no tool call; run `/goal resume` to continue.
 - v53-f05 | pending | W5 | Features |  |  | **Quitting** warns when it would stop a running workflow and asks you to confirm with a second quit.
@@ -435,7 +438,7 @@ id | status | wave | kind | flag | covered | note
 - v61-x02 | done | W5 | Bug Fixes |  |  | **Workflow run views** scroll toward newer agents when you wheel down the agent roster, instead of snapping back.
 - v63-x06 | done | W5 | Bug Fixes |  |  | **Workflow run views** hide each agent's live status text on narrower terminals, so agent names are no longer cut off.
 - v72-f05 | done | W5 | Features |  |  | **`/workflow runs`** detail view: `→` or a click focuses a phase's agent list, `↑`/`↓` pick an agent, `Enter` opens it, and `←` returns to the phases.
-- v74-x01 | pending | W5 | Bug Fixes |  |  | **Built-in skills, agents and workflows** are refreshed when their local cache's manifest is missing or corrupt, instead of staying outdated or failing every sync.
+- v74-x01 | already | W5 | Bug Fixes |  |  | **Built-in skills, agents and workflows** are refreshed when their local cache's manifest is missing or corrupt, instead of staying outdated or failing every sync.
 - v74-x19 | pending | W5 | Bug Fixes |  |  | **Workflow run lines** in the transcript end with what the run returned instead of a bare colon, `/tasks` shows the time it was taken, and polling an unknown task id leaves a row with its error.
 - v74-x24 | done | W5 | Bug Fixes |  |  | **Windows**: on older consoles such as plain `cmd.exe` and Windows PowerShell windows, status marks and selection arrows in workflow views, the dashboard, and the feedback and extensions dialogs show as `>`, `•`, `√` or `x` instead of empty boxes.
 - v74-x31 | pending | W5 | Bug Fixes |  |  | **Running markers** in workflow views and MCP servers that are still starting use the theme's running color, like other progress indicators.

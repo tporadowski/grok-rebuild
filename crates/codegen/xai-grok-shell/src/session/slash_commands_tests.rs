@@ -335,6 +335,37 @@ fn resolve_model_authored_skill_requires_exact_child_catalog_name_and_loader() {
 }
 
 #[test]
+fn disabled_goal_line_passes_through_as_a_prompt() {
+    let disabled = CommandAvailability::default();
+    assert!(!disabled.goal);
+    let goal_line = vec![text_block("/goal ship the auth migration")];
+    let passed = resolve(
+        goal_line.clone(),
+        &[],
+        disabled,
+        SkillSlashRewrite::default(),
+        &[],
+    )
+    .expect("with goals disabled, /goal is a normal prompt");
+    assert_eq!(passed, goal_line);
+
+    let mut enabled = disabled;
+    enabled.goal = true;
+    let caught = resolve(
+        goal_line,
+        &[],
+        enabled,
+        SkillSlashRewrite::default(),
+        &[],
+    )
+    .expect_err("with goals enabled, /goal is the builtin");
+    assert!(matches!(
+        caught,
+        SlashCommandOutcome::Builtin(BuiltinAction::GoalSet { .. })
+    ));
+}
+
+#[test]
 fn resolve_parses_skill_with_args() {
     let skills = vec![make_skill("commit", true)];
     let outcome = resolve(
