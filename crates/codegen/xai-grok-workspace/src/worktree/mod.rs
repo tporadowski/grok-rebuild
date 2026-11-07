@@ -5169,6 +5169,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rm_suggests_force_only_when_force_can_remove() {
+        xai_test_utils::require_git!();
+        use xai_test_utils::git::{git_commit_all, init_git_repo};
+        let temp = tempfile::TempDir::new().unwrap();
+        let home = temp.path().join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &home);
+        let ctx = BackgroundCopyContext::new();
+        async fn rm(
+            ctx: &BackgroundCopyContext,
+            path: &std::path::Path,
+            force: bool,
+        ) -> anyhow::Result<RemoveWorktreeResponse> {
+            remove_worktree(
+                &RemoveWorktreeRequest {
+                    worktree_path: Some(path.to_string_lossy().into_owned()),
+                    id_or_path: None,
+                    force,
+                    dry_run: false,
+                },
+                ctx,
+            )
+            .await
+        }
+
+        let repo = temp.path().join("project");
+        std::fs::create_dir_all(&repo).unwrap();
+        init_git_repo(&repo);
+        std::fs::write(repo.join("keep.txt"), "stay").unwrap();
+        git_commit_all(&repo, "initial");
+        let plain = rm(&ctx, &repo, false)
+            .await
+            .expect_err("an unmanaged repository is refused without -f");
+        assert!(
+            !plain.to_string().contains("-f"),
+            "must not suggest -f when -f would also refuse, got {plain}"
+        );
+        let forced = rm(&ctx, &repo, true)
+            .await
+            .expect_err("an unmanaged repository is refused with -f too");
+        assert!(!forced.to_string().contains("-f"), "{forced}");
+        assert!(repo.join("keep.txt").is_file());
+
+        let git_dir = repo.join(".git");
+        let git_dir_err = rm(&ctx, &git_dir, false)
+            .await
+            .expect_err("a .git directory is refused without -f");
+        assert!(
+            !git_dir_err.to_string().contains("-f"),
+            "must not suggest -f for a git directory, got {git_dir_err}"
+        );
+        assert!(git_dir.join("HEAD").is_file());
+
+        let managed = home.join("worktrees").join("repo").join("dirty");
+        std::fs::create_dir_all(&managed).unwrap();
+        init_git_repo(&managed);
+        std::fs::write(managed.join("tracked.txt"), "saved").unwrap();
+        git_commit_all(&managed, "initial");
+        std::fs::write(managed.join("unsaved.txt"), "keep").unwrap();
+        let dirty = rm(&ctx, &managed, false)
+            .await
+            .expect_err("unsaved work must be refused without -f");
+        assert!(
+            dirty.to_string().contains("pass -f"),
+            "a dirty grok worktree can be removed with -f, got {dirty}"
+        );
+        assert!(managed.join("unsaved.txt").is_file());
+        rm(&ctx, &managed, true)
+            .await
+            .expect(" -f removes a dirty grok worktree");
+        assert!(!managed.exists());
+    }
+
+    #[tokio::test]
     async fn rm_by_label_refuses_when_the_label_is_in_multiple_repos() {
         xai_test_utils::require_git!();
         use xai_test_utils::git::{git_commit_all, init_git_repo};
