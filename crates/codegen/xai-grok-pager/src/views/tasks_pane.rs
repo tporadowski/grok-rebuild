@@ -1182,6 +1182,7 @@ impl TasksPane {
         theme: &Theme,
     ) {
         let running = run.is_active();
+        let stoppable = run.can_stop();
         let elapsed = format_duration(std::time::Duration::from_millis(run.live_elapsed_ms()));
         let (icon, icon_style) = if running {
             let frames = crate::glyphs::dot_spinner_frames();
@@ -1209,11 +1210,11 @@ impl TasksPane {
         let right_text = format!("{elapsed} ");
         buf.set_span(area.x, y, &Span::styled(icon, icon_style), 2);
         let right_text_w = right_text.width() as u16;
-        let kill_w: u16 = if running { 3 } else { 0 };
+        let kill_w: u16 = if stoppable { 3 } else { 0 };
         let overlay_w = kill_w + right_text_w + 1;
         clear_overlay_area(buf, area, y, overlay_w);
         let mut rx = area.x + area.width;
-        if running {
+        if stoppable {
             rx = rx.saturating_sub(3);
             let is_hovered = matches!(
                 &self.hovered_kill,
@@ -2810,6 +2811,36 @@ mod tests {
         assert!(!entry.search_text().contains("2 agents"));
     }
     #[test]
+    fn paused_workflow_row_renders_a_stop_button() {
+        let _theme = crate::theme::cache::pin_theme();
+        let mut pane = TasksPane::new();
+        let run = make_workflow_run("review", "user_paused");
+        assert!(run.can_stop());
+        pane.sync(
+            &BTreeMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            std::slice::from_ref(&run),
+        );
+        let area = Rect::new(0, 0, 80, 8);
+        let mut buf = Buffer::empty(area);
+        pane.render(
+            area,
+            &mut buf,
+            false,
+            &crate::appearance::LayoutConfig::default(),
+            &BTreeMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(
+            pane.kill_button_rects.iter().any(|(id, _)| {
+                matches!(id, TaskEntryId::Workflow(name) if name == "review")
+            }),
+            "a paused workflow that can be stopped must show the stop button"
+        );
+    }
+
     fn workflow_row_stoppable_tracks_can_stop_not_is_active() {
         fn stoppable_of(run: &crate::views::workflows::WorkflowRunSnapshot) -> bool {
             match TaskEntry::from_workflow_run(run) {

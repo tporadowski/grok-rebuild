@@ -393,6 +393,21 @@ fn stop_reason_wire(reason: acp::StopReason) -> String {
     }
     .to_string()
 }
+/// Line printed when headless refuses a permission prompt instead of asking.
+pub(crate) fn refused_approval_line(req: &acp::RequestPermissionRequest) -> String {
+    let title = req
+        .tool_call
+        .fields
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty());
+    match title {
+        Some(title) => format!("Refused approval request: {title}"),
+        None => "Refused approval request.".to_string(),
+    }
+}
+
 fn auto_respond_to_permissions(
     args: &acp::RequestPermissionRequest,
     option_kinds: &[acp::PermissionOptionKind],
@@ -1892,11 +1907,13 @@ fn handle_headless_acp_message(
                 ) {
                     let _ = req.response_tx.send(Ok(resp));
                 } else {
+                    eprint_line(&refused_approval_line(&req.request));
                     let _ = req.response_tx.send(Ok(acp::RequestPermissionResponse::new(
                         acp::RequestPermissionOutcome::Cancelled,
                     )));
                 }
             } else {
+                eprint_line(&refused_approval_line(&req.request));
                 let _ = req.response_tx.send(Ok(acp::RequestPermissionResponse::new(
                     acp::RequestPermissionOutcome::Cancelled,
                 )));

@@ -136,11 +136,10 @@ impl SessionActor {
 
         let matches: Vec<(String, WorkflowRunStatus, String)> = {
             let tracker = self.workflow_tracker().await;
-            let tracker = tracker.lock();
             let all: Vec<_> = tracker
+                .lock()
                 .list()
                 .iter()
-                .filter(|r| r.run_id.starts_with(run_id) || r.name.starts_with(run_id))
                 .map(|r| (r.run_id.clone(), r.status, r.name.clone()))
                 .collect();
             narrow_run_matches(all, run_id, op)
@@ -482,6 +481,11 @@ fn applicable_runs(runs: &[RunMatch], op: ManageOp) -> Vec<RunMatch> {
         .collect()
 }
 
+fn is_numbered_sibling(name: &str, stem: &str) -> bool {
+    name.strip_prefix(stem)
+        .is_some_and(|rest| rest.starts_with('-') && rest.len() > 1)
+}
+
 fn narrow_run_matches(all: Vec<RunMatch>, selector: &str, op: ManageOp) -> Vec<RunMatch> {
     // Empty selector is handled by the caller so we never auto-pick "the only applicable run" for a bare `/workflow stop`
     if selector.is_empty() {
@@ -492,22 +496,46 @@ fn narrow_run_matches(all: Vec<RunMatch>, selector: &str, op: ManageOp) -> Vec<R
         .filter(|(id, _, name)| id.as_str() == selector || name.as_str() == selector)
         .cloned()
         .collect();
-    // An ended exact name must not hide the live sibling (`review` complete, `review-2` still running).
+    // An ended exact name must not hide the live numbered sibling (`review` complete, `review-2` still running).
     if exact.len() == 1 && !run_accepts_op(&exact[0], op) {
-        let applicable = applicable_runs(&all, op);
-        if !applicable.is_empty() {
-            return applicable;
+        let stem = exact[0].2.clone();
+        let siblings: Vec<_> = all
+            .iter()
+            .filter(|run| {
+                run_accepts_op(run, op) && (run.2 == stem || is_numbered_sibling(&run.2, &stem))
+            })
+            .cloned()
+            .collect();
+        if !siblings.is_empty() {
+            return siblings;
         }
         return exact;
     }
-    let pool = if exact.is_empty() { all } else { exact };
-    if pool.len() > 1 {
-        let applicable = applicable_runs(&pool, op);
+    if !exact.is_empty() {
+        if exact.len() > 1 {
+            let applicable = applicable_runs(&exact, op);
+            if applicable.len() == 1 {
+                return applicable;
+            }
+        }
+        return exact;
+    }
+    // Stop and pause do not accept a prefix or other loose match.
+    if matches!(op, ManageOp::Pause | ManageOp::Stop) {
+        return Vec::new();
+    }
+    let prefixed: Vec<_> = all
+        .iter()
+        .filter(|(id, _, name)| id.starts_with(selector) || name.starts_with(selector))
+        .cloned()
+        .collect();
+    if prefixed.len() > 1 {
+        let applicable = applicable_runs(&prefixed, op);
         if applicable.len() == 1 {
             return applicable;
         }
     }
-    pool
+    prefixed
 }
 
 #[cfg(test)]
@@ -559,16 +587,19 @@ mod run_match_tests {
     }
 
     #[test]
-    fn prefix_still_narrows_by_op_applicability() {
+    fn stop_and_pause_ignore_a_loose_prefix() {
         let all = vec![
             run("wf_1", "deep-research", WorkflowRunStatus::Complete),
             run("wf_2", "deep-research-2", WorkflowRunStatus::Active),
         ];
-        let picked = narrow_run_matches(all, "deep", ManageOp::Stop);
-        let [picked_one] = picked.as_slice() else {
-            panic!("expected one match: {picked:?}");
-        };
-        assert_eq!(picked_one.2, "deep-research-2");
+        assert!(
+            narrow_run_matches(all.clone(), "deep", ManageOp::Stop).is_empty(),
+            "a prefix must not choose a run to stop"
+        );
+        assert!(
+            narrow_run_matches(all, "deep", ManageOp::Pause).is_empty(),
+            "a prefix must not choose a run to pause"
+        );
     }
 
     #[test]

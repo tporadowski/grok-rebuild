@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-044 — Workflow list, stop, and the tasks pane
+`/workflow`, `/workflow runs`, `/workflow stop`, and `/workflow resume` are local builtins. They list or control runs and do not send the line to the model (`v51-f21`, `manage_workflow_run`, `workflow_manage_parses_both_orders_and_optional_id`). Background runs are rows in the tasks pane. A run that `can_stop` shows the stop button, including a paused run (`v51-f22`). Stop and pause require an exact name or id. An ended exact name still reaches its live numbered sibling. A loose prefix does not pick a run. Headless prints each refused approval request before it cancels it (`v53-x09`).
+
 ### D-043 — Headless waits for a background goal
 `grok -p` keeps a goal in the background set while its status is `active`, and prints the outcome when that status changes (`v51-f02`). `--background-wait-timeout` then pauses the goal with `/goal pause` and exits with an error (`v51-f19`). The later follow-up-turn wait in `v62-x01` is still pending.
 
@@ -236,7 +239,7 @@ Refresh these numbers at the end of a session.
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
-| W5 | Workflows and goals | 22 | 0 | 7 | 0 | 0 |
+| W5 | Workflows and goals | 19 | 0 | 9 | 1 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
@@ -249,7 +252,7 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 449. Skipped: 8. Done: 93. Already: 23. Deferred: 10.
+Catalog rows: 583. Pending: 446. Skipped: 8. Done: 95. Already: 24. Deferred: 10.
 
 **Next:** W5 workflows and goals, after the goal chip (D-042). W4 is complete (D-041). Kitty image free (`v73-x12`) is still the open W6 row. `/resume` still opens the picker on one match (`v61-f02`), and search does not tolerate typos (`v65-f01`). Minimal sign-in uses the error color in the wrap commit, but `v74-x32` stays pending until a color assertion exists.
 
@@ -277,7 +280,7 @@ Pending: 0. Done: 24. Already: 10. Deferred: 2 (`v51-x37`, `v52-x17`, D-041). Lo
 
 ### W5 — Workflows and goals
 
-Pending: 22. Done: 7. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042).
+Pending: 19. Done: 9. Already: 1. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042).
 
 ### W7 — Worktrees
 
@@ -410,8 +413,8 @@ id | status | wave | kind | flag | covered | note
 - v50-x28 | done | W5 | Bug Fixes |  |  | A workflow file that fails to parse now reports the exact file and parse error instead of 'unknown workflow'.
 - v51-f02 | done | W5 | Features |  |  | Headless `grok -p` now waits for background goals to finish and reports their outcome.
 - v51-f19 | done | W5 | Features |  |  | **--background-wait-timeout** now also stops an active headless goal after the timeout and exits with an error.
-- v51-f21 | pending | W5 | Features |  |  | **New `/workflow` commands** let you list, stop, and resume background workflow runs without sending them to the model.
-- v51-f22 | pending | W5 | Features |  |  | **Background workflow runs** now appear in the tasks pane with a stop button.
+- v51-f21 | already | W5 | Features |  |  | **New `/workflow` commands** let you list, stop, and resume background workflow runs without sending them to the model.
+- v51-f22 | done | W5 | Features |  |  | **Background workflow runs** now appear in the tasks pane with a stop button.
 - v51-f27 | pending | W5 | Features |  |  | Images pasted with skill commands like /pr-workflow are now sent to the model.
 - v51-f28 | pending | W5 | Features |  |  | Pressing Ctrl+C on a goal now pauses the goal instead of letting it continue.
 - v51-f30 | pending | W5 | Features |  |  | Reopening a chat with an active goal now continues the goal automatically.
@@ -422,7 +425,7 @@ id | status | wave | kind | flag | covered | note
 - v52-x23 | pending | W5 | Bug Fixes |  |  | Inline tags in agent replies no longer break line layout, and /workflow stop now picks the correct live run.
 - v53-f04 | done | W5 | Features |  |  | **`/goal`** pauses after three continuations in a row with no tool call; run `/goal resume` to continue.
 - v53-f05 | pending | W5 | Features |  |  | **Quitting** warns when it would stop a running workflow and asks you to confirm with a second quit.
-- v53-x09 | pending | W5 | Bug Fixes |  |  | **`/workflow stop`** and **`/workflow pause`** no longer pick a run from a loose fuzzy match, and headless `-p` runs print each refused approval request to stderr.
+- v53-x09 | done | W5 | Bug Fixes |  |  | **`/workflow stop`** and **`/workflow pause`** no longer pick a run from a loose fuzzy match, and headless `-p` runs print each refused approval request to stderr.
 - v53-x10 | pending | W5 | Bug Fixes |  |  | **Workflow run views** list agents outside a declared phase and count only finished agents as done.
 - v61-x02 | pending | W5 | Bug Fixes |  |  | **Workflow run views** scroll toward newer agents when you wheel down the agent roster, instead of snapping back.
 - v63-x06 | pending | W5 | Bug Fixes |  |  | **Workflow run views** hide each agent's live status text on narrower terminals, so agent names are no longer cut off.

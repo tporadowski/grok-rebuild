@@ -16,6 +16,34 @@ async fn signalled_exit_stops_waiting_on_a_log_flush_that_never_answers() {
 }
 
 #[test]
+fn refused_approval_line_names_the_tool() {
+    let titled = acp::RequestPermissionRequest::new(
+        acp::SessionId::new(std::sync::Arc::from("s1")),
+        acp::ToolCallUpdate::new(
+            acp::ToolCallId::new(std::sync::Arc::from("call-1")),
+            acp::ToolCallUpdateFields::new().title(Some("Delete /tmp/x".into())),
+        ),
+        vec![],
+    );
+    assert_eq!(
+        super::refused_approval_line(&titled),
+        "Refused approval request: Delete /tmp/x"
+    );
+    let untitled = acp::RequestPermissionRequest::new(
+        acp::SessionId::new(std::sync::Arc::from("s1")),
+        acp::ToolCallUpdate::new(
+            acp::ToolCallId::new(std::sync::Arc::from("call-2")),
+            acp::ToolCallUpdateFields::default(),
+        ),
+        vec![],
+    );
+    assert_eq!(
+        super::refused_approval_line(&untitled),
+        "Refused approval request."
+    );
+}
+
+#[test]
 fn reap_request_for_task_kills_with_session_scope() {
     let session_id = acp::SessionId::new("sess-1");
     let work = super::BackgroundWork::Task("task-42".into());
