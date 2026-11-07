@@ -57,10 +57,18 @@ pub async fn fork_session(
     agent_id: &str,
     auth_manager: Option<std::sync::Arc<xai_grok_login::AuthManager>>,
 ) -> io::Result<ForkSessionResponse> {
+    fork_session_in(request, agent_id, auth_manager, &grok_home()).await
+}
+
+pub(crate) async fn fork_session_in(
+    request: ForkSessionRequest,
+    agent_id: &str,
+    auth_manager: Option<std::sync::Arc<xai_grok_login::AuthManager>>,
+    root_dir: &std::path::Path,
+) -> io::Result<ForkSessionResponse> {
     let t0 = std::time::Instant::now();
 
-    let root_dir = grok_home();
-    let storage = JsonlStorageAdapter::with_root(root_dir.clone());
+    let storage = JsonlStorageAdapter::with_root(root_dir.to_path_buf());
 
     // Build source and target Info
     let source_info = Info {
@@ -88,11 +96,17 @@ pub async fn fork_session(
         target_prompt_index: request.target_prompt_index,
         session_kind: request.session_kind.clone(),
         source_workspace_dir: request.source_workspace_dir.clone(),
-        prompt_display_cwd: request
-            .source_workspace_dir
-            .clone()
-            .filter(|display| display != &request.new_cwd),
-        skip_cwd_transform: request.session_kind.as_deref() == Some("worktree"),
+        // A worktree fork runs in and shows the worktree. Keeping the source
+        // checkout as the prompt path made a shell command edit that checkout.
+        prompt_display_cwd: if request.session_kind.as_deref() == Some("worktree") {
+            None
+        } else {
+            request
+                .source_workspace_dir
+                .clone()
+                .filter(|display| display != &request.new_cwd)
+        },
+        skip_cwd_transform: false,
         // Carry the parent's compaction segment archive into the fork so the child retains pre-compaction history
         // The live summary is already copied via chat_history.jsonl
         copy_compaction_segments: true,
@@ -316,6 +330,105 @@ mod tests {
 
         let json = serde_json::to_string(&response).unwrap();
         assert!(!json.contains("new_model_id"));
+    }
+
+    #[tokio::test]
+    async fn worktree_fork_runs_in_and_shows_the_worktree_path() {
+        use crate::sampling::ConversationItem;
+        use crate::session::persistence::default_model_id;
+        use crate::session::storage::StorageAdapter;
+
+        let root = tempfile::TempDir::new().unwrap();
+        let adapter = JsonlStorageAdapter::with_root(root.path().to_path_buf());
+        let source_cwd = "/repo/checkout".to_string();
+        let worktree = "/tmp/grok-worktrees/repo/fork-1".to_string();
+        let source = Info {
+            id: acp::SessionId::new("source-worktree-fork"),
+            cwd: source_cwd.clone(),
+        };
+        adapter
+            .init_session(&source, default_model_id())
+            .await
+            .unwrap();
+        adapter
+            .append_chat_message(
+                &source,
+                &ConversationItem::user(format!("edit {source_cwd}/src/main.rs")),
+            )
+            .await
+            .unwrap();
+
+        let response = fork_session_in(
+            ForkSessionRequest {
+                source_session_id: source.id.to_string(),
+                source_cwd: source_cwd.clone(),
+                new_cwd: worktree.clone(),
+                new_session_id: Some("forked-worktree".to_string()),
+                session_kind: Some("worktree".to_string()),
+                source_workspace_dir: Some(source_cwd.clone()),
+                ..Default::default()
+            },
+            "agent",
+            None,
+            root.path(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.new_cwd, worktree);
+        let target = Info {
+            id: acp::SessionId::new("forked-worktree"),
+            cwd: worktree.clone(),
+        };
+        let loaded = adapter.load_session(&target).await.unwrap();
+        assert_eq!(loaded.summary.info.cwd, worktree);
+        assert!(
+            loaded.summary.prompt_display_cwd.is_none(),
+            "the prompt must show the worktree path, not the source checkout"
+        );
+        let history = serde_json::to_string(&loaded.chat_history).unwrap();
+        assert!(
+            history.contains(&format!("{worktree}/src/main.rs")),
+            "copied history must point at the worktree, got {history}"
+        );
+        assert!(
+            !history.contains(&format!("{source_cwd}/src/main.rs")),
+            "copied history must not keep the original checkout"
+        );
+
+        let status_path = find_named(root.path(), "fork_status.json")
+            .expect("fork status is written for a worktree fork");
+        let status: crate::session::fork_status::ForkStatus =
+            serde_json::from_slice(&std::fs::read(status_path).unwrap()).unwrap();
+        let reminder = crate::session::fork_status::format_reminder(&status);
+        assert!(
+            reminder.contains(&format!("Working directory: {worktree}.")),
+            "{reminder}"
+        );
+        assert!(
+            !reminder.contains("Tools run in"),
+            "the reminder must not split the shown path from the shell path: {reminder}"
+        );
+        assert!(reminder.contains(&format!("The source checkout is {source_cwd}.")));
+    }
+
+    fn find_named(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if entry.file_name() == name && path.is_file() {
+                    return Some(path);
+                }
+                if path.is_dir() {
+                    pending.push(path);
+                }
+            }
+        }
+        None
     }
 
     #[tokio::test]

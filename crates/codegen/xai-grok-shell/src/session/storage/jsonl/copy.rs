@@ -313,8 +313,9 @@ impl JsonlStorageAdapter {
             options.inherited_prefix_len
         };
 
-        // Worktree forks skip the cwd rewrite: their display_cwd already shows the model the original project path
-        // Rewritten conversation paths would contradict it
+        // Rewrite copied paths onto the new cwd. A worktree fork shows that
+        // path, so leaving the source checkout in the history would send a
+        // shell command back to it.
         if !options.skip_cwd_transform && source_info.cwd != target_info.cwd {
             transform_conversation_cwd(&mut chat_to_copy, &source_info.cwd, &target_info.cwd);
         }

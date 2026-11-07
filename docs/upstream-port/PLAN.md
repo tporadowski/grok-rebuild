@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-080 — A worktree fork shows and runs in the worktree
+
+The fork copied the source checkout into the prompt and left that path in the history, so a shell command edited the original checkout. A worktree fork now keeps the worktree as the session directory and rewrites copied paths onto it. The reminder names the source checkout and does not split the shown path from the shell path (`v54-x06`, `worktree_fork_runs_in_and_shows_the_worktree_path`).
+
 ### D-079 — A subfolder launch records the checkout root
 
 Creating from `repo/crates/pager` stored that subfolder as `source_repo`. `list` and `show` print that field. Registration now stores the checkout root `find_worktree_root` already uses for the copy (`v53-x01`, `create_from_a_subfolder_records_the_repository_root`).
@@ -371,7 +375,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 16 | 0 | 23 | 2 | 0 |
+| W7 | Worktrees | 15 | 0 | 24 | 2 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -383,9 +387,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 402. Skipped: 8. Done: 131. Already: 32. Deferred: 10.
+Catalog rows: 583. Pending: 401. Skipped: 8. Done: 132. Already: 32. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: worktree forks (`grok -w -r` or `/fork` into a worktree) run in and show the worktree's path (`v54-x06`).
+**Next:** W7 worktrees. First open row: `grok worktree rm` no longer suggests `-f` for a worktree that `-f` would also refuse (`v59-x02`).
 
 ## Waves
 
@@ -415,7 +419,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 16. Done: 23 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 15. Done: 24 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -594,7 +598,7 @@ id | status | wave | kind | flag | covered | note
 - v52-x06 | done | W7 | Bug Fixes |  |  | `grok worktree rm` and `gc` no longer delete a worktree that an open session is using.
 - v52-x11 | done | W7 | Bug Fixes |  |  | **grok worktree rm** now refuses to delete git repositories, .git folders, or any directory grok did not create.
 - v53-x01 | done | W7 | Bug Fixes |  |  | **Worktrees created from a repository subfolder** report the repository root as their source in `grok worktree list` and `grok worktree show`.
-- v54-x06 | pending | W7 | Bug Fixes |  |  | **Worktree forks** (`grok -w -r` or `/fork` into a worktree) run in and show the worktree's path, so a shell command no longer edits the original checkout.
+- v54-x06 | done | W7 | Bug Fixes |  |  | **Worktree forks** (`grok -w -r` or `/fork` into a worktree) run in and show the worktree's path, so a shell command no longer edits the original checkout.
 - v59-x02 | pending | W7 | Bug Fixes |  |  | **`grok worktree rm`** no longer suggests `-f` for a worktree that `-f` would also refuse to remove.
 - v63-f02 | pending | W7 | Features |  |  | **`grok worktree list` and `grok worktree show`** mark a worktree whose folder is missing or whose source repository moved, with a hint on how to repair it.
 - v63-x03 | pending | W7 | Bug Fixes |  |  | **`grok -w` and `Ctrl+W`** explain that no worktree was made when you run them outside a git repository.
