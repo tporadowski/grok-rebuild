@@ -24,6 +24,55 @@ fn an_active_goal_is_pending_until_it_reports_an_outcome() {
 }
 
 #[test]
+fn headless_goal_completion_does_not_print_a_later_pause() {
+    let mut pending = std::collections::HashSet::new();
+    let mut finished = std::collections::HashSet::new();
+
+    assert!(
+        super::record_headless_goal_update(&mut pending, &mut finished, "g1", "active", "ship")
+            .is_none()
+    );
+    assert!(pending.contains(&super::BackgroundWork::Goal("g1".into())));
+    assert!(super::headless_exit_pauses_goal(&finished, "g1"));
+
+    let (status, objective) = super::record_headless_goal_update(
+        &mut pending,
+        &mut finished,
+        "g1",
+        "complete",
+        "ship the port",
+    )
+    .expect("completion is announced");
+    assert_eq!(
+        super::reducer::Lifecycle::GoalFinished { status, objective }.plain_message(),
+        "Goal complete: ship the port"
+    );
+    assert!(pending.is_empty());
+    assert!(!super::headless_exit_pauses_goal(&finished, "g1"));
+
+    for status in ["paused", "user_paused", "blocked", "Active"] {
+        assert!(
+            super::record_headless_goal_update(&mut pending, &mut finished, "g1", status, "ship")
+                .is_none(),
+            "{status} after completion must stay quiet"
+        );
+    }
+    assert!(
+        pending.is_empty(),
+        "a stale active after completion must not arm /goal pause"
+    );
+
+    let (status, objective) =
+        super::record_headless_goal_update(&mut pending, &mut finished, "g2", "paused", "")
+            .expect("a goal that never completed still reports a pause");
+    assert_eq!(
+        super::reducer::Lifecycle::GoalFinished { status, objective }.plain_message(),
+        "Goal paused."
+    );
+    assert!(super::headless_exit_pauses_goal(&finished, "g2"));
+}
+
+#[test]
 fn a_background_wait_timeout_is_an_error() {
     let message = super::background_wait_timeout_message();
     assert!(message.contains("timed out"));

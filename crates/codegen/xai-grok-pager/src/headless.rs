@@ -1372,7 +1372,13 @@ pub async fn run_single_turn(
                 pending_bg = pending_bg.len(),
                 "headless: killing background work still pending at exit"
             );
-            reap_pending_background_tasks(&pending_bg, &session_id, &acp_tx).await;
+            reap_pending_background_tasks(
+                &pending_bg,
+                &background_lifecycle.finished_goals,
+                &session_id,
+                &acp_tx,
+            )
+            .await;
         }
     }
     flush_unified_log_at_exit(
@@ -1474,6 +1480,7 @@ pub async fn run_single_turn(
             &session_id,
             &mut emitter,
             options.yolo,
+            &mut background_lifecycle,
         )
         .await
         .err()
@@ -1496,6 +1503,7 @@ async fn run_headless_memory_flush(
     session_id: &acp::SessionId,
     emitter: &mut HeadlessEmitter,
     yolo: bool,
+    background_lifecycle: &mut BackgroundLifecycleState,
 ) -> Result<()> {
     let params = serde_json::json!({ "session_id": session_id.0.to_string() });
     let raw = serde_json::value::to_raw_value(&params)
@@ -1505,7 +1513,6 @@ async fn run_headless_memory_flush(
     let t0 = Instant::now();
     let mut ttf_logged = true;
     let mut pending_bg = HashSet::new();
-    let mut background_lifecycle = BackgroundLifecycleState::default();
     let response = loop {
         tokio::select! {
             biased;
@@ -1520,7 +1527,7 @@ async fn run_headless_memory_flush(
                     &mut ttf_logged,
                     yolo,
                     &mut pending_bg,
-                    &mut background_lifecycle,
+                    background_lifecycle,
                 );
             }
             res = &mut flush_fut => break res,
@@ -1533,7 +1540,7 @@ async fn run_headless_memory_flush(
         &mut ttf_logged,
         yolo,
         &mut pending_bg,
-        &mut background_lifecycle,
+        background_lifecycle,
     );
     let response = response.map_err(|e| anyhow::anyhow!("memory flush failed: {e}"))?;
     let response = serde_json::from_str::<MemoryFlushResponse>(response.0.get())
@@ -1579,6 +1586,47 @@ pub(crate) fn format_goal_outcome(status: &str, objective: &str) -> String {
     }
 }
 
+fn goal_status_is_success(status: &str) -> bool {
+    matches!(
+        status.to_ascii_lowercase().as_str(),
+        "complete" | "completed" | "done"
+    )
+}
+
+/// Record one `GoalUpdated` and return the status and objective to print.
+/// A goal that already reported success stays quiet: a later pause must not print
+/// `Goal paused.`, and a stale `active` must not put it back in the exit set.
+fn record_headless_goal_update(
+    pending: &mut HashSet<BackgroundWork>,
+    finished_goals: &mut HashSet<String>,
+    goal_id: &str,
+    status: &str,
+    objective: &str,
+) -> Option<(String, String)> {
+    let status = status.trim();
+    if status.is_empty() {
+        return None;
+    }
+    if finished_goals.contains(goal_id) {
+        pending.remove(&BackgroundWork::Goal(goal_id.to_string()));
+        return None;
+    }
+    apply_goal_background_update(pending, goal_id, status);
+    if goal_is_still_running(status) {
+        return None;
+    }
+    if goal_status_is_success(status) {
+        finished_goals.insert(goal_id.to_string());
+    }
+    Some((status.to_string(), objective.to_string()))
+}
+
+/// Exit sends `/goal pause` only for a goal that has not already finished.
+/// That command is what prints "Goal paused. Use /goal resume to continue."
+fn headless_exit_pauses_goal(finished_goals: &HashSet<String>, goal_id: &str) -> bool {
+    !finished_goals.contains(goal_id)
+}
+
 pub(crate) fn background_wait_timeout_message() -> &'static str {
     "background wait timed out before pending work finished"
 }
@@ -1588,6 +1636,8 @@ const GOAL_PAUSE_PROMPT: &str = "/goal pause";
 struct BackgroundLifecycleState {
     completed_tasks: HashSet<String>,
     subagents: HashMap<String, SubagentLifecycleState>,
+    /// Goal ids that already reported a success status. Later pause lines stay quiet.
+    finished_goals: HashSet<String>,
 }
 /// Ext request that kills one unit of background work (subagent cancel or task kill).
 fn reap_request_for_work(
@@ -1638,12 +1688,15 @@ async fn flush_unified_log_at_exit(
 /// Best-effort kill of background work still pending at exit so it never outlives the process.
 async fn reap_pending_background_tasks(
     pending_bg: &HashSet<BackgroundWork>,
+    finished_goals: &HashSet<String>,
     session_id: &acp::SessionId,
     acp_tx: &AcpAgentTx,
 ) {
     for work in pending_bg {
-        if matches!(work, BackgroundWork::Goal(_)) {
-            pause_headless_goal(session_id, acp_tx).await;
+        if let BackgroundWork::Goal(goal_id) = work {
+            if headless_exit_pauses_goal(finished_goals, goal_id) {
+                pause_headless_goal(session_id, acp_tx).await;
+            }
             continue;
         }
         let request = match reap_request_for_work(work, session_id) {
@@ -1930,14 +1983,17 @@ fn handle_headless_acp_message(
                     status,
                     objective,
                 } => {
-                    if !status.trim().is_empty() {
-                        apply_goal_background_update(pending_bg, &goal_id, &status);
-                        if !goal_is_still_running(&status) {
-                            emitter.on_lifecycle(crate::headless::reducer::Lifecycle::GoalFinished {
-                                status,
-                                objective,
-                            });
-                        }
+                    if let Some((status, objective)) = record_headless_goal_update(
+                        pending_bg,
+                        &mut background_lifecycle.finished_goals,
+                        &goal_id,
+                        &status,
+                        &objective,
+                    ) {
+                        emitter.on_lifecycle(crate::headless::reducer::Lifecycle::GoalFinished {
+                            status,
+                            objective,
+                        });
                     }
                 }
                 other => track_background_lifecycle(other, pending_bg, background_lifecycle),

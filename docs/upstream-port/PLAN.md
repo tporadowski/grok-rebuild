@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-050 — No pause line after a headless goal completes
+`record_headless_goal_update` prints a success status (`complete`, `completed`, `done`) and then ignores later updates for that goal id. A following `paused` status would otherwise be the plain line `Goal paused.` A stale `active` does not go back into the exit set, so exit does not send `/goal pause` (`headless_exit_pauses_goal`). A goal that never completed still prints a pause. The memory flush keeps the same finished-goal set (`v51-x92`, `headless_goal_completion_does_not_print_a_later_pause`).
+
 ### D-049 — Quit confirms when a workflow is running
 The first quit while any session has an active workflow arms "stop the running workflow and quit". The second press of the same key quits. A finished workflow keeps the plain "quit" label (`v53-f05`, `quit_with_a_running_workflow_warns_and_confirms`).
 
@@ -256,7 +259,7 @@ Refresh these numbers at the end of a session.
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
-| W5 | Workflows and goals | 6 | 0 | 18 | 5 | 0 |
+| W5 | Workflows and goals | 5 | 0 | 19 | 5 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
@@ -269,9 +272,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 433. Skipped: 8. Done: 104. Already: 28. Deferred: 10.
+Catalog rows: 583. Pending: 432. Skipped: 8. Done: 105. Already: 28. Deferred: 10.
 
-**Next:** W5 workflows and goals. Still open: a spurious headless "Goal paused" (`v51-x92`), inline tags in replies (`v52-x23`), transcript result text (`v74-x19`), running color (`v74-x31`), mouse highlight (`v75-x11`), and dashboard Working rows (`v75-x16`). Kitty image free (`v73-x12`) is still the open W6 row.
+**Next:** W5 workflows and goals. Still open: inline tags in replies (`v52-x23`), transcript result text (`v74-x19`), running color (`v74-x31`), mouse highlight (`v75-x11`), and dashboard Working rows (`v75-x16`). Kitty image free (`v73-x12`) is still the open W6 row.
 
 ## Waves
 
@@ -297,7 +300,7 @@ Pending: 0. Done: 24. Already: 10. Deferred: 2 (`v51-x37`, `v52-x17`, D-041). Lo
 
 ### W5 — Workflows and goals
 
-Pending: 6. Done: 18. Already: 5. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046). A pasted image on `/pr-workflow` is sent with the skill line (`v51-f27`, D-047). Reopening a chat keeps an active goal running (`v51-f30`, D-048). Quit names a running workflow and confirms with a second press (`v53-f05`, D-049).
+Pending: 5. Done: 19. Already: 5. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046). A pasted image on `/pr-workflow` is sent with the skill line (`v51-f27`, D-047). Reopening a chat keeps an active goal running (`v51-f30`, D-048). Quit names a running workflow and confirms with a second press (`v53-f05`, D-049). A headless goal that already completed does not print a later `Goal paused.` line (`v51-x92`, D-050).
 
 ### W7 — Worktrees
 
@@ -437,7 +440,7 @@ id | status | wave | kind | flag | covered | note
 - v51-f30 | done | W5 | Features |  |  | Reopening a chat with an active goal now continues the goal automatically.
 - v51-x02 | already | W5 | Bug Fixes |  |  | Running workflows in the dock now show the same pulsing indicator as in the main scrollback.
 - v51-x86 | done | W5 | Bug Fixes |  |  | **/workflow stop|resume <name>** now correctly targets the live run instead of an ended first run.
-- v51-x92 | pending | W5 | Bug Fixes |  |  | Headless goal runs no longer print a spurious "Goal paused" message after completion.
+- v51-x92 | done | W5 | Bug Fixes |  |  | Headless goal runs no longer print a spurious "Goal paused" message after completion.
 - v51-x110 | done | W5 | Bug Fixes |  |  | With goals disabled, a headless `/goal` line is now treated as a normal prompt instead of failing.
 - v52-x23 | pending | W5 | Bug Fixes |  |  | Inline tags in agent replies no longer break line layout, and /workflow stop now picks the correct live run.
 - v53-f04 | done | W5 | Features |  |  | **`/goal`** pauses after three continuations in a row with no tool call; run `/goal resume` to continue.
