@@ -18,6 +18,10 @@ pub enum Command {
     Doctor(crate::doctor_cmd::DoctorArgs),
     /// Manage running leader processes
     Leader(LeaderMgmtArgs),
+    /// Manage the leader's worker door.
+    /// `cursor-worker` is the previous name.
+    #[command(alias = "cursor-worker")]
+    Worker(WorkerArgs),
     /// Sign out and clear cached credentials
     Logout,
     /// Sign in to Grok
@@ -183,6 +187,66 @@ pub enum LeaderMgmtCommand {
     },
     /// Stop all running leader processes
     Kill,
+}
+#[derive(Debug, clap::Args, Clone)]
+pub struct WorkerArgs {
+    #[command(subcommand)]
+    pub command: WorkerCommand,
+}
+#[derive(Debug, Subcommand, Clone)]
+pub enum WorkerCommand {
+    /// Register this leader as a worker.
+    Start {
+        /// Display name. The hostname when omitted.
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+        /// Repository directory to offer. Repeatable. The first is the working directory.
+        #[arg(long = "dir", value_name = "DIR", action = ArgAction::Append)]
+        dirs: Vec<PathBuf>,
+        /// Cap on concurrently claimed agents.
+        #[arg(long, value_name = "N")]
+        max_agents: Option<u32>,
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+        /// Force leader mode for this command.
+        #[arg(long, conflicts_with = "no_leader")]
+        leader: bool,
+        /// Refuse to start even when config enables leader mode.
+        #[arg(long, conflicts_with = "leader")]
+        no_leader: bool,
+    },
+    /// Stop the worker door.
+    Stop {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show worker door status.
+    Status {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print controller ids attached to worker claims.
+    Controller {
+        /// Emit machine-readable JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+/// Build the leader start payload from `grok worker start` flags.
+/// Cloud-pool fields are not here: the control protocol has no such arguments.
+pub fn worker_start_payload(
+    name: Option<String>,
+    dirs: &[PathBuf],
+    max_agents: Option<u32>,
+) -> xai_grok_shell::leader::CursorWorkerStartArgs {
+    xai_grok_shell::leader::CursorWorkerStartArgs {
+        name,
+        worker_dirs: dirs.iter().map(|dir| dir.display().to_string()).collect(),
+        max_agents,
+    }
 }
 #[derive(Debug, clap::Args, Clone)]
 pub struct WorkspaceMgmtArgs {
@@ -417,6 +481,14 @@ pub struct PagerArgs {
     /// Working directory.
     #[arg(long)]
     pub cwd: Option<PathBuf>,
+    /// Extra workspace directory. Repeatable. Refused when the folder is not trusted.
+    #[arg(
+        long = "add-dir",
+        value_name = "DIR",
+        action = ArgAction::Append,
+        value_hint = ValueHint::DirPath
+    )]
+    pub add_dir: Vec<PathBuf>,
     /// Use a custom leader socket path instead of the default `~/.grok/leader.sock`.
     /// A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine
     /// Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered
@@ -448,10 +520,11 @@ pub struct PagerArgs {
     /// Trust this folder and persist the decision to the trust store.
     #[arg(long = "trust", alias = "trust-folder", hide = true)]
     pub trust: bool,
-    /// Permission allow rule (compat alias: --allowedTools).
+    /// Permission allow rule (compat aliases: --allowedTools, --allowed-tools).
     #[arg(
         long = "allow",
         alias = "allowedTools",
+        visible_alias = "allowed-tools",
         value_name = "RULE",
         value_delimiter = ','
     )]
@@ -1030,6 +1103,71 @@ impl PagerArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
+    #[test]
+    fn worker_parses_start_stop_status_controller_and_old_name() {
+        let start = PagerArgs::try_parse_from([
+            "grok",
+            "worker",
+            "start",
+            "--name",
+            "box",
+            "--dir",
+            "/tmp/a",
+            "--dir",
+            "/tmp/b",
+            "--max-agents",
+            "2",
+        ])
+        .expect("worker start");
+        let Some(Command::Worker(args)) = start.command else {
+            panic!("expected worker");
+        };
+        let WorkerCommand::Start {
+            name,
+            dirs,
+            max_agents,
+            ..
+        } = args.command
+        else {
+            panic!("expected start");
+        };
+        let payload = worker_start_payload(name, &dirs, max_agents);
+        assert_eq!(payload.name.as_deref(), Some("box"));
+        assert_eq!(payload.worker_dirs, vec!["/tmp/a", "/tmp/b"]);
+        assert_eq!(payload.max_agents, Some(2));
+        for (argv, label) in [
+            (vec!["grok", "worker", "stop"], "stop"),
+            (vec!["grok", "worker", "status"], "status"),
+            (vec!["grok", "worker", "controller"], "controller"),
+            (vec!["grok", "cursor-worker", "status"], "alias"),
+        ] {
+            assert!(
+                PagerArgs::try_parse_from(argv).is_ok(),
+                "{label} should parse"
+            );
+        }
+    }
+    #[test]
+    fn allow_accepts_allowed_tools_alias() {
+        let dashed = PagerArgs::try_parse_from([
+            "grok",
+            "--allowed-tools",
+            "Bash(ls)",
+            "--allowed-tools",
+            "Read",
+        ])
+        .expect("--allowed-tools parses");
+        assert_eq!(dashed.allow_rules, vec!["Bash(ls)", "Read"]);
+        let camel = PagerArgs::try_parse_from(["grok", "--allowedTools", "Bash(ls),Read"])
+            .expect("--allowedTools parses");
+        assert_eq!(camel.allow_rules, vec!["Bash(ls)", "Read"]);
+        let help = PagerArgs::command().render_help().to_string();
+        assert!(
+            help.contains("--allowed-tools"),
+            "help must show the alias: {help}"
+        );
+    }
     #[test]
     fn version_flags_parse_as_early_intent_without_exiting() {
         for flag in ["--version", "-v", "-V"] {

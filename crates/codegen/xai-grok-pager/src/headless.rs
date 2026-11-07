@@ -46,9 +46,10 @@ use ext_protocol::{ExtEvent, handle_ext_notification, reply_headless_ext_method}
 use prompt_ack::{abort_unacknowledged_prompt, headless_ack_signal};
 use signals::HeadlessSignals;
 mod cli;
+pub(crate) use cli::parse_comma_list;
 pub use cli::{HeadlessPrompt, OutputFormat, parse_json_schema, parse_permission_rules_lenient};
 pub(crate) use cli::{ResolvedAgent, resolve_agent_arg};
-use cli::{apply_agent_flag, parse_cli_agents, parse_comma_list, parse_permission_rules_strict};
+use cli::{apply_agent_flag, parse_cli_agents, parse_permission_rules_strict};
 #[derive(Debug, Clone)]
 pub struct HeadlessOptions {
     pub session_id: Option<String>,
@@ -542,9 +543,11 @@ async fn open_session(
         .cloned();
     crate::app::session_startup::stamp_phase_traceparent(&mut meta);
     let new_resp: acp::NewSessionResponse = acp_send(
-        acp::NewSessionRequest::new(cwd.to_path_buf())
-            .mcp_servers(mcp_servers)
-            .meta(meta),
+        crate::app::add_dir::attach_startup_dirs(
+            acp::NewSessionRequest::new(cwd.to_path_buf())
+                .mcp_servers(mcp_servers)
+                .meta(meta),
+        ),
         acp_tx,
     )
     .await?;
@@ -568,9 +571,11 @@ async fn open_session_with_id(
         .cloned();
     crate::app::session_startup::stamp_phase_traceparent(&mut meta);
     let new_resp: acp::NewSessionResponse = acp_send(
-        acp::NewSessionRequest::new(cwd.to_path_buf())
-            .mcp_servers(mcp_servers)
-            .meta(meta),
+        crate::app::add_dir::attach_startup_dirs(
+            acp::NewSessionRequest::new(cwd.to_path_buf())
+                .mcp_servers(mcp_servers)
+                .meta(meta),
+        ),
         acp_tx,
     )
     .await?;

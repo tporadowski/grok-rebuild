@@ -76,7 +76,8 @@ fn process_identity(command: Option<&Command>, is_interactive: bool) -> Option<P
             | Command::Completions { .. }
             | Command::Worktree(_)
             | Command::DiskUsage(_)
-            | Command::Workspace(_),
+            | Command::Workspace(_)
+            | Command::Worker(_),
         ) => (Entrypoint::Cli, Interactivity::Unattended),
         None if is_interactive => return None,
         None => (Entrypoint::Headless, Interactivity::Unattended),
@@ -114,7 +115,8 @@ fn command_needs_pre_sandbox_policy_heal(command: Option<&Command>) -> bool {
             | Command::Version { .. }
             | Command::Completions { .. }
             | Command::DiskUsage(_)
-            | Command::Workspace(_),
+            | Command::Workspace(_)
+            | Command::Worker(_),
         ) => false,
     }
 }
@@ -505,6 +507,11 @@ const WORKSPACE_DOOR: LeaderDoorCli = LeaderDoorCli {
     client_type: "grok-workspace-cli",
     leader_mode_reason: "the workspace is shared via the leader",
 };
+const WORKER_DOOR: LeaderDoorCli = LeaderDoorCli {
+    name: "grok worker",
+    client_type: "grok-worker-cli",
+    leader_mode_reason: "the worker door runs inside the leader",
+};
 /// Resolution of the `grok workspace` gate.
 /// `Unknown` is kept separate from `Disabled` so we don't tell the user the flag is off when the settings were never read.
 /// Both fail closed, but `Unknown` earns an honest message.
@@ -572,6 +579,111 @@ async fn fetch_remote_settings(
     )
     .await;
     xai_grok_shell::agent::remote_config::settings_get::consume_wait(wait, None, grok_com_config)
+}
+fn ensure_worker_caps(reg: &LeaderRegistration) -> Result<()> {
+    let caps = ensure_control_caps(reg)?;
+    if !caps.cursor_worker {
+        anyhow::bail!(
+            "the running leader does not support `grok worker` — stop the \
+             leader process and re-run to pick up the new version"
+        );
+    }
+    Ok(())
+}
+#[tracing::instrument(level = "debug", skip_all)]
+async fn run_worker(args: xai_grok_pager::app::cli::WorkerArgs) -> Result<()> {
+    use xai_grok_pager::app::cli::WorkerCommand;
+    match args.command {
+        WorkerCommand::Start {
+            name,
+            dirs,
+            max_agents,
+            json,
+            leader,
+            no_leader,
+        } => {
+            let client =
+                spawn_and_connect_leader(leader, no_leader, None, &WORKER_DOOR).await?;
+            ensure_worker_caps(client.registration())?;
+            let start = xai_grok_pager::app::cli::worker_start_payload(name, &dirs, max_agents);
+            let payload = client
+                .send_control(ControlCommand::CursorWorkerStart(start))
+                .await??;
+            render_worker_payload(&payload, json, false);
+            client.cancel();
+            Ok(())
+        }
+        WorkerCommand::Stop { json } => {
+            worker_control(json, false, ControlCommand::CursorWorkerStop).await
+        }
+        WorkerCommand::Status { json } => {
+            worker_control(json, false, ControlCommand::CursorWorkerStatus).await
+        }
+        WorkerCommand::Controller { json } => {
+            worker_control(json, true, ControlCommand::CursorWorkerStatus).await
+        }
+    }
+}
+async fn worker_control(json: bool, controllers_only: bool, command: ControlCommand) -> Result<()> {
+    let agent_config = xai_grok_shell::config::load_agent_config_disk_only()
+        .map_err(|e| anyhow::anyhow!("Failed to create agent config: {e}"))?;
+    let client = connect_leader_control(&agent_config, &LeaderTargetArgs::default(), &WORKER_DOOR)
+        .await?;
+    ensure_worker_caps(client.registration())?;
+    let payload = client.send_control(command).await??;
+    render_worker_payload(&payload, json, controllers_only);
+    client.cancel();
+    Ok(())
+}
+fn render_worker_payload(payload: &ControlPayload, json: bool, controllers_only: bool) {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string())
+        );
+        return;
+    }
+    let ControlPayload::CursorWorkerStatus {
+        state,
+        worker_id,
+        display_name,
+        worker_dirs,
+        last_error,
+        claims,
+        doors,
+        ..
+    } = payload
+    else {
+        eprintln!("unexpected worker reply");
+        return;
+    };
+    if controllers_only {
+        let mut any = false;
+        for claim in claims.iter().chain(doors.iter().flat_map(|door| door.claims.iter())) {
+            if let Some(id) = &claim.controller_id {
+                println!("{id}");
+                any = true;
+            }
+        }
+        if !any {
+            println!("no controller attached");
+        }
+        return;
+    }
+    println!("state: {state}");
+    if let Some(id) = worker_id {
+        println!("worker_id: {id}");
+    }
+    if let Some(name) = display_name {
+        println!("name: {name}");
+    }
+    if !worker_dirs.is_empty() {
+        println!("dirs: {}", worker_dirs.join(", "));
+    }
+    if let Some(error) = last_error {
+        println!("last_error: {error}");
+    }
+    println!("claims: {}", claims.len());
 }
 #[tracing::instrument(level = "debug", skip_all)]
 async fn run_workspace_mgmt(args: WorkspaceMgmtArgs) -> Result<()> {
@@ -1275,7 +1387,7 @@ async fn run_agent_command(
                 xai_grok_update::channel_label(),
             )
         );
-        if should_check_for_updates(no_auto_update) {
+        if auto_update_checks_allowed(no_auto_update, xai_grok_sandbox::is_inside_bwrap()) {
             auto_update::run_update_if_available(
                 auto_update::UpdateRunMode::NonBlocking,
                 false,
@@ -1391,7 +1503,7 @@ async fn run_agent_command(
     if stdio_auto_update_enabled(
         is_stdio,
         use_leader,
-        should_check_for_updates(no_auto_update),
+        auto_update_checks_allowed(no_auto_update, xai_grok_sandbox::is_inside_bwrap()),
         managed_install,
     ) {
         let update_config = update_config.clone();
@@ -1619,8 +1731,9 @@ async fn run_agent_command(
         Some(AgentCmd::Leader(a)) => {
             let mut agent_config = agent_config.clone();
             apply_headless_args_to_config(&a.headless, &mut agent_config);
-            let leader_auto_update = if !should_check_for_updates(
+            let leader_auto_update = if !auto_update_checks_allowed(
                 no_auto_update || a.no_auto_update,
+                xai_grok_sandbox::is_inside_bwrap(),
             ) {
                 tracing::info!("Leader auto-update disabled");
                 None
@@ -2032,6 +2145,7 @@ fn dispatch_doctor_if_requested(args: &PagerArgs) -> bool {
     true
 }
 fn main() {
+    install_quiet_broken_pipe_exit();
     xai_grok_version::set_full_version(env!("VERSION_WITH_COMMIT"));
     xai_grok_telemetry::startup::mark_process_start();
     if let Some(code) = xai_grok_pager::app::mermaid_worker::maybe_run_render_subprocess() {
@@ -2197,11 +2311,49 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
             }
         }
     }
-    xai_grok_shell::config::apply_sandbox(
-        None,
-        sandbox_profile_arg.as_deref(),
-        args.cwd.as_deref(),
-    );
+    if !args.add_dir.is_empty() {
+        match xai_grok_pager::app::add_dir::refuse_untrusted_add_dirs(
+            &args.add_dir,
+            xai_grok_pager::app::add_dir::directory_trust,
+        ) {
+            Ok(dirs) => {
+                xai_grok_sandbox::set_extra_write_roots(dirs.clone());
+                xai_grok_pager::app::add_dir::set_startup_add_dirs(dirs);
+            }
+            Err(message) => {
+                eprintln!("error: {message}");
+                std::process::exit(1);
+            }
+        }
+    }
+    match update_under_sandbox(
+        matches!(args.command, Some(Command::Update { .. })),
+        xai_grok_sandbox::is_inside_bwrap(),
+    ) {
+        UpdateUnderSandbox::Apply => {
+            xai_grok_shell::config::apply_sandbox(
+                None,
+                sandbox_profile_arg.as_deref(),
+                args.cwd.as_deref(),
+            );
+        }
+        UpdateUnderSandbox::SkipSandbox => {}
+        UpdateUnderSandbox::RefuseConfined => {
+            eprintln!(
+                "error: `grok update` cannot run while this process is sandboxed. \
+                 Run `grok update` outside the sandbox."
+            );
+            std::process::exit(1);
+        }
+    }
+    if !matches!(args.command, Some(Command::Update { .. }))
+        && xai_grok_sandbox::is_inside_bwrap()
+        && should_check_for_updates(args.no_auto_update)
+    {
+        eprintln!(
+            "Grok is sandboxed and will not update itself. Run `grok update` outside the sandbox."
+        );
+    }
     if let Some(identity) = process_identity(args.command.as_ref(), is_interactive) {
         set_identity(identity);
     }
@@ -2298,6 +2450,11 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                 init_tracing_simple("cli");
                 let _otel_guard = xai_grok_telemetry::otel_layer::otel_guard();
                 return run_workspace_mgmt(workspace_args).await;
+            }
+            Command::Worker(worker_args) => {
+                init_tracing_simple("cli");
+                let _otel_guard = xai_grok_telemetry::otel_layer::otel_guard();
+                return run_worker(worker_args).await;
             }
             Command::Sessions(sessions_args) => {
                 init_tracing_simple("cli");
@@ -2499,7 +2656,8 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
     type UpdateWaitHandle = tokio::task::JoinHandle<std::io::Result<std::process::ExitStatus>>;
     let bg_update_wait: std::sync::Arc<tokio::sync::Mutex<Option<UpdateWaitHandle>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
-    let check_updates = should_check_for_updates(args.no_auto_update);
+    let check_updates =
+        auto_update_checks_allowed(args.no_auto_update, xai_grok_sandbox::is_inside_bwrap());
     let bg_update_rx: Option<tokio::sync::oneshot::Receiver<Option<auto_update::UpdateAvailable>>> =
         if check_updates {
             let update_config = update_config.clone();
@@ -2607,12 +2765,68 @@ async fn run_update_blocking(update_config: &UpdateConfig) -> bool {
     .await
     .is_ok()
 }
+/// `println!` / `eprintln!` panic when stdout or stderr is closed. `grok update` and
+/// `grok login` must exit instead of aborting. SIGPIPE stays ignored so children keep
+/// the Rust default.
+fn is_broken_pipe_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("broken pipe") || lower.contains("os error 32")
+}
+fn install_quiet_broken_pipe_exit() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .unwrap_or("")
+            .to_string();
+        let owned = info
+            .payload()
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .unwrap_or("");
+        if is_broken_pipe_message(&payload)
+            || is_broken_pipe_message(owned)
+            || is_broken_pipe_message(&info.to_string())
+        {
+            std::process::exit(0);
+        }
+        default_hook(info);
+    }));
+}
 /// Central gate for auto-update checks; add new suppression rules here, not at call sites.
 fn should_check_for_updates(no_auto_update_flag: bool) -> bool {
     if cfg!(debug_assertions) {
         return false;
     }
     !is_opted_out_of_updates(no_auto_update_flag)
+}
+/// What startup does with the sandbox when the user asked for `grok update`.
+#[derive(Debug, PartialEq, Eq)]
+enum UpdateUnderSandbox {
+    /// Not an update command: apply the configured profile as usual.
+    Apply,
+    /// Update, and this process is not already confined: do not enter the sandbox.
+    SkipSandbox,
+    /// Update from inside a sandbox: refuse. The install cannot replace the running binary.
+    RefuseConfined,
+}
+fn update_under_sandbox(is_update_command: bool, inside_sandbox: bool) -> UpdateUnderSandbox {
+    if !is_update_command {
+        UpdateUnderSandbox::Apply
+    } else if inside_sandbox {
+        UpdateUnderSandbox::RefuseConfined
+    } else {
+        UpdateUnderSandbox::SkipSandbox
+    }
+}
+/// Background update checks stay off while this process is sandboxed.
+fn sandbox_blocks_auto_update(inside_sandbox: bool) -> bool {
+    inside_sandbox
+}
+fn auto_update_checks_allowed(no_auto_update_flag: bool, inside_sandbox: bool) -> bool {
+    should_check_for_updates(no_auto_update_flag) && !sandbox_blocks_auto_update(inside_sandbox)
 }
 fn is_opted_out_of_updates(no_auto_update_flag: bool) -> bool {
     no_auto_update_flag
@@ -2692,7 +2906,7 @@ async fn run_update_command(
         if version.is_some() {
             anyhow::bail!("--version cannot be used with --check");
         }
-        auto_update::apply_channel_switch(channel_switch, &mut update_config).await;
+        auto_update::apply_channel_switch(channel_switch, &mut update_config).await?;
         let status = auto_update::check_update_status(&update_config).await;
         auto_update::print_update_status(&status, json)?;
         return Ok(());
@@ -2801,6 +3015,35 @@ async fn signal_leaders_to_relaunch(installed_version: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn update_skips_sandbox_unless_already_confined() {
+        assert_eq!(
+            update_under_sandbox(false, false),
+            UpdateUnderSandbox::Apply
+        );
+        assert_eq!(
+            update_under_sandbox(true, false),
+            UpdateUnderSandbox::SkipSandbox
+        );
+        assert_eq!(
+            update_under_sandbox(true, true),
+            UpdateUnderSandbox::RefuseConfined
+        );
+        assert!(sandbox_blocks_auto_update(true));
+        assert!(!sandbox_blocks_auto_update(false));
+    }
+
+    #[test]
+    fn closed_stdout_panic_is_a_broken_pipe() {
+        assert!(is_broken_pipe_message(
+            "failed printing to stdout: Broken pipe (os error 32)"
+        ));
+        assert!(is_broken_pipe_message(
+            "failed printing to stderr: Broken pipe (os error 32)"
+        ));
+        assert!(!is_broken_pipe_message("config.toml is not a table"));
+    }
+
     #[test]
     fn embedded_agent_commands_heal_managed_policy_before_sandboxing() {
         for args in [

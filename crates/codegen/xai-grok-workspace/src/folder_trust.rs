@@ -91,6 +91,17 @@ fn record_process_decision(key: &Path, trusted: bool) {
     PROCESS_DECISIONS.lock().insert(key.to_path_buf(), trusted);
 }
 
+/// Whether `dir` may be named with `--add-dir`.
+/// A folder that would still need a trust prompt is refused. Feature-off builds trust every folder.
+pub fn add_directory_trusted(dir: &Path) -> bool {
+    let key = crate::trust::workspace_key(dir);
+    let inputs = decide_inputs_with_interactive(dir, &key, false);
+    match resolve_trust(feature_enabled(None), &inputs, PromptPolicy::FailClosed) {
+        TrustResolution::Decided(decision) => decision.level.is_trusted(),
+        TrustResolution::NeedsPrompt => false,
+    }
+}
+
 /// Latest process-local decision, else the durable store.
 pub fn is_trusted_this_process(key: &Path) -> bool {
     if let Some(&trusted) = PROCESS_DECISIONS.lock().get(key) {

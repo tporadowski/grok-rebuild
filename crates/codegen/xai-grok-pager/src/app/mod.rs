@@ -15,6 +15,7 @@ pub mod agent_view;
 pub mod app_view;
 pub mod bundle;
 pub(crate) mod cancel_latency;
+pub mod add_dir;
 pub mod cli;
 pub(crate) mod command_catalog;
 pub mod consent;
@@ -962,6 +963,8 @@ pub async fn run(
             &args.allow_rules,
             &args.deny_rules,
         ),
+        cli_tools: args.cli_tools.clone(),
+        cli_disallowed_tools: args.cli_disallowed_tools.clone(),
         default_yolo_mode: launch_yolo.yolo,
         default_auto_mode: launch_auto && !launch_yolo.yolo,
         status_line: false,

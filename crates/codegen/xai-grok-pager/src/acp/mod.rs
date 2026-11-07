@@ -167,6 +167,10 @@ pub struct ConnectFlags {
     /// CLI permission rules from the --allow and --deny flags.
     /// Not supported in leader mode (agent config is set at leader startup).
     pub permission_rules: Vec<xai_grok_workspace::permission::types::PermissionRule>,
+    /// `--tools` allowlist. Applied to the interactive session, not only `-p`.
+    pub cli_tools: Option<String>,
+    /// `--disallowed-tools` denylist. Applied to the interactive session, not only `-p`.
+    pub cli_disallowed_tools: Option<String>,
     /// Seed agent sessions with always-approve (YOLO) permission mode.
     pub default_yolo_mode: bool,
     /// Seed agent sessions with auto (classifier) permission mode.
@@ -212,6 +216,7 @@ pub async fn connect(cancel: &CancellationToken, flags: ConnectFlags) -> Result<
     if !flags.permission_rules.is_empty() {
         agent_config.cli_agent_overrides.permission_rules = flags.permission_rules.clone();
     }
+    apply_interactive_tool_flags(&mut agent_config, &flags);
     apply_config_writes(&flags);
     set_identity(ProcessIdentity {
         entrypoint: Entrypoint::Embedded,
@@ -388,7 +393,28 @@ fn unsupported_leader_flags(flags: &ConnectFlags) -> Vec<&'static str> {
     if !flags.permission_rules.is_empty() {
         out.push("--allow/--deny permission rules");
     }
+    if flags.cli_tools.is_some() {
+        out.push("--tools");
+    }
+    if flags.cli_disallowed_tools.is_some() {
+        out.push("--disallowed-tools");
+    }
     out
+}
+
+/// `--tools` and `--disallowed-tools` bind the interactive agent the same way they bind headless.
+fn apply_interactive_tool_flags(
+    agent_config: &mut AgentConfig,
+    flags: &ConnectFlags,
+) {
+    if let Some(tools) = crate::headless::parse_comma_list(flags.cli_tools.as_deref()) {
+        agent_config.cli_agent_overrides.tools = Some(tools);
+    }
+    if let Some(disallowed) =
+        crate::headless::parse_comma_list(flags.cli_disallowed_tools.as_deref())
+    {
+        agent_config.cli_agent_overrides.disallowed_tools = Some(disallowed);
+    }
 }
 /// Write config.toml fields based on CLI flags.
 pub(super) fn apply_config_writes(flags: &ConnectFlags) {
@@ -960,6 +986,29 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(unsupported_leader_flags(&flags), vec!["--no-memory"]);
+    }
+    #[test]
+    fn interactive_tool_flags_reach_the_agent_config() {
+        let mut agent_config = AgentConfig::default();
+        apply_interactive_tool_flags(
+            &mut agent_config,
+            &ConnectFlags {
+                cli_tools: Some("read_file, grep".into()),
+                cli_disallowed_tools: Some("web_search".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            agent_config.cli_agent_overrides.tools.as_deref(),
+            Some(&["read_file".to_string(), "grep".to_string()][..])
+        );
+        assert_eq!(
+            agent_config
+                .cli_agent_overrides
+                .disallowed_tools
+                .as_deref(),
+            Some(&["web_search".to_string()][..])
+        );
     }
     #[test]
     fn unsupported_leader_flags_ignores_supported() {
