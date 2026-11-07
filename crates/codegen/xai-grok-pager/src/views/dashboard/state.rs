@@ -462,6 +462,8 @@ pub struct DashboardState {
     /// Populated by the renderer when the popup chrome is painted; consumed by `handle_mouse` to dispatch a popup close on click.
     /// `None` when no popup is open or the popup is too small for the affordance.
     pub popup_close_rect: Option<Rect>,
+    /// The pointer is over the popup `[✗]`, so the renderer brightens that button.
+    pub popup_close_hovered: bool,
     /// Outer rect of the popup overlay (border included). Populated by the renderer; consumed by
     /// `handle_mouse` to.
     pub popup_outer_rect: Option<Rect>,
@@ -1167,6 +1169,7 @@ impl DashboardState {
             last_area: Rect::default(),
             attached_agent: None,
             popup_close_rect: None,
+            popup_close_hovered: false,
             popup_outer_rect: None,
             new_agent_button_hit: crate::app::agent_view::HitArea::default(),
             open_session_button_hit: crate::app::agent_view::HitArea::default(),
@@ -1989,7 +1992,23 @@ impl DashboardState {
     pub fn close_popup(&mut self) {
         self.attached_agent = None;
         self.popup_close_rect = None;
+        self.popup_close_hovered = false;
         self.popup_outer_rect = None;
+    }
+
+    /// Track whether the pointer is over the popup `[✗]`. Returns true when the highlight changes.
+    pub(crate) fn sync_popup_close_hover(&mut self, column: u16, row: u16) -> bool {
+        let hovered = self.popup_close_rect.is_some_and(|rect| {
+            column >= rect.x
+                && column < rect.x + rect.width
+                && row >= rect.y
+                && row < rect.y + rect.height
+        });
+        if hovered == self.popup_close_hovered {
+            return false;
+        }
+        self.popup_close_hovered = hovered;
+        true
     }
 
     /// Top-level input handler.

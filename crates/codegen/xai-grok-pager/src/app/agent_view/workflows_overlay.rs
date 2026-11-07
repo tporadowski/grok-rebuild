@@ -219,8 +219,11 @@ impl AgentView {
                     .or_else(|| runs.get(view.selected_run).copied());
                 let outcome =
                     handle_modal_mouse(&mut view.window, mouse.kind, mouse.column, mouse.row);
+                let pointer_on_chrome =
+                    matches!(mouse.kind, crossterm::event::MouseEventKind::Moved)
+                        && !matches!(outcome, ModalWindowOutcome::Unhandled);
 
-                let result = match outcome {
+                let mut result = match outcome {
                     ModalWindowOutcome::CloseRequested => {
                         // [✗] and click-outside dismiss the overlay. Back to
                         // the run list is Left / Tab / the Runs shortcut.
@@ -305,12 +308,40 @@ impl AgentView {
                                 view.select_run(pos, &runs);
                             }
                             view.detail_run_id = Some(run_id);
+                            view.hovered_run_id = None;
                             view.phase_pinned = false;
                         }
                         InputOutcome::Changed
                     }
+                    ModalWindowOutcome::Unhandled
+                        if matches!(mouse.kind, crossterm::event::MouseEventKind::Moved) =>
+                    {
+                        let hit = |r: &ratatui::layout::Rect| {
+                            mouse.column >= r.x
+                                && mouse.column < r.x + r.width
+                                && mouse.row >= r.y
+                                && mouse.row < r.y + r.height
+                        };
+                        let new_hover = if in_detail {
+                            None
+                        } else {
+                            view.run_hits
+                                .iter()
+                                .find(|(rect, _)| hit(rect))
+                                .map(|(_, id)| id.clone())
+                        };
+                        if new_hover == view.hovered_run_id {
+                            InputOutcome::Unchanged
+                        } else {
+                            view.hovered_run_id = new_hover;
+                            InputOutcome::Changed
+                        }
+                    }
                     _ => InputOutcome::Changed,
                 };
+                if pointer_on_chrome && view.hovered_run_id.take().is_some() {
+                    result = InputOutcome::Changed;
+                }
                 self.workflows_view = view;
                 return Some(result);
             }
@@ -672,6 +703,15 @@ mod workflows_overlay_key_tests {
         );
     }
 
+    fn mouse_move(column: u16, row: u16) -> Event {
+        Event::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Moved,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
     fn mouse_down(column: u16, row: u16) -> Event {
         Event::Mouse(crossterm::event::MouseEvent {
             kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
@@ -825,6 +865,25 @@ mod workflows_overlay_key_tests {
             agent.workflows_view.phase_pinned,
             "a clicked phase must pin (stop following the active phase)"
         );
+    }
+
+    #[test]
+    fn mouse_over_a_collapsed_workflow_row_sets_hover() {
+        let mut agent = workflows_agent(&["wf_old", "wf_new"]);
+        agent.workflows_view.run_hits = vec![
+            (rect(5, 4, 60, 1), "wf_new".to_string()),
+            (rect(5, 5, 60, 1), "wf_old".to_string()),
+        ];
+        let reg = ActionRegistry::defaults();
+
+        let out = agent.handle_input(&mouse_move(6, 5), &reg);
+        assert!(matches!(out, InputOutcome::Changed));
+        assert_eq!(
+            agent.workflows_view.hovered_run_id.as_deref(),
+            Some("wf_old")
+        );
+        let again = agent.handle_input(&mouse_move(6, 5), &reg);
+        assert!(matches!(again, InputOutcome::Unchanged));
     }
 
     #[test]

@@ -223,6 +223,8 @@ pub struct WorkflowsViewState {
     /// `→` or a click moves the keys onto this phase's agents (`v72-f05`).
     pub roster_focused: bool,
     pub selected_agent_id: Option<String>,
+    /// Run list row under the pointer. The list is the collapsed form of a run.
+    pub hovered_run_id: Option<String>,
 }
 
 pub mod shortcut_ids {
@@ -827,6 +829,7 @@ fn render_list(
             collapsible: false,
             underline_last_desc: false,
         };
+        let hovered = state.hovered_run_id.as_deref() == Some(run.run_id.as_str());
         let rendered = render_picker_row(
             buf,
             inner.x + 1,
@@ -834,7 +837,7 @@ fn render_list(
             inner.width.saturating_sub(2),
             theme,
             &row,
-            false,
+            hovered,
             Some(theme.bg_base),
             bottom.saturating_sub(y),
         );
@@ -2254,6 +2257,66 @@ mod tests {
         assert_eq!(crate::glyphs::play_mark(), "\u{25B6}");
         assert_eq!(crate::glyphs::pause_mark(), "\u{23F8}");
         assert_eq!(crate::glyphs::idle_mark(), "\u{25CC}");
+    }
+
+    #[test]
+    fn collapsed_workflow_row_highlights_under_the_pointer() {
+        let a = make_run("wf_a", "deep-research", "active");
+        let b = make_run("wf_b", "count-v2", "complete");
+        let runs = vec![&a, &b];
+        let area = Rect::new(0, 0, 100, 30);
+        let theme = Theme::current();
+        let mut state = WorkflowsViewState::default();
+        state.normalize(&runs);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        let Some((rect, _)) = state.run_hits.iter().find(|(_, id)| id == "wf_b") else {
+            panic!("missing collapsed row: {:?}", state.run_hits);
+        };
+        let before = buf
+            .cell((rect.x, rect.y))
+            .map(|cell| cell.style())
+            .expect("row cell");
+        state.hovered_run_id = Some("wf_b".to_string());
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        let Some((rect, _)) = state.run_hits.iter().find(|(_, id)| id == "wf_b") else {
+            panic!("missing hovered row: {:?}", state.run_hits);
+        };
+        let after = buf
+            .cell((rect.x, rect.y))
+            .map(|cell| cell.style())
+            .expect("hovered row cell");
+        if theme.is_bandless() {
+            assert!(
+                after
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::REVERSED),
+                "bandless hover uses reverse video, got {after:?}"
+            );
+            assert!(
+                !before
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::REVERSED),
+                "the row was not hovered before, got {before:?}"
+            );
+        } else {
+            assert_eq!(after.bg, Some(theme.bg_hover), "got {after:?}");
+            assert_ne!(before.bg, Some(theme.bg_hover), "got {before:?}");
+        }
     }
 
     #[test]

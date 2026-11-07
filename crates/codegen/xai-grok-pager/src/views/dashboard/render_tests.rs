@@ -432,7 +432,9 @@ fn open_previous_actions_button_is_v2_only_and_follows_new_agent() {
     });
     assert!(matches!(
         v2_state.handle_input(&click, &crate::actions::ActionRegistry::defaults()),
-        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(None))
+        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(
+            None
+        ))
     ));
     assert!(v2_state.open_session_button_focused());
     assert!(!v2_state.new_agent_button_focused());
@@ -443,7 +445,9 @@ fn open_previous_actions_button_is_v2_only_and_follows_new_agent() {
     ));
     assert!(matches!(
         v2_state.handle_input(&enter, &crate::actions::ActionRegistry::defaults()),
-        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(None))
+        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(
+            None
+        ))
     ));
 
     // Visual order: `+ New Agent` → (Right) `Open Previous` → (Left) back
@@ -460,7 +464,9 @@ fn open_previous_actions_button_is_v2_only_and_follows_new_agent() {
     assert!(v2_state.open_session_button_focused());
     assert!(matches!(
         v2_state.handle_input(&enter, &crate::actions::ActionRegistry::defaults()),
-        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(None))
+        crate::app::app_view::InputOutcome::Action(crate::app::actions::Action::ShowSessionPicker(
+            None
+        ))
     ));
     let left = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Left,
@@ -1375,6 +1381,45 @@ fn render_popup_overlay_registers_close_hit_rect() {
         .popup_outer_rect
         .expect("popup_outer_rect must be registered");
     assert_eq!(outer, Rect::new(0, 0, 60, 10));
+}
+
+#[test]
+fn popup_close_highlights_under_the_pointer() {
+    let theme = Theme::groknight();
+    let area = Rect::new(0, 0, 60, 10);
+    let mut buf = Buffer::empty(area);
+    let mut state = DashboardState::new();
+    let _ = render_popup_overlay(
+        &mut buf,
+        area,
+        &theme,
+        "Sample",
+        &mut state,
+        |_inner, _buf| (None, None),
+    );
+    let close = state.popup_close_rect.expect("close rect");
+    let idle = buf_cell(&buf, close.x, close.y).style();
+    assert_eq!(idle.fg, Some(theme.gray));
+    assert!(!idle.add_modifier.contains(ratatui::style::Modifier::BOLD));
+
+    assert!(!state.sync_popup_close_hover(0, 0));
+    assert!(state.sync_popup_close_hover(close.x, close.y));
+    assert!(state.popup_close_hovered);
+    let _ = render_popup_overlay(
+        &mut buf,
+        area,
+        &theme,
+        "Sample",
+        &mut state,
+        |_inner, _buf| (None, None),
+    );
+    let close = state.popup_close_rect.expect("close rect");
+    let hot = buf_cell(&buf, close.x, close.y).style();
+    assert_eq!(hot.fg, Some(theme.text_primary));
+    assert!(hot.add_modifier.contains(ratatui::style::Modifier::BOLD));
+    state.close_popup();
+    assert!(!state.popup_close_hovered);
+    assert!(state.popup_close_rect.is_none());
 }
 
 /// When the popup area is too small for the canonical bordered frame, the overlay paints a fallback hint inside an outlined box.

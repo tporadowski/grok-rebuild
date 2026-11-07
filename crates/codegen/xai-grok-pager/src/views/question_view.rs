@@ -45,6 +45,44 @@ fn hovered_bg(theme: &Theme) -> ratatui::style::Color {
     theme.bg_hover
 }
 
+/// Styles for the question card's `Enter:submit` button.
+/// Hover uses the same bright label and hover band as other clickable controls.
+pub(crate) struct EnterButtonStyles {
+    pub key: Style,
+    pub label: Style,
+    pub pad: Style,
+}
+
+pub(crate) fn enter_button_styles(
+    theme: &Theme,
+    accent: ratatui::style::Color,
+    hovered: bool,
+) -> EnterButtonStyles {
+    let bg = if hovered {
+        hovered_bg(theme)
+    } else {
+        theme.bg_base
+    };
+    let mut label = Style::default()
+        .fg(if hovered {
+            theme.text_primary
+        } else {
+            theme.gray
+        })
+        .bg(bg);
+    if hovered {
+        label = label.add_modifier(Modifier::BOLD);
+    }
+    EnterButtonStyles {
+        key: Style::default()
+            .fg(accent)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
+        label,
+        pad: Style::default().bg(bg),
+    }
+}
+
 /// Per-question selection state.
 #[derive(Debug, Clone)]
 pub enum QuestionSelection {
@@ -1894,6 +1932,21 @@ fn render_question_chrome(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enter_submit_button_highlights_under_the_pointer() {
+        let theme = Theme::groknight();
+        let idle = super::enter_button_styles(&theme, theme.accent_user, false);
+        let hot = super::enter_button_styles(&theme, theme.accent_user, true);
+        assert_eq!(idle.label.fg, Some(theme.gray));
+        assert!(!idle.label.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(idle.pad.bg, Some(theme.bg_base));
+        assert_eq!(hot.label.fg, Some(theme.text_primary));
+        assert!(hot.label.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(hot.key.bg, Some(theme.bg_hover));
+        assert_eq!(hot.pad.bg, Some(theme.bg_hover));
+        assert_ne!(theme.text_primary, theme.gray);
+    }
 
     fn at<'a, T>(xs: &'a [T], i: usize) -> &'a T {
         match xs.get(i) {

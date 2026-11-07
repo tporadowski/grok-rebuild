@@ -2698,6 +2698,14 @@ impl AppView {
                         }
                     }
                     if let Event::Mouse(mouse) = ev
+                        && matches!(mouse.kind, crossterm::event::MouseEventKind::Moved)
+                        && self.dashboard.as_mut().is_some_and(|dash| {
+                            dash.sync_popup_close_hover(mouse.column, mouse.row)
+                        })
+                    {
+                        return InputOutcome::Changed;
+                    }
+                    if let Event::Mouse(mouse) = ev
                         && matches!(
                             mouse.kind,
                             crossterm::event::MouseEventKind::Down(

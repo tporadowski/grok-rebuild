@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-054 — Hover on question submit, popup close, and workflow rows
+The question card's Enter button uses `enter_button_styles`: under the pointer the label is bold `text_primary` on `bg_hover` (`enter_submit_button_highlights_under_the_pointer`). The dashboard session popup's `[✗]` uses `popup_close_button_style`, and `sync_popup_close_hover` tracks the pointer (`popup_close_highlights_under_the_pointer`). A collapsed workflow run row passes that hover into `render_picker_row` (`collapsed_workflow_row_highlights_under_the_pointer`, `mouse_over_a_collapsed_workflow_row_sets_hover`). `v75-x11`.
+
 ### D-053 — Running color on workflow marks and starting MCP servers
 An active workflow run, a running agent, and a phase that still has running agents use `theme.running`. An MCP server that is still initializing already uses that same color (`v74-x31`, `running_markers_use_the_theme_running_color`).
 
@@ -268,7 +271,7 @@ Refresh these numbers at the end of a session.
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
-| W5 | Workflows and goals | 2 | 0 | 21 | 6 | 0 |
+| W5 | Workflows and goals | 1 | 0 | 22 | 6 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
@@ -281,9 +284,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 429. Skipped: 8. Done: 107. Already: 29. Deferred: 10.
+Catalog rows: 583. Pending: 428. Skipped: 8. Done: 108. Already: 29. Deferred: 10.
 
-**Next:** W5 workflows and goals. Still open: mouse highlight (`v75-x11`) and dashboard Working rows (`v75-x16`). Kitty image free (`v73-x12`) is still the open W6 row.
+**Next:** W5 workflows and goals. Still open: dashboard Working rows (`v75-x16`). Kitty image free (`v73-x12`) is still the open W6 row.
 
 ## Waves
 
@@ -309,7 +312,7 @@ Pending: 0. Done: 24. Already: 10. Deferred: 2 (`v51-x37`, `v52-x17`, D-041). Lo
 
 ### W5 — Workflows and goals
 
-Pending: 2. Done: 21. Already: 6. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046). A pasted image on `/pr-workflow` is sent with the skill line (`v51-f27`, D-047). Reopening a chat keeps an active goal running (`v51-f30`, D-048). Quit names a running workflow and confirms with a second press (`v53-f05`, D-049). A headless goal that already completed does not print a later `Goal paused.` line (`v51-x92`, D-050). Inline tags stay on the sentence line, and `/workflow stop` prefers the live run (`v52-x23`, D-051). A finished workflow line ends with the run's result, `/tasks` shows the scheduled time, and an unknown task poll keeps an error row (`v74-x19`, D-052). Workflow running marks and a starting MCP server use `theme.running` (`v74-x31`, D-053).
+Pending: 1. Done: 22. Already: 6. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046). A pasted image on `/pr-workflow` is sent with the skill line (`v51-f27`, D-047). Reopening a chat keeps an active goal running (`v51-f30`, D-048). Quit names a running workflow and confirms with a second press (`v53-f05`, D-049). A headless goal that already completed does not print a later `Goal paused.` line (`v51-x92`, D-050). Inline tags stay on the sentence line, and `/workflow stop` prefers the live run (`v52-x23`, D-051). A finished workflow line ends with the run's result, `/tasks` shows the scheduled time, and an unknown task poll keeps an error row (`v74-x19`, D-052). Workflow running marks and a starting MCP server use `theme.running` (`v74-x31`, D-053). The question Enter button, the session popup `[✗]`, and a collapsed workflow row highlight under the pointer (`v75-x11`, D-054).
 
 ### W7 — Worktrees
 
@@ -465,7 +468,7 @@ id | status | wave | kind | flag | covered | note
 - v74-x31 | done | W5 | Bug Fixes |  |  | **Running markers** in workflow views and MCP servers that are still starting use the theme's running color, like other progress indicators.
 - v75-f08 | already | W5 | Features |  |  | **Workflow status lines** say how many agents are still running instead of how many exist.
 - v75-x05 | done | W5 | Bug Fixes |  |  | **Windows**: on older consoles such as plain `cmd.exe` and Windows PowerShell windows, the `▶`, `⏸` and `◌` marks in todo, workflow and list rows show as characters the console can draw instead of empty boxes.
-- v75-x11 | pending | W5 | Bug Fixes |  |  | **A question card's `Enter:submit` button**, the dashboard session popup's `[✗]` and collapsed workflow rows highlight under the mouse pointer like other clickable controls.
+- v75-x11 | done | W5 | Bug Fixes |  |  | **A question card's `Enter:submit` button**, the dashboard session popup's `[✗]` and collapsed workflow rows highlight under the mouse pointer like other clickable controls.
 - v75-x16 | pending | W5 | Bug Fixes |  |  | **Dashboard rows** stay in Working while a session's background subagents or workflow runs are going, and stopping the row ends them.
 - v50-f11 | pending | W7 | Features |  |  | Dashboard now shows which worktree each session belongs to, displays the `-m` model in the new-agent box, and lets you toggle worktree mode in the folder picker.
 - v50-x30 | pending | W7 | Bug Fixes |  |  | **Image and log paths** reported after `/fork --worktree` now point to real files instead of missing locations.

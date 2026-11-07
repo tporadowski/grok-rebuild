@@ -2672,13 +2672,15 @@ impl AgentView {
                         "select"
                     };
                     let btn_key = "Enter";
-                    let btn_bg = theme.bg_base;
-                    let bkey_style = Style::default()
-                        .fg(question_accent)
-                        .bg(btn_bg)
-                        .add_modifier(Modifier::BOLD);
-                    let blabel_style = Style::default().fg(theme.gray).bg(btn_bg);
-                    let bpad_style = Style::default().bg(btn_bg);
+                    let hovered = self.hovered_question_button == Some('\n');
+                    let button = crate::views::question_view::enter_button_styles(
+                        &theme,
+                        question_accent,
+                        hovered,
+                    );
+                    let bkey_style = button.key;
+                    let blabel_style = button.label;
+                    let bpad_style = button.pad;
                     let bw = (1 + btn_key.len() + 1 + enter_label.len() + 1) as u16;
                     let btn_x = footer_x + footer_w.saturating_sub(3).saturating_sub(bw);
                     if btn_x > content_x {

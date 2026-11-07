@@ -3148,7 +3148,7 @@ pub fn render_popup_overlay(
             close_x,
             title_row.y,
             close_label,
-            Style::default().fg(theme.gray).bg(theme.bg_base),
+            popup_close_button_style(theme, state.popup_close_hovered),
         );
         state.popup_close_rect = Some(Rect {
             x: close_x,
@@ -3162,6 +3162,18 @@ pub fn render_popup_overlay(
 
     let (cursor, post_flush) = draw_agent(inner, buf);
     (cursor, post_flush, true)
+}
+
+/// The session popup's `[✗]`. Hover brightens it the same way a modal close button does.
+pub(crate) fn popup_close_button_style(theme: &Theme, hovered: bool) -> Style {
+    if hovered {
+        Style::default()
+            .fg(theme.text_primary)
+            .bg(theme.bg_base)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.gray).bg(theme.bg_base)
+    }
 }
 
 #[cfg(test)]
