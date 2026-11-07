@@ -1202,6 +1202,7 @@ pub async fn run_single_turn(
     };
     let mut prompt_result = None;
     let mut pending_bg: HashSet<BackgroundWork> = HashSet::new();
+    let mut background_wait_timed_out = false;
     let mut background_lifecycle = BackgroundLifecycleState::default();
     let mut prompt_done_at: Option<Instant> = None;
     let mut connection_closed = false;
@@ -1232,12 +1233,14 @@ pub async fn run_single_turn(
             if options.wait_for_background
                 && let Some(done_at) = prompt_done_at
                 && done_at.elapsed() >= options.background_wait_timeout
+                && !pending_bg.is_empty()
             {
                 tracing::warn!(
                     pending_bg = pending_bg.len(),
                     timeout_secs = options.background_wait_timeout.as_secs(),
                     "headless: background wait timed out, exiting"
                 );
+                background_wait_timed_out = true;
                 break;
             }
             let timeout_deadline = if options.wait_for_background
@@ -1374,7 +1377,7 @@ pub async fn run_single_turn(
         drop(agent_guard);
         crate::app::signal_handler::force_exit(code);
     }
-    let outcome: Result<()> = match prompt_result {
+    let mut outcome: Result<()> = match prompt_result {
         _ if connection_closed => Err(anyhow::anyhow!("Connection closed unexpectedly")),
         Some(Ok(resp)) => {
             let stop_reason = stop_reason_wire(resp.stop_reason);
@@ -1446,6 +1449,9 @@ pub async fn run_single_turn(
         }
         None => Ok(()),
     };
+    if background_wait_timed_out {
+        outcome = Err(anyhow::anyhow!(background_wait_timeout_message()));
+    }
     let flush_error = if options.memory_flush && outcome.is_ok() {
         run_headless_memory_flush(
             &acp_tx,
@@ -1527,7 +1533,42 @@ async fn run_headless_memory_flush(
 enum BackgroundWork {
     Task(String),
     Subagent(String),
+    Goal(String),
 }
+
+/// An `active` goal is still running. Every other status is an outcome headless can report and stop waiting on.
+pub(crate) fn goal_is_still_running(status: &str) -> bool {
+    status.eq_ignore_ascii_case("active")
+}
+
+pub(crate) fn apply_goal_background_update(
+    pending: &mut HashSet<BackgroundWork>,
+    goal_id: &str,
+    status: &str,
+) {
+    let work = BackgroundWork::Goal(goal_id.to_string());
+    if goal_is_still_running(status) {
+        pending.insert(work);
+    } else {
+        pending.remove(&work);
+    }
+}
+
+pub(crate) fn format_goal_outcome(status: &str, objective: &str) -> String {
+    let status = status.trim();
+    let objective = objective.trim();
+    if objective.is_empty() {
+        format!("Goal {status}.")
+    } else {
+        format!("Goal {status}: {objective}")
+    }
+}
+
+pub(crate) fn background_wait_timeout_message() -> &'static str {
+    "background wait timed out before pending work finished"
+}
+
+const GOAL_PAUSE_PROMPT: &str = "/goal pause";
 #[derive(Default)]
 struct BackgroundLifecycleState {
     completed_tasks: HashSet<String>,
@@ -1553,6 +1594,11 @@ fn reap_request_for_work(
                 source: xai_grok_shell::extensions::task::TaskKillSource::Teardown,
             })?,
         ),
+        BackgroundWork::Goal(_) => {
+            return Err(serde::de::Error::custom(
+                "an active goal is paused with /goal pause, not an ext request",
+            ));
+        }
     };
     Ok(acp::ExtRequest::new(method, params.into()))
 }
@@ -1581,6 +1627,10 @@ async fn reap_pending_background_tasks(
     acp_tx: &AcpAgentTx,
 ) {
     for work in pending_bg {
+        if matches!(work, BackgroundWork::Goal(_)) {
+            pause_headless_goal(session_id, acp_tx).await;
+            continue;
+        }
         let request = match reap_request_for_work(work, session_id) {
             Ok(request) => request,
             Err(e) => {
@@ -1602,6 +1652,22 @@ async fn reap_pending_background_tasks(
         }
     }
 }
+async fn pause_headless_goal(session_id: &acp::SessionId, acp_tx: &AcpAgentTx) {
+    let request = acp::PromptRequest::new(
+        session_id.clone(),
+        vec![acp::ContentBlock::Text(acp::TextContent::new(
+            GOAL_PAUSE_PROMPT,
+        ))],
+    );
+    match tokio::time::timeout(Duration::from_secs(10), acp_send(request, acp_tx)).await {
+        Ok(Ok(_)) => tracing::debug!("headless: paused the active goal"),
+        Ok(Err(error)) => {
+            tracing::warn!(error = %error, "headless: failed to pause the active goal")
+        }
+        Err(_) => tracing::warn!("headless: timed out pausing the active goal"),
+    }
+}
+
 fn track_background_lifecycle(
     event: ExtEvent,
     pending_bg: &mut HashSet<BackgroundWork>,
@@ -1682,7 +1748,11 @@ fn track_background_lifecycle(
                 }
             }
         }
-        ExtEvent::MonitorEvent | ExtEvent::None | ExtEvent::Lifecycle(_) | ExtEvent::Stream(_) => {}
+        ExtEvent::GoalUpdated { .. }
+        | ExtEvent::MonitorEvent
+        | ExtEvent::None
+        | ExtEvent::Lifecycle(_)
+        | ExtEvent::Stream(_) => {}
     }
 }
 /// Non-blocking drain-to-empty of `acp_rx`.
@@ -1838,6 +1908,21 @@ fn handle_headless_acp_message(
             match event {
                 ExtEvent::Lifecycle(l) => emitter.on_lifecycle(l),
                 ExtEvent::Stream(event) => emitter.reduce_and_emit(*event),
+                ExtEvent::GoalUpdated {
+                    goal_id,
+                    status,
+                    objective,
+                } => {
+                    if !status.trim().is_empty() {
+                        apply_goal_background_update(pending_bg, &goal_id, &status);
+                        if !goal_is_still_running(&status) {
+                            emitter.on_lifecycle(crate::headless::reducer::Lifecycle::GoalFinished {
+                                status,
+                                objective,
+                            });
+                        }
+                    }
+                }
                 other => track_background_lifecycle(other, pending_bg, background_lifecycle),
             }
         }

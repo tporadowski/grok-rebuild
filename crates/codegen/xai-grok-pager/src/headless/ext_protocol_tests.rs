@@ -655,6 +655,36 @@ fn dropped_receiver_does_not_panic() {
 }
 
 #[test]
+fn headless_goal_updated_decodes_status_and_objective() {
+    let active = make_ext_notif(
+        "x.ai/session/update",
+        serde_json::json!({
+            "sessionUpdate": "goal_updated",
+            "goal_id": "g1",
+            "status": "active",
+            "objective": "ship the port",
+            "phase": "executing",
+            "elapsed_ms": 10,
+            "total_deliverables": 1,
+            "completed_deliverables": 0,
+            "total_worker_rounds": 0,
+            "total_verify_rounds": 0
+        }),
+    );
+    let ExtEvent::GoalUpdated {
+        goal_id,
+        status,
+        objective,
+    } = handle_ext_notification(&active)
+    else {
+        panic!("expected GoalUpdated");
+    };
+    assert_eq!(goal_id, "g1");
+    assert_eq!(status, "active");
+    assert_eq!(objective, "ship the port");
+}
+
+#[test]
 fn headless_memory_flush_notifications_decode() {
     use crate::headless::reducer::Lifecycle;
 

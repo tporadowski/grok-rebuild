@@ -136,6 +136,11 @@ pub(crate) enum Lifecycle {
         attempt: u32,
         detail: Option<String>,
     },
+    /// A background goal reached a status that is no longer running.
+    GoalFinished {
+        status: String,
+        objective: String,
+    },
 }
 
 impl Lifecycle {
@@ -187,6 +192,9 @@ impl Lifecycle {
                 format!(
                     "Memory capture {activity} for turns {from_turn}-{through_turn}{attempt_suffix}."
                 )
+            }
+            Lifecycle::GoalFinished { status, objective } => {
+                crate::headless::format_goal_outcome(status, objective)
             }
         }
     }

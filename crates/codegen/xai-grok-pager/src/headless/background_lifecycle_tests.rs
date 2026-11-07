@@ -1,6 +1,36 @@
 use pretty_assertions::assert_eq;
 
 #[test]
+fn an_active_goal_is_pending_until_it_reports_an_outcome() {
+    let mut pending = std::collections::HashSet::new();
+    super::apply_goal_background_update(&mut pending, "g1", "active");
+    assert!(pending.contains(&super::BackgroundWork::Goal("g1".into())));
+    assert!(super::goal_is_still_running("Active"));
+
+    super::apply_goal_background_update(&mut pending, "g1", "complete");
+    assert!(pending.is_empty());
+    assert_eq!(
+        super::format_goal_outcome("complete", "ship the port"),
+        "Goal complete: ship the port"
+    );
+    assert_eq!(
+        super::reducer::Lifecycle::GoalFinished {
+            status: "complete".into(),
+            objective: "ship the port".into(),
+        }
+        .plain_message(),
+        "Goal complete: ship the port"
+    );
+}
+
+#[test]
+fn a_background_wait_timeout_is_an_error() {
+    let message = super::background_wait_timeout_message();
+    assert!(message.contains("timed out"));
+    assert!(message.contains("pending"));
+}
+
+#[test]
 fn lifecycle_tracking_is_independent_of_wait_flag() {
     let mut pending = std::collections::HashSet::new();
     let mut completed = super::BackgroundLifecycleState::default();

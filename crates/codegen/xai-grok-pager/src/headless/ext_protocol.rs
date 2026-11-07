@@ -90,6 +90,11 @@ pub(crate) enum ExtEvent {
         attempt_id: Option<String>,
         event_seq: Option<u64>,
     },
+    GoalUpdated {
+        goal_id: String,
+        status: String,
+        objective: String,
+    },
     MonitorEvent,
     Lifecycle(Lifecycle),
     Stream(Box<StreamEvent>),
@@ -268,6 +273,14 @@ fn decode_session_notification(method: &str, params: &str) -> ExtEvent {
             #[serde(default)]
             attempt_id: Option<String>,
         },
+        GoalUpdated {
+            #[serde(default)]
+            goal_id: String,
+            #[serde(default)]
+            status: String,
+            #[serde(default)]
+            objective: String,
+        },
         ResponseStarted {
             #[serde(default)]
             message_id: Option<String>,
@@ -387,6 +400,15 @@ fn decode_session_notification(method: &str, params: &str) -> ExtEvent {
             subagent_id,
             attempt_id,
             event_seq,
+        },
+        XaiUpdate::GoalUpdated {
+            goal_id,
+            status,
+            objective,
+        } => ExtEvent::GoalUpdated {
+            goal_id,
+            status,
+            objective,
         },
         XaiUpdate::ResponseStarted {
             message_id,

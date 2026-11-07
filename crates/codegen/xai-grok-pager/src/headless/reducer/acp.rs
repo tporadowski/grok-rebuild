@@ -98,6 +98,10 @@ enum AcpLine {
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
     },
+    GoalFinished {
+        status: String,
+        objective: String,
+    },
 }
 
 /// `streaming-json` terminal `end` line (spend fields merged in by the caller).
@@ -237,5 +241,6 @@ fn acp_lifecycle_line(l: Lifecycle) -> AcpLine {
             attempt,
             detail,
         },
+        Lifecycle::GoalFinished { status, objective } => AcpLine::GoalFinished { status, objective },
     }
 }
