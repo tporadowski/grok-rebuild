@@ -854,10 +854,17 @@ impl MemoryConfig {
                     let local = local.unwrap_or(default);
                     remote_value.map_or(local, |remote| local.min(remote))
                 };
+                // `rollout` and `file_writes_enabled` still parse so older config
+                // files load, and they no longer change behavior. Memory is on
+                // or off. `compact_index_enabled` is accepted and ignored: the
+                // concise index is always used.
+                let _ = local_rollout;
                 MemoryV2Config {
-                    rollout: remote_v2
-                        .and_then(|settings| settings.rollout)
-                        .map_or(local_rollout, |remote| local_rollout.restrict(remote)),
+                    rollout: if v2_selected && enabled {
+                        MemoryV2Rollout::Active
+                    } else {
+                        MemoryV2Rollout::Off
+                    },
                     capture_status_enabled: memory_v2
                         .capture_status_enabled
                         .or_else(|| remote_v2.and_then(|settings| settings.capture_status_enabled))
@@ -902,15 +909,8 @@ impl MemoryConfig {
                         })
                         .unwrap_or(defaults.v2.batch_dream_max_batch_note_bytes)
                         .clamp(16 * 1024, 256 * 1024),
-                    compact_index_enabled: memory_v2
-                        .compact_index_enabled
-                        .or_else(|| remote_v2.and_then(|settings| settings.compact_index_enabled))
-                        .unwrap_or(defaults.v2.compact_index_enabled),
-                    file_writes_enabled: restrict_flag(
-                        memory_v2.file_writes_enabled,
-                        remote_v2.and_then(|settings| settings.file_writes_enabled),
-                        defaults.v2.file_writes_enabled,
-                    ),
+                    compact_index_enabled: true,
+                    file_writes_enabled: v2_selected && enabled,
                     archived_retention_days: restrict_days(
                         memory_v2.archived_retention_days,
                         remote_v2.and_then(|settings| settings.archived_retention_days),
@@ -1067,7 +1067,7 @@ mod tests {
             (Some(true), Some(false), true),
             (Some(true), None, true),
         ];
-        for key in ["batch_dream_enabled", "compact_index_enabled"] {
+        for key in ["batch_dream_enabled"] {
             for (local, remote_value, expected) in cases {
                 let local_toml = local.map_or(String::new(), |value| format!("{key} = {value}"));
                 let config: toml::Value =
@@ -1127,7 +1127,9 @@ mod tests {
 
         assert!(resolved.enabled);
         assert_eq!(resolved.mode, MemoryMode::V2);
-        assert_eq!(resolved.v2, MemoryV2Config::default());
+        let mut expected = MemoryV2Config::default();
+        expected.compact_index_enabled = true;
+        assert_eq!(resolved.v2, expected);
         assert_eq!(resolved.v2.rollout, MemoryV2Rollout::Active);
         assert!(!resolved.v2.capture_status_enabled);
     }
@@ -1340,11 +1342,42 @@ mod tests {
             &Default::default(),
             None,
         );
-        assert_eq!(resolved.v2.rollout, MemoryV2Rollout::RecordOnly);
+        // rollout and file_writes_enabled are ignored. Memory is off here, so
+        // the resolved stage is Off and writes are off. The concise index is always on.
+        assert_eq!(resolved.v2.rollout, MemoryV2Rollout::Off);
+        assert!(resolved.v2.compact_index_enabled);
+        assert!(!resolved.v2.file_writes_enabled);
         assert!(!resolved.v2.can_capture());
         assert!(!resolved.v2.can_run_automatic_dream());
         assert!(!resolved.v2.can_run_manual_dream());
         assert!(!resolved.v2.can_expose_memory());
+    }
+
+    #[test]
+    fn enabled_v2_ignores_rollout_and_file_write_keys() {
+        let memory_v2: MemoryV2Settings = toml::from_str(
+            r#"
+            enabled = true
+            rollout = "record_only"
+            file_writes_enabled = false
+            compact_index_enabled = false
+            "#,
+        )
+        .unwrap();
+        let resolved = MemoryConfig::resolve_settings(
+            None,
+            &Default::default(),
+            &memory_v2,
+            &Default::default(),
+            &Default::default(),
+            None,
+        );
+        assert!(resolved.enabled);
+        assert_eq!(resolved.mode, MemoryMode::V2);
+        assert_eq!(resolved.v2.rollout, MemoryV2Rollout::Active);
+        assert!(resolved.v2.file_writes_enabled);
+        assert!(resolved.v2.compact_index_enabled);
+        assert!(resolved.v2.can_expose_memory());
     }
 
     #[test]
@@ -1437,11 +1470,15 @@ mod tests {
             &Default::default(),
             Some(&remote),
         );
-        assert_eq!(resolved.v2.rollout, MemoryV2Rollout::RecordOnly);
+        // Remote rollout and file_writes no longer restrict. Memory is off in
+        // this fixture, so writes stay off and the stage is Off. Capture and
+        // dream switches still restrict.
+        assert_eq!(resolved.v2.rollout, MemoryV2Rollout::Off);
         assert!(!resolved.v2.capture_enabled);
         assert!(!resolved.v2.automatic_dream_enabled);
         assert!(!resolved.v2.manual_dream_enabled);
         assert!(!resolved.v2.file_writes_enabled);
+        assert!(resolved.v2.compact_index_enabled);
         assert_eq!(resolved.v2.archived_retention_days, 7);
         assert_eq!(resolved.v2.job_retention_days, 14);
     }

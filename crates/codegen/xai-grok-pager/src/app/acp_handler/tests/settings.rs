@@ -451,8 +451,7 @@
         assert!(!app.show_resolved_model, "other settings fields still apply");
     }
 
-    /// Temporary client kill switch: remote `sharing_enabled: true` must not re-enable share UI.
-    /// Agents stay off and `/share` stays out of the menu (typed `/share` still dispatches for the disable message).
+    /// Remote `sharing_enabled: true` must not re-enable share. `/share` is not a command.
     #[test]
     fn settings_update_sharing_enabled_true_stays_forced_off() {
         let mut app = make_app_with_agent("sess-share-kill");
@@ -483,8 +482,8 @@
                 "/share stays out of the completion menu"
             );
             assert!(
-                reg.get_for_dispatch("share").is_some(),
-                "typed /share still resolves so the disable path can run"
+                reg.get_for_dispatch("share").is_none(),
+                "typed /share is not a command"
             );
         }
     }

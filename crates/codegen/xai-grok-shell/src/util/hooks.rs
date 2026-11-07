@@ -23,6 +23,7 @@ pub(crate) fn discover_hooks(
     git_root: Option<&Path>,
     compat: &xai_grok_tools::types::compat::CompatConfig,
     trust: Trust,
+    user_hooks_trusted: bool,
 ) -> (xai_grok_hooks::discovery::HookRegistry, Vec<HookError>) {
     xai_grok_hooks::discovery::assemble_hooks(
         inputs.config_layers(),
@@ -33,6 +34,9 @@ pub(crate) fn discover_hooks(
             compat: compat.hooks(),
             claude_import: inputs.claude_import(),
             trust,
+            // A trusted folder already loads every hook. The flag matters when
+            // the folder is untrusted and this session is headless.
+            user_hooks_trusted,
         },
     )
 }

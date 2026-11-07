@@ -16,6 +16,7 @@ fn source_paths(
             compat: compat.hooks(),
             claude_import: crate::claude_import::import_marker(),
             trust: xai_grok_hooks::trust::Trust::Trusted,
+            user_hooks_trusted: false,
         },
     )
 }
@@ -229,6 +230,7 @@ fn discover_hooks_honors_claude_compat_gate() {
         Some(git_root.path()),
         &compat,
         xai_grok_hooks::trust::Trust::Trusted,
+        false,
     );
     assert!(
         !has_probe(&reg),
@@ -241,6 +243,7 @@ fn discover_hooks_honors_claude_compat_gate() {
         Some(git_root.path()),
         &compat,
         xai_grok_hooks::trust::Trust::Trusted,
+        false,
     );
     assert!(
         has_probe(&reg),

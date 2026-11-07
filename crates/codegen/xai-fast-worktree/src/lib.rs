@@ -49,6 +49,8 @@ pub use api::cleanup_orphaned_overlay_snapshots;
 #[cfg(feature = "metadata")]
 pub use api::gc::{GcOptions, GcReport, KeptWorktree, gc_worktrees, gc_worktrees_with_delegate};
 #[cfg(feature = "metadata")]
+pub use api::refuse_unforced_removal;
+#[cfg(feature = "metadata")]
 pub use api::remove_worktree_in;
 pub use api::{
     BtrfsDelegate, BtrfsMode, CleanupReport, CopyReport, CreationMode, DelegateSnapshotResult,

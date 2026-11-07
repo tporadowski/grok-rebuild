@@ -14,8 +14,8 @@ use crate::git::{KeepReason, RECLAIMED_LIFETIME, Reclaim, collect_reclaimed_name
 
 mod process_scan;
 
-pub(crate) use process_scan::{LiveCwdScan, live_process_cwds, usable_cwds};
-use process_scan::{cwd_within, is_pid_alive};
+pub(crate) use process_scan::{LiveCwdScan, is_pid_alive, live_process_cwds, usable_cwds};
+use process_scan::cwd_within;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct GcOptions {

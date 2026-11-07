@@ -123,9 +123,17 @@ pub(crate) fn detected_config_kinds(cwd: &Path) -> Vec<String> {
 /// `trusted` is evaluated lazily so non-project agents skip the filesystem-walking trust verdict. Primary-session passes its already-computed `hooks_trusted`; subagent sites pass `project_scope_allowed(parent_cwd)`.
 pub(crate) fn agent_inline_hooks_allowed(
     scope: xai_grok_agent::config::AgentScope,
-    trusted: impl FnOnce() -> bool,
+    folder_trusted: impl FnOnce() -> bool,
+    user_hooks_trusted: bool,
 ) -> bool {
-    scope != xai_grok_agent::config::AgentScope::Project || trusted()
+    use xai_grok_agent::config::AgentScope;
+    match scope {
+        // Project agents can shadow built-ins. They wait for folder trust.
+        AgentScope::Project => folder_trusted(),
+        // User agents wait on an untrusted folder, except headless sessions.
+        AgentScope::User => user_hooks_trusted || folder_trusted(),
+        AgentScope::Bundled | AgentScope::BuiltIn => true,
+    }
 }
 
 fn record(workspace_key: &Path, allowed: bool) {
@@ -703,25 +711,26 @@ mod tests {
         assert!(def.hooks.is_some(), "project agent must carry inline hooks");
 
         // Exercise the REAL shared predicate both append sites use (not a copy).
-        let allowed = |scope: AgentScope| {
-            agent_inline_hooks_allowed(scope, || project_scope_allowed(tmp.path()))
+        let allowed = |scope: AgentScope, headless: bool| {
+            agent_inline_hooks_allowed(scope, || project_scope_allowed(tmp.path()), headless)
         };
 
         // Untrusted: the project agent's inline hooks are dropped...
         assert!(
-            !allowed(def.scope),
+            !allowed(def.scope, false),
             "untrusted project agent inline hooks must be gated"
         );
-        // ...while user/built-in agents (not cwd-sourced) keep their hooks.
-        assert!(allowed(AgentScope::User));
-        assert!(allowed(AgentScope::BuiltIn));
+        // User hooks wait too, unless the session is headless. Built-ins stay.
+        assert!(!allowed(AgentScope::User, false));
+        assert!(allowed(AgentScope::User, true));
+        assert!(allowed(AgentScope::BuiltIn, false));
 
         // Grant trust and reconcile the cache (as the post-grant reload flow does): the project agent's inline hooks are appended
         let mut store = TrustStore::load();
         store.set_trusted(&workspace_key(tmp.path())).unwrap();
         resolve_and_record(tmp.path(), None, false);
         assert!(
-            allowed(def.scope),
+            allowed(def.scope, false),
             "trusted project agent inline hooks must be appended"
         );
     }
@@ -1052,6 +1061,7 @@ mod tests {
             git_root.as_deref(),
             &xai_grok_tools::types::compat::CompatConfig::default(),
             xai_grok_hooks::trust::Trust::from_verdict(untrusted),
+            false,
         );
         assert!(
             !has_project_hook(&reg),
@@ -1067,6 +1077,7 @@ mod tests {
             git_root.as_deref(),
             &xai_grok_tools::types::compat::CompatConfig::default(),
             xai_grok_hooks::trust::Trust::from_verdict(trusted),
+            false,
         );
         assert!(
             has_project_hook(&reg),

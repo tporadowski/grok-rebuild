@@ -45,9 +45,11 @@ pub(crate) fn materialize_agent_mcp_servers(
             "ignoring mcpServers on plugin agent (not supported for security)"
         );
         Vec::new()
-    } else if !crate::agent::folder_trust::agent_inline_hooks_allowed(definition.scope, || {
-        crate::agent::folder_trust::project_scope_allowed(cwd)
-    }) {
+    } else if !crate::agent::folder_trust::agent_inline_hooks_allowed(
+        definition.scope,
+        || crate::agent::folder_trust::project_scope_allowed(cwd),
+        false,
+    ) {
         tracing::warn!(
             agent = %definition.name,
             "ignoring mcpServers on untrusted project agent (folder not trusted; re-run with --trust)"

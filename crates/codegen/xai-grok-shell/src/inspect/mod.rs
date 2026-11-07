@@ -826,6 +826,7 @@ fn list_hooks(
         git_root,
         &all_on,
         xai_grok_hooks::trust::Trust::from_verdict(project_trusted),
+        false,
     );
 
     let mut entries: Vec<HookEntry> = registry

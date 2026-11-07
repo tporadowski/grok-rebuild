@@ -7,7 +7,7 @@ fn pid_alive_from_kill(ret: i32, errno: i32) -> bool {
 
 // `libc::kill(pid, 0)` is the liveness probe: signal 0 checks the process exists
 // without sending anything (not swapped for `nix`, which would need a new feature).
-pub(super) fn is_pid_alive(pid: u32) -> bool {
+pub(crate) fn is_pid_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
         let Ok(pid) = libc::pid_t::try_from(pid) else {

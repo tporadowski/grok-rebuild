@@ -1575,6 +1575,12 @@ pub(crate) async fn spawn_session_actor(
     // Disk / agent / client hooks first. Plugin hooks are merged in the same
     // step via `with_plugin_hooks` (enabled+trusted specs parsed when the
     // registry was built). Subagents keep the parent registry's plugin layer.
+    let cwd_path = std::path::Path::new(&session_info.cwd);
+    let project_trusted = if prefetch.scan().is_gathered() {
+        prefetch.resolve_trust(cwd_path, remote_settings.as_ref())
+    } else {
+        crate::agent::folder_trust::resolve_and_record(cwd_path, remote_settings.as_ref(), false)
+    };
     let (built_hook_registry, hook_disabled) = if let Some(override_reg) = hook_registry_override {
         (
             Some(override_reg),
@@ -1584,16 +1590,6 @@ pub(crate) async fn spawn_session_actor(
             ),
         )
     } else {
-        let cwd_path = std::path::Path::new(&session_info.cwd);
-        let project_trusted = if prefetch.scan().is_gathered() {
-            prefetch.resolve_trust(cwd_path, remote_settings.as_ref())
-        } else {
-            crate::agent::folder_trust::resolve_and_record(
-                cwd_path,
-                remote_settings.as_ref(),
-                false,
-            )
-        };
         let git_root = xai_grok_workspace::session::git::find_git_root_from_path(cwd_path).ok();
         let (inputs, disabled) = crate::util::hooks::session_hook_inputs();
         let (registry, errors) = crate::util::hooks::discover_hooks(
@@ -1601,6 +1597,7 @@ pub(crate) async fn spawn_session_actor(
             git_root.as_deref(),
             &rebuild_spec.compat,
             xai_grok_hooks::trust::Trust::from_verdict(project_trusted),
+            startup_hints.non_interactive,
         );
         for e in &errors {
             tracing::warn!(error = ?e, "hook loading error");
@@ -1616,6 +1613,10 @@ pub(crate) async fn spawn_session_actor(
     };
     let plugin_hook_source = if is_subagent_spawn {
         xai_grok_agent::plugins::hooks_adapter::PluginHookSource::Parent
+    } else if !project_trusted {
+        // Plugin hooks wait until the folder is trusted. Managed hooks already
+        // loaded above still run.
+        xai_grok_agent::plugins::hooks_adapter::PluginHookSource::Registry(None)
     } else {
         xai_grok_agent::plugins::hooks_adapter::PluginHookSource::Registry(
             plugin_registry.as_deref(),

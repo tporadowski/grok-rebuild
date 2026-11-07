@@ -1474,6 +1474,14 @@ pub async fn remove_worktree(
         "REMOVE_START: removing worktree"
     );
 
+    // Without -f, an in-use worktree or one with unsaved changes is an error
+    // (1.0.50). Dry-run reports the same refusal so it cannot look successful.
+    if !req.force {
+        if let Some(reason) = xai_fast_worktree::refuse_unforced_removal(worktree_path) {
+            anyhow::bail!("{reason}");
+        }
+    }
+
     // jj workspace: detect by .jj/repo and route to jj-specific cleanup.
     if worktree_path.join(".jj").join("repo").exists() {
         if req.dry_run {

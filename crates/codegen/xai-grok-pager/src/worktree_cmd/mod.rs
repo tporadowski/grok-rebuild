@@ -268,7 +268,10 @@ async fn cmd_rm(
                     println!("  removed: {path}");
                 }
             }
-            Err(e) => eprintln!("  error removing {id_or_path}: {e}"),
+            Err(e) => {
+                eprintln!("  error removing {id_or_path}: {e}");
+                bail!("error removing {id_or_path}: {e}");
+            }
         }
     }
     Ok(())

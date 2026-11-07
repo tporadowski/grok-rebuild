@@ -1480,6 +1480,10 @@ impl BtrfsDelegate for RecordingDelegate {
 
 #[cfg(feature = "metadata")]
 pub mod gc;
+#[cfg(feature = "metadata")]
+mod rm_guard;
+#[cfg(feature = "metadata")]
+pub use rm_guard::refuse_unforced_removal;
 
 #[cfg(all(test, feature = "metadata"))]
 #[path = "api/gc/integration_tests.rs"]

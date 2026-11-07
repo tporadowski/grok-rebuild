@@ -1339,9 +1339,11 @@ pub(crate) async fn run_shell_child(
                 plugin = ?definition.plugin_name,
                 "ignoring hooks on plugin agent (not supported for security)"
             );
-        } else if !crate::agent::folder_trust::agent_inline_hooks_allowed(definition.scope, || {
-            crate::agent::folder_trust::project_scope_allowed(&ctx.parent_cwd)
-        }) {
+        } else if !crate::agent::folder_trust::agent_inline_hooks_allowed(
+            definition.scope,
+            || crate::agent::folder_trust::project_scope_allowed(&ctx.parent_cwd),
+            ctx.parent_non_interactive,
+        ) {
             tracing::warn!(
                 agent = %definition.name,
                 "ignoring hooks on untrusted project agent (folder not trusted; re-run with --trust)"

@@ -415,11 +415,6 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::SlashCommand("/resume".into()),
         },
         PaletteEntry {
-            label: "Share Session".into(),
-            shortcut: "/share".into(),
-            command: PaletteCommand::SlashCommand("/share".into()),
-        },
-        PaletteEntry {
             label: "Rename Session".into(),
             shortcut: "/rename ".into(),
             command: PaletteCommand::SlashCommand("/rename ".into()),
@@ -576,12 +571,9 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::Quit,
         },
     ];
+    // Session sharing was removed. The flag stays so callers do not churn.
+    let _ = sharing_enabled;
     entries.retain(|entry| {
-        if !sharing_enabled
-            && matches!(&entry.command, PaletteCommand::SlashCommand(s) if s.trim() == "/share")
-        {
-            return false;
-        }
         if let PaletteCommand::SlashCommand(text) = &entry.command
             && let Some(invocation) = crate::slash::parse_invocation(text.trim())
             && !slash
@@ -1327,11 +1319,11 @@ mod palette_sharing_tests {
         controller
     }
     #[test]
-    fn default_palette_includes_share_when_enabled() {
+    fn default_palette_omits_share_even_when_sharing_flag_is_true() {
         let entries = default_palette_entries(true, &slash(crate::app::ScreenMode::Fullscreen));
         assert!(
-            has_share(&entries),
-            "/share should be present when sharing_enabled=true"
+            !has_share(&entries),
+            "/share was removed and must not return when sharing_enabled=true"
         );
     }
     #[test]
@@ -1444,12 +1436,12 @@ mod palette_sharing_tests {
         );
     }
     #[test]
-    fn filter_palette_includes_share_when_enabled_and_matched() {
+    fn filter_palette_omits_share_even_when_enabled_and_matched() {
         let entries =
             filter_palette_entries("share", true, &slash(crate::app::ScreenMode::Fullscreen));
         assert!(
-            has_share(&entries),
-            "/share should match a 'share' query when sharing_enabled=true"
+            !has_share(&entries),
+            "/share must not match a 'share' query after sharing was removed"
         );
     }
     #[test]

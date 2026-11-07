@@ -741,6 +741,7 @@ impl SessionActor {
             git_root.as_deref(),
             &self.rebuild_spec.compat,
             xai_grok_hooks::trust::Trust::from_verdict(is_trusted),
+            self.attach_non_interactive.get(),
         );
         for err in &errors {
             tracing::warn!("hook reload error: {err}");
@@ -748,11 +749,17 @@ impl SessionActor {
         *self.hook_load_errors.borrow_mut() = errors.iter().map(|e| e.to_string()).collect();
         // Clone the Arc out of the RefCell so the borrow is dropped immediately.
         let plugin_registry_snapshot = self.plugin_registry.borrow().clone();
-        let registry = xai_grok_agent::plugins::hooks_adapter::with_plugin_hooks(
-            (!registry.is_empty()).then(|| Arc::new(registry)),
+        // Plugin hooks wait for folder trust. Managed hooks from discovery stay.
+        let plugin_source = if is_trusted {
             xai_grok_agent::plugins::hooks_adapter::PluginHookSource::Registry(
                 plugin_registry_snapshot.as_deref(),
-            ),
+            )
+        } else {
+            xai_grok_agent::plugins::hooks_adapter::PluginHookSource::Registry(None)
+        };
+        let registry = xai_grok_agent::plugins::hooks_adapter::with_plugin_hooks(
+            (!registry.is_empty()).then(|| Arc::new(registry)),
+            plugin_source,
         );
         let hook_count = registry.as_ref().map_or(0, |registry| registry.len());
         *self.hook_registry.borrow_mut() = registry;
@@ -905,10 +912,16 @@ impl SessionActor {
 
         // Reload hooks in the current session
         let t_hooks = std::time::Instant::now();
-        let new_specs = new_registry_snapshot
-            .as_deref()
-            .map(xai_grok_agent::plugins::hooks_adapter::active_plugin_hook_specs)
-            .unwrap_or_default();
+        let folder_trusted =
+            crate::agent::folder_trust::resolve_and_record(session_cwd, None, false);
+        let new_specs = if folder_trusted {
+            new_registry_snapshot
+                .as_deref()
+                .map(xai_grok_agent::plugins::hooks_adapter::active_plugin_hook_specs)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let hooks_reloaded = new_specs.len();
         let current = self.hook_registry.borrow().clone();
         let base = match current {
@@ -926,6 +939,7 @@ impl SessionActor {
                     git_root.as_deref(),
                     &self.rebuild_spec.compat,
                     xai_grok_hooks::trust::Trust::from_verdict(is_trusted),
+                    self.attach_non_interactive.get(),
                 );
                 (!registry.is_empty()).then(|| Arc::new(registry))
             }

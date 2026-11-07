@@ -334,6 +334,30 @@ pub struct DiscoveryOptions<'a> {
     pub compat: CompatHooks,
     pub claude_import: ClaudeImport,
     pub trust: Trust,
+    /// Headless sessions treat user hooks as trusted even when the folder is not.
+    /// Project, plugin, and agent hooks still wait for folder trust.
+    pub user_hooks_trusted: bool,
+}
+
+/// Untrusted folders run only organization managed hooks.
+/// User hooks also run when `user_hooks_trusted` (a headless session).
+fn hook_allowed_for_trust(spec: &crate::config::HookSpec, options: DiscoveryOptions<'_>) -> bool {
+    if options.trust.allows_project_sources() {
+        return true;
+    }
+    if spec.is_managed_policy() || spec.layer == xai_grok_config::HookProvenance::Managed {
+        return true;
+    }
+    if !options.user_hooks_trusted {
+        return false;
+    }
+    match crate::config::hook_origin(spec) {
+        crate::config::HookOrigin::UserConfig | crate::config::HookOrigin::UserFile => true,
+        crate::config::HookOrigin::Requirements => {
+            spec.layer == xai_grok_config::HookProvenance::UserRequirements
+        }
+        _ => false,
+    }
 }
 
 /// A vendor settings path must be added here and to
@@ -415,6 +439,9 @@ pub fn assemble_hooks(
     let (file_specs, file_errors) = collect_specs_from_sources(&global_sources, &project_sources);
     specs.extend(file_specs);
     errors.extend(file_errors);
+    if !options.trust.allows_project_sources() {
+        specs.retain(|spec| hook_allowed_for_trust(spec, options));
+    }
 
     (registry_from_specs_deduped(specs), errors)
 }
@@ -543,7 +570,71 @@ mod tests {
             compat: ALL_HOOKS,
             claude_import: ClaudeImport::NotImported,
             trust: Trust::Untrusted,
+            user_hooks_trusted: false,
         }
+    }
+
+    fn spec(name: &str, layer: xai_grok_config::HookProvenance) -> crate::config::HookSpec {
+        crate::config::HookSpec {
+            name: name.to_string(),
+            event: HookEventName::PreToolUse,
+            handler_type: crate::config::HandlerType::Command,
+            configured_matcher: None,
+            matcher: None,
+            enabled: true,
+            command: Some(std::path::PathBuf::from("true")),
+            command_raw: Some("true".to_string()),
+            url: None,
+            url_raw: None,
+            timeout_ms: 1_000,
+            source_dir: std::path::PathBuf::from("/tmp"),
+            extra_env: std::collections::HashMap::new(),
+            layer,
+        }
+    }
+
+    #[test]
+    fn untrusted_folder_keeps_managed_hooks_and_headless_user_hooks() {
+        use xai_grok_config::HookProvenance;
+        let interactive = untrusted_without_git_root();
+        let headless = DiscoveryOptions {
+            user_hooks_trusted: true,
+            ..interactive
+        };
+        let trusted = DiscoveryOptions {
+            trust: Trust::Trusted,
+            user_hooks_trusted: false,
+            ..interactive
+        };
+        let managed = spec("managed", HookProvenance::Managed);
+        let system = spec("system", HookProvenance::SystemManaged);
+        let requirements = spec("req", HookProvenance::Requirements);
+        let signed = spec("signed", HookProvenance::SignedRequirements);
+        let user_req = spec("user-req", HookProvenance::UserRequirements);
+        let user = spec("user", HookProvenance::User);
+        let user_file = spec("global/file", HookProvenance::File);
+        let project = spec("project/file", HookProvenance::File);
+        let plugin = spec("plugin/file", HookProvenance::Plugin);
+        let agent = spec("agent:explore", HookProvenance::File);
+
+        for kept in [&managed, &system, &requirements, &signed] {
+            assert!(hook_allowed_for_trust(kept, interactive));
+        }
+        for dropped in [&user_req, &user, &user_file, &project, &plugin, &agent] {
+            assert!(
+                !hook_allowed_for_trust(dropped, interactive),
+                "{}",
+                dropped.name
+            );
+        }
+        assert!(hook_allowed_for_trust(&user, headless));
+        assert!(hook_allowed_for_trust(&user_file, headless));
+        assert!(hook_allowed_for_trust(&user_req, headless));
+        assert!(!hook_allowed_for_trust(&project, headless));
+        assert!(!hook_allowed_for_trust(&plugin, headless));
+        assert!(!hook_allowed_for_trust(&agent, headless));
+        assert!(hook_allowed_for_trust(&project, trusted));
+        assert!(hook_allowed_for_trust(&plugin, trusted));
     }
 
     fn write_json(dir: &Path, name: &str, content: &str) {
@@ -1431,6 +1522,7 @@ timeout = 5
                 compat: ALL_HOOKS,
                 claude_import: ClaudeImport::NotImported,
                 trust: Trust::Trusted,
+                user_hooks_trusted: false,
             },
         );
 

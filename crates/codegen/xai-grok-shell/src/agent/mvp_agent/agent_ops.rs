@@ -4811,15 +4811,28 @@ impl MvpAgent {
                             git_root.as_deref(),
                             &compat,
                             xai_grok_hooks::trust::Trust::from_verdict(hooks_trusted),
+                            session_meta
+                                .and_then(|meta| {
+                                    meta.get("sessionKind").or_else(|| meta.get("session_kind"))
+                                })
+                                .and_then(|value| value.as_str())
+                                == Some("headless"),
                         )
                     };
                     for e in &disk_errors {
                         tracing::warn!(error = ?e, "hook loading error");
                     }
                     let mut merged = disk_registry;
+                    let headless = session_meta
+                        .and_then(|meta| {
+                            meta.get("sessionKind").or_else(|| meta.get("session_kind"))
+                        })
+                        .and_then(|value| value.as_str())
+                        == Some("headless");
                     if folder_trust::agent_inline_hooks_allowed(
                         agent_definition.scope,
                         || hooks_trusted,
+                        headless,
                     ) {
                         merged.append_specs(specs);
                     }
