@@ -1313,6 +1313,11 @@ fn voice_on_welcome_after_exit_starts_a_session() {
 fn worktree_create_failure_restores_queued_prompt_to_welcome() {
     let mut app = test_app_git();
     app.new_session_worktree_mode = crate::app::app_view::WorktreeMode::Always;
+    app.startup_warnings.push(crate::startup::StartupWarning {
+        severity: crate::startup::WarningSeverity::Warning,
+        message: "probe warning already on the home screen".into(),
+        action: None,
+    });
     app.welcome_prompt.set_text("keep the worktree prompt");
     let _ = dispatch(
         Action::SendPrompt("keep the worktree prompt".into()),
@@ -1324,15 +1329,12 @@ fn worktree_create_failure_restores_queued_prompt_to_welcome() {
     let _ = handle_worktree_session_failed(&mut app, id, "worktree add failed".into(), None, false);
     assert!(matches!(app.active_view, ActiveView::Welcome));
     assert_eq!(app.welcome_prompt.text(), "keep the worktree prompt");
+    let shown = crate::startup::banner_warning(&app.startup_warnings)
+        .expect("the home screen banner has a warning");
     assert!(
-        app.startup_warnings
-            .iter()
-            .any(|w| w.message.contains("worktree add failed")),
-        "worktree create failure must stay visible, got {:?}",
-        app.startup_warnings
-            .iter()
-            .map(|w| w.message.as_str())
-            .collect::<Vec<_>>(),
+        shown.message.contains("worktree add failed"),
+        "the home screen must show the worktree failure ahead of an older warning, got {:?}",
+        shown.message
     );
 }
 #[test]

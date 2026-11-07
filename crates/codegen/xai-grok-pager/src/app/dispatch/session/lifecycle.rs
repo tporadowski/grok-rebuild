@@ -1865,13 +1865,9 @@ pub(in crate::app::dispatch) fn handle_worktree_session_failed(
             app.session_picker_content_loading = false;
             restore_dashboard_attach_after_orphan_remove(app, agent_id, None);
         }
-        if !app.startup_warnings.iter().any(|w| w.message == msg) {
-            app.startup_warnings.push(crate::startup::StartupWarning {
-                severity: crate::startup::WarningSeverity::Warning,
-                message: msg,
-                action: None,
-            });
-        }
+        // The welcome banner shows one warning. Insert first so a probe warning
+        // already on the home screen does not hide this failure.
+        push_session_create_failure_warning(app, &msg);
     } else if let Some(agent) = app.agents.get_mut(&agent_id) {
         agent.pending_extensions_fetch = false;
         agent.session.prompt_history_loading = false;

@@ -143,6 +143,10 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-062 — A failed worktree create is the home-screen banner
+
+The welcome screen shows one warning, the first `Warning` in `startup_warnings`. `handle_worktree_session_failed` now inserts `Cannot create worktree: …` at the front, the same slot a failed session create uses, so an older probe warning does not cover it. The queued prompt goes back to the welcome composer (`v50-x53`, `worktree_create_failure_restores_queued_prompt_to_welcome`).
+
 ### D-061 — Worktree create errors already share one disk-full message
 
 `WorktreeBuilder::create` runs every strategy through `execute_plan` and `annotate_disk_full`. A full disk, whether it is `ErrorKind::StorageFull` or git's `No space left on device` text, displays as `not enough free disk space` (`annotate_disk_full_promotes_reason_to_top_context`, `is_out_of_disk_detects_message_text`). Grove `StorageFull` uses that same string. The pager then shows `No space left on device` (`sanitize_user_error_collapses_disk_full`). Other failures keep their own text. `v50-x52` is `already`.
@@ -299,7 +303,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 35 | 0 | 4 | 2 | 0 |
+| W7 | Worktrees | 34 | 0 | 5 | 2 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -311,9 +315,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 421. Skipped: 8. Done: 112. Already: 32. Deferred: 10.
+Catalog rows: 583. Pending: 420. Skipped: 8. Done: 113. Already: 32. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: a failed worktree create shows on the home screen (`v50-x53`).
+**Next:** W7 worktrees. First open row: two creates with the same label both succeed (`v50-x57`).
 
 ## Waves
 
@@ -343,7 +347,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 35. Done: 4 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 34. Done: 5 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -502,7 +506,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x50 | done | W7 | Bug Fixes |  |  | **Git-mode worktrees created with -w** now preserve uncommitted changes instead of dropping them.
 - v50-x51 | done | W7 | Bug Fixes |  |  | **Worktrees created with --worktree-ref** no longer contain wrong submodule contents or LFS pointer text.
 - v50-x52 | already | W7 | Bug Fixes |  |  | Worktree creation now shows the same clear error messages on every code path.
-- v50-x53 | pending | W7 | Bug Fixes |  |  | Failed worktree creates now show a clear error on the home screen instead of being hidden.
+- v50-x53 | done | W7 | Bug Fixes |  |  | Failed worktree creates now show a clear error on the home screen instead of being hidden.
 - v50-x57 | pending | W7 | Bug Fixes |  |  | Simultaneous worktree creates with the same label now succeed instead of one failing with "already exists".
 - v50-x58 | pending | W7 | Bug Fixes |  |  | `grok worktree rm` without `-f` no longer deletes arbitrary folders that happen to share a name with a removed worktree.
 - v50-x62 | pending | W7 | Bug Fixes |  |  | **grok worktree rm** by label now refuses when the label exists in multiple repos.
