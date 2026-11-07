@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-038 — Managed hook policy on the next session
+Each session reads managed settings from disk via `load_managed_settings`, so `allow_managed_hooks_only` applies to the next session without restarting the process (`v51-x58`). A blocked prompt does not send the content chunk that titles the session (`v51-x80`, `turn.rs`). A shell PreToolUse hook receives the model's raw arguments, including `block_until_ms` (`v51-x65`).
+
 ### D-037 — Permission block keeps PreToolUse context
 When a permission rule blocks a tool, the context returned by its PreToolUse hooks is still queued for the model (`v52-x19`). The deny path uses `pre_tool_context_for_model`, and that helper is unit tested.
 
@@ -213,7 +216,7 @@ Refresh these numbers at the end of a session.
 | W2 | CLI surface | 0 | 0 | 7 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
-| W4 | Hooks | 18 | 0 | 15 | 3 | 0 |
+| W4 | Hooks | 15 | 0 | 16 | 5 | 0 |
 | W5 | Workflows and goals | 25 | 0 | 4 | 0 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
@@ -227,7 +230,7 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 470. Skipped: 8. Done: 81. Already: 16. Deferred: 8.
+Catalog rows: 583. Pending: 467. Skipped: 8. Done: 82. Already: 18. Deferred: 8.
 
 **Next:** W4 hooks, the rest of the loader and dispatcher. W2 is complete (D-030). `/resume` still opens the picker on one match (`v61-f02`), and search does not tolerate typos (`v65-f01`). Minimal sign-in uses the error color in the wrap commit, but `v74-x32` stays pending until a color assertion exists.
 
@@ -251,7 +254,7 @@ Pending: 1 (`v73-x12`). Done: 6. Look first: Do this after W1. Implementation li
 
 ### W4 — Hooks
 
-Pending: 18. Done: 15. Already: 3. Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema.
+Pending: 15. Done: 16. Already: 5. Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema.
 
 ### W5 — Workflows and goals
 
@@ -358,13 +361,13 @@ id | status | wave | kind | flag | covered | note
 - v51-x44 | done | W4 | Bug Fixes |  |  | Web search hooks now fire under the correct `web_search` name and carry `query`.
 - v51-x46 | done | W4 | Bug Fixes |  |  | Glob tool hooks now match under `list_dir` and carry the correct directory.
 - v51-x57 | done | W4 | Bug Fixes |  |  | Hook scripts that read stdin with `read` now receive a complete line.
-- v51-x58 | pending | W4 | Bug Fixes |  |  | A policy that disables non-managed hooks now applies to the next session instead of only after restart.
+- v51-x58 | done | W4 | Bug Fixes |  |  | A policy that disables non-managed hooks now applies to the next session instead of only after restart.
 - v51-x60 | done | W4 | Bug Fixes |  |  | A hook listed under two different matchers now runs only once per tool call.
 - v51-x63 | pending | W4 | Bug Fixes |  |  | **Tool hooks** now run one at a time per session and stop promptly on cancel or exit.
 - v51-x64 | already | W4 | Bug Fixes |  |  | **PostToolUse hooks** now receive a correct whole-millisecond duration.
-- v51-x65 | pending | W4 | Bug Fixes |  |  | **PreToolUse hooks** for shell commands now see the model's block_until_ms value.
+- v51-x65 | already | W4 | Bug Fixes |  |  | **PreToolUse hooks** for shell commands now see the model's block_until_ms value.
 - v51-x66 | pending | W4 | Bug Fixes |  |  | **MCP tool calls** now show hook permission prompts and cards name the hook that asked.
-- v51-x80 | pending | W4 | Bug Fixes |  |  | A prompt blocked by a hook no longer titles the session.
+- v51-x80 | already | W4 | Bug Fixes |  |  | A prompt blocked by a hook no longer titles the session.
 - v51-x89 | done | W4 | Bug Fixes |  |  | Hooks can no longer rewrite a web-search call to restrict domains.
 - v51-x91 | pending | W4 | Bug Fixes |  |  | Notification hooks for permission prompts and task completion now run reliably before a headless session exits.
 - v51-x101 | pending | W4 | Bug Fixes |  |  | Hook results in the UI now correctly distinguish between notes and tool outcomes.

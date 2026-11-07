@@ -5,15 +5,27 @@ use xai_grok_hooks::error::HookError;
 use xai_grok_hooks::trust::DisabledHooks;
 use xai_grok_hooks::trust::Trust;
 use xai_grok_workspace::hook_inputs::ProcessHookInputs;
-use xai_grok_workspace::permission::resolution::managed_settings;
+use xai_grok_workspace::permission::resolution::load_managed_settings;
 
 pub(crate) fn process_hook_inputs() -> ProcessHookInputs {
     ProcessHookInputs::read(crate::claude_import::import_marker())
 }
 
 /// For a session that dispatches the hooks it discovers.
+/// Managed policy is read from disk so a pin changed after process start applies to the next session.
 pub(crate) fn session_hook_inputs() -> (ProcessHookInputs, DisabledHooks) {
-    ProcessHookInputs::read_with_disabled(managed_settings(), crate::claude_import::import_marker())
+    let managed = load_managed_settings();
+    ProcessHookInputs::read_with_disabled(&managed, crate::claude_import::import_marker())
+}
+
+#[cfg(test)]
+mod session_hook_input_tests {
+    #[test]
+    fn each_session_reads_managed_policy_without_restarting() {
+        let (_, first) = super::session_hook_inputs();
+        let (_, second) = super::session_hook_inputs();
+        assert_eq!(first.managed_only(), second.managed_only());
+    }
 }
 
 /// Every session startup and mid-session reload loads hooks through this function.
