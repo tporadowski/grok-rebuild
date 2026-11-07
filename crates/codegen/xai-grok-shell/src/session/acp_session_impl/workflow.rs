@@ -465,7 +465,24 @@ type RunMatch = (
     String,
 );
 
-fn narrow_run_matches(mut all: Vec<RunMatch>, selector: &str, op: ManageOp) -> Vec<RunMatch> {
+fn run_accepts_op(run: &RunMatch, op: ManageOp) -> bool {
+    let (_, status, _) = run;
+    match op {
+        ManageOp::Pause => status.accepts(WorkflowControl::Pause),
+        ManageOp::Resume => status.is_resumable(),
+        ManageOp::Stop => status.accepts(WorkflowControl::Stop),
+        ManageOp::Save => true,
+    }
+}
+
+fn applicable_runs(runs: &[RunMatch], op: ManageOp) -> Vec<RunMatch> {
+    runs.iter()
+        .filter(|run| run_accepts_op(run, op))
+        .cloned()
+        .collect()
+}
+
+fn narrow_run_matches(all: Vec<RunMatch>, selector: &str, op: ManageOp) -> Vec<RunMatch> {
     // Empty selector is handled by the caller so we never auto-pick "the only applicable run" for a bare `/workflow stop`
     if selector.is_empty() {
         return all;
@@ -475,25 +492,22 @@ fn narrow_run_matches(mut all: Vec<RunMatch>, selector: &str, op: ManageOp) -> V
         .filter(|(id, _, name)| id.as_str() == selector || name.as_str() == selector)
         .cloned()
         .collect();
-    if !exact.is_empty() {
-        all = exact;
+    // An ended exact name must not hide the live sibling (`review` complete, `review-2` still running).
+    if exact.len() == 1 && !run_accepts_op(&exact[0], op) {
+        let applicable = applicable_runs(&all, op);
+        if !applicable.is_empty() {
+            return applicable;
+        }
+        return exact;
     }
-    if all.len() > 1 {
-        let applicable: Vec<_> = all
-            .iter()
-            .filter(|(_, status, ..)| match op {
-                ManageOp::Pause => status.accepts(WorkflowControl::Pause),
-                ManageOp::Resume => status.is_resumable(),
-                ManageOp::Stop => status.accepts(WorkflowControl::Stop),
-                ManageOp::Save => true,
-            })
-            .cloned()
-            .collect();
+    let pool = if exact.is_empty() { all } else { exact };
+    if pool.len() > 1 {
+        let applicable = applicable_runs(&pool, op);
         if applicable.len() == 1 {
             return applicable;
         }
     }
-    all
+    pool
 }
 
 #[cfg(test)]
@@ -503,6 +517,32 @@ mod run_match_tests {
 
     fn run(id: &str, name: &str, status: WorkflowRunStatus) -> super::RunMatch {
         (id.to_string(), status, name.to_string())
+    }
+
+    #[test]
+    fn stop_prefers_live_sibling_over_ended_exact_name() {
+        let all = vec![
+            run("wf_1", "deep-research", WorkflowRunStatus::Complete),
+            run("wf_2", "deep-research-2", WorkflowRunStatus::Active),
+        ];
+        let picked = narrow_run_matches(all, "deep-research", ManageOp::Stop);
+        let [picked_one] = picked.as_slice() else {
+            panic!("expected the live run: {picked:?}");
+        };
+        assert_eq!(picked_one.2, "deep-research-2");
+    }
+
+    #[test]
+    fn resume_prefers_resumable_sibling_over_ended_exact_name() {
+        let all = vec![
+            run("wf_1", "deep-research", WorkflowRunStatus::Complete),
+            run("wf_2", "deep-research-2", WorkflowRunStatus::UserPaused),
+        ];
+        let picked = narrow_run_matches(all, "deep-research", ManageOp::Resume);
+        let [picked_one] = picked.as_slice() else {
+            panic!("expected the resumable run: {picked:?}");
+        };
+        assert_eq!(picked_one.2, "deep-research-2");
     }
 
     #[test]
