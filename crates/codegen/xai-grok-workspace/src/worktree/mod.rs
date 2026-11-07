@@ -1567,6 +1567,10 @@ pub async fn remove_worktree(
     };
     let worktree_path = Path::new(&resolved);
 
+    if !req.force && !may_unforced_remove(worktree_path, &resolved) {
+        anyhow::bail!("refusing to remove {resolved}: it is not a grok worktree");
+    }
+
     tracing::info!(
         target: WORKTREE_LOG,
         path = %resolved,
@@ -3225,14 +3229,44 @@ pub fn worktree_db_path() -> Result<std::path::PathBuf> {
     Ok(WorktreeDb::resolve_db_path(&home))
 }
 
-/// Resolve an ID-or-path string to a worktree path via DB lookup, falling back to treating it as a filesystem path.
+/// Resolve an ID, label, or path to a worktree directory.
+///
+/// A name that is not in the registry does not fall through to whatever folder
+/// happens to exist under that name. An explicit path is accepted only when it
+/// is already a grok worktree directory.
 pub fn resolve_worktree_by_id_or_path(id_or_path: &str) -> Result<Option<std::path::PathBuf>> {
     let db = open_db()?;
     if let Some(rec) = db.get(id_or_path)? {
         return Ok(Some(rec.path));
     }
     let p = std::path::PathBuf::from(id_or_path);
-    if p.exists() { Ok(Some(p)) } else { Ok(None) }
+    if p.exists() && path_is_grok_worktree_dir(&p) {
+        return Ok(Some(p));
+    }
+    Ok(None)
+}
+
+/// A directory grok created: registered, or living under `<grok home>/worktrees`.
+fn may_unforced_remove(path: &Path, resolved: &str) -> bool {
+    if path_is_grok_worktree_dir(path) {
+        return true;
+    }
+    open_db()
+        .ok()
+        .and_then(|db| db.get(resolved).ok().flatten())
+        .is_some()
+}
+
+fn path_is_grok_worktree_dir(path: &Path) -> bool {
+    let Ok(home) = resolve_grok_home() else {
+        return false;
+    };
+    let root = home.join("worktrees");
+    let under = |candidate: &Path| candidate.starts_with(&root);
+    if under(path) {
+        return true;
+    }
+    std::fs::canonicalize(path).is_ok_and(|canon| under(&canon))
 }
 
 /// Build a deduplicated, deterministically-ordered list of candidate cwds for the same repository as `current_cwd`.
@@ -4467,6 +4501,76 @@ mod tests {
         let mut names = [name(first), name(second)];
         names.sort();
         assert_eq!(names, ["same".to_string(), "same-2".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn unforced_rm_keeps_an_unrelated_folder_that_shares_the_name() {
+        xai_test_utils::require_git!();
+        use xai_test_utils::git::{git_commit_all, init_git_repo};
+        let temp = tempfile::TempDir::new().unwrap();
+        let home = temp.path().join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", &home);
+
+        let unrelated = temp.path().join("shared-name");
+        std::fs::create_dir_all(&unrelated).unwrap();
+        init_git_repo(&unrelated);
+        std::fs::write(unrelated.join("keep.txt"), "stay").unwrap();
+        git_commit_all(&unrelated, "initial");
+
+        let ctx = BackgroundCopyContext::new();
+        let err = remove_worktree(
+            &RemoveWorktreeRequest {
+                worktree_path: None,
+                id_or_path: Some(unrelated.to_string_lossy().into_owned()),
+                force: false,
+                dry_run: false,
+            },
+            &ctx,
+        )
+        .await
+        .expect_err("an unrelated folder must not be removed");
+        assert!(
+            unrelated.join("keep.txt").is_file(),
+            "rm without -f deleted the unrelated folder: {err}"
+        );
+
+        let by_path = temp.path().join("also-unrelated");
+        std::fs::create_dir_all(&by_path).unwrap();
+        std::fs::write(by_path.join("keep.txt"), "stay").unwrap();
+        let err = remove_worktree(
+            &RemoveWorktreeRequest {
+                worktree_path: Some(by_path.to_string_lossy().into_owned()),
+                id_or_path: None,
+                force: false,
+                dry_run: false,
+            },
+            &ctx,
+        )
+        .await
+        .expect_err("a direct path to an unrelated folder must be refused");
+        assert!(
+            by_path.join("keep.txt").is_file(),
+            "direct path rm deleted the unrelated folder: {err}"
+        );
+
+        let managed = home.join("worktrees").join("repo").join("shared-name");
+        std::fs::create_dir_all(&managed).unwrap();
+        init_git_repo(&managed);
+        std::fs::write(managed.join("gone.txt"), "remove").unwrap();
+        git_commit_all(&managed, "initial");
+        remove_worktree(
+            &RemoveWorktreeRequest {
+                worktree_path: None,
+                id_or_path: Some(managed.to_string_lossy().into_owned()),
+                force: false,
+                dry_run: false,
+            },
+            &ctx,
+        )
+        .await
+        .expect("a directory under the managed worktree root can still be removed");
+        assert!(!managed.exists());
     }
 
     #[tokio::test]

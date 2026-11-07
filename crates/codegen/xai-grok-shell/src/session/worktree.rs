@@ -838,7 +838,10 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let path = tmp.path().to_str().unwrap();
         let result = resolve_worktree_by_id_or_path(path).unwrap();
-        assert_eq!(result.unwrap(), tmp.path());
+        assert!(
+            result.is_none(),
+            "an unrelated folder must not resolve as a worktree, got {result:?}"
+        );
     }
     fn make_wt_record(path: &str, source_repo: &str) -> xai_fast_worktree::WorktreeRecord {
         xai_fast_worktree::WorktreeRecord {

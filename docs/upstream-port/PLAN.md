@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-064 — `rm` without `-f` leaves a folder grok did not create
+
+`resolve_worktree_by_id_or_path` no longer treats any existing directory as a worktree. Without `-f`, `remove_worktree` deletes a path only when the registry already has it or the directory is under `<grok home>/worktrees`. Anything else returns `refusing to remove …: it is not a grok worktree` and the folder stays (`v50-x58`, `unforced_rm_keeps_an_unrelated_folder_that_shares_the_name`). `-f` still removes an unmanaged path. `v52-x11` may later refuse git repos and `.git` folders as well; that row stays pending.
+
 ### D-001 — version identity
 The package version stays `1.0.45`. Do not stamp this fork as 1.0.78. `crates/codegen/xai-grok-shell/CHANGELOG.md` stays the 1.0.45 history. `/release-notes` already prepends newer CDN notes when online. Adding 1.0.46–1.0.78 headings locally would claim this binary shipped them.
 
@@ -307,7 +311,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 33 | 0 | 6 | 2 | 0 |
+| W7 | Worktrees | 32 | 0 | 7 | 2 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -319,9 +323,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 419. Skipped: 8. Done: 114. Already: 32. Deferred: 10.
+Catalog rows: 583. Pending: 418. Skipped: 8. Done: 115. Already: 32. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: `grok worktree rm` without `-f` does not delete an unrelated folder (`v50-x58`).
+**Next:** W7 worktrees. First open row: `grok worktree rm` by label refuses when the label exists in multiple repos (`v50-x62`).
 
 ## Waves
 
@@ -351,7 +355,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 33. Done: 6 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 32. Done: 7 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064). Already: 2 (`v50-f11`, D-057; `v50-x52`, D-061). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -512,7 +516,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x52 | already | W7 | Bug Fixes |  |  | Worktree creation now shows the same clear error messages on every code path.
 - v50-x53 | done | W7 | Bug Fixes |  |  | Failed worktree creates now show a clear error on the home screen instead of being hidden.
 - v50-x57 | done | W7 | Bug Fixes |  |  | Simultaneous worktree creates with the same label now succeed instead of one failing with "already exists".
-- v50-x58 | pending | W7 | Bug Fixes |  |  | `grok worktree rm` without `-f` no longer deletes arbitrary folders that happen to share a name with a removed worktree.
+- v50-x58 | done | W7 | Bug Fixes |  |  | `grok worktree rm` without `-f` no longer deletes arbitrary folders that happen to share a name with a removed worktree.
 - v50-x62 | pending | W7 | Bug Fixes |  |  | **grok worktree rm** by label now refuses when the label exists in multiple repos.
 - v51-f13 | pending | W7 | Features |  |  | **grok -p --output-format json** now reports the exact worktree folder used (useful after -w name collisions).
 - v51-f15 | pending | W7 | Features |  |  | Headless JSON error output now includes the worktree folder when a session was started.
