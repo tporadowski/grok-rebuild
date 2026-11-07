@@ -67,6 +67,44 @@ fn register_worktree_writes_correct_fields() {
 }
 
 #[test]
+fn create_from_a_subfolder_records_the_repository_root() {
+    xai_test_utils::require_git!();
+    use xai_test_utils::git::{git_commit_all, init_git_repo};
+    let fx = crate::db::GrokHomeFixture::new();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    init_git_repo(&repo);
+    std::fs::write(repo.join("file.txt"), "content").unwrap();
+    git_commit_all(&repo, "initial");
+    let sub = repo.join("crates").join("pager");
+    std::fs::create_dir_all(&sub).unwrap();
+    let dest = tmp.path().join("worktree");
+    crate::WorktreeBuilder::new(sub.clone(), dest.clone())
+        .worktree_kind(WorktreeKind::Session)
+        .registry_home(&fx.home)
+        .create()
+        .unwrap();
+
+    let root = dunce::canonicalize(&repo).unwrap();
+    let dest_canon = dunce::canonicalize(&dest).unwrap();
+    let db = WorktreeDb::open(&fx.home).unwrap();
+    let mine: Vec<_> = db
+        .list(&ListFilter::default())
+        .unwrap()
+        .into_iter()
+        .filter(|rec| rec.path == dest_canon)
+        .collect();
+    let Some(rec) = mine.first() else {
+        panic!("expected the created worktree to be registered");
+    };
+    assert_eq!(
+        rec.source_repo, root,
+        "list and show print source_repo; a subfolder launch must record the checkout root, not {sub:?}"
+    );
+}
+
+#[test]
 fn unregister_worktree_removes_by_path() {
     let tmp = tempfile::TempDir::new().unwrap();
     let db = db_at(&tmp);

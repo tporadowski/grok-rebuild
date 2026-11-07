@@ -1513,7 +1513,10 @@ pub(crate) fn register_worktree(
     // Same canonical path as discovery rebuild / WorktreeDb::get so macOS
     // /var vs /private/var (and other symlink roots) do not create duplicate rows.
     let path = dunce::canonicalize(worktree_path).unwrap_or_else(|_| worktree_path.to_path_buf());
-    let source = dunce::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+    // A launch from `repo/crates/pager` must record the checkout root. list
+    // and show print this path as the source repo.
+    let source = crate::git::find_worktree_root(source).unwrap_or_else(|_| source.to_path_buf());
+    let source = dunce::canonicalize(&source).unwrap_or(source);
     let record = db::WorktreeRecord {
         id: worktree_id.unwrap_or_else(|| db::id_from_path(&path)),
         path,
