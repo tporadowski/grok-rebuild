@@ -282,6 +282,72 @@ mod tests {
         assert!(result.ignored_copy.is_none());
     }
     #[test]
+    fn create_keeps_tracked_gitignored_files_and_omits_exclude_only_files() {
+        xai_test_utils::require_git!();
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path().join("repo");
+        std::fs::create_dir(&repo_path).unwrap();
+        init_git_repo(&repo_path);
+        std::fs::write(repo_path.join("secret.env"), "tracked-env").unwrap();
+        std::fs::write(repo_path.join("data.zip"), "tracked-zip").unwrap();
+        std::fs::write(repo_path.join("kept.secret"), "tracked-secret").unwrap();
+        std::fs::create_dir(repo_path.join("vendor")).unwrap();
+        std::fs::write(repo_path.join("vendor/lib.txt"), "tracked-lib").unwrap();
+        std::fs::write(repo_path.join("readme.txt"), "readme").unwrap();
+        git_commit_all(&repo_path, "tracked files");
+
+        std::fs::write(repo_path.join(".gitignore"), "secret.env\nvendor/\n*.env\n").unwrap();
+        git_commit_all(&repo_path, "ignore tracked names");
+
+        let info = repo_path.join(".git/info");
+        std::fs::create_dir_all(&info).unwrap();
+        std::fs::write(info.join("exclude"), "*.zip\n").unwrap();
+        std::fs::write(repo_path.join("notes.zip"), "untracked-zip").unwrap();
+
+        let excludes = temp.path().join("excludes");
+        std::fs::write(&excludes, "*.secret\n").unwrap();
+        xai_test_utils::git::run_git(
+            &repo_path,
+            &[
+                "config",
+                "core.excludesFile",
+                excludes.to_str().expect("utf8 excludes path"),
+            ],
+        );
+        std::fs::write(repo_path.join("local.secret"), "untracked-secret").unwrap();
+        std::fs::write(repo_path.join("other.env"), "untracked-env").unwrap();
+
+        let worktree_path = temp.path().join("worktree");
+        let result = WorktreeBuilder::new(repo_path, worktree_path)
+            .ignored_files_mode(IgnoredFilesMode::Skip)
+            .create()
+            .unwrap();
+        let dest = &result.worktree_path;
+        assert_eq!(
+            std::fs::read_to_string(dest.join("secret.env")).unwrap(),
+            "tracked-env"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("vendor/lib.txt")).unwrap(),
+            "tracked-lib"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("data.zip")).unwrap(),
+            "tracked-zip"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("kept.secret")).unwrap(),
+            "tracked-secret"
+        );
+        assert!(dest.join("readme.txt").exists());
+        assert!(!dest.join("notes.zip").exists(), "info/exclude only");
+        assert!(
+            !dest.join("local.secret").exists(),
+            "core.excludesFile only"
+        );
+        assert!(!dest.join("other.env").exists(), "untracked gitignore");
+    }
+    #[test]
     fn test_copy_ignored_only_standalone() {
         xai_test_utils::require_git!();
         let temp = TempDir::new().unwrap();

@@ -1,6 +1,6 @@
 //! Parallel copy engine.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -106,22 +106,29 @@ pub(crate) fn copy_parallel(
     builder
         .hidden(false) // Include hidden files.
         .git_ignore(config.respect_gitignore)
-        .git_global(false) // Never use global gitignore (~/.config/git/ignore) —
-        // it contains personal preferences irrelevant to worktree creation.
-        .git_exclude(false) // Never use .git/info/exclude — external tooling
-        // can append broad patterns (*.min.js, *.zip) that skip git-tracked
-        // files. `ignore` does not check tracking status, so those files
-        // would be silently dropped.
+        // A personal global ignore is not `core.excludesFile`. That file, when
+        // configured, is added below. The default `~/.config/git/ignore` stays off.
+        .git_global(false)
+        // `.git/info/exclude` and `core.excludesFile` leave their untracked
+        // matches out. Tracked files that those rules (or `.gitignore`) also
+        // match are copied after the walk, because `ignore` does not know
+        // what the index tracks.
+        .git_exclude(true)
+        .current_dir(source)
         .threads(num_workers) // Limit walker parallelism to avoid FD exhaustion
         .filter_entry(|entry| {
             // Always skip .git directory.
             entry.file_name() != ".git"
         });
+    if let Some(excludes) = configured_excludes_file(source) {
+        let _ = builder.add_ignore(excludes);
+    }
 
     let walker = builder.build_parallel();
 
     // Clone data for the walker closure.
     let source_for_walker = source.to_path_buf();
+    let queued: Arc<DashSet<PathBuf>> = Arc::new(DashSet::new());
     let skip_files = config.skip_files.clone();
     let files_skipped_walker = Arc::clone(&files_skipped);
     let skip_matcher = skip_matcher.map(Arc::new);
@@ -129,6 +136,7 @@ pub(crate) fn copy_parallel(
     // Run the parallel walker.
     walker.run(|| {
         let senders = senders.clone();
+        let queued = Arc::clone(&queued);
         let source = source_for_walker.clone();
         let n = num_workers;
         let skip_files = skip_files.clone();
@@ -198,12 +206,23 @@ pub(crate) fn copy_parallel(
             // Compute shard and send.
             let shard = shard_for_path(&rel_path, n);
             if let Some(sender) = senders.get(shard) {
+                queued.insert(rel_path.clone());
                 let _ = sender.send(CopyEntry { rel_path, kind });
             }
 
             WalkState::Continue
         })
     });
+
+    if config.respect_gitignore {
+        enqueue_tracked_files_the_walker_skipped(
+            source,
+            &queued,
+            config.skip_files.as_ref(),
+            &senders,
+            num_workers,
+        );
+    }
 
     // Close senders to signal workers to finish.
     drop(senders);
@@ -253,6 +272,89 @@ pub(crate) fn copy_parallel(
         copied_paths,
         file_metadata,
     })
+}
+
+/// `core.excludesFile` when this repository configures one. An unset key does
+/// not fall back to the default global ignore.
+fn configured_excludes_file(source: &Path) -> Option<std::path::PathBuf> {
+    let output = crate::git::checkout::git_command()
+        .current_dir(source)
+        .args(["config", "--get", "core.excludesFile"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let raw = text.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let path = std::path::PathBuf::from(raw);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        source.join(path)
+    };
+    path.is_file().then_some(path)
+}
+
+fn tracked_rel_paths(source: &Path) -> Vec<std::path::PathBuf> {
+    let dot_git = source.join(".git");
+    if !dot_git.exists() {
+        return Vec::new();
+    }
+    let output = match crate::git::checkout::git_command()
+        .current_dir(source)
+        .args(["ls-files", "-z"])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+    output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .filter_map(|path| String::from_utf8(path.to_vec()).ok())
+        .map(std::path::PathBuf::from)
+        .collect()
+}
+
+fn enqueue_tracked_files_the_walker_skipped(
+    source: &Path,
+    queued: &DashSet<std::path::PathBuf>,
+    skip_files: Option<&Arc<DashSet<std::path::PathBuf>>>,
+    senders: &[Sender<CopyEntry>],
+    num_workers: usize,
+) {
+    for rel_path in tracked_rel_paths(source) {
+        if queued.contains(&rel_path) {
+            continue;
+        }
+        if skip_files.is_some_and(|skip| skip.contains(&rel_path)) {
+            continue;
+        }
+        let src = source.join(&rel_path);
+        let Ok(meta) = std::fs::symlink_metadata(&src) else {
+            continue;
+        };
+        let file_type = meta.file_type();
+        if is_fifo_or_socket(&file_type) {
+            continue;
+        }
+        let kind = if meta.is_dir() {
+            CopyEntryKind::Dir
+        } else if file_type.is_symlink() {
+            CopyEntryKind::Symlink
+        } else {
+            CopyEntryKind::File
+        };
+        let shard = shard_for_path(&rel_path, num_workers);
+        if let Some(sender) = senders.get(shard) {
+            let _ = sender.send(CopyEntry { rel_path, kind });
+        }
+    }
 }
 
 #[cfg(test)]
