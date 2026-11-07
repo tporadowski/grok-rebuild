@@ -130,11 +130,51 @@ pub(crate) enum ToolLoop {
     /// The string contains the followup message to be added as a user turn.
     FollowupMessage(String),
     /// A user-configured `pre_tool_use` hook blocked this tool call.
-    /// Non-terminal: the deny reason is fed back and the turn continues (see `execute_tool_calls`).
-    /// Only `hook_name` is retained, for the per-tool telemetry and annotation.
+    /// A plain deny is fed back and the turn continues. `stop_turn` ends the batch.
     HookDenied {
         hook_name: String,
+        /// `continue: false` ends the turn. A plain deny only rejects this tool.
+        stop_turn: bool,
     },
+}
+
+#[cfg(test)]
+mod tool_loop_tests {
+    use super::ToolLoop;
+
+    #[test]
+    fn continue_false_ends_the_turn_and_a_plain_deny_does_not() {
+        assert!(
+            ToolLoop::HookDenied {
+                hook_name: "guard".into(),
+                stop_turn: true,
+            }
+            .ends_the_turn()
+        );
+        assert!(
+            !ToolLoop::HookDenied {
+                hook_name: "guard".into(),
+                stop_turn: false,
+            }
+            .ends_the_turn()
+        );
+    }
+}
+
+impl ToolLoop {
+    /// Permission rejection, cancel, a follow-up, or `continue: false` ends the tool batch.
+    pub(crate) fn ends_the_turn(&self) -> bool {
+        matches!(
+            self,
+            Self::PermissionReject { .. }
+                | Self::Cancelled
+                | Self::FollowupMessage(_)
+                | Self::HookDenied {
+                    stop_turn: true,
+                    ..
+                }
+        )
+    }
 }
 
 /// Why the TodoGate fired.

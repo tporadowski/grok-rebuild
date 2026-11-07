@@ -193,6 +193,7 @@ impl SessionActor {
         tool_name: &str,
         hook_name: String,
         reason: String,
+        stop_turn: bool,
     ) -> Result<ToolLoop, acp::Error> {
         tracing::info!(%tool_name, %hook_name, %reason, "tool call denied by pre_tool_use hook");
         self.block_tool_call(
@@ -202,6 +203,7 @@ impl SessionActor {
             hook_name,
             HookBlockCause::Denied,
             &reason,
+            stop_turn,
         )
         .await
     }
@@ -227,6 +229,7 @@ impl SessionActor {
             hook_name,
             HookBlockCause::UnusableRewrite,
             &problem.to_string(),
+            false,
         )
         .await
     }
@@ -239,6 +242,7 @@ impl SessionActor {
         hook_name: String,
         cause: HookBlockCause,
         detail: &str,
+        stop_turn: bool,
     ) -> Result<ToolLoop, acp::Error> {
         xai_grok_telemetry::session_ctx::log_event(xai_grok_telemetry::events::HookBlocked {
             hook_name: hook_name.clone(),
@@ -257,7 +261,10 @@ impl SessionActor {
             HookAnnotationKind::ToolOutcome,
         )
         .await;
-        Ok(ToolLoop::HookDenied { hook_name })
+        Ok(ToolLoop::HookDenied {
+            hook_name,
+            stop_turn,
+        })
     }
 
     fn client_gate_responses<'a>(
@@ -368,6 +375,7 @@ impl SessionActor {
                         tool_name,
                         format!("client:{callback_id}"),
                         reason,
+                        false,
                     )
                     .await?,
                 ));

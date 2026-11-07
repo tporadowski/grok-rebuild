@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-032 — One hook run, and continue false stops the turn
+A hook with the same command under two matchers runs once for a tool call that matches both (`v51-x60`). `continue: false` on PreToolUse denies the tool and ends the turn. On UserPromptSubmit it blocks the prompt. On PostToolUse it becomes a block with the same prefix, and that also ends the turn. A plain deny still lets the turn continue (`v59-x04`).
+
 ### D-031 — First hooks slice
 Tested in `xai-grok-hooks`: a bare command missing beside the hook file is launched from `PATH` (`v51-f14`); stdin ends with a newline (`v51-x57`); an unreadable disabled-hooks file keeps non-managed hooks off and still runs system policy hooks (`v53-x15`); `args` is stored and `failClosed` parses (`v63-f03`, `v71-f04`); a missing `failClosed` PreToolUse command is denied. A matcher with a comma or a space was already a regex, not a name list (`v52-x33`). PostToolUse already sends `duration_ms` from `Duration::as_millis` (`v51-x64`, `tool_calls.rs`).
 
@@ -195,7 +198,7 @@ Refresh these numbers at the end of a session.
 | W2 | CLI surface | 0 | 0 | 7 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
-| W4 | Hooks | 29 | 0 | 5 | 2 | 0 |
+| W4 | Hooks | 27 | 0 | 7 | 2 | 0 |
 | W5 | Workflows and goals | 25 | 0 | 4 | 0 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
@@ -209,7 +212,7 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 481. Skipped: 8. Done: 71. Already: 15. Deferred: 8.
+Catalog rows: 583. Pending: 479. Skipped: 8. Done: 73. Already: 15. Deferred: 8.
 
 **Next:** W4 hooks, the rest of the loader and dispatcher. W2 is complete (D-030). `/resume` still opens the picker on one match (`v61-f02`), and search does not tolerate typos (`v65-f01`). Minimal sign-in uses the error color in the wrap commit, but `v74-x32` stays pending until a color assertion exists.
 
@@ -233,7 +236,7 @@ Pending: 1 (`v73-x12`). Done: 6. Look first: Do this after W1. Implementation li
 
 ### W4 — Hooks
 
-Pending: 29. Done: 5. Already: 2. Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema.
+Pending: 27. Done: 7. Already: 2. Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema.
 
 ### W5 — Workflows and goals
 
@@ -341,7 +344,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x46 | pending | W4 | Bug Fixes |  |  | Glob tool hooks now match under `list_dir` and carry the correct directory.
 - v51-x57 | done | W4 | Bug Fixes |  |  | Hook scripts that read stdin with `read` now receive a complete line.
 - v51-x58 | pending | W4 | Bug Fixes |  |  | A policy that disables non-managed hooks now applies to the next session instead of only after restart.
-- v51-x60 | pending | W4 | Bug Fixes |  |  | A hook listed under two different matchers now runs only once per tool call.
+- v51-x60 | done | W4 | Bug Fixes |  |  | A hook listed under two different matchers now runs only once per tool call.
 - v51-x63 | pending | W4 | Bug Fixes |  |  | **Tool hooks** now run one at a time per session and stop promptly on cancel or exit.
 - v51-x64 | already | W4 | Bug Fixes |  |  | **PostToolUse hooks** now receive a correct whole-millisecond duration.
 - v51-x65 | pending | W4 | Bug Fixes |  |  | **PreToolUse hooks** for shell commands now see the model's block_until_ms value.
@@ -360,7 +363,7 @@ id | status | wave | kind | flag | covered | note
 - v53-f02 | pending | W4 | Features |  |  | **`/hooks`** lists load errors from the main agent's inline hooks and from plugins.
 - v53-x15 | done | W4 | Bug Fixes |  |  | **Hooks you disabled** stay disabled when the disabled-hooks file cannot be read.
 - v59-x03 | pending | W4 | Bug Fixes |  |  | **Advanced PowerShell inline hooks** that read `$input` run with a warning instead of failing.
-- v59-x04 | pending | W4 | Bug Fixes |  |  | **Hooks** that return `continue: false` from PreToolUse, PostToolUse, or UserPromptSubmit stop the turn instead of being ignored.
+- v59-x04 | done | W4 | Bug Fixes |  |  | **Hooks** that return `continue: false` from PreToolUse, PostToolUse, or UserPromptSubmit stop the turn instead of being ignored.
 - v61-x03 | pending | W4 | Bug Fixes |  |  | **Hook spawn failures** on Windows name the program that failed to start, such as PowerShell or Git Bash, instead of blaming the hook's script.
 - v63-f03 | done | W4 | Features |  |  | **Command hooks** accept an `args` list: Grok runs `command` as one program with those arguments and no shell, and fills hook variables such as `$GROK_SESSION_ID` in each argument.
 - v67-x03 | pending | W4 | Bug Fixes |  |  | **Quitting a session with hooks configured** is faster: the session-end `Stop` hook runs at the same time as the `SessionEnd` hooks and gets at most 1.5 seconds.

@@ -1078,7 +1078,7 @@ impl SessionActor {
             } else {
                 (None, None)
             };
-            let tool_loop = match result {
+            let mut tool_loop = match result {
                 Ok(tool_result) => {
                     let effective_tool_name = tool_result
                         .effective_tool_name
@@ -1191,6 +1191,16 @@ impl SessionActor {
                         &block.reason,
                     ));
                 }
+                if let Some(block) = delivery
+                    .blocks
+                    .iter()
+                    .find(|block| block.reason.starts_with("continue: false"))
+                {
+                    tool_loop = ToolLoop::HookDenied {
+                        hook_name: block.hook_name.clone(),
+                        stop_turn: true,
+                    };
+                }
             }
             for context in &post_tool_use_failure_contexts {
                 deferred_followups.push(self.wrap_hook_note(
@@ -1285,15 +1295,8 @@ impl SessionActor {
                     tool_result_size_bytes = tool_result_size_bytes.map_or(0, |n| n as i64),
                 );
             }
-            match &tool_loop {
-                ToolLoop::PermissionReject { .. }
-                | ToolLoop::Cancelled
-                | ToolLoop::FollowupMessage(_) => {
-                    if final_result.is_none() {
-                        *final_result = Some(tool_loop);
-                    }
-                }
-                _ => {}
+            if tool_loop.ends_the_turn() && final_result.is_none() {
+                *final_result = Some(tool_loop);
             }
         }
         Ok(())
@@ -1324,6 +1327,7 @@ impl SessionActor {
             .await;
             match pre_result.decision {
                 HookDecision::Deny { reason, hook_name } => {
+                    let stop_turn = reason.starts_with("continue: false");
                     return Ok(Err(self
                         .deny_tool(
                             &call.id,
@@ -1331,6 +1335,7 @@ impl SessionActor {
                             resolved_tool_name,
                             hook_name,
                             reason,
+                            stop_turn,
                         )
                         .await?));
                 }

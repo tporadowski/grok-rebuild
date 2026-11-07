@@ -65,6 +65,10 @@ pub(crate) struct GateHookJson {
     reason: Option<String>,
     #[serde(default)]
     hook_specific_output: Option<GateHookSpecificOutputJson>,
+    #[serde(default, rename = "continue")]
+    continue_: Option<bool>,
+    #[serde(default, rename = "stopReason")]
+    stop_reason: Option<String>,
     #[serde(flatten)]
     rest: serde_json::Map<String, serde_json::Value>,
 }
@@ -90,6 +94,7 @@ impl GateHookJson {
     fn is_gate_document(&self) -> bool {
         self.decision.is_some()
             || self.hook_specific_output.is_some()
+            || self.continue_ == Some(false)
             || self.rest.keys().any(|key| {
                 matches!(
                     key.as_str(),
@@ -158,8 +163,6 @@ impl GateHookJson {
             .flat_map(|output| output.rest.keys())
             .filter(|key| !SILENTLY_IGNORED_NESTED_KEYS.contains(&key.as_str()))
             .map(|key| format!("hookSpecificOutput.{key}"));
-        let stop_request = (self.rest.get("continue") == Some(&serde_json::Value::Bool(false)))
-            .then(|| "continue: false".to_string());
         let unread_reason = (matches!(decision, DecisionToken::Allow | DecisionToken::Defer)
             && (non_empty(self.reason.as_deref()).is_some()
                 || non_empty(self.permission_decision_reason()).is_some()))
@@ -176,7 +179,6 @@ impl GateHookJson {
         let unread_context = (bad_context || unread_valid_context)
             .then(|| "hookSpecificOutput.additionalContext".to_string());
         top.chain(nested)
-            .chain(stop_request)
             .chain(unread_reason)
             .chain(deferred_rewrite)
             .chain(unread_context)
@@ -291,6 +293,18 @@ pub(crate) fn gate_outcome(
     fallback_reason: Option<&str>,
     health: HookHealth,
 ) -> GateOutcome {
+    if json.continue_ == Some(false) {
+        let detail = json
+            .stop_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        let reason = match detail {
+            Some(detail) => format!("continue: false: {detail}"),
+            None => "continue: false".to_string(),
+        };
+        return GateOutcome::Deny(clip_reason(&reason));
+    }
     let GateDecision { token, reason } = json.resolve_decision();
     let mut ignored = json.ignored_parts(&token);
     let additional_context = json.additional_context();
@@ -446,6 +460,10 @@ pub(crate) fn stop_json_to_outcome(
 pub(crate) struct PostToolUseHookJson {
     pub decision: Option<String>,
     pub reason: Option<String>,
+    #[serde(default, rename = "continue")]
+    pub continue_: Option<bool>,
+    #[serde(default, rename = "stopReason")]
+    pub stop_reason: Option<String>,
     pub hook_specific_output: Option<PostToolUseHookSpecificOutputJson>,
 }
 
@@ -470,7 +488,7 @@ pub(crate) fn post_tool_use_json_to_outcome(
     health: HookHealth,
 ) -> PostToolUseParse {
     let mut failure = None;
-    let block_reason = match json.decision.as_deref() {
+    let mut block_reason = match json.decision.as_deref() {
         Some("block") => Some(
             json.reason
                 .filter(|reason| !reason.trim().is_empty())
@@ -491,6 +509,17 @@ pub(crate) fn post_tool_use_json_to_outcome(
             None
         }
     };
+    if json.continue_ == Some(false) && block_reason.is_none() {
+        let detail = json
+            .stop_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        block_reason = Some(match detail {
+            Some(detail) => format!("continue: false: {detail}"),
+            None => "continue: false".to_string(),
+        });
+    }
     let output = json.hook_specific_output.unwrap_or_default();
     let additional_context = output
         .additional_context
@@ -565,6 +594,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn post_tool_continue_false_becomes_a_block() {
+        let json: PostToolUseHookJson =
+            serde_json::from_str(r#"{"continue":false,"stopReason":"enough"}"#).unwrap();
+        let parsed = post_tool_use_json_to_outcome(json, "guard", HookHealth::Healthy);
+        assert_eq!(
+            parsed.outcome.block_reason.as_deref(),
+            Some("continue: false: enough")
+        );
+    }
+
+    #[test]
     fn extract_system_message_trims_and_ignores_blank_or_absent() {
         assert_eq!(
             extract_system_message(r#"{"systemMessage":"  heads up  ","decision":"allow"}"#),
@@ -589,7 +629,7 @@ mod tests {
             ),
             (
                 r#"{"decision":"allow","continue":false}"#,
-                vec!["continue: false"],
+                vec![],
             ),
             (
                 r#"{"decision":"allow","reason":"why"}"#,

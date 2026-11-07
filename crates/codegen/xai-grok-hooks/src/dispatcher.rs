@@ -24,11 +24,20 @@ fn hook_run_span(spec: &HookSpec, event: HookEventName) -> tracing::Span {
     tracing::info_span!("hook.run", hook_name = %spec.name, hook_event = %event)
 }
 
+fn hook_run_key(spec: &HookSpec) -> (String, String, String) {
+    (
+        spec.command_raw.clone().unwrap_or_default(),
+        spec.url_raw.clone().unwrap_or_default(),
+        spec.args.join("\u{1}"),
+    )
+}
+
 fn eligible_or_record_skip(
     spec: &HookSpec,
     match_value: Option<&str>,
     results: &mut Vec<HookRunResult>,
     disabled: &DisabledHooks,
+    ran: &mut std::collections::HashSet<(String, String, String)>,
 ) -> bool {
     if let Some(reason) = disabled.skip_reason(spec) {
         tracing::info!(hook_name = %spec.name, skip_reason = ?reason, "hook skipped");
@@ -37,7 +46,17 @@ fn eligible_or_record_skip(
         });
         return false;
     }
-    crate::matcher::matcher_allows(spec.matcher.as_ref(), match_value)
+    if !crate::matcher::matcher_allows(spec.matcher.as_ref(), match_value) {
+        return false;
+    }
+    if !ran.insert(hook_run_key(spec)) {
+        tracing::debug!(hook_name = %spec.name, "hook already ran for this tool call");
+        results.push(HookRunResult::Skipped {
+            hook_name: spec.name.clone(),
+        });
+        return false;
+    }
+    true
 }
 
 /// How many hooks dispatching `envelope` would run, so the caller can announce the batch before awaiting it.
@@ -48,11 +67,13 @@ pub fn runnable_count(
     ctx: &RunContext<'_>,
 ) -> usize {
     let match_value = envelope.payload.match_value();
+    let mut ran = std::collections::HashSet::new();
     registry
         .hooks_for_canonical(envelope.hook_event_name)
         .into_iter()
         .filter(|spec| !ctx.disabled().blocks(spec))
         .filter(|spec| crate::matcher::matcher_allows(spec.matcher.as_ref(), match_value))
+        .filter(|spec| ran.insert(hook_run_key(spec)))
         .count()
 }
 
@@ -118,6 +139,7 @@ async fn dispatch_sequential_gate(
         let mut additional_context: Vec<AdditionalContext> = Vec::new();
         let mut pending_ask: Option<PendingAsk> = None;
         let mut deferring_hook: Option<String> = None;
+        let mut ran = std::collections::HashSet::new();
 
         for spec in hooks {
             if !eligible_or_record_skip(
@@ -125,6 +147,7 @@ async fn dispatch_sequential_gate(
                 match_value.as_deref(),
                 &mut run_results,
                 ctx.disabled(),
+                &mut ran,
             ) {
                 continue;
             }
@@ -523,6 +546,7 @@ pub async fn dispatch_stop(
     async {
         let mut out = StopDispatchResult::default();
         let match_value = envelope.payload.match_value().map(str::to_string);
+        let mut ran = std::collections::HashSet::new();
 
         for spec in hooks {
             if !eligible_or_record_skip(
@@ -530,6 +554,7 @@ pub async fn dispatch_stop(
                 match_value.as_deref(),
                 &mut out.results,
                 ctx.disabled(),
+                &mut ran,
             ) {
                 continue;
             }
@@ -781,6 +806,7 @@ pub async fn dispatch_post_tool_use(
     async {
         let mut out = PostToolUseResult::default();
         let match_value = envelope.payload.match_value().map(str::to_string);
+        let mut ran = std::collections::HashSet::new();
 
         for spec in hooks {
             if !eligible_or_record_skip(
@@ -788,6 +814,7 @@ pub async fn dispatch_post_tool_use(
                 match_value.as_deref(),
                 &mut out.results,
                 ctx.disabled(),
+                &mut ran,
             ) {
                 continue;
             }
@@ -890,6 +917,7 @@ pub async fn dispatch_post_tool_use_failure(
     async {
         let mut out = PostToolUseFailureResult::default();
         let match_value = envelope.payload.match_value().map(str::to_string);
+        let mut ran = std::collections::HashSet::new();
 
         for spec in hooks {
             if !eligible_or_record_skip(
@@ -897,6 +925,7 @@ pub async fn dispatch_post_tool_use_failure(
                 match_value.as_deref(),
                 &mut out.results,
                 ctx.disabled(),
+                &mut ran,
             ) {
                 continue;
             }
@@ -990,10 +1019,16 @@ pub async fn dispatch_non_blocking(
     async {
         let match_value = envelope.payload.match_value().map(str::to_string);
         let mut results = Vec::with_capacity(hooks.len());
+        let mut ran = std::collections::HashSet::new();
 
         for spec in hooks {
-            if !eligible_or_record_skip(spec, match_value.as_deref(), &mut results, ctx.disabled())
-            {
+            if !eligible_or_record_skip(
+                spec,
+                match_value.as_deref(),
+                &mut results,
+                ctx.disabled(),
+                &mut ran,
+            ) {
                 continue;
             }
 
@@ -1185,6 +1220,43 @@ mod tests {
             args: Vec::new(),
             fail_closed: false,
             layer: crate::config::HookProvenance::File,
+        }
+    }
+
+    #[tokio::test]
+    async fn same_command_under_two_matchers_runs_once() {
+        let first = make_command_spec("guard-a", Some("read_file"), true, "echo '{\"decision\":\"allow\"}'");
+        let mut second = make_command_spec("guard-b", Some("read_file|grep"), true, "echo '{\"decision\":\"allow\"}'");
+        second.command_raw = first.command_raw.clone();
+        let registry = registry_from_specs(vec![first, second]);
+        let result = dispatch_pre_tool_use(
+            &registry,
+            &pre_tool_use_envelope("read_file"),
+            &run_ctx(),
+        )
+        .await;
+        let ran = result
+            .results
+            .iter()
+            .filter(|item| !matches!(item, HookRunResult::Skipped { .. }))
+            .count();
+        assert_eq!(ran, 1, "{:?}", result.results);
+        assert_eq!(result.decision, HookDecision::Allow);
+    }
+
+    #[tokio::test]
+    async fn continue_false_denies_pre_tool_use() {
+        let spec = make_command_spec("guard", Some("read_file"), true, "echo '{\"continue\":false}'");
+        let registry = registry_from_specs(vec![spec]);
+        let result = dispatch_pre_tool_use(
+            &registry,
+            &pre_tool_use_envelope("read_file"),
+            &run_ctx(),
+        )
+        .await;
+        match result.decision {
+            HookDecision::Deny { reason, .. } => assert!(reason.contains("continue: false"), "{reason}"),
+            other => panic!("expected deny, got {other:?}"),
         }
     }
 
@@ -2493,14 +2565,26 @@ mod tests {
         );
         managed.layer = crate::config::HookProvenance::Requirements;
         assert!(
-            eligible_or_record_skip(&managed, None, &mut results, &disabled),
+            eligible_or_record_skip(
+                &managed,
+                None,
+                &mut results,
+                &disabled,
+                &mut std::collections::HashSet::new(),
+            ),
             "managed-policy hook must remain eligible despite a disabled-hooks entry"
         );
         assert!(results.is_empty());
 
         let user = make_command_spec("global/user-hook", None, true, "echo ok");
         assert!(
-            !eligible_or_record_skip(&user, None, &mut results, &disabled),
+            !eligible_or_record_skip(
+                &user,
+                None,
+                &mut results,
+                &disabled,
+                &mut std::collections::HashSet::new(),
+            ),
             "a user hook with the same disabled-hooks treatment must be filtered"
         );
         assert!(matches!(
