@@ -573,12 +573,29 @@ pub(crate) fn post_tool_use_json_to_outcome(
 
 pub type HookRunOutput = (HookRunnerResult, Duration, Option<HttpInfo>, Option<String>);
 
+/// One hook at a time for a session. Parallel tool calls share this gate.
+fn session_hook_turnstile(session_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static GATES: OnceLock<Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> =
+        OnceLock::new();
+    let gates = GATES.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut gates = gates.lock().unwrap_or_else(|poison| poison.into_inner());
+    gates.retain(|_, gate| std::sync::Arc::strong_count(gate) > 1);
+    gates
+        .entry(session_id.to_owned())
+        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
 pub async fn run_hook(
     spec: &HookSpec,
     envelope: &HookEventEnvelope,
     ctx: &RunContext<'_>,
     mode: GateKind,
 ) -> HookRunOutput {
+    let gate = session_hook_turnstile(ctx.session_id);
+    let _session_turn = gate.lock().await;
     match spec.handler_type {
         crate::config::HandlerType::Command => {
             let (result, elapsed, system_message) =
@@ -592,6 +609,76 @@ pub async fn run_hook(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn hooks_for_one_session_do_not_overlap() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("order");
+        let session_id = format!("turnstile-{}", std::process::id());
+        let spec_for = |label: &str| crate::config::HookSpec {
+            name: label.to_string(),
+            event: crate::event::HookEventName::Stop,
+            handler_type: crate::config::HandlerType::Command,
+            configured_matcher: None,
+            matcher: None,
+            enabled: true,
+            command: Some(std::path::PathBuf::from(format!(
+                "printf '{label} start\\n' >> '{}'; sleep 0.3; printf '{label} end\\n' >> '{}'",
+                log.display(),
+                log.display()
+            ))),
+            command_raw: None,
+            url: None,
+            url_raw: None,
+            timeout_ms: 5000,
+            source_dir: dir.path().to_path_buf(),
+            extra_env: std::collections::HashMap::new(),
+            args: Vec::new(),
+            fail_closed: false,
+            layer: crate::config::HookProvenance::File,
+        };
+        let envelope = crate::event::HookEventEnvelope {
+            hook_event_name: crate::event::HookEventName::Stop,
+            session_id: session_id.clone(),
+            cwd: dir.path().display().to_string(),
+            workspace_root: dir.path().display().to_string(),
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            transcript_path: None,
+            client_identifier: None,
+            prompt_id: None,
+            permission_mode: None,
+            payload: crate::event::HookPayload::Stop {
+                reason: "test".into(),
+                stop_hook_active: false,
+                last_assistant_message: None,
+                background_tasks: None,
+                session_crons: None,
+            },
+        };
+        let ctx = RunContext {
+            session_id: &session_id,
+            workspace_root: dir.path().to_str().unwrap_or("/tmp"),
+            process_scope: None,
+            disabled: Default::default(),
+        };
+        let first = spec_for("A");
+        let second = spec_for("B");
+        let left = run_hook(&first, &envelope, &ctx, GateKind::Observe);
+        let right = run_hook(&second, &envelope, &ctx, GateKind::Observe);
+        let (left, right) = tokio::join!(left, right);
+        assert!(matches!(left.0, HookRunnerResult::Success), "{:?}", left.0);
+        assert!(matches!(right.0, HookRunnerResult::Success), "{:?}", right.0);
+        let text = std::fs::read_to_string(&log).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 4, "{text}");
+        assert!(lines[0].ends_with("start"), "{text}");
+        assert!(lines[1].ends_with("end"), "{text}");
+        assert_eq!(
+            lines[0].split_whitespace().next(),
+            lines[1].split_whitespace().next(),
+            "one hook must finish before the next starts: {text}"
+        );
+    }
 
     #[test]
     fn post_tool_continue_false_becomes_a_block() {

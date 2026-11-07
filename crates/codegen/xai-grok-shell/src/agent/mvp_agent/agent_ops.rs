@@ -4794,8 +4794,17 @@ impl MvpAgent {
                     for e in &errors {
                         tracing::warn!(agent = %agent_definition.name, error = ?e, "agent hook parse error");
                     }
+                    let agent_errors = xai_grok_hooks::config::format_agent_hook_load_errors(
+                        &agent_definition.name,
+                        &errors,
+                    );
                     if specs.is_empty() {
-                        return None;
+                        if agent_errors.is_empty() {
+                            return None;
+                        }
+                        let mut marker = xai_grok_hooks::discovery::HookRegistry::default();
+                        marker.set_load_errors(agent_errors);
+                        return Some(std::sync::Arc::new(marker));
                     }
                     let cwd = std::path::Path::new(&session_info.cwd);
                     let hooks_trusted = project_env_trusted;
@@ -4836,6 +4845,9 @@ impl MvpAgent {
                     ) {
                         merged.append_specs(specs);
                     }
+                    let mut load_errors = agent_errors;
+                    load_errors.extend(disk_errors.iter().map(|error| error.to_string()));
+                    merged.set_load_errors(load_errors);
                     Some(std::sync::Arc::new(merged))
                 });
             let reasoning_effort_to_persist = chat_history

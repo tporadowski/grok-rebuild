@@ -69,7 +69,7 @@ fn parse_plugin_hooks_from_value(
 }
 
 /// Parses the hooks file and inline manifest hooks of `plugin`, logging each parse warning once.
-pub(crate) fn load_plugin_hook_specs(plugin: &LoadedPlugin) -> Vec<HookSpec> {
+pub(crate) fn load_plugin_hook_specs(plugin: &LoadedPlugin) -> (Vec<HookSpec>, Vec<String>) {
     let root = plugin.root_str();
     let data = plugin.data_dir_str();
     let parsed = [
@@ -83,13 +83,24 @@ pub(crate) fn load_plugin_hook_specs(plugin: &LoadedPlugin) -> Vec<HookSpec> {
             .map(|value| parse_plugin_hooks_from_value(value, &plugin.name, &root, &data)),
     ];
     let mut specs = Vec::new();
+    let mut errors = Vec::new();
     for (plugin_specs, warnings) in parsed.into_iter().flatten() {
         for warning in &warnings {
             tracing::warn!("{warning}");
         }
+        errors.extend(warnings);
         specs.extend(plugin_specs);
     }
-    specs
+    (specs, errors)
+}
+
+/// Load errors from enabled, trusted plugins. `/hooks` lists these next to file discovery errors.
+pub fn active_plugin_hook_load_errors(registry: &PluginRegistry) -> Vec<String> {
+    registry
+        .active_plugins()
+        .into_iter()
+        .flat_map(|plugin| plugin.hook_load_errors.iter().cloned())
+        .collect()
 }
 
 /// Hooks of each active (enabled and trusted) plugin in `registry`, parsed when the registry was built.

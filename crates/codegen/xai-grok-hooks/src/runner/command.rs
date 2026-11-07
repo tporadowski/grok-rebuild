@@ -116,6 +116,7 @@ pub async fn run_command_hook(
         );
     };
     let command_str = command.to_string_lossy();
+    let input_warning = powershell_input_warning(command_str.as_ref());
 
     let stdin_json = match serde_json::to_string(&envelope.to_hook_json()) {
         Ok(j) => hook_stdin_payload(&j),
@@ -148,7 +149,9 @@ pub async fn run_command_hook(
             || command_str.contains('$')
             || command_str.starts_with('~'));
 
+    let spawn_program: String;
     let mut cmd = if !spec.args.is_empty() {
+        spawn_program = command.display().to_string();
         let mut direct = direct_command(spec, command);
         for arg in &spec.args {
             direct.arg(expand_hook_arg(arg, spec, envelope, ctx));
@@ -173,6 +176,7 @@ pub async fn run_command_hook(
         }
         #[cfg(unix)]
         {
+            spawn_program = "sh".to_string();
             let mut c = tokio::process::Command::new("sh");
             c.arg("-c").arg(command_str.as_ref());
             c
@@ -181,14 +185,21 @@ pub async fn run_command_hook(
         {
             let command_str = rewrite_hook_command_for_windows_shell(&command_str, &spec.extra_env);
             let inv = xai_grok_config::shell::shell_command_argv(command_str.as_ref());
+            spawn_program = inv.program.clone();
             let mut c = tokio::process::Command::new(&inv.program);
             c.args(&inv.args).envs(inv.env);
             c
         }
     } else {
         match located_command(spec, command) {
-            LocatedCommand::Path(path) => tokio::process::Command::new(path),
-            LocatedCommand::SearchPath(name) => tokio::process::Command::new(name),
+            LocatedCommand::Path(path) => {
+                spawn_program = path.display().to_string();
+                tokio::process::Command::new(path)
+            }
+            LocatedCommand::SearchPath(name) => {
+                spawn_program = name.display().to_string();
+                tokio::process::Command::new(name)
+            }
             LocatedCommand::Missing(path) => {
                 let elapsed = start.elapsed();
                 return (
@@ -235,7 +246,7 @@ pub async fn run_command_hook(
         Err(e) => {
             let elapsed = start.elapsed();
             return (
-                HookRunnerResult::Failed(format!("failed to spawn command: {e}")),
+                HookRunnerResult::Failed(hook_spawn_failure(&spawn_program, &e)),
                 elapsed,
                 None,
             );
@@ -331,7 +342,8 @@ pub async fn run_command_hook(
                 "hook command completed"
             );
 
-            let system_message = extract_system_message(&stdout);
+            let system_message =
+                merge_system_message(input_warning, extract_system_message(&stdout));
             let (result, elapsed) = match mode {
                 GateKind::Observe => {
                     if exit_code == 0 {
@@ -545,6 +557,72 @@ fn rewrite_hook_command_for_windows_shell<'a>(
     }
 }
 
+/// PowerShell's `$input` is an automatic variable, not an environment variable.
+/// A hook that reads it still runs. The warning tells the user stdin is not bound to `$input`.
+pub(crate) fn powershell_input_warning(command: &str) -> Option<&'static str> {
+    if invokes_powershell(command) && command_reads_powershell_input(command) {
+        Some(
+            "PowerShell hook reads $input, which is reserved and is not filled from the environment",
+        )
+    } else {
+        None
+    }
+}
+
+fn powershell_automatic_input(command: &str, name: &str) -> bool {
+    name.eq_ignore_ascii_case("input") && invokes_powershell(command)
+}
+
+fn invokes_powershell(command: &str) -> bool {
+    command.split_whitespace().any(|token| {
+        let token = token.trim_matches(|c| matches!(c, '"' | '\'' | '`' ));
+        let base = token.rsplit(['/', '\\']).next().unwrap_or(token);
+        let base = base.strip_suffix(".exe").unwrap_or(base);
+        base.eq_ignore_ascii_case("powershell") || base.eq_ignore_ascii_case("pwsh")
+    })
+}
+
+fn command_reads_powershell_input(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut index = 0;
+    while index + 6 <= bytes.len() {
+        if bytes[index] == b'$' && bytes.get(index + 1..index + 6) == Some(b"input") {
+            let before_ok = index == 0 || !is_env_ident_byte(bytes[index - 1]);
+            let after = index + 6;
+            let after_ok = after >= bytes.len() || !is_env_ident_byte(bytes[after]);
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        index += 1;
+    }
+    false
+}
+
+fn is_env_ident_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn merge_system_message(warning: Option<&str>, parsed: Option<String>) -> Option<String> {
+    match (warning, parsed.filter(|message| !message.trim().is_empty())) {
+        (Some(warning), Some(parsed)) => Some(format!("{warning}\n{parsed}")),
+        (Some(warning), None) => Some(warning.to_string()),
+        (None, parsed) => parsed,
+    }
+}
+
+/// Names the program that failed to start. On Windows that is PowerShell or Git Bash, not the hook script.
+pub(crate) fn hook_spawn_failure(program: &str, error: &std::io::Error) -> String {
+    let program = program.trim();
+    let program = if program.is_empty() {
+        "the hook program"
+    } else {
+        program
+    };
+    format!("failed to start {program}: {error}")
+}
+
 fn find_unresolved_env_vars(
     command_str: &str,
     extra_env: &std::collections::HashMap<String, String>,
@@ -565,6 +643,9 @@ fn find_unresolved_env_vars(
             continue;
         }
         if locally_assigned.contains(r.name) {
+            continue;
+        }
+        if powershell_automatic_input(command_str, r.name) {
             continue;
         }
         out.push(r.name.to_string());
@@ -2572,6 +2653,68 @@ mod tests {
             !std::path::Path::new(&format!("/proc/{pid}")).exists(),
             "grandchild {pid} still live after hook drop"
         );
+    }
+
+    #[test]
+    fn powershell_input_runs_as_a_warning_not_a_missing_env_var() {
+        let command = r#"powershell -NoProfile -Command "$input | Out-Host""#;
+        let unresolved = find_unresolved_env_vars(command, &std::collections::HashMap::new());
+        assert!(
+            !unresolved.iter().any(|name| name.eq_ignore_ascii_case("input")),
+            "{unresolved:?}"
+        );
+        let warning = powershell_input_warning(command).expect("warning");
+        assert!(warning.contains("$input"));
+        let bash = r#"echo "$input""#;
+        let bash_unresolved = find_unresolved_env_vars(bash, &std::collections::HashMap::new());
+        assert!(
+            bash_unresolved.iter().any(|name| name == "input"),
+            "{bash_unresolved:?}"
+        );
+        assert!(powershell_input_warning(bash).is_none());
+        assert!(powershell_input_warning(r#"powershell -Command "$input_file""#).is_none());
+    }
+
+    #[tokio::test]
+    async fn powershell_input_hook_runs_and_returns_the_warning() {
+        let mut spec = make_shell_spec(r#"true || powershell -NoProfile -Command "$input""#);
+        spec.timeout_ms = 5000;
+        let (result, _, message) =
+            run_command_hook(&spec, &make_envelope(), &make_ctx(), GateKind::Observe).await;
+        assert!(
+            matches!(result, HookRunnerResult::Success),
+            "hook must run, got {result:?}"
+        );
+        let message = message.expect("warning");
+        assert!(message.contains("$input"), "{message}");
+    }
+
+    #[test]
+    fn spawn_failure_names_powershell_and_git_bash() {
+        let error = std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory");
+        let powershell = hook_spawn_failure("powershell.exe", &error);
+        assert!(powershell.contains("powershell.exe"), "{powershell}");
+        assert!(powershell.starts_with("failed to start "), "{powershell}");
+        let bash = hook_spawn_failure(r"C:\Program Files\Git\bin\bash.exe", &error);
+        assert!(bash.contains("bash.exe"), "{bash}");
+    }
+
+    #[tokio::test]
+    async fn spawn_failure_names_the_program_that_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = make_shell_spec(dir.path().to_str().unwrap());
+        let (result, _, _) =
+            run_command_hook(&spec, &make_envelope(), &make_ctx(), GateKind::Observe).await;
+        match result {
+            HookRunnerResult::Failed(message) => {
+                assert!(
+                    message.contains(dir.path().to_str().unwrap()),
+                    "{message}"
+                );
+                assert!(message.starts_with("failed to start "), "{message}");
+            }
+            other => panic!("expected spawn failure, got {other:?}"),
+        }
     }
 
     #[cfg(unix)]

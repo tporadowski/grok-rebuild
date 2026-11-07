@@ -18,6 +18,9 @@ use crate::trust::Trust;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HookRegistry {
     hooks: HashMap<HookEventName, Vec<HookSpec>>,
+    /// Parse and read failures carried with this snapshot, including agent inline hooks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    load_errors: Vec<String>,
 }
 
 impl HookRegistry {
@@ -56,6 +59,17 @@ impl HookRegistry {
 
     pub fn len(&self) -> usize {
         self.hooks.values().map(|v| v.len()).sum()
+    }
+
+    pub fn load_errors(&self) -> &[String] {
+        &self.load_errors
+    }
+
+    pub fn set_load_errors(&mut self, errors: Vec<String>) {
+        self.load_errors = errors
+            .into_iter()
+            .filter(|error| !error.trim().is_empty())
+            .collect();
     }
 
     pub fn append_specs(&mut self, specs: Vec<HookSpec>) {
@@ -275,7 +289,10 @@ pub fn registry_from_specs_deduped(specs: Vec<HookSpec>) -> HookRegistry {
             }
         }
     }
-    HookRegistry { hooks }
+    HookRegistry {
+        hooks,
+        load_errors: Vec::new(),
+    }
 }
 
 /// Convenience wrapper: load hooks from a single global directory and optional project directory.

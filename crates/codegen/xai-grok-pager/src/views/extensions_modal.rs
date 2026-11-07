@@ -2762,6 +2762,46 @@ pub(crate) fn marketplace_components_summary(
         .and_then(|components| components.summary_line())
 }
 
+/// Preview length for a hook load error. The picker expands the row to the full message.
+const HOOK_LOAD_ERROR_PREVIEW_CHARS: usize = 72;
+
+pub(crate) struct HookLoadErrorRow {
+    pub preview: String,
+    pub full: String,
+}
+
+/// Rows the Hooks tab shows for `load_errors`. A non-empty query keeps only matching messages.
+pub(crate) fn hook_load_error_rows(errors: &[String], query: &str) -> Vec<HookLoadErrorRow> {
+    let query = query.trim();
+    let query_lower = query.to_ascii_lowercase();
+    let mut rows = Vec::new();
+    for error in errors {
+        let full = error.trim();
+        if full.is_empty() {
+            continue;
+        }
+        if !query.is_empty() && !full.to_ascii_lowercase().contains(&query_lower) {
+            continue;
+        }
+        rows.push(HookLoadErrorRow {
+            preview: preview_hook_load_error(full),
+            full: full.to_string(),
+        });
+    }
+    rows
+}
+
+fn preview_hook_load_error(message: &str) -> String {
+    let one_line = message.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = one_line.chars();
+    let preview: String = chars.by_ref().take(HOOK_LOAD_ERROR_PREVIEW_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{preview}…")
+    } else {
+        preview
+    }
+}
+
 /// Render the hooks/plugins modal popup as a centered overlay.
 const SPINNER_DIVISOR: u64 = 4;
 
@@ -3094,6 +3134,20 @@ pub fn render_extensions_modal(
             }
             ExtensionsTab::Hooks => {
                 if let TabDataState::Loaded(ref data) = state.hooks_data {
+                    for row in hook_load_error_rows(&data.load_errors, state.picker_state.query()) {
+                        entry_labels.push(row.preview);
+                        entry_right_labels.push(String::new());
+                        entry_desc_lines.push(vec![]);
+                        entry_summary_lines.push(vec![]);
+                        entry_fields.push(vec![("message".to_string(), row.full)]);
+                        entry_is_header.push(false);
+                        entry_dimmed.push(false);
+                        entry_indent.push(0);
+                        entry_data_indices.push(None);
+                        entry_group_keys.push(None);
+                        entry_badge_text.push("[error]".into());
+                        entry_badge_color.push(Some(theme.accent_error));
+                    }
                     let groups = build_hook_groups(
                         &data.hooks,
                         state.hooks_filter,
@@ -5565,6 +5619,28 @@ mod tests {
                 "selection {sel} must not offer x remove for a pinned source"
             );
         }
+    }
+
+    #[test]
+    fn hook_load_errors_preview_and_keep_the_full_message() {
+        let long = format!("plugin guard: {}", "x".repeat(120));
+        let rows = hook_load_error_rows(
+            &[
+                long.clone(),
+                "  agent reviewer: bad json  ".into(),
+                "   ".into(),
+            ],
+            "",
+        );
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].preview.ends_with('…'));
+        assert!(rows[0].preview.chars().count() < long.chars().count());
+        assert_eq!(rows[0].full, long);
+        assert_eq!(rows[1].preview, "agent reviewer: bad json");
+        assert_eq!(rows[1].full, "agent reviewer: bad json");
+        let filtered = hook_load_error_rows(&[long, "agent reviewer: bad json".into()], "reviewer");
+        assert_eq!(filtered.len(), 1);
+        assert!(filtered[0].full.contains("reviewer"));
     }
 
     /// Regression: refetches must not re-collapse expanded groups.

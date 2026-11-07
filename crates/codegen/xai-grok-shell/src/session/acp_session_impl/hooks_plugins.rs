@@ -775,6 +775,15 @@ impl SessionActor {
             tracing::warn!("hook reload error: {err}");
         }
         *self.hook_load_errors.borrow_mut() = errors.iter().map(|e| e.to_string()).collect();
+        if is_trusted {
+            let plugin_errors = self
+                .plugin_registry
+                .borrow()
+                .as_deref()
+                .map(xai_grok_agent::plugins::hooks_adapter::active_plugin_hook_load_errors)
+                .unwrap_or_default();
+            self.hook_load_errors.borrow_mut().extend(plugin_errors);
+        }
         // Clone the Arc out of the RefCell so the borrow is dropped immediately.
         let plugin_registry_snapshot = self.plugin_registry.borrow().clone();
         // Plugin hooks wait for folder trust. Managed hooks from discovery stay.

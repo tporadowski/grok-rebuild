@@ -1591,6 +1591,12 @@ pub(crate) async fn spawn_session_actor(
     } else {
         crate::agent::folder_trust::resolve_and_record(cwd_path, remote_settings.as_ref(), false)
     };
+    let carried_hook_errors = hook_registry_override
+        .as_ref()
+        .map(|registry| registry.load_errors().to_vec())
+        .unwrap_or_default();
+    // An empty override only carries agent inline-hook errors. Disk discovery still runs.
+    let hook_registry_override = hook_registry_override.filter(|registry| !registry.is_empty());
     let (built_hook_registry, hook_disabled) = if let Some(override_reg) = hook_registry_override {
         (
             Some(override_reg),
@@ -1645,6 +1651,14 @@ pub(crate) async fn spawn_session_actor(
         .iter()
         .map(|e| e.to_string())
         .collect();
+    _hook_load_errors.extend(carried_hook_errors);
+    if !is_subagent_spawn && project_trusted {
+        if let Some(plugins) = plugin_registry.as_deref() {
+            _hook_load_errors.extend(
+                xai_grok_agent::plugins::hooks_adapter::active_plugin_hook_load_errors(plugins),
+            );
+        }
+    }
     let upload_queue = Arc::new(std::sync::OnceLock::new());
     let (goal_update_tx, goal_update_rx) = tokio::sync::mpsc::unbounded_channel::<
         xai_grok_tools::implementations::grok_build::update_goal::UpdateGoalEnvelope,

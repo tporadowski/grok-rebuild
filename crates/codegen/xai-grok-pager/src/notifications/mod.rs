@@ -82,6 +82,17 @@ impl NotificationService {
         self.config.events.contains(kind)
     }
 
+    /// Custom `[[ui.notifications.hooks]]` commands run on their own event list.
+    /// An empty list matches every kind. This is independent of the terminal `events` filter.
+    fn run_matching_hooks(&self, event: &NotificationEvent) {
+        let unfocused = !self.focus_tracker.is_focused();
+        for hook in &self.config.hooks {
+            if hooks::hook_matches(hook, event.kind, unfocused) {
+                hooks::run_hook(hook, event);
+            }
+        }
+    }
+
     fn should_emit_terminal(&self) -> bool {
         match self.config.condition {
             NotificationCondition::Always => true,
@@ -94,6 +105,7 @@ impl NotificationService {
     /// or indefinitely while a frame ack is outstanding). For `ApprovalRequired` events, the caller must check
     /// [`should_suppress_permission_notification`] first.
     pub fn notify(&self, event: NotificationEvent) {
+        self.run_matching_hooks(&event);
         if !self.is_event_enabled(&event.kind) {
             return;
         }
@@ -438,6 +450,94 @@ mod tests {
             rx.try_recv().is_err(),
             "protocol None must enqueue no payload"
         );
+    }
+
+    #[test]
+    fn matching_notification_hook_runs_from_notify() {
+        let dir = tempfile::tempdir().unwrap();
+        let matched = dir.path().join("matched");
+        let skipped = dir.path().join("skipped");
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut svc = NotificationService::new_for_test(NotificationConfig {
+            events: vec![NotificationEventKind::ApprovalRequired],
+            condition: NotificationCondition::Never,
+            hooks: vec![
+                NotificationHook {
+                    command: format!("touch {}", matched.display()),
+                    events: vec![NotificationEventKind::TurnComplete],
+                    only_unfocused: false,
+                    timeout_secs: 5,
+                },
+                NotificationHook {
+                    command: format!("touch {}", skipped.display()),
+                    events: vec![NotificationEventKind::AgentError],
+                    only_unfocused: false,
+                    timeout_secs: 5,
+                },
+            ],
+            ..Default::default()
+        });
+        svc.escape_writer = EscapeWriter::new(tx, WriterSync::new());
+        svc.notify(NotificationEvent {
+            kind: NotificationEventKind::TurnComplete,
+            title: "Grok".into(),
+            body: "Turn complete".into(),
+            session_id: None,
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !matched.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "matching notification hook did not run"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(
+            !skipped.exists(),
+            "a hook for a different event must not run"
+        );
+    }
+
+    #[test]
+    fn unfocused_notification_hook_waits_until_focus_is_lost() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("ran");
+        let svc = NotificationService::new_for_test(NotificationConfig {
+            hooks: vec![NotificationHook {
+                command: format!("touch {}", marker.display()),
+                events: vec![],
+                only_unfocused: true,
+                timeout_secs: 5,
+            }],
+            ..Default::default()
+        });
+        let event = NotificationEvent {
+            kind: NotificationEventKind::SessionReady,
+            title: "Grok".into(),
+            body: "ready".into(),
+            session_id: None,
+        };
+        svc.notify(NotificationEvent {
+            kind: event.kind,
+            title: event.title.clone(),
+            body: event.body.clone(),
+            session_id: event.session_id.clone(),
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(
+            !marker.exists(),
+            "only_unfocused hook must not run while focused"
+        );
+        svc.focus_tracker.on_focus_lost();
+        svc.notify(event);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !marker.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "only_unfocused hook did not run after focus was lost"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 
     #[test]

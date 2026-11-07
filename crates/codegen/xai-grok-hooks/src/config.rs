@@ -273,6 +273,18 @@ pub const PROJECT_HOOK_PREFIX: &str = "project/";
 pub const PLUGIN_HOOK_PREFIX: &str = "plugin/";
 pub const AGENT_HOOK_PREFIX: &str = "agent:";
 
+/// Load errors for the main agent's inline hooks, prefixed so `/hooks` can name the agent.
+pub fn format_agent_hook_load_errors(
+    agent_name: &str,
+    errors: &[impl std::fmt::Display],
+) -> Vec<String> {
+    errors
+        .iter()
+        .map(|error| format!("agent {agent_name}: {error}"))
+        .filter(|error| !error.trim().is_empty())
+        .collect()
+}
+
 /// A hook's classified origin for display and telemetry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HookOrigin {
@@ -786,6 +798,21 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[test]
+    fn agent_hook_load_errors_name_the_agent() {
+        let lines = format_agent_hook_load_errors(
+            "code-reviewer",
+            &["hooks must be an object", "missing command"],
+        );
+        assert_eq!(
+            lines,
+            vec![
+                "agent code-reviewer: hooks must be an object".to_string(),
+                "agent code-reviewer: missing command".to_string(),
+            ]
+        );
     }
 
     #[test]

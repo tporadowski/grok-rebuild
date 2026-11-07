@@ -58,6 +58,12 @@ pub(super) fn notification_hook_for_update(
             None,
             Some("info".into()),
         )),
+        XaiSessionUpdate::TaskCompleted { task_snapshot, .. } => Some((
+            "task_complete".into(),
+            Some(format!("Task {} completed", task_snapshot.task_id)),
+            None,
+            Some("info".into()),
+        )),
         XaiSessionUpdate::AutoRecoveryExhausted { error, .. } => Some((
             "agent_error".into(),
             Some(error.clone()),
@@ -590,7 +596,7 @@ mod notification_hook_filter_tests {
     }
 
     #[test]
-    fn task_completed_does_not_fire_via_filter() {
+    fn task_completed_fires_task_complete() {
         let update = XaiSessionUpdate::TaskCompleted {
             task_snapshot: xai_grok_tools::types::TaskSnapshot {
                 task_id: "task-1".into(),
@@ -616,7 +622,10 @@ mod notification_hook_filter_tests {
             },
             will_wake: false,
         };
-        assert!(notification_hook_for_update(&update).is_none());
+        let (ty, message, _, level) = notification_hook_for_update(&update).expect("should fire");
+        assert_eq!(ty, "task_complete");
+        assert_eq!(message.as_deref(), Some("Task task-1 completed"));
+        assert_eq!(level.as_deref(), Some("info"));
     }
 
     #[test]

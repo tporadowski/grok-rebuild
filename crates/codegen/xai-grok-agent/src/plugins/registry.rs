@@ -68,6 +68,8 @@ pub struct LoadedPlugin {
     pub inline_hooks: Option<serde_json::Value>,
     /// Parsed hook specs from the hooks file and inline hooks. Empty unless the plugin is enabled and trusted.
     pub hook_specs: Vec<xai_grok_hooks::config::HookSpec>,
+    /// Parse and read failures from the hooks file and inline hooks. Empty unless the plugin is enabled and trusted.
+    pub hook_load_errors: Vec<String>,
     /// Inline MCP servers JSON from manifest (when defined inline, not file-based).
     pub inline_mcp_servers: Option<serde_json::Value>,
     /// Inline LSP servers JSON from manifest (when defined inline, not file-based).
@@ -204,12 +206,15 @@ impl PluginRegistry {
                 has_inline_lsp_only,
                 inline_hooks,
                 hook_specs: Vec::new(),
+                hook_load_errors: Vec::new(),
                 inline_mcp_servers,
                 inline_lsp_servers,
                 conflict: dp.conflict,
             };
             if loaded.enabled && loaded.trusted {
-                loaded.hook_specs = super::hooks_adapter::load_plugin_hook_specs(&loaded);
+                let (specs, errors) = super::hooks_adapter::load_plugin_hook_specs(&loaded);
+                loaded.hook_specs = specs;
+                loaded.hook_load_errors = errors;
             }
 
             // Track MCP server ownership for enabled and trusted plugins
@@ -874,6 +879,24 @@ pub(crate) mod tests {
         assert!(plugin.has_inline_hooks_only);
         assert!(plugin.hooks_path.is_none());
         assert_eq!(plugin.inline_hooks.as_ref().unwrap(), &inline_json);
+    }
+
+    #[test]
+    fn broken_inline_hooks_are_listed_as_load_errors() {
+        use super::super::manifest::PathOrInline;
+
+        let mut dp = make_discovered("hook-plugin", PluginScope::User, true);
+        dp.manifest.hooks = Some(PathOrInline::Inline(serde_json::json!({
+            "hooks": "not-an-object"
+        })));
+
+        let reg = PluginRegistry::from_discovered(vec![dp], &[], &["hook-plugin".to_string()]);
+        let errors = super::super::hooks_adapter::active_plugin_hook_load_errors(&reg);
+        assert!(
+            errors.iter().any(|error| error.contains("hook-plugin")),
+            "{errors:?}"
+        );
+        assert!(reg.get("hook-plugin").unwrap().hook_specs.is_empty());
     }
 
     #[test]

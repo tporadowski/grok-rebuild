@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::notifications::NotificationEvent;
-use crate::notifications::config::NotificationHook;
+use crate::notifications::config::{NotificationEventKind, NotificationHook};
 
 fn execute_hook(
     command: &str,
@@ -94,6 +94,13 @@ fn abandon_child(child: Child, group: Option<Arc<xai_tty_utils::ProcessGroup>>, 
     {
         tracing::error!(error = %error, command, child_id = child.id(), has_group = group.is_some(), "hook cleanup bounded abandonment: reaper thread spawn failed");
     }
+}
+
+/// Empty `events` matches every kind. `only_unfocused` runs only while the terminal is unfocused.
+pub fn hook_matches(hook: &NotificationHook, kind: NotificationEventKind, unfocused: bool) -> bool {
+    let event_ok = hook.events.is_empty() || hook.events.contains(&kind);
+    let focus_ok = !hook.only_unfocused || unfocused;
+    event_ok && focus_ok
 }
 
 pub fn run_hook(hook: &NotificationHook, event: &NotificationEvent) {
