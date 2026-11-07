@@ -143,6 +143,10 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-056 — Hidden Kitty images are already deleted
+
+`clear_kitty_image` sends `a=d,d=i`, which deletes the image data in the terminal. `AgentView::draw` emits that delete for an inline id placed last frame and not placed this frame, then drops the id (`render.rs`). A modal or viewer covering the transcript deletes every known inline id the same way. A missing prompt preview calls `overlay::clear()`, which deletes placement id 1. Fullscreen takeover and a closed child view drain through `take_inline_media_clear_escapes` (`take_inline_media_clear_escapes_drains_placements`, `subagent_fullscreen_draw_clears_parent_inline_media`, `draw_after_subagent_close_clears_child_inline_media`, `active_modal_returns_clear_without_committing_discarded_state`, `low_level_overlay_deletes_then_transmits`). The 64 MiB CPU cache eviction keeps a still-placed id, because that image is on screen. `v73-x12` is `already`.
+
 ### D-055 — Dashboard rows stay Working for background work
 A running background subagent, or an active workflow run, keeps the dashboard row in Working after the parent turn is idle. A foreground subagent does not. Stopping that row cancels the background subagent and sends `/workflow stop` for each active run (`v75-x16`, `background_subagent_or_active_workflow_keeps_the_row_working`, `dashboard_stop_ends_background_subagents_and_workflows`).
 
@@ -272,7 +276,7 @@ Refresh these numbers at the end of a session.
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 0 | 0 | 7 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
-| W6 | Memory | 1 | 0 | 6 | 0 | 0 |
+| W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
@@ -287,9 +291,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 427. Skipped: 8. Done: 109. Already: 29. Deferred: 10.
+Catalog rows: 583. Pending: 426. Skipped: 8. Done: 109. Already: 30. Deferred: 10.
 
-**Next:** W6 memory. Still open: Kitty image free (`v73-x12`). Then W7.
+**Next:** W7 worktrees. First open row: dashboard worktree column (`v50-f11`).
 
 ## Waves
 
@@ -307,7 +311,7 @@ Pending: 0. Done: 11. Already: 10. Deferred: 6 (D-026). Look first: `xai-grok-pe
 
 ### W6 — Memory
 
-Pending: 1 (`v73-x12`). Done: 6. Look first: Do this after W1. Implementation lives in `xai-grok-memory` and the `/memory` pager view. Final behavior is an on/off switch plus the concise `MEMORY.md` index sorted by read count.
+Pending: 0. Done: 6. Already: 1 (`v73-x12`, D-056). Look first: Do this after W1. Implementation lives in `xai-grok-memory` and the `/memory` pager view. Final behavior is an on/off switch plus the concise `MEMORY.md` index sorted by read count. A hidden Kitty image is already deleted with `a=d,d=i`.
 
 ### W4 — Hooks
 
@@ -407,7 +411,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x100 | done | W6 | Bug Fixes |  |  | The model is now told when memory is turned off or on for the session.
 - v54-x08 | done | W6 | Bug Fixes |  |  | **Memory search** shows the matching part of a long line instead of cutting it off before the match.
 - v54-x09 | done | W6 | Bug Fixes |  |  | **`/memory`** skips a symlinked note instead of failing the whole listing.
-- v73-x12 | pending | W6 | Bug Fixes |  |  | **Kitty graphics protocol**: images Grok hides are freed in the terminal, so they no longer use its memory.
+- v73-x12 | already | W6 | Bug Fixes |  |  | **Kitty graphics protocol**: images Grok hides are freed in the terminal, so they no longer use its memory.
 - v49-x01 | already | W4 | Bug Fixes |  |  | Hook permission prompts now appear regardless of approval mode.
 - v50-x18 | done | W4 | Bug Fixes |  |  | Custom notification commands defined under [[ui.notifications.hooks]] now execute on matching events.
 - v51-f14 | done | W4 | Features |  |  | Bare hook commands such as `my-guard` now run from PATH when not found next to the hook file.
