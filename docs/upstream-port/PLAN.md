@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-027 — Cherry-picked workflow, image, MCP, and CLI commits
+Unit tests in this checkout passed for `v50-x12`, `v50-x27`, `v50-x28`, `v50-x29`, `v50-x32`, `v50-x33`, `v51-f01`, `v51-x86`, `v51-x117`, `v52-x08`, `v53-f04`, `v53-x07`, `v53-x08`, `v53-x19`, `v64-f05`, `v66-x02`, `v72-x09`, and `v74-x24`. `v54-x01` is only partly in those commits: stray markdown `!` and currency amounts are tested, and Windows paste newlines are a separate change still to land.
+
 ### D-025 — W15 classifications
 `v54-p01` is already the slow welcome tick (`view_tick_demand` returns `TickDemand::Slow`, 83 ms). `v54-p04` is already `evict_offscreen_render_caches`, which drops off-screen render caches and keeps heights. `v69-p01` is already `run_and_shutdown`: `shutdown_timeout` is a ceiling, and its test checks that a clean exit returns before the grace. `v73-p01` is deferred: auth startup, `read_auth_json`, managed policy, and the config watcher have no ~100 ms wait on a missing sign-in file. The other 20 performance rows still need code. `v74-p01` is the later markdown-layout release and stays pending even though `v54-p04` already drops render caches.
 
@@ -177,26 +180,26 @@ Refresh these numbers at the end of a session.
 | Wave | Name | Pending | Skipped | Done | Already | Deferred |
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
-| W2 | CLI surface | 7 | 0 | 0 | 0 | 0 |
+| W2 | CLI surface | 4 | 0 | 3 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 0 | 0 | 11 | 10 | 6 |
 | W6 | Memory | 1 | 0 | 6 | 0 | 0 |
 | W4 | Hooks | 36 | 0 | 0 | 0 | 0 |
-| W5 | Workflows and goals | 29 | 0 | 0 | 0 | 0 |
+| W5 | Workflows and goals | 25 | 0 | 4 | 0 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
 | W8 | Sessions, resume, and dashboard | 43 | 0 | 0 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
-| W11 | Headless mode and tools | 41 | 0 | 0 | 0 | 0 |
-| W12 | MCP, web, images, and browser | 59 | 0 | 0 | 0 | 0 |
-| W13 | Update, install, and sign-in | 27 | 0 | 0 | 0 | 0 |
+| W11 | Headless mode and tools | 39 | 0 | 2 | 0 | 0 |
+| W12 | MCP, web, images, and browser | 51 | 0 | 8 | 0 | 0 |
+| W13 | Update, install, and sign-in | 26 | 0 | 1 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 531. Skipped: 8. Done: 23. Already: 13. Deferred: 8.
+Catalog rows: 583. Pending: 513. Skipped: 8. Done: 41. Already: 13. Deferred: 8.
 
-**Next:** W2, `v50-x09`. W3 commits are in this checkout; their tests are recorded in D-026. W2, W5, W8, W11, W12, and W13 stay in worktrees until their commits land here.
+**Next:** W2, `v50-x09`. Cherry-picked workflow, tool, image, MCP, and CLI commits are tested (D-027). `v54-x01` still needs the Windows-paste newline half. W8 is still only in its worktree.
 
 ## Waves
 
@@ -206,7 +209,7 @@ Pending: 0. Done: 5. Deferred: 1 (`v51-b01`, D-020). Look first: Share: `crates/
 
 ### W2 — CLI surface
 
-Pending: 7. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented.
+Pending: 4. Done: 3. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented.
 
 ### W3 — Permissions, sandbox, and config
 
@@ -222,7 +225,7 @@ Pending: 36. Look first: Search `xai-grok-hooks` and the shell hook loader. `fai
 
 ### W5 — Workflows and goals
 
-Pending: 29. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior.
+Pending: 25. Done: 4. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior.
 
 ### W7 — Worktrees
 
@@ -242,15 +245,15 @@ Pending: 45. Look first: `show_timestamps` is a bool today. Extend it to off / m
 
 ### W11 — Headless mode and tools
 
-Pending: 41. Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat.
+Pending: 39. Done: 2. Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat.
 
 ### W12 — MCP, web, images, and browser
 
-Pending: 59. Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing.
+Pending: 51. Done: 8. Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing.
 
 ### W13 — Update, install, and sign-in
 
-Pending: 27. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download.
+Pending: 26. Done: 1. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download.
 
 ### W14 — Pager and remaining bug fixes
 
@@ -275,10 +278,10 @@ id | status | wave | kind | flag | covered | note
 - v63-b01 | done | W1 | Breaking Changes |  |  | **Memory** always uses the concise `MEMORY.md` index of topic titles and paths, and `/memory` lists topics by how often Grok reads them. The `[memory_v2] compact_index_enabled` setting no longer has an effect.
 - v64-b01 | done | W1 | Breaking Changes |  |  | **Untrusted folders** run only your organization's managed hooks. User, project, plugin, and agent hooks wait until you trust the folder. Headless sessions treat user hooks as trusted.
 - v50-x09 | pending | W2 | Bug Fixes |  |  | **/rewind** now places the cursor at the end of the restored prompt.
-- v50-x12 | pending | W2 | Bug Fixes |  |  | **Fixed --disallowed-tools** when only one scheduler tool is named; the other two no longer cause startup failure.
-- v51-f01 | pending | W2 | Features |  |  | **Inline viewports** can now be restored at a previously saved screen area without extra cursor queries.
+- v50-x12 | done | W2 | Bug Fixes |  |  | **Fixed --disallowed-tools** when only one scheduler tool is named; the other two no longer cause startup failure.
+- v51-f01 | done | W2 | Features |  |  | **Inline viewports** can now be restored at a previously saved screen area without extra cursor queries.
 - v51-x01 | pending | W2 | Bug Fixes |  |  | Slash command suggestions no longer make the text after the cursor disappear while typing.
-- v51-x117 | pending | W2 | Bug Fixes |  |  | **disable_zdr_incompatible_tools** changes now apply to new turns without restarting the worker.
+- v51-x117 | done | W2 | Bug Fixes |  |  | **disable_zdr_incompatible_tools** changes now apply to new turns without restarting the worker.
 - v53-f03 | pending | W2 | Features |  |  | **`--tools` and `--disallowed-tools`** also apply in the interactive TUI.
 - v74-f10 | pending | W2 | Features |  |  | **Picked `@` files in the prompt** can be edited in place: `Backspace` at the end of one reopens the picker on its path, and `Left` or `Right` puts the cursor inside it to change the path.
 - v46-x04 | already | W3 | Bug Fixes |  |  | **Permission rules** with relative paths now correctly apply even when the cwd contains symlinks.
@@ -352,7 +355,7 @@ id | status | wave | kind | flag | covered | note
 - v71-f04 | pending | W4 | Features |  |  | **Hooks** accept `"failClosed": true`: when such a `PreToolUse` or `UserPromptSubmit` hook times out or crashes, the tool call is denied or the prompt is blocked instead of going ahead.
 - v75-x18 | pending | W4 | Bug Fixes |  |  | **Disabling a project's hook** in `/hooks` applies only to that repository, instead of also skipping hooks with the same name in other repositories.
 - v47-x02 | pending | W5 | Bug Fixes |  |  | **Clicking the Goal chip** now opens the goal panel even when workflow runs are present.
-- v50-x28 | pending | W5 | Bug Fixes |  |  | A workflow file that fails to parse now reports the exact file and parse error instead of 'unknown workflow'.
+- v50-x28 | done | W5 | Bug Fixes |  |  | A workflow file that fails to parse now reports the exact file and parse error instead of 'unknown workflow'.
 - v51-f02 | pending | W5 | Features |  |  | Headless `grok -p` now waits for background goals to finish and reports their outcome.
 - v51-f19 | pending | W5 | Features |  |  | **--background-wait-timeout** now also stops an active headless goal after the timeout and exits with an error.
 - v51-f21 | pending | W5 | Features |  |  | **New `/workflow` commands** let you list, stop, and resume background workflow runs without sending them to the model.
@@ -361,11 +364,11 @@ id | status | wave | kind | flag | covered | note
 - v51-f28 | pending | W5 | Features |  |  | Pressing Ctrl+C on a goal now pauses the goal instead of letting it continue.
 - v51-f30 | pending | W5 | Features |  |  | Reopening a chat with an active goal now continues the goal automatically.
 - v51-x02 | pending | W5 | Bug Fixes |  |  | Running workflows in the dock now show the same pulsing indicator as in the main scrollback.
-- v51-x86 | pending | W5 | Bug Fixes |  |  | **/workflow stop|resume <name>** now correctly targets the live run instead of an ended first run.
+- v51-x86 | done | W5 | Bug Fixes |  |  | **/workflow stop|resume <name>** now correctly targets the live run instead of an ended first run.
 - v51-x92 | pending | W5 | Bug Fixes |  |  | Headless goal runs no longer print a spurious "Goal paused" message after completion.
 - v51-x110 | pending | W5 | Bug Fixes |  |  | With goals disabled, a headless `/goal` line is now treated as a normal prompt instead of failing.
 - v52-x23 | pending | W5 | Bug Fixes |  |  | Inline tags in agent replies no longer break line layout, and /workflow stop now picks the correct live run.
-- v53-f04 | pending | W5 | Features |  |  | **`/goal`** pauses after three continuations in a row with no tool call; run `/goal resume` to continue.
+- v53-f04 | done | W5 | Features |  |  | **`/goal`** pauses after three continuations in a row with no tool call; run `/goal resume` to continue.
 - v53-f05 | pending | W5 | Features |  |  | **Quitting** warns when it would stop a running workflow and asks you to confirm with a second quit.
 - v53-x09 | pending | W5 | Bug Fixes |  |  | **`/workflow stop`** and **`/workflow pause`** no longer pick a run from a loose fuzzy match, and headless `-p` runs print each refused approval request to stderr.
 - v53-x10 | pending | W5 | Bug Fixes |  |  | **Workflow run views** list agents outside a declared phase and count only finished agents as done.
@@ -374,7 +377,7 @@ id | status | wave | kind | flag | covered | note
 - v72-f05 | pending | W5 | Features |  |  | **`/workflow runs`** detail view: `→` or a click focuses a phase's agent list, `↑`/`↓` pick an agent, `Enter` opens it, and `←` returns to the phases.
 - v74-x01 | pending | W5 | Bug Fixes |  |  | **Built-in skills, agents and workflows** are refreshed when their local cache's manifest is missing or corrupt, instead of staying outdated or failing every sync.
 - v74-x19 | pending | W5 | Bug Fixes |  |  | **Workflow run lines** in the transcript end with what the run returned instead of a bare colon, `/tasks` shows the time it was taken, and polling an unknown task id leaves a row with its error.
-- v74-x24 | pending | W5 | Bug Fixes |  |  | **Windows**: on older consoles such as plain `cmd.exe` and Windows PowerShell windows, status marks and selection arrows in workflow views, the dashboard, and the feedback and extensions dialogs show as `>`, `•`, `√` or `x` instead of empty boxes.
+- v74-x24 | done | W5 | Bug Fixes |  |  | **Windows**: on older consoles such as plain `cmd.exe` and Windows PowerShell windows, status marks and selection arrows in workflow views, the dashboard, and the feedback and extensions dialogs show as `>`, `•`, `√` or `x` instead of empty boxes.
 - v74-x31 | pending | W5 | Bug Fixes |  |  | **Running markers** in workflow views and MCP servers that are still starting use the theme's running color, like other progress indicators.
 - v75-f08 | pending | W5 | Features |  |  | **Workflow status lines** say how many agents are still running instead of how many exist.
 - v75-x05 | pending | W5 | Bug Fixes |  |  | **Windows**: on older consoles such as plain `cmd.exe` and Windows PowerShell windows, the `▶`, `⏸` and `◌` marks in todo, workflow and list rows show as characters the console can draw instead of empty boxes.
@@ -576,8 +579,8 @@ id | status | wave | kind | flag | covered | note
 - v52-x22 | pending | W11 | Bug Fixes |  |  | **Context overflow errors** now trigger automatic compaction instead of failing the turn.
 - v52-x24 | pending | W11 | Bug Fixes |  |  | **Auto-compaction** now stops after three context refills in a row instead of looping forever.
 - v52-x27 | pending | W11 | Bug Fixes |  |  | **[permission] rules** now load alongside compact deny/allow/ask lists in config.toml.
-- v53-x07 | pending | W11 | Bug Fixes |  |  | **search_replace** refuses an `old_string` that matches again at an overlapping position, so it no longer edits the wrong match.
-- v53-x08 | pending | W11 | Bug Fixes |  |  | **read_file** reports the correct line count for files that end with a newline and no longer returns an empty line past the end.
+- v53-x07 | done | W11 | Bug Fixes |  |  | **search_replace** refuses an `old_string` that matches again at an overlapping position, so it no longer edits the wrong match.
+- v53-x08 | done | W11 | Bug Fixes |  |  | **read_file** reports the correct line count for files that end with a newline and no longer returns an empty line past the end.
 - v53-x20 | pending | W11 | Bug Fixes |  |  | **Editing a queued command** such as `/compact` is refused with a message, so your new text is kept.
 - v54-x05 | pending | W11 | Bug Fixes |  |  | **Wrapped URLs** in shell command descriptions link to the full address on every row.
 - v62-x01 | pending | W11 | Bug Fixes |  |  | **Headless mode** (`grok -p`) waits for the follow-up turn that a finished background task starts before exiting, and a `--background-wait-timeout` that stops pending work exits with an error instead of success.
@@ -593,9 +596,9 @@ id | status | wave | kind | flag | covered | note
 - v49-x02 | pending | W12 | Bug Fixes |  |  | **Web searches, fetches, and image generation** now correctly respect the prompt_policy setting and rule decisions before prompting.
 - v50-x20 | pending | W12 | Bug Fixes |  |  | When multiple MCP servers expose a tool with the same name, `search_tool` now returns all of them.
 - v50-x21 | pending | W12 | Bug Fixes |  |  | Concurrent Grok windows editing settings no longer lose or corrupt config.toml entries such as MCP servers or permission rules.
-- v50-x27 | pending | W12 | Bug Fixes |  |  | Imagine replies that are not valid images are now rejected instead of being saved as .jpg files.
-- v50-x29 | pending | W12 | Bug Fixes |  |  | **Re-encoded images** are now oriented correctly using their EXIF tags instead of appearing sideways.
-- v50-x32 | pending | W12 | Bug Fixes |  |  | **Transparent images** are now kept as PNG when re-encoded instead of turning black.
+- v50-x27 | done | W12 | Bug Fixes |  |  | Imagine replies that are not valid images are now rejected instead of being saved as .jpg files.
+- v50-x29 | done | W12 | Bug Fixes |  |  | **Re-encoded images** are now oriented correctly using their EXIF tags instead of appearing sideways.
+- v50-x32 | done | W12 | Bug Fixes |  |  | **Transparent images** are now kept as PNG when re-encoded instead of turning black.
 - v51-f03 | pending | W12 | Features |  |  | **`/imagine`** and similar commands now run the matching bundled skill when the required tools are unavailable.
 - v51-f05 | pending | W12 | Features |  |  | **Web fetch approval cards** now include "always allow" and "never allow" domain options that persist for the folder.
 - v51-f08 | pending | W12 | Features |  |  | **Chrome profiles** can now be persisted across restarts using durable state directories.
@@ -614,22 +617,22 @@ id | status | wave | kind | flag | covered | note
 - v51-x107 | pending | W12 | Bug Fixes |  |  | **Web search and image approval cards** now only offer always-approve mode to clients that support it.
 - v51-x113 | pending | W12 | Bug Fixes |  |  | **Browser tabs** restore and close more reliably with fewer races.
 - v51-x116 | pending | W12 | Bug Fixes |  |  | **Voice error messages** now display with correct punctuation.
-- v52-x08 | pending | W12 | Bug Fixes |  |  | **Pasted images** that exceed the 50 MB send limit are now rejected with a clear message instead of silently dropped.
+- v52-x08 | done | W12 | Bug Fixes |  |  | **Pasted images** that exceed the 50 MB send limit are now rejected with a clear message instead of silently dropped.
 - v52-x15 | pending | W12 | Bug Fixes |  |  | **@mentions and image placeholders** now respect Read deny rules and are omitted from the prompt.
 - v52-x21 | pending | W12 | Bug Fixes |  |  | MCP tool replies containing invalid characters no longer cause the call to time out.
 - v52-x32 | pending | W12 | Bug Fixes |  |  | HTTP MCP tools that return a JSON-RPC error are now executed only once.
 - v53-x02 | pending | W12 | Bug Fixes |  |  | **`/feedback`** stays open while you type when a permission request, question, or MCP prompt arrives.
 - v53-x11 | pending | W12 | Bug Fixes |  |  | **Parallel MCP tool calls** that ask for input each show their own prompt.
-- v53-x19 | pending | W12 | Bug Fixes |  |  | **Stdio MCP servers** expand a leading `~` in their command and arguments to your home directory.
+- v53-x19 | done | W12 | Bug Fixes |  |  | **Stdio MCP servers** expand a leading `~` in their command and arguments to your home directory.
 - v53-x23 | pending | W12 | Bug Fixes |  |  | **Send now (Ctrl+Enter)** no longer answers the stop-subagents panel or an MCP prompt card.
 - v54-x01 | pending | W12 | Bug Fixes |  |  | **Pasted Windows line endings** reach the model as newlines, markdown images no longer show a stray "!", and dollar amounts that are not math stay plain text.
 - v54-x11 | pending | W12 | Bug Fixes |  |  | **Failed MCP tool rows** wrap the error to the screen width and keep its line breaks.
 - v63-x05 | pending | W12 | Bug Fixes |  |  | **Custom models on Chat Completions endpoints outside xAI** no longer fail turns with a tool schema error when MCP servers are connected.
-- v64-f05 | pending | W12 | Features |  |  | **HTTP connections**, including remote MCP servers, accept gzip, brotli, zstd, and deflate compressed responses.
+- v64-f05 | done | W12 | Features |  |  | **HTTP connections**, including remote MCP servers, accept gzip, brotli, zstd, and deflate compressed responses.
 - v64-x03 | pending | W12 | Bug Fixes |  |  | **Web search** works from a session's first turn, and in subagents, when the search model signs in through an external auth provider.
 - v64-x10 | pending | W12 | Bug Fixes |  |  | **Custom models on the Responses API** keep the turn going when a web search call starts without an action.
 - v64-x12 | pending | W12 | Bug Fixes |  |  | **Voice dictation preview** grows the prompt as you speak and keeps the newest words in view.
-- v66-x02 | pending | W12 | Bug Fixes |  |  | **Selected and highlighted rows** stay readable on every theme because reverse-video text is never dimmed. This fixes faint descriptions in selected menu rows on the `terminal` theme in terminals such as Kitty.
+- v66-x02 | done | W12 | Bug Fixes |  |  | **Selected and highlighted rows** stay readable on every theme because reverse-video text is never dimmed. This fixes faint descriptions in selected menu rows on the `terminal` theme in terminals such as Kitty.
 - v68-f06 | pending | W12 | Features |  |  | **Image placeholders** in the transcript now show whether the actual image was sent or only the text was typed.
 - v68-x04 | pending | W12 | Bug Fixes |  |  | **Send Now prompts** and rewound turns now correctly restore and mark any images that were originally sent.
 - v68-x05 | pending | W12 | Bug Fixes |  |  | **Resumed sessions** now show the correct sent or struck-through state for image placeholders.
@@ -639,7 +642,7 @@ id | status | wave | kind | flag | covered | note
 - v71-x01 | pending | W12 | Bug Fixes |  |  | **Image chips** in your messages stay whole on one row when the message wraps.
 - v71-x02 | pending | W12 | Bug Fixes |  |  | **Images the server rejects** are removed from the conversation, so the notice that images were left out no longer repeats, and grows, on every later turn.
 - v72-x07 | pending | W12 | Bug Fixes |  |  | **MCP tools built with FastMCP or the official MCP SDK** send their result to the model once instead of twice, so each call uses about half the context.
-- v72-x09 | pending | W12 | Bug Fixes |  |  | **MCP servers over stdio** no longer lose part of a long reply line, such as a large tool list, when a read is interrupted.
+- v72-x09 | done | W12 | Bug Fixes |  |  | **MCP servers over stdio** no longer lose part of a long reply line, such as a large tool list, when a read is interrupted.
 - v73-x06 | pending | W12 | Bug Fixes |  |  | **Queued images** show as green chips in the queue pane, as in the prompt.
 - v75-x06 | pending | W12 | Bug Fixes |  |  | **Generated image and video paths** with wide characters such as Chinese, Japanese or emoji fit their row and keep the file name, and Windows paths keep it too.
 - v75-x09 | pending | W12 | Bug Fixes |  |  | **Cut-off Fetch, Web Search and MCP tool output** ends with the same `… +N lines · <key> to view all` row as code cells, naming your viewer key, and one hidden line reads `+1 line`.
@@ -648,7 +651,7 @@ id | status | wave | kind | flag | covered | note
 - v46-x01 | pending | W13 | Bug Fixes |  |  | **MCP server sources** are now correctly reported by `grok inspect` and the MCP doctor.
 - v47-x01 | pending | W13 | Bug Fixes |  |  | Error messages on the home and login screens now wrap properly in narrow terminals.
 - v48-x06 | pending | W13 | Bug Fixes |  |  | **Authentication recovery** no longer automatically retries refused prompts after login; the sign-in block now requires manual resend.
-- v50-x33 | pending | W13 | Bug Fixes |  |  | **The bundled ripgrep** is now available to terminal commands even on images that do not install it.
+- v50-x33 | done | W13 | Bug Fixes |  |  | **The bundled ripgrep** is now available to terminal commands even on images that do not install it.
 - v50-x38 | pending | W13 | Bug Fixes |  |  | **grok doctor** now reports the exact config file or setting that prevents Grok from starting instead of saying zero issues.
 - v50-x40 | pending | W13 | Bug Fixes |  |  | **grok doctor fix** now opens its confirmation card on Cancel to prevent accidental edits to shell or tmux config.
 - v51-f29 | pending | W13 | Features |  |  | grok -p now runs auth_provider_command when no login is stored.
