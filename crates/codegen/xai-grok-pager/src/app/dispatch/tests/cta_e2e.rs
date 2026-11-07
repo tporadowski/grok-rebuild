@@ -3,6 +3,19 @@
 use super::*;
 
 #[test]
+fn disable_plugins_hides_install_suggestions() {
+    assert!(!super::super::cta::plugin_install_suggestions_enabled(
+        true, true
+    ));
+    assert!(super::super::cta::plugin_install_suggestions_enabled(
+        true, false
+    ));
+    assert!(!super::super::cta::plugin_install_suggestions_enabled(
+        false, false
+    ));
+}
+
+#[test]
 fn plugin_cta_catalog_loaded_sanitizes_components_at_ingestion() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);

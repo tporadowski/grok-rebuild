@@ -106,6 +106,14 @@ pub(super) fn cta_install_error_category(
     }
 }
 
+pub(super) fn plugin_install_suggestions_enabled(cta_enabled: bool, plugins_disabled: bool) -> bool {
+    cta_enabled && !plugins_disabled
+}
+
+fn suggestions_on(app: &AppView) -> bool {
+    plugin_install_suggestions_enabled(app.plugin_cta_enabled, app.appearance.disable_plugins)
+}
+
 /// Recompute the plugin-CTA phase from the current prompt draft.
 /// Gating order: feature flag and CTA source present (official, or the configured `plugin_cta_marketplace`), keyword match, then per-plugin dismissal.
 /// `is_dismissed` injects the config lookup so the matcher logic stays unit-testable.
@@ -423,7 +431,7 @@ pub(super) fn handle_plugin_cta_catalog_loaded(
     match result {
         Ok(mut response) => {
             response.sanitize();
-            let enabled = app.plugin_cta_enabled;
+            let enabled = suggestions_on(app);
             let cta_marketplace = app.plugin_cta_marketplace.as_deref();
             if let Some(agent) = app.agents.get_mut(&agent_id) {
                 let (candidates, source_url_or_path) =
@@ -478,7 +486,7 @@ pub(super) fn handle_plugin_cta_debounce_expired(
     generation: u64,
 ) -> Vec<Effect> {
     use crate::app::agent_view::CtaPhase;
-    let enabled = app.plugin_cta_enabled;
+    let enabled = suggestions_on(app);
     let Some(agent) = app.agents.get_mut(&agent_id) else {
         return vec![];
     };
