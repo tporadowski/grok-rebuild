@@ -337,6 +337,8 @@ pub struct DiscoveryOptions<'a> {
     /// Headless sessions treat user hooks as trusted even when the folder is not.
     /// Project, plugin, and agent hooks still wait for folder trust.
     pub user_hooks_trusted: bool,
+    /// Directory the process was launched in. Its `.grok/hooks` loads in addition to the git root.
+    pub launch_dir: Option<&'a Path>,
 }
 
 /// Untrusted folders run only organization managed hooks.
@@ -417,6 +419,12 @@ pub fn discover_hook_source_paths(options: DiscoveryOptions<'_>) -> HookSourcePa
             ));
         }
         project.push(classify_grok_hook_source(root.join(".grok").join("hooks")));
+        if let Some(launch) = options.launch_dir {
+            let nested = launch.join(".grok").join("hooks");
+            if nested != root.join(".grok").join("hooks") {
+                project.push(classify_grok_hook_source(nested));
+            }
+        }
         if include_cursor {
             project.push(HookSourceConfig::SettingsFile(
                 root.join(".cursor").join("hooks.json"),
@@ -571,6 +579,7 @@ mod tests {
             claude_import: ClaudeImport::NotImported,
             trust: Trust::Untrusted,
             user_hooks_trusted: false,
+            launch_dir: None,
         }
     }
 
@@ -1511,6 +1520,39 @@ timeout = 5
     }
 
     #[test]
+    fn launch_inside_a_subfolder_loads_that_folders_hooks() {
+        let root = tempfile::tempdir().unwrap();
+        let sub = root.path().join("pkg");
+        let hooks = sub.join(".grok").join("hooks");
+        std::fs::create_dir_all(&hooks).unwrap();
+        std::fs::write(
+            hooks.join("local.json"),
+            r#"{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"subfolder-guard"}]}]}}"#,
+        )
+        .unwrap();
+        let (registry, errors) = assemble_hooks(
+            &[],
+            DiscoveryOptions {
+                git_root: Some(root.path()),
+                grok_home: None,
+                home: None,
+                compat: ALL_HOOKS,
+                claude_import: ClaudeImport::NotImported,
+                trust: Trust::Trusted,
+                user_hooks_trusted: false,
+                launch_dir: Some(&sub),
+            },
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(
+            registry.all_hooks().iter().any(|hook| {
+                hook.command_raw.as_deref() == Some("subfolder-guard")
+            }),
+            "hooks in the launch directory must load"
+        );
+    }
+
+    #[test]
     fn directory_at_cursor_hooks_json_does_not_load_child_hooks() {
         let root = tempfile::tempdir().unwrap();
         let disguised = root.path().join(".cursor").join("hooks.json");
@@ -1531,6 +1573,7 @@ timeout = 5
                 claude_import: ClaudeImport::NotImported,
                 trust: Trust::Trusted,
                 user_hooks_trusted: false,
+                launch_dir: None,
             },
         );
 

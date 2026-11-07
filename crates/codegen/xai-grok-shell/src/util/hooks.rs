@@ -25,6 +25,25 @@ pub(crate) fn discover_hooks(
     trust: Trust,
     user_hooks_trusted: bool,
 ) -> (xai_grok_hooks::discovery::HookRegistry, Vec<HookError>) {
+    discover_hooks_at(
+        inputs,
+        git_root,
+        None,
+        compat,
+        trust,
+        user_hooks_trusted,
+    )
+}
+
+/// `launch_dir` is the directory the session started in. Its `.grok/hooks` loads with the git root.
+pub(crate) fn discover_hooks_at(
+    inputs: &ProcessHookInputs,
+    git_root: Option<&Path>,
+    launch_dir: Option<&Path>,
+    compat: &xai_grok_tools::types::compat::CompatConfig,
+    trust: Trust,
+    user_hooks_trusted: bool,
+) -> (xai_grok_hooks::discovery::HookRegistry, Vec<HookError>) {
     xai_grok_hooks::discovery::assemble_hooks(
         inputs.config_layers(),
         DiscoveryOptions {
@@ -37,6 +56,7 @@ pub(crate) fn discover_hooks(
             // A trusted folder already loads every hook. The flag matters when
             // the folder is untrusted and this session is headless.
             user_hooks_trusted,
+            launch_dir,
         },
     )
 }

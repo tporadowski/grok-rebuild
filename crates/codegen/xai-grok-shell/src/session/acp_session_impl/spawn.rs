@@ -1602,9 +1602,10 @@ pub(crate) async fn spawn_session_actor(
     } else {
         let git_root = xai_grok_workspace::session::git::find_git_root_from_path(cwd_path).ok();
         let (inputs, disabled) = crate::util::hooks::session_hook_inputs();
-        let (registry, errors) = crate::util::hooks::discover_hooks(
+        let (registry, errors) = crate::util::hooks::discover_hooks_at(
             &inputs,
             git_root.as_deref(),
+            Some(cwd_path),
             &rebuild_spec.compat,
             xai_grok_hooks::trust::Trust::from_verdict(project_trusted),
             startup_hints.non_interactive,

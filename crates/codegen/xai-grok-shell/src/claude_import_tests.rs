@@ -17,6 +17,7 @@ fn source_paths(
             claude_import: crate::claude_import::import_marker(),
             trust: xai_grok_hooks::trust::Trust::Trusted,
             user_hooks_trusted: false,
+            launch_dir: None,
         },
     )
 }

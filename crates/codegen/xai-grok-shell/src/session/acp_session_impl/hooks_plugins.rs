@@ -763,9 +763,10 @@ impl SessionActor {
         let is_trusted = crate::agent::folder_trust::resolve_and_record(cwd, None, false);
         // discover_hooks is the single load entry point, so all vendors (compat and native) and custom hook-paths match the session-startup sites
         let (inputs, disabled) = crate::util::hooks::session_hook_inputs();
-        let (registry, errors) = crate::util::hooks::discover_hooks(
+        let (registry, errors) = crate::util::hooks::discover_hooks_at(
             &inputs,
             git_root.as_deref(),
+            Some(cwd),
             &self.rebuild_spec.compat,
             xai_grok_hooks::trust::Trust::from_verdict(is_trusted),
             self.attach_non_interactive.get(),
@@ -961,9 +962,10 @@ impl SessionActor {
                     xai_grok_workspace::session::git::find_git_root_from_path(session_cwd).ok();
                 let is_trusted =
                     crate::agent::folder_trust::resolve_and_record(session_cwd, None, false);
-                let (registry, _errs) = crate::util::hooks::discover_hooks(
+                let (registry, _errs) = crate::util::hooks::discover_hooks_at(
                     &crate::util::hooks::process_hook_inputs(),
                     git_root.as_deref(),
+                    Some(session_cwd),
                     &self.rebuild_spec.compat,
                     xai_grok_hooks::trust::Trust::from_verdict(is_trusted),
                     self.attach_non_interactive.get(),
