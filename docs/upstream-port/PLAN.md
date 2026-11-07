@@ -143,6 +143,9 @@ An untrusted folder keeps hooks whose provenance is `SystemManaged`, `Requiremen
 ### D-026 — W3 permissions, sandbox, and config
 The eleven `port:` commits from the W3 worktree are on `rebuild`. Already: symlink canonicalization (`v46-x04`), custom-model notices (`v48-x02`), skipping one bad managed or compact rule (`v50-x56`, `v50-x60`), unknown tables (`v51-f24`), always-approve before the web prompt (`v51-x04`), unmatched typing does not answer (`v51-x67`), prompts name the session (`v52-x10`), a non-boolean known feature fails closed (`v53-x22`), and make/cmake/just are routine prefixes (`v64-f04`). Deferred: no separate shell allow/ask/deny mismatch (`v50-x01`), no in-flight accidental always-approve (`v51-x31`), no separate delete tool (`v51-x69`, `v51-x88`), no allow path for a denied wildcard redirect (`v52-x30`), and no macOS window-server sandbox path (`v74-x21`).
 
+### D-028 — W8 shell resume slice
+`v69-f03` matches an exact id, then a separator-insensitive title, then fuzzy word prefixes, includes other folders, and sorts the current folder and its checkouts first. `v53-x13` skips an unreadable session directory. `v75-x15` retries a delete that hits a non-empty directory. The shell tests for those three passed before the commits were cherry-picked (140 passed, including the new resume, relocation, and jsonl checks). Dashboard rows are not in this slice.
+
 ### D-027 — Cherry-picked workflow, image, MCP, and CLI commits
 Unit tests in this checkout passed for `v50-x12`, `v50-x27`, `v50-x28`, `v50-x29`, `v50-x32`, `v50-x33`, `v51-f01`, `v51-x86`, `v51-x117`, `v52-x08`, `v53-f04`, `v53-x07`, `v53-x08`, `v53-x19`, `v54-x01`, `v64-f05`, `v66-x02`, `v72-x09`, and `v74-x24`. `v54-x01` covers the stray markdown `!`, currency amounts, and Windows pastes: `\r\n` and bare `\r` become newlines in the composer.
 
@@ -186,7 +189,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 36 | 0 | 0 | 0 | 0 |
 | W5 | Workflows and goals | 25 | 0 | 4 | 0 | 0 |
 | W7 | Worktrees | 40 | 0 | 1 | 0 | 0 |
-| W8 | Sessions, resume, and dashboard | 43 | 0 | 0 | 0 | 0 |
+| W8 | Sessions, resume, and dashboard | 40 | 0 | 3 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 39 | 0 | 2 | 0 | 0 |
@@ -197,9 +200,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 512. Skipped: 8. Done: 42. Already: 13. Deferred: 8.
+Catalog rows: 583. Pending: 509. Skipped: 8. Done: 45. Already: 13. Deferred: 8.
 
-**Next:** W2, `v50-x09`. Cherry-picked workflow, tool, image, MCP, and CLI commits are tested (D-027), including Windows paste newlines. W8 is still only in its worktree.
+**Next:** W2, `v50-x09`. Resume matching, unreadable session directories, and session-delete retry are on `rebuild` (D-028). The rest of the dashboard work is still uncommitted in the sessions worktree.
 
 ## Waves
 
@@ -233,7 +236,7 @@ Pending: 40. Done: 1 (`v51-x96`, with `v50-b01`, D-023). Look first: Subcommands
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 43. Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 40. Done: 3. Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -435,7 +438,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x97 | pending | W8 | Bug Fixes |  |  | The dashboard slash menu now shows skills from the home session even when opened early.
 - v51-x108 | pending | W8 | Bug Fixes |  |  | Closing a session in the dashboard no longer leaves it listed under Inactive.
 - v52-x31 | pending | W8 | Bug Fixes |  |  | The in-session resume picker now matches the ungrouped layout shown on the welcome screen when configured.
-- v53-x13 | pending | W8 | Bug Fixes |  |  | **`grok sessions list`** and `/resume` keep working when one session directory is unreadable.
+- v53-x13 | done | W8 | Bug Fixes |  |  | **`grok sessions list`** and `/resume` keep working when one session directory is unreadable.
 - v54-f01 | pending | W8 | Features |  |  | **`/resume`** takes an optional session id or title and opens the picker filtered to matching sessions.
 - v59-f01 | pending | W8 | Features |  |  | **Dashboard `/loop`** without a prompt shows its usage instead of starting a new session.
 - v59-x01 | pending | W8 | Bug Fixes |  |  | **Dashboard peek replies** waiting on a clipboard paste are canceled with a toast when you move the peek to another row or press Esc, instead of being sent later.
@@ -456,7 +459,7 @@ id | status | wave | kind | flag | covered | note
 - v68-x03 | pending | W8 | Bug Fixes |  |  | **Dashboard model picks** now keep their selected context window when spawning the next session.
 - v69-f01 | pending | W8 | Features |  |  | **Dashboard directory grouping** now shows a header with the folder path and agent count above each folder's agents.
 - v69-f02 | pending | W8 | Features |  |  | **Dashboard location** (branch and folder) now sits on the dispatch box's top border instead of its own header row.
-- v69-f03 | pending | W8 | Features |  |  | **`/resume` on the dashboard** now lists sessions from every folder, with the current folder and its checkouts first.
+- v69-f03 | done | W8 | Features |  |  | **`/resume` on the dashboard** now lists sessions from every folder, with the current folder and its checkouts first.
 - v72-x04 | pending | W8 | Bug Fixes |  |  | **Dashboard** shows the new folder on the dispatch box's top border right after a `Ctrl+L` or `/cd` pick.
 - v73-f06 | pending | W8 | Features |  |  | **Start in multiline** in `/settings` (`[ui] multiline_default`) starts new sessions and the dashboard in multiline mode, where `Enter` inserts a newline.
 - v74-x04 | pending | W8 | Bug Fixes |  |  | **Resumed sessions** show a background command's completion in the turn that ran it, with its real run time instead of about 0.0s.
@@ -465,7 +468,7 @@ id | status | wave | kind | flag | covered | note
 - v74-x29 | pending | W8 | Bug Fixes |  |  | **Dashboard**: the peek header reads `Responding` while a reply streams, and the `Esc` footer hint reads `new agent` like the other lowercase hints.
 - v75-f06 | pending | W8 | Features |  |  | **`Left` on an empty prompt** opens the dashboard from any session or the welcome screen, not only from a session you opened from the dashboard.
 - v75-x04 | pending | W8 | Bug Fixes |  |  | **`grok --resume <id>`** opens the session in the folder it was recorded in, wherever you launch Grok from, instead of refusing.
-- v75-x15 | pending | W8 | Bug Fixes |  |  | **`grok sessions delete`** no longer fails with "Directory not empty" when another process is still writing into the session's folder.
+- v75-x15 | done | W8 | Bug Fixes |  |  | **`grok sessions delete`** no longer fails with "Directory not empty" when another process is still writing into the session's folder.
 - v77-x05 | pending | W8 | Bug Fixes |  |  | Rows in the `/resume` list now expand and collapse the same way they do inside a session.
 - v50-f05 | pending | W9 | Features |  |  | **Compact mode** now hides the dock (or tasks pane) the same way Ctrl+G does.
 - v50-f09 | pending | W9 | Features |  |  | **Command palette (Ctrl+P)** and model picker now open at the same width as the settings modal.
