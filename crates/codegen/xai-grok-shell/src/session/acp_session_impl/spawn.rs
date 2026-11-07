@@ -1691,6 +1691,7 @@ pub(crate) async fn spawn_session_actor(
         } else {
             Some(crate::session::resume_status::ResumeGoal {
                 objective: g.objective.clone(),
+                continues: crate::session::goal_tracker::restored_goal_keeps_running(g.status),
             })
         }
     });

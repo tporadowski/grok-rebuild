@@ -1238,10 +1238,10 @@ fn from_snapshot_resets_planning_to_idle_paused() {
     let t = GoalTracker::from_snapshot(PathBuf::from("/tmp/test"), orchestration);
     let o = t.snapshot().unwrap();
     assert_eq!(o.phase, GoalPhase::Idle);
-    assert_eq!(o.status, GoalStatus::UserPaused);
+    assert_eq!(o.status, GoalStatus::Active);
     assert!(o.current_subagent_id.is_none());
     assert!(o.current_subagent_role.is_none());
-    assert!(t.active_since.is_none());
+    assert!(t.active_since.is_some());
 }
 
 #[test]
@@ -1251,7 +1251,8 @@ fn from_snapshot_resets_executing() {
 
     let t = GoalTracker::from_snapshot(PathBuf::from("/tmp"), orchestration);
     assert_eq!(t.snapshot().unwrap().phase, GoalPhase::Idle);
-    assert_eq!(t.snapshot().unwrap().status, GoalStatus::UserPaused);
+    assert_eq!(t.snapshot().unwrap().status, GoalStatus::Active);
+    assert!(t.active_since.is_some());
 }
 
 #[test]
@@ -1411,11 +1412,13 @@ fn revoke_strategist_cap_bonus_keeps_fire_claim() {
 }
 
 #[test]
-fn from_snapshot_idle_active_restores_paused() {
+fn from_snapshot_keeps_an_active_goal_running() {
     let orchestration = make_base_orchestration(); // phase Idle, status Active
+    assert!(restored_goal_keeps_running(orchestration.status));
     let t = GoalTracker::from_snapshot(PathBuf::from("/tmp"), orchestration);
-    assert_eq!(t.snapshot().unwrap().status, GoalStatus::UserPaused);
-    assert!(t.active_since.is_none());
+    assert_eq!(t.snapshot().unwrap().status, GoalStatus::Active);
+    assert!(t.active_since.is_some());
+    assert!(!restored_goal_keeps_running(GoalStatus::UserPaused));
 }
 
 #[test]
@@ -1435,16 +1438,22 @@ fn from_snapshot_restore_then_resume_tracks_elapsed() {
     orchestration.elapsed_ms = 5000;
 
     let mut t = GoalTracker::from_snapshot(PathBuf::from("/tmp"), orchestration);
-    assert_eq!(t.status(), Some(GoalStatus::UserPaused));
-    assert!(t.active_since.is_none());
-
-    assert!(t.resume());
+    assert_eq!(t.status(), Some(GoalStatus::Active));
     assert!(t.active_since.is_some());
+    assert!(!t.resume(), "an active restored goal is already running");
 
     let before = t.snapshot().unwrap().elapsed_ms;
     assert_eq!(before, 5000);
     t.account_elapsed();
     assert!(t.snapshot().unwrap().elapsed_ms >= 5000);
+
+    let mut paused = make_base_orchestration();
+    paused.status = GoalStatus::UserPaused;
+    paused.elapsed_ms = 5000;
+    let mut paused_tracker = GoalTracker::from_snapshot(PathBuf::from("/tmp"), paused);
+    assert_eq!(paused_tracker.status(), Some(GoalStatus::UserPaused));
+    assert!(paused_tracker.resume());
+    assert_eq!(paused_tracker.status(), Some(GoalStatus::Active));
 }
 
 /// A snapshot written by an older shell will omit all nine classifier fields.

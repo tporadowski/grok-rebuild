@@ -77,6 +77,9 @@ pub(crate) struct ResumeWorkflow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ResumeGoal {
     pub objective: String,
+    /// `true` when the restored goal is still `Active` and the next turn should continue it.
+    #[serde(default)]
+    pub continues: bool,
 }
 
 impl ResumeStatusSnapshot {
@@ -381,9 +384,15 @@ pub(crate) fn format_reminder(snapshot: &ResumeStatusSnapshot) -> Option<String>
         }
     }
     if let Some(goal) = &snapshot.goal {
-        body.push_str(
-            "\n## Goal\nThe goal was paused when the session stopped and can be resumed:\n",
-        );
+        if goal.continues {
+            body.push_str(
+                "\n## Goal\nThe goal is still active. Continue it from the current step:\n",
+            );
+        } else {
+            body.push_str(
+                "\n## Goal\nThe goal was paused when the session stopped and can be resumed:\n",
+            );
+        }
         let _ = std::fmt::Write::write_fmt(
             &mut body,
             format_args!("- {}\n", one_line(&goal.objective)),
@@ -456,6 +465,7 @@ mod tests {
             }],
             goal: Some(ResumeGoal {
                 objective: "land the PR".into(),
+                continues: false,
             }),
         })
         .expect("non-empty");
@@ -466,6 +476,7 @@ mod tests {
         assert!(reminder.contains("subagents were cancelled"));
         assert!(reminder.contains("These workflows were cancelled when the session stopped:"));
         assert!(reminder.contains("goal was paused"));
+        assert!(!reminder.contains("still active"));
         assert!(reminder.contains("loop1"));
         assert!(reminder.contains("bg1"));
         assert!(reminder.contains("Wait for the deploy"));
@@ -583,6 +594,7 @@ mod tests {
             }],
             Some(ResumeGoal {
                 objective: "goal".into(),
+                continues: false,
             }),
         );
         let Some(loop0) = snap.loops.first() else {
@@ -598,6 +610,22 @@ mod tests {
         };
         assert_eq!(wf0.run_id, "wf9");
         assert_eq!(snap.goal.unwrap().objective, "goal");
+    }
+
+    #[test]
+    fn active_goal_on_resume_says_to_continue() {
+        let reminder = format_reminder(&ResumeStatusSnapshot {
+            goal: Some(ResumeGoal {
+                objective: "land the PR".into(),
+                continues: true,
+            }),
+            ..ResumeStatusSnapshot::default()
+        })
+        .expect("non-empty");
+        assert!(reminder.contains("still active"));
+        assert!(reminder.contains("Continue it from the current step"));
+        assert!(reminder.contains("land the PR"));
+        assert!(!reminder.contains("was paused"));
     }
 
     #[test]

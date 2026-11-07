@@ -561,6 +561,12 @@ impl GoalOrchestration {
     }
 }
 
+/// An active goal is still the user's work after a restart. Reopening the chat
+/// continues it instead of turning it into a manual pause.
+pub(crate) fn restored_goal_keeps_running(status: GoalStatus) -> bool {
+    status == GoalStatus::Active
+}
+
 // GoalTracker (pure state machine)
 
 #[derive(Debug)]
@@ -588,16 +594,13 @@ impl GoalTracker {
     }
 
     /// If the snapshot had an in-flight phase (Planning, Executing), reset to Idle because subagents don't survive a restart.
-    /// An in-flight `Active` goal becomes `UserPaused`.
-    /// Other paused variants (including [`GoalStatus::InfraPaused`]) are preserved so `pause_message` and pause cause stay aligned.
+    /// An `Active` goal stays active so reopening the chat continues it (`v51-f30`).
+    /// Paused variants (including [`GoalStatus::InfraPaused`]) are preserved so `pause_message` and pause cause stay aligned.
     pub(crate) fn from_snapshot(session_dir: PathBuf, mut snapshot: GoalOrchestration) -> Self {
         if matches!(snapshot.phase, GoalPhase::Planning | GoalPhase::Executing) {
             snapshot.phase = GoalPhase::Idle;
             snapshot.current_subagent_id = None;
             snapshot.current_subagent_role = None;
-        }
-        if snapshot.status == GoalStatus::Active {
-            snapshot.status = GoalStatus::UserPaused;
         }
         // `planning_in_flight` / `verifying_in_flight` are `#[serde(skip)]` but in-memory-clone callers bypass that; reset explicitly
         snapshot.planning_in_flight = false;

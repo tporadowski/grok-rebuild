@@ -934,6 +934,7 @@ impl SessionActor {
             }
             Some(ResumeGoal {
                 objective: g.objective.clone(),
+                continues: crate::session::goal_tracker::restored_goal_keeps_running(g.status),
             })
         });
         crate::session::resume_status::ResumeStatusSnapshot {
