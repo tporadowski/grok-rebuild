@@ -119,7 +119,12 @@ impl DisabledHooks {
         if self.managed_only {
             return Some(HookSkipReason::ManagedOnly);
         }
-        if self.unreadable || !spec.enabled || self.names.contains(&spec.name) {
+        let scoped = hook_disable_key(&spec.source_dir, &spec.name);
+        if self.unreadable
+            || !spec.enabled
+            || self.names.contains(&spec.name)
+            || self.names.contains(&scoped)
+        {
             return Some(HookSkipReason::UserDisabled);
         }
         None
@@ -207,6 +212,11 @@ fn enable_hook_with_file(hook_name: &str, file: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
+/// A disable entry that applies only to hooks loaded from `source_dir`.
+pub fn hook_disable_key(source_dir: &Path, hook_name: &str) -> String {
+    format!("{}|{hook_name}", source_dir.display())
+}
+
 const DISABLED_HOOKS_FILE: &str = "disabled-hooks";
 
 /// Returns the path to `$GROK_HOME/disabled-hooks`, or `None` when no user grok home resolves.
@@ -245,6 +255,19 @@ mod tests {
             Some(HookSkipReason::UserDisabled)
         );
         assert_eq!(loaded.skip_reason(&policy), None);
+    }
+
+    #[test]
+    fn project_disable_key_skips_only_that_directory() {
+        let repo_a = PathBuf::from("/repo/a/.grok");
+        let repo_b = PathBuf::from("/repo/b/.grok");
+        let loaded = DisabledHooks::new([hook_disable_key(&repo_a, "guard")], false);
+        let mut in_a = spec_named("guard");
+        in_a.source_dir = repo_a;
+        let mut in_b = spec_named("guard");
+        in_b.source_dir = repo_b;
+        assert_eq!(loaded.skip_reason(&in_a), Some(HookSkipReason::UserDisabled));
+        assert_eq!(loaded.skip_reason(&in_b), None);
     }
 
     fn spec_named(name: &str) -> crate::config::HookSpec {

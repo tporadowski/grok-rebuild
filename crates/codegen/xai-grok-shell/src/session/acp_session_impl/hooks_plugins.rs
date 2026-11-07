@@ -107,6 +107,33 @@ impl SessionActor {
             })
     }
 
+    /// Disable the loaded copy. The file entry includes its source directory, so the same name in another repository stays enabled.
+    fn disable_named_hook(&self, name: &str) -> Result<(), String> {
+        let key = self
+            .hook_registry
+            .borrow()
+            .as_ref()
+            .and_then(|registry| registry.find_by_name(name))
+            .map(|spec| xai_grok_hooks::trust::hook_disable_key(&spec.source_dir, &spec.name))
+            .unwrap_or_else(|| name.to_string());
+        xai_grok_hooks::trust::disable_hook(&key)
+    }
+
+    fn enable_named_hook(&self, name: &str) -> Result<bool, String> {
+        let scoped = self
+            .hook_registry
+            .borrow()
+            .as_ref()
+            .and_then(|registry| registry.find_by_name(name))
+            .map(|spec| xai_grok_hooks::trust::hook_disable_key(&spec.source_dir, &spec.name));
+        let removed_scoped = match scoped {
+            Some(key) => xai_grok_hooks::trust::enable_hook(&key)?,
+            None => false,
+        };
+        let removed_bare = xai_grok_hooks::trust::enable_hook(name)?;
+        Ok(removed_scoped || removed_bare)
+    }
+
     /// Under `allow_managed_hooks_only`, enabling anything outside managed policy is refused; the one rule for the per-hook and per-source enable.
     /// Managed hooks pass: the pin never blocks them, so enabling one changes nothing at dispatch.
     fn refuse_enable_under_managed_only<'a>(
@@ -264,7 +291,7 @@ impl SessionActor {
                         requires_restart: false,
                     };
                 }
-                match xai_grok_hooks::trust::disable_hook(&hook_name) {
+                match self.disable_named_hook(&hook_name) {
                     Ok(()) => {
                         self.refresh_hook_disabled();
                         ActionOutcome {
@@ -286,7 +313,7 @@ impl SessionActor {
                 if let Some(refused) = self.refuse_enable_under_managed_only([hook_name.as_str()]) {
                     return refused;
                 }
-                match xai_grok_hooks::trust::enable_hook(&hook_name) {
+                match self.enable_named_hook(&hook_name) {
                     Ok(true) => {
                         self.refresh_hook_disabled();
                         ActionOutcome {
@@ -329,10 +356,10 @@ impl SessionActor {
                         continue;
                     }
                     let ok = if disable {
-                        xai_grok_hooks::trust::disable_hook(name).is_ok()
+                        self.disable_named_hook(name).is_ok()
                     } else {
                         // Only an actual removal counts (Ok(false) means it wasn't disabled)
-                        xai_grok_hooks::trust::enable_hook(name) == Ok(true)
+                        self.enable_named_hook(name) == Ok(true)
                     };
                     if ok {
                         toggled += 1;
