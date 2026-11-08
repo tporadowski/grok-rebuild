@@ -191,6 +191,12 @@ impl FileSearchState {
             .is_some_and(|ctx| self.shown_query.as_deref() == Some(ctx.matcher_query()))
     }
 
+    /// Hits are on screen but the matcher has not finished this query.
+    /// Navigation and accept wait so a partial list cannot move the highlight or commit a row.
+    pub fn is_scoring(&self) -> bool {
+        self.hits_are_for_current_query() && !self.results.status.done
+    }
+
     /// The current @-context, if any.
     pub fn context(&self) -> Option<&AtContext> {
         self.context.as_ref()
@@ -218,6 +224,9 @@ impl FileSearchState {
 
     /// Set the hovered index. Returns `true` if changed.
     pub fn set_hovered(&mut self, index: Option<usize>) -> bool {
+        if self.is_scoring() {
+            return false;
+        }
         let clamped = index.filter(|&i| i < self.results.topk.len());
         let changed = clamped != self.hovered;
         self.hovered = clamped;
@@ -341,6 +350,9 @@ impl FileSearchState {
 
     /// Move selection by `delta` items (negative is up, positive is down).
     pub fn move_selection(&mut self, delta: isize) {
+        if self.is_scoring() {
+            return;
+        }
         let len = self.results.topk.len();
         if len == 0 {
             return;
@@ -383,7 +395,7 @@ impl FileSearchState {
     /// Get the currently selected fuzzy match result.
     /// A hit scored for an earlier query is not selectable.
     pub fn selected_result(&self) -> Option<&FuzzyMatchResult> {
-        if !self.hits_are_for_current_query() {
+        if !self.hits_are_for_current_query() || self.is_scoring() {
             return None;
         }
         self.results.topk.get(self.selected)
@@ -392,7 +404,7 @@ impl FileSearchState {
     /// A directory whose `/`-append matches text already present is committed (dismiss); otherwise the
     /// caller drills in and stays open.
     pub fn try_replace(&self, src: &str) -> Option<FileSearchReplacement> {
-        if !self.hits_are_for_current_query() {
+        if !self.hits_are_for_current_query() || self.is_scoring() {
             return None;
         }
         let ctx = self.context.as_ref()?;
@@ -463,12 +475,21 @@ impl FileSearchState {
         self.results = FuzzyMatcherDaemonResults {
             topk: Arc::from(results),
             num_items: 0,
-            status: Default::default(),
+            status: xai_grok_workspace::file_system::FuzzyMatcherStatus {
+                done: true,
+                changed: false,
+            },
             generation: self.min_generation,
             query,
         };
         self.min_generation += 1;
         self.selected = selected;
+    }
+
+    /// Test-only: mark the seeded snapshot as still scoring, or settled.
+    #[cfg(test)]
+    pub(crate) fn set_scoring_for_test(&mut self, scoring: bool) {
+        self.results.status.done = !scoring;
     }
 
     /// Test-only observable state: whether the lazy daemon has been built yet.
@@ -661,5 +682,28 @@ mod tests {
             ..Default::default()
         };
         assert!(!accept_polled_results("ab", 4, &stale_done));
+    }
+
+    #[test]
+    fn scoring_does_not_move_the_highlight_or_return_a_hit() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut state = FileSearchState::new(dir.path());
+        let src = "@ab";
+        let ctx = context::detect(src, src.len()).expect("context");
+        state.set_test_state(ctx, vec![file_result("a.rs"), file_result("b.rs")], 0);
+        state.set_scoring_for_test(true);
+        state.move_selection(1);
+        assert_eq!(state.selected(), 0);
+        assert!(!state.set_hovered(Some(1)));
+        assert_eq!(state.hovered(), None);
+        assert!(state.selected_result().is_none());
+
+        state.set_scoring_for_test(false);
+        state.move_selection(1);
+        assert_eq!(state.selected(), 1);
+        let hit = state
+            .selected_result()
+            .expect("settled results are selectable");
+        assert_eq!(hit.path.to_string(), "b.rs");
     }
 }

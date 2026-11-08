@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-134 — @ file search does not move or accept while results are scoring
+
+Up, Down, and the mouse leave the highlight where it is until the matcher finishes, and Tab does not commit a row. A settled snapshot still accepts (`scoring_file_search_ignores_highlight_and_accept_keys`, `scoring_does_not_move_the_highlight_or_return_a_hit`) (`v51-x78`).
+
 ### D-133 — @-file completion does not accept a match from an earlier query
 
 Changing the `@` query drops the hits on screen, and a snapshot scored for another query is not installed. Typing `b` after `@a` leaves `@ab`; Tab does not insert the file that matched `@a` (`typing_quickly_does_not_accept_the_earlier_file_match`, `typing_a_longer_query_drops_the_earlier_match`, `poll_rejects_hits_scored_for_an_earlier_query`). Esc still leaves @-mode while the new query has no hits yet (`v51-x62`).
@@ -589,7 +593,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 26 | 0 | 7 | 3 | 0 |
+| W9 | Prompt, mentions, and keyboard | 25 | 0 | 8 | 3 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -599,9 +603,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 348. Skipped: 8. Done: 179. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 347. Skipped: 8. Done: 180. Already: 38. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: @ file search no longer accepts keys or moves the highlight while results are still updating (`v51-x78`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: expanded tool-call groups stay expanded, and Ctrl+E folds thinking faster (`v52-f02`).
 
 ## Waves
 
@@ -639,7 +643,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 26. Done: 7 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 25. Done: 8 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -879,7 +883,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x19 | done | W9 | Bug Fixes |  |  | Send-now (Ctrl+Enter) no longer accidentally answers an open question card.
 - v51-x29 | already | W9 | Bug Fixes |  |  | Long pastes without bracketed-paste markers are now read completely instead of stalling after ~1 KB.
 - v51-x62 | done | W9 | Bug Fixes |  |  | **@-file completion** no longer accepts a match from an earlier query when you type quickly.
-- v51-x78 | pending | W9 | Bug Fixes |  |  | **@ file search** no longer accepts keys or moves the highlight while results are still updating.
+- v51-x78 | done | W9 | Bug Fixes |  |  | **@ file search** no longer accepts keys or moves the highlight while results are still updating.
 - v52-f02 | pending | W9 | Features |  |  | **Tool call density improvements**: expanded tool call groups now stay expanded as new calls join them, and Ctrl+E expands or collapses thinking faster in long transcripts.
 - v54-x14 | pending | W9 | Bug Fixes |  |  | **Send now (Ctrl+Enter)** on a slash command runs or queues it as a command instead of sending it as a prompt.
 - v63-x01 | pending | W9 | Bug Fixes |  |  | **Plan reviews** that open while you are typing keep your text in the review's notes, so a typed letter no longer triggers a plan shortcut such as approve.

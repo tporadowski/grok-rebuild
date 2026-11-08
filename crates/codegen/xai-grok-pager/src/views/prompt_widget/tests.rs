@@ -3337,6 +3337,36 @@
         );
     }
 
+    /// While @-file results are still scoring, arrows and Tab must not move the highlight or commit a row.
+    #[test]
+    fn scoring_file_search_ignores_highlight_and_accept_keys() {
+        let mut pw = PromptWidget::new();
+        seed_at_completion(&mut pw, "ab", "alpha.rs", false);
+        pw.file_search.set_test_state(
+            crate::views::file_search::context::detect("@ab", 3).expect("context"),
+            vec![fuzzy_result("alpha.rs", false), fuzzy_result("beta.rs", false)],
+            0,
+        );
+        pw.file_search.set_scoring_for_test(true);
+        assert!(pw.file_search_visible());
+        assert_eq!(
+            pw.handle_key(&key!(Down).to_key_event()),
+            PromptEvent::Edited
+        );
+        assert_eq!(pw.file_search.selected(), 0);
+        assert_eq!(
+            pw.handle_key(&key!(Tab).to_key_event()),
+            PromptEvent::Edited
+        );
+        assert_eq!(pw.textarea.text(), "@ab");
+        pw.file_search.set_scoring_for_test(false);
+        assert_eq!(
+            pw.handle_key(&key!(Tab).to_key_event()),
+            PromptEvent::Edited
+        );
+        assert_eq!(pw.textarea.text(), "@alpha.rs ");
+    }
+
     /// Typing a draft across into a planning keyword raises the one-shot plan-nudge fire signal exactly once (rising edge).
     /// It then stays quiet while the keyword remains present.
     #[test]
