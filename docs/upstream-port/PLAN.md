@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-165 — Mode-switch rows already name the mode
+
+`enter_plan_mode` is titled `Plan: Enter` and `exit_plan_mode` is titled `Plan: Exit` when the tool call is updated (`tool_calls.rs`). The transcript row names plan. There is no separate switch-mode tool whose title omits the destination (`v51-x03`).
+
 ### D-164 — File-access notice is once per new session
 
 An editor that offers both file read and file write gets one transcript line when the session is created: "The agent reads and writes files on disk." Read-only or write-only offers nothing. Resume and load do not send it again (`file_access_notice_is_one_session_message_when_the_editor_offers_both`) (`v51-f18`).
@@ -722,7 +726,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 38 | 0 | 7 | 0 | 0 |
+| W10 | Transcript, density, and copy | 37 | 0 | 7 | 1 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -731,9 +735,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 315. Skipped: 8. Done: 212. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 314. Skipped: 8. Done: 212. Already: 39. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: mode-switch tool calls show the target mode name (`v51-x03`).
+**Next:** W10 transcript, density, and copy. First open row: `--disallowed-tools` accepts the names shown to the model (`v51-x28`).
 
 ## Waves
 
@@ -775,7 +779,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 38. Done: 7 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 37. Done: 7 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164). Already: 1 (`v51-x03`, D-165). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1044,7 +1048,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x24 | done | W10 | Bug Fixes |  |  | **Continue to run** no longer kills commands running inside background subagents.
 - v51-f04 | done | W10 | Features |  |  | **New `/density` command** and Tool call density setting let you choose how much detail tool calls show in the transcript.
 - v51-f18 | done | W10 | Features |  |  | **Editors offering file access** now receive a one-time transcript notice that the agent reads and writes disk files.
-- v51-x03 | pending | W10 | Bug Fixes |  |  | Mode switch tool calls now appear in the transcript with the target mode name.
+- v51-x03 | already | W10 | Bug Fixes |  |  | Mode switch tool calls now appear in the transcript with the target mode name.
 - v51-x28 | pending | W10 | Bug Fixes |  |  | **--disallowed-tools** now accepts the exact names shown to the model (run_terminal_command, spawn_subagent, etc.).
 - v51-x35 | pending | W10 | Bug Fixes |  |  | **--no-subagents** flag now works correctly in headless / -p sessions.
 - v51-x43 | pending | W10 | Bug Fixes |  |  | **`/cd`** and the location picker now accept quoted or escaped folder paths.
