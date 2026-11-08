@@ -726,6 +726,8 @@ pub struct PromptWidget {
     /// One-shot: the last `handle_key` accepted an @-file completion, which can shrink a long `@query` into a short ref/chip.
     /// That big shrink is NOT a user wipe, so the clear detector must skip observing it (it resyncs on the next genuine edit).
     completion_accepted: bool,
+    /// Insert/Normal state for `[keys] vim = "all"`. Idle in Insert when that setting is off.
+    vim_prompt: vim::VimPrompt,
 }
 
 /// Prefix display width (`"❯ "` or `"> "`, both 2 columns).
@@ -776,6 +778,7 @@ impl PromptWidget {
             undo_tip_fire: false,
             plan_nudge_fire: false,
             completion_accepted: false,
+            vim_prompt: vim::VimPrompt::default(),
         };
         // Same fail-closed gate as AgentView: /dashboard is hidden in
         // CommandRegistry::new until dashboard_enabled() reveals it.
@@ -1862,6 +1865,11 @@ impl PromptWidget {
             // The hit list is empty while a new query scores. Esc still leaves @-mode.
             self.file_search.clear_context();
             return PromptEvent::Edited;
+        }
+
+        // Prompt vim (`[keys] vim = "all"`) owns Esc and Normal-mode commands before Esc/Tab decline.
+        if let Some(event) = self.handle_vim_prompt_key(key) {
+            return event;
         }
 
         // Esc/Tab: drop the highlight but decline the press so it still cancels or switches focus
@@ -3988,6 +3996,7 @@ fn images_high_water(images: &[PastedImage]) -> usize {
 }
 
 mod image_state;
+mod vim;
 
 #[cfg(test)]
 mod tests;

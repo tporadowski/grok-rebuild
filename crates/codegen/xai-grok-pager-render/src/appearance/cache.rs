@@ -11,6 +11,7 @@
 
 use std::cell::Cell;
 
+use xai_grok_shared::keys_config::VimKeys;
 use xai_grok_shared::ui_config::UiConfig;
 
 use super::follow_up_behavior::FollowUpBehavior;
@@ -237,25 +238,38 @@ pub fn set_simple_mode(enabled: bool) {
 }
 
 thread_local! {
-    static VIM_MODE_CURRENT: Cell<bool> = const { Cell::new(VIM_MODE_DEFAULT) };
-    static VIM_MODE_LOADED: Cell<bool> = const { Cell::new(false) };
+    static VIM_KEYS_CURRENT: Cell<VimKeys> = const { Cell::new(VimKeys::Off) };
+    static VIM_KEYS_LOADED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Ephemeral process-wide source of truth; no Effect writes it back.
-/// First read seeds from `[keys] vim`, then `[ui] vim_mode`.
+/// True for `nav` and `all`. Prompt editing checks [`load_vim_keys`] for `all`.
 pub fn load_vim_mode() -> bool {
-    VIM_MODE_LOADED.with(|loaded| {
+    load_vim_keys().navigates()
+}
+
+/// `[keys] vim` as `off`, `nav`, or `all`. First read seeds from disk.
+pub fn load_vim_keys() -> VimKeys {
+    VIM_KEYS_LOADED.with(|loaded| {
         if !loaded.get() {
-            VIM_MODE_CURRENT.with(|c| c.set(read_vim_navigates_from_disk()));
+            VIM_KEYS_CURRENT.with(|c| c.set(read_vim_keys_from_disk()));
             loaded.set(true);
         }
     });
-    VIM_MODE_CURRENT.with(|c| c.get())
+    VIM_KEYS_CURRENT.with(|c| c.get())
 }
 
-fn read_vim_navigates_from_disk() -> bool {
+fn vim_keys_default() -> VimKeys {
+    if VIM_MODE_DEFAULT {
+        VimKeys::Nav
+    } else {
+        VimKeys::Off
+    }
+}
+
+fn read_vim_keys_from_disk() -> VimKeys {
     let Ok(root) = xai_grok_config::load_effective_config_disk_only() else {
-        return VIM_MODE_DEFAULT;
+        return vim_keys_default();
     };
     let keys_vim = root
         .get("keys")
@@ -266,15 +280,20 @@ fn read_vim_navigates_from_disk() -> bool {
         .and_then(|ui| ui.get("vim_mode"))
         .and_then(|value| value.as_bool());
     if keys_vim.is_none() && legacy.is_none() {
-        return VIM_MODE_DEFAULT;
+        return vim_keys_default();
     }
-    xai_grok_shared::keys_config::resolve_vim_keys(keys_vim, legacy).navigates()
+    xai_grok_shared::keys_config::resolve_vim_keys(keys_vim, legacy)
 }
 
-/// Replace cached `vim_mode`.
+/// Replace the cached vim setting. `true` is `nav` (navigation only).
 pub fn set_vim_mode(enabled: bool) {
-    VIM_MODE_CURRENT.with(|c| c.set(enabled));
-    VIM_MODE_LOADED.with(|l| l.set(true));
+    set_vim_keys(if enabled { VimKeys::Nav } else { VimKeys::Off });
+}
+
+/// Replace the cached `[keys] vim` value, including `all`.
+pub fn set_vim_keys(value: VimKeys) {
+    VIM_KEYS_CURRENT.with(|c| c.set(value));
+    VIM_KEYS_LOADED.with(|l| l.set(true));
 }
 
 thread_local! {

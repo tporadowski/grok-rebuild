@@ -2309,8 +2309,9 @@ impl AgentView {
         } else {
             self.published_mode_label()
         };
-        let flags: Vec<PromptFlag> =
+        let mut flags: Vec<PromptFlag> =
             mode_flags(mode_label, self.session.permission_label(), &theme);
+        self.prompt.append_vim_info_flag(&mut flags);
         let multiline = self.multiline_mode;
         let warning = self.credit_balance.as_ref().and_then(|bal| {
             crate::views::credit_bar::usage_warning_for_session(
