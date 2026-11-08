@@ -371,9 +371,6 @@ impl AgentView {
                     qv.fullscreen = !qv.fullscreen;
                     return InputOutcome::Changed;
                 }
-                if key!('y', CONTROL).matches(key) {
-                    return self.dismiss_question_view();
-                }
                 if key!('c', CONTROL).matches(key) {
                     qv.focus = QuestionFocus::Navigation;
                     self.last_prompt_click_ms = None;
@@ -413,9 +410,6 @@ impl AgentView {
                 }
             }
             QuestionFocus::Navigation => {
-                if key!('y', CONTROL).matches(key) {
-                    return self.dismiss_question_view();
-                }
                 if key!('c', CONTROL).matches(key) {
                     return self.submit_question_answers(true);
                 }
@@ -2320,6 +2314,42 @@ mod question_no_freeform_tests {
         assert_eq!(qv(&agent).focus, QuestionFocus::Navigation);
         let z = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
         let _ = agent.handle_question_key(&z);
+        assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
+    }
+
+    /// Ctrl+Y used to dismiss the card with no answer. On the option list it is ignored.
+    /// While an answer is being typed it yanks the text Ctrl+K cut.
+    #[test]
+    fn ctrl_y_on_a_question_card_yanks_a_cut_answer() {
+        let mut agent = make_agent();
+        open_question(&mut agent, false);
+        let ctrl_y = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL);
+        let _ = agent.handle_question_key(&ctrl_y);
+        assert!(
+            agent.question_view.is_some(),
+            "Ctrl+Y must not close the card"
+        );
+        assert_eq!(qv(&agent).focus, QuestionFocus::Navigation);
+
+        let z = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
+        let _ = agent.handle_question_key(&z);
+        assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
+        agent.prompt.set_text("keep the tail");
+        agent.prompt.set_cursor(0);
+        let ctrl_k = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL);
+        let _ = agent.handle_question_key(&ctrl_k);
+        assert_eq!(agent.prompt.text(), "", "Ctrl+K cuts the answer");
+        assert!(agent.question_view.is_some());
+        let _ = agent.handle_question_key(&ctrl_y);
+        assert_eq!(
+            agent.prompt.text(),
+            "keep the tail",
+            "Ctrl+Y pastes the cut answer"
+        );
+        assert!(
+            agent.question_view.is_some(),
+            "yanking must not close the card"
+        );
         assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
     }
 }

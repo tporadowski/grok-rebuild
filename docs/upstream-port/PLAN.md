@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-148 — Ctrl+Y on a question card yanks, it does not dismiss
+
+Ctrl+Y on a question card no longer closes it without an answer. While an answer is being typed, Ctrl+Y pastes the text Ctrl+K cut. On the option list, Ctrl+Y does nothing. (`ctrl_y_on_a_question_card_yanks_a_cut_answer`) (`v74-x02`).
+
 ### D-147 — Shell cards name an Auto-review block
 
 A shell approval card says when Auto-review blocked the command (`auto_classifier_deny`, `auto_denial_limit`) or could not review it (`auto_classifier_timeout`, `auto_classifier_unavailable`). Ctrl+F shows the reviewer's explanation when one was recorded, and does not also expand the command. Other prompts, including an ordinary ask, stay quiet. A long command still expands with Ctrl+F when there is no explanation (`auto_review_notice_maps_block_and_unavailable_reasons`, `shell_card_says_when_auto_review_blocked_and_ctrl_f_shows_the_explanation`, `shell_card_says_when_auto_review_could_not_review`) (`v74-f05`).
@@ -645,7 +649,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 12 | 0 | 21 | 3 | 0 |
+| W9 | Prompt, mentions, and keyboard | 11 | 0 | 22 | 3 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -655,9 +659,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 334. Skipped: 8. Done: 193. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 333. Skipped: 8. Done: 194. Already: 38. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: Ctrl+Y on a question card pastes a cut answer instead of closing it (`v74-x02`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: dialog labels that do not fit end in `…` (`v74-x27`).
 
 ## Waves
 
@@ -695,7 +699,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 12. Done: 21 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 11. Done: 22 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -949,7 +953,7 @@ id | status | wave | kind | flag | covered | note
 - v73-x05 | done | W9 | Bug Fixes |  |  | **Windows**: shortcuts typed with `Shift`-held symbols or AZERTY digit keys work.
 - v74-f02 | done | W9 | Features |  |  | **Shift+Enter** inserts a newline in VS Code and other xterm.js-based terminals that use the Kitty keyboard protocol.
 - v74-f05 | done | W9 | Features |  |  | **Shell approval cards** say when Auto-review blocked a command or couldn't review it, and `Ctrl+F` shows the reviewer's explanation.
-- v74-x02 | pending | W9 | Bug Fixes |  |  | **Ctrl+Y** on a question card no longer closes it without an answer; while you type an answer, it pastes back text cut with `Ctrl+K`.
+- v74-x02 | done | W9 | Bug Fixes |  |  | **Ctrl+Y** on a question card no longer closes it without an answer; while you type an answer, it pastes back text cut with `Ctrl+K`.
 - v74-x27 | pending | W9 | Bug Fixes |  |  | **Dialog tab labels, shortcuts and settings rows** that don't fit end in `…` instead of being cut off.
 - v75-f02 | pending | W9 | Features |  |  | **`Cmd+Up`/`Cmd+Down` and `Ctrl+Home`/`Ctrl+End`** move the cursor to the start or end of the whole prompt, and with `Shift` they select to there.
 - v75-f03 | pending | W9 | Features |  |  | **Send now** shows as `Enter Enter` in the footer where `Ctrl+Enter` arrives as plain `Enter`, such as inside tmux with its default settings.
