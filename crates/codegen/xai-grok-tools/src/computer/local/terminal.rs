@@ -217,6 +217,12 @@ enum TerminalCommand {
     /// Sent on turn cancellation.
     KillForegroundCommands,
 
+    /// Stop the foreground command of one tool call. Sibling commands stay.
+    KillByToolCallId {
+        tool_call_id: String,
+        reply: oneshot::Sender<()>,
+    },
+
     /// Unblocks the foreground waiter with signal="backgrounded".
     BackgroundForeground {
         tool_call_id: String,
@@ -1124,6 +1130,10 @@ impl LocalTerminalActor {
             }
             TerminalCommand::KillForegroundCommands => {
                 self.kill_foreground_commands().await;
+            }
+            TerminalCommand::KillByToolCallId { tool_call_id, reply } => {
+                self.kill_by_tool_call_id(&tool_call_id).await;
+                let _ = reply.send(());
             }
             TerminalCommand::BackgroundForeground {
                 tool_call_id,
@@ -2226,6 +2236,44 @@ impl LocalTerminalActor {
         }
     }
 
+    /// Same reap as [`Self::kill_foreground_commands`], limited to one tool call.
+    async fn kill_by_tool_call_id(&mut self, tool_call_id: &str) {
+        let ids: Vec<String> = self
+            .processes
+            .iter()
+            .filter(|(_, process)| {
+                process.tool_call_id == tool_call_id
+                    && !process.bg_status.is_backgrounded()
+                    && process.is_running()
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in &ids {
+            if let Some(process) = self.processes.get_mut(id) {
+                send_sigkill_to_group(process);
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), process.child.wait())
+                        .await;
+                if let Some(handle) = process.state_dump_handle.take() {
+                    handle.abort();
+                }
+                process.mark_exited(ExitStatus {
+                    exit_code: None,
+                    signal: Some("cancelled".to_owned()),
+                });
+                process.end_wall_time = Some(std::time::SystemTime::now());
+                process.flush_and_truncate_output_file().await;
+                let result = Ok(process.to_result());
+                process.notify_waiters(result);
+            }
+        }
+
+        for id in &ids {
+            self.processes.remove(id);
+        }
+    }
+
     /// Backgrounded only; foreground tasks go through `kill_foreground_commands_by_owner`.
     async fn kill_tasks_by_owner(&mut self, owner_session_id: &str) {
         let owned_ids: Vec<String> = self
@@ -2727,6 +2775,22 @@ impl TerminalBackend for LocalTerminalBackend {
             .cmd_tx
             .send(TerminalCommand::KillForegroundCommands)
             .await;
+    }
+
+    async fn kill_by_tool_call_id(&self, tool_call_id: &str) {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        if self
+            .cmd_tx
+            .send(TerminalCommand::KillByToolCallId {
+                tool_call_id: tool_call_id.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let _ = reply_rx.await;
     }
 
     async fn kill_all_background_tasks(&self) {
@@ -4654,6 +4718,55 @@ mod tests {
 
         backend.kill_foreground_commands().await;
         let _ = tokio::time::timeout(Duration::from_secs(8), child).await;
+    }
+
+    /// Cancelling one tool call stops that command. A command started by
+    /// another parallel call keeps running.
+    #[tokio::test]
+    async fn killing_one_tool_call_leaves_the_parallel_command_running() {
+        let backend = std::sync::Arc::new(LocalTerminalBackend::new());
+        let start = |tool_call_id: &str, command: &str| {
+            let backend = backend.clone();
+            let mut request = make_request(command);
+            request.tool_call_id = tool_call_id.to_string();
+            request.timeout = Duration::from_secs(60);
+            tokio::spawn(async move { backend.run(request).await })
+        };
+        let cancelled = start("call-a", "sleep 60");
+        let sibling = start("call-b", "sleep 61");
+
+        let started = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let tasks = backend.list_tasks().await;
+                let running = tasks.iter().filter(|task| !task.completed).count();
+                if running >= 2 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(started.is_ok(), "both commands should be running");
+
+        backend.kill_by_tool_call_id("call-a").await;
+
+        let cancelled_result = tokio::time::timeout(Duration::from_secs(8), cancelled)
+            .await
+            .expect("the cancelled command should finish")
+            .expect("cancelled task joins")
+            .expect("cancelled run returns");
+        assert_eq!(cancelled_result.signal.as_deref(), Some("cancelled"));
+
+        let tasks = backend.list_tasks().await;
+        assert!(
+            tasks.iter().any(|task| {
+                !task.completed && task.command.contains("sleep 61")
+            }),
+            "the other call's command is still running: {tasks:?}"
+        );
+
+        backend.kill_by_tool_call_id("call-b").await;
+        let _ = tokio::time::timeout(Duration::from_secs(8), sibling).await;
     }
 
     #[test]

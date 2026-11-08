@@ -369,6 +369,11 @@ pub trait TerminalBackend: Send + Sync {
     /// Kill all running foreground processes.
     async fn kill_foreground_commands(&self) {}
 
+    /// Kill the still-foreground command started by one tool call.
+    /// Other commands on this terminal keep running. A command already moved
+    /// to the background is left for `kill_task`.
+    async fn kill_by_tool_call_id(&self, _tool_call_id: &str) {}
+
     /// Kill all running foreground processes owned by a specific session.
     /// Used on a shared terminal backend so a subagent's cancel doesn't
     /// kill the parent's foreground commands.

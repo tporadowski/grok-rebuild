@@ -1696,6 +1696,46 @@ impl crate::types::tool_metadata::ToolMetadata for BashTool {
     }
 }
 
+/// Armed across the foreground wait. A cancelled call drops the future
+/// before `disarm`, and the drop stops that call's command.
+struct KillThisCallOnDrop {
+    backend: std::sync::Arc<dyn crate::computer::types::TerminalBackend>,
+    tool_call_id: String,
+    armed: bool,
+}
+
+impl KillThisCallOnDrop {
+    fn arm(
+        backend: std::sync::Arc<dyn crate::computer::types::TerminalBackend>,
+        tool_call_id: String,
+    ) -> Self {
+        Self {
+            backend,
+            tool_call_id,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for KillThisCallOnDrop {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let backend = std::sync::Arc::clone(&self.backend);
+        let tool_call_id = self.tool_call_id.clone();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                backend.kill_by_tool_call_id(&tool_call_id).await;
+            });
+        }
+    }
+}
+
 impl xai_tool_runtime::Tool for BashTool {
     type Args = BashToolInput;
     type Output = BashToolOutput;
@@ -2127,7 +2167,15 @@ impl xai_tool_runtime::Tool for BashTool {
 
             let command_wait_span =
                 tracing::info_span!("bash.command_wait", output_bytes = tracing::field::Empty,);
-            let result = match backend.run(request).await {
+            // Dropping this call while the command is still in the foreground
+            // stops that command only. A parallel call's command stays up.
+            let mut cancel_guard = KillThisCallOnDrop::arm(
+                std::sync::Arc::clone(&backend),
+                tool_call_id.as_str().to_owned(),
+            );
+            let run_result = backend.run(request).await;
+            cancel_guard.disarm();
+            let result = match run_result {
                 Ok(r) => r,
                 Err(e) => {
                     notification_handle.send_failed(BashExecutionFailed {
@@ -2635,6 +2683,79 @@ mod tests {
             is_background: true,
             block_until_ms: None,
         }
+    }
+
+    /// Dropping one shell tool call stops that command. The command from the
+    /// other parallel call keeps running.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancelling_one_bash_call_leaves_the_parallel_command_running() {
+        use crate::types::tool_metadata::test_ctx_with_call_id;
+        let backend = std::sync::Arc::new(crate::computer::local::LocalTerminalBackend::new());
+        let spawn_call = |tool_call_id: &'static str, command: &'static str| {
+            let backend = std::sync::Arc::clone(&backend);
+            tokio::spawn(async move {
+                let mut resources = Resources::new();
+                let terminal: std::sync::Arc<dyn TerminalBackend> = backend;
+                resources.insert(Terminal(terminal));
+                resources.insert(Cwd(PathBuf::from("/tmp")));
+                resources.insert(SessionFolder(PathBuf::from("/tmp")));
+                resources.insert(SessionEnv(std::sync::Arc::new(HashMap::new())));
+                resources.insert(NotificationHandle(ToolNotificationHandle::noop()));
+                resources.insert(Params(BashParams::default()));
+                let ctx = test_ctx_with_call_id(resources.into_shared(), tool_call_id);
+                xai_tool_runtime::Tool::run(&BashTool, ctx, make_input(command)).await
+            })
+        };
+        let cancelled = spawn_call("call-a", "sleep 60");
+        let sibling = spawn_call("call-b", "sleep 61");
+        let started = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let tasks = backend.list_tasks().await;
+                if tasks.iter().filter(|task| !task.completed).count() >= 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(started.is_ok(), "both shell commands should be running");
+
+        cancelled.abort();
+        let settled = tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            loop {
+                let tasks = backend.list_tasks().await;
+                let sibling_up = tasks
+                    .iter()
+                    .any(|task| !task.completed && task.command.contains("sleep 61"));
+                let cancelled_up = tasks
+                    .iter()
+                    .any(|task| !task.completed && task.command.contains("sleep 60"));
+                if sibling_up && !cancelled_up {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(
+            settled.is_ok(),
+            "only the other call's command should still be running"
+        );
+
+        sibling.abort();
+        let _ = sibling.await;
+        let _ = cancelled.await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            loop {
+                let tasks = backend.list_tasks().await;
+                if tasks.iter().all(|task| task.completed) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
     }
 
     /// A `test_ctx` with a contract version set. `None` means `current`.
