@@ -1099,14 +1099,27 @@ impl AcpUpdateTracker {
 
     /// Called when PromptResponse is received (turn complete).
     pub fn finish_turn(&mut self, scrollback: &mut ScrollbackState) {
+        self.finish_turn_inner(scrollback, false);
+    }
+
+    /// A cancelled turn. Pending tool rows that never completed are cancelled, not successful.
+    /// A command already moved to the background keeps its row: it was accepted and keeps running.
+    pub fn finish_cancelled_turn(&mut self, scrollback: &mut ScrollbackState) {
+        self.finish_turn_inner(scrollback, true);
+    }
+
+    fn finish_turn_inner(&mut self, scrollback: &mut ScrollbackState, cancelled: bool) {
         self.epoch_at_last_finish = self.agent_output_epoch;
         self.finish_thinking(scrollback);
         scrollback.note_pin_reserve_turn_finished();
         if let Some(agent_id) = self.current_agent_msg.take() {
             scrollback.finish_running(agent_id);
         }
-        for (_, pending) in self.pending_tools.drain() {
+        for (tool_id, pending) in self.pending_tools.drain() {
             if let Some(entry_id) = pending.entry_id {
+                if cancelled && !self.bg_deferred_tools.contains_key(&tool_id) {
+                    scrollback.mark_entry_tool_cancelled(entry_id);
+                }
                 scrollback.finish_running(entry_id);
             }
         }

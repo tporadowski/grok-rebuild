@@ -651,7 +651,11 @@ pub(crate) fn reconcile_overdue_turn_ends(app: &mut AppView) -> Option<Vec<Effec
             pending.cancellation_category.as_deref(),
             pending.cancellation_context.as_ref(),
         );
-        agent.session.finish_turn(&mut agent.scrollback);
+        if was_cancelling {
+            agent.session.finish_cancelled_turn(&mut agent.scrollback);
+        } else {
+            agent.session.finish_turn(&mut agent.scrollback);
+        }
         let elapsed_ms = crate::app::turn_completion::duration_to_elapsed_ms(elapsed);
         let stop = if was_cancelling {
             crate::app::turn_completion::TurnStopReason::Cancelled

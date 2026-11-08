@@ -5574,3 +5574,214 @@ fn hook_gate_survives_a_text_chunk_stamped_before_the_batch() {
         Some(TurnActivity::Waiting(WaitingReason::Hooks { .. }))
     ));
 }
+
+fn rendered_header(entry: &ScrollbackEntry) -> String {
+    use crate::scrollback::block::BlockContent;
+    use crate::scrollback::types::{BlockContext, DisplayMode};
+    let ctx = BlockContext {
+        width: 100,
+        mode: DisplayMode::Collapsed,
+        is_running: entry.is_running,
+        raw: false,
+        max_lines: None,
+        appearance: Default::default(),
+        is_selected: false,
+        cwd: None,
+    };
+    entry
+        .block
+        .output(&ctx)
+        .lines
+        .first()
+        .map(|line| {
+            line.content
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .unwrap_or_default()
+}
+
+fn execute_block(entry: &ScrollbackEntry) -> &ExecuteToolCallBlock {
+    match &entry.block {
+        RenderBlock::ToolCall(ToolCallBlock::Execute(block)) => block,
+        other => panic!("expected an execute block, got {other:?}"),
+    }
+}
+
+/// A cancelled turn marks tool calls that never finished as cancelled. A normal finish still treats them as successful.
+#[test]
+fn cancel_turn_marks_unanswered_tool_calls_cancelled() {
+    use crate::app::agent::AgentState;
+
+    let mut agent = crate::test_util::make_agent_view(Some("sess"), "/tmp");
+    agent.session.state = AgentState::TurnRunning;
+    agent.session.handle_update(
+        tool_call("done", acp::ToolKind::Execute, "echo done"),
+        &meta(),
+        &mut agent.scrollback,
+    );
+    agent.session.handle_update(
+        tool_update_completed("done"),
+        &meta(),
+        &mut agent.scrollback,
+    );
+    agent.session.handle_update(
+        tool_call("open", acp::ToolKind::Execute, "echo hi"),
+        &meta(),
+        &mut agent.scrollback,
+    );
+    agent.session.handle_update(
+        tool_call("read", acp::ToolKind::Read, "src/lib.rs"),
+        &meta(),
+        &mut agent.scrollback,
+    );
+    agent.session.handle_update(
+        tool_call("bg", acp::ToolKind::Execute, "sleep 9999"),
+        &meta(),
+        &mut agent.scrollback,
+    );
+    agent.session.handle_update(
+        tool_update_in_progress_bg("bg", b"early"),
+        &meta(),
+        &mut agent.scrollback,
+    );
+    agent.session.handle_update(
+        tool_call("fail", acp::ToolKind::Execute, "echo fail"),
+        &meta(),
+        &mut agent.scrollback,
+    );
+    agent.session.handle_update(
+        acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+            acp::ToolCallId::new(Arc::from("fail")),
+            acp::ToolCallUpdateFields::new()
+                .status(Some(acp::ToolCallStatus::Failed))
+                .content(Some(vec![acp::ToolCallContent::from(
+                    acp::ContentBlock::Text(acp::TextContent::new("exit code 2".to_string())),
+                )])),
+        )),
+        &meta(),
+        &mut agent.scrollback,
+    );
+
+    agent.session.cancel_turn(&mut agent.scrollback);
+
+    assert!(
+        matches!(agent.session.state, AgentState::TurnCancelling),
+        "cancel leaves the session cancelling"
+    );
+    assert!(
+        agent.session.tracker.pending_tools.is_empty(),
+        "cancel drains unanswered tool calls"
+    );
+
+    let done = agent.scrollback.get(0).unwrap();
+    let done_exec = execute_block(done);
+    assert!(done_exec.is_success(), "a finished call stays successful");
+    assert!(!done_exec.cancelled);
+    assert!(
+        !done.is_running,
+        "the finished call is not left running"
+    );
+    let done_header = rendered_header(done);
+    assert!(
+        done_header.contains("Ran echo done"),
+        "finished header stays Ran: {done_header:?}"
+    );
+    assert!(
+        !done_header.contains("Cancelled"),
+        "a finished call is not relabelled: {done_header:?}"
+    );
+
+    let open = agent.scrollback.get(1).unwrap();
+    let open_exec = execute_block(open);
+    assert!(open_exec.cancelled, "the unanswered shell call is cancelled");
+    assert!(!open_exec.is_success());
+    assert!(open_exec.error.is_none(), "cancel does not invent a failure");
+    assert!(!open.is_running);
+    let open_header = rendered_header(open);
+    assert!(
+        open_header.contains("Cancelled echo hi"),
+        "unanswered shell label says Cancelled: {open_header:?}"
+    );
+    assert!(
+        !open_header.contains("Ran"),
+        "unanswered shell label is not Ran: {open_header:?}"
+    );
+
+    let read = agent.scrollback.get(2).unwrap();
+    match &read.block {
+        RenderBlock::ToolCall(ToolCallBlock::Read(block)) => {
+            assert_eq!(block.error.as_deref(), Some("Cancelled"));
+            assert!(!block.is_success());
+        }
+        other => panic!("expected a read block, got {other:?}"),
+    }
+    let read_header = rendered_header(read);
+    assert!(
+        read_header.contains("Cancelled"),
+        "unanswered read shows Cancelled: {read_header:?}"
+    );
+
+    let bg = agent.scrollback.get(3).unwrap();
+    let bg_exec = execute_block(bg);
+    assert!(
+        bg_exec.is_success() && !bg_exec.cancelled,
+        "a backgrounded command was accepted and is not cancelled"
+    );
+    assert!(!bg.is_running);
+    let bg_header = rendered_header(bg);
+    assert!(
+        !bg_header.contains("Cancelled"),
+        "backgrounded command is not labelled Cancelled: {bg_header:?}"
+    );
+
+    let failed = agent.scrollback.get(4).unwrap();
+    let failed_exec = execute_block(failed);
+    assert!(!failed_exec.cancelled);
+    assert!(!failed_exec.is_success());
+    assert_eq!(failed_exec.error.as_deref(), Some("exit code 2"));
+    let failed_header = rendered_header(failed);
+    assert!(
+        !failed_header.contains("Cancelled"),
+        "a real failure keeps its own error: {failed_header:?}"
+    );
+
+    let mut finished = crate::test_util::make_agent_view(Some("sess-ok"), "/tmp");
+    finished.session.state = AgentState::TurnRunning;
+    finished.session.handle_update(
+        tool_call("stay", acp::ToolKind::Execute, "echo stay"),
+        &meta(),
+        &mut finished.scrollback,
+    );
+    finished.session.finish_turn(&mut finished.scrollback);
+    assert!(matches!(finished.session.state, AgentState::Idle));
+    let stayed = finished.scrollback.get(0).unwrap();
+    let stayed_exec = execute_block(stayed);
+    assert!(stayed_exec.is_success() && !stayed_exec.cancelled);
+    let stayed_header = rendered_header(stayed);
+    assert!(
+        stayed_header.contains("Ran echo stay"),
+        "a normal finish still says Ran: {stayed_header:?}"
+    );
+
+    let mut reported = crate::test_util::make_agent_view(Some("sess-wire"), "/tmp");
+    reported.session.state = AgentState::TurnRunning;
+    reported.session.handle_update(
+        tool_call("late", acp::ToolKind::Execute, "echo late"),
+        &meta(),
+        &mut reported.scrollback,
+    );
+    reported
+        .session
+        .finish_cancelled_turn(&mut reported.scrollback);
+    assert!(matches!(reported.session.state, AgentState::Idle));
+    let late = reported.scrollback.get(0).unwrap();
+    let late_header = rendered_header(late);
+    assert!(
+        late_header.contains("Cancelled echo late"),
+        "a cancelled stop reason marks the unanswered call: {late_header:?}"
+    );
+    assert!(!execute_block(late).is_success());
+}

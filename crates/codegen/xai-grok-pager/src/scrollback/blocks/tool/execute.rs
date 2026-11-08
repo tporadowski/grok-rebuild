@@ -20,6 +20,8 @@ pub struct ExecuteToolCallBlock {
     pub command: String,
     /// Error message if the command failed (None means success).
     pub error: Option<String>,
+    /// Set when a cancelled turn closes this call before it answers. A real `error` is left alone.
+    pub cancelled: bool,
     /// Optional description of what the command does.
     pub description: Option<String>,
     /// The terminal output. Streamed incrementally.
@@ -40,6 +42,7 @@ impl ExecuteToolCallBlock {
         Self {
             command: command.into(),
             error: None,
+            cancelled: false,
             description: None,
             output: None,
             started_at: None,
@@ -97,9 +100,16 @@ impl ExecuteToolCallBlock {
         self.error = error;
     }
 
-    /// Check if successful (no error).
+    /// Check if successful (no error, and not closed by a cancelled turn).
     pub fn is_success(&self) -> bool {
-        self.error.is_none()
+        self.error.is_none() && !self.cancelled
+    }
+
+    /// Record that the turn was cancelled before this call answered.
+    pub(crate) fn mark_cancelled(&mut self) {
+        if self.error.is_none() {
+            self.cancelled = true;
+        }
     }
 
     /// Get elapsed time in ms. Returns current elapsed if still running, or stored value if finished.
@@ -197,7 +207,7 @@ impl ExecuteToolCallBlock {
                 } else {
                     theme.primary().add_modifier(Modifier::BOLD)
                 };
-                let verb = run_verb(running);
+                let verb = run_verb(running, self.cancelled);
                 let mut spans = vec![Span::styled(verb.to_string(), label_style)];
                 let mut hang = UnicodeWidthStr::width(verb);
                 if self.bash_mode {
@@ -300,7 +310,10 @@ impl ExecuteToolCallBlock {
         } else {
             theme.primary().add_modifier(Modifier::BOLD)
         };
-        let mut spans = vec![Span::styled(run_verb(running).to_string(), label_style)];
+        let mut spans = vec![Span::styled(
+            run_verb(running, self.cancelled).to_string(),
+            label_style,
+        )];
         if self.bash_mode {
             // Same style as session event messages (e.g. "Worked for 2.3s")
             spans.push(Span::styled("(user) ", theme.muted()));
@@ -617,15 +630,23 @@ impl ExecuteToolCallBlock {
     }
 }
 
-/// Label verb for a shell command: present while it runs, past when it has finished.
-fn run_verb(running: bool) -> &'static str {
-    if running { "Running " } else { "Ran " }
+/// Label verb for a shell command: present while it runs, past when it has finished, cancelled when the turn closed it unanswered.
+fn run_verb(running: bool, cancelled: bool) -> &'static str {
+    if running {
+        "Running "
+    } else if cancelled {
+        "Cancelled "
+    } else {
+        "Ran "
+    }
 }
 
-/// Drop a leading `Run` / `Running` / `Ran` word (case-insensitive) plus following whitespace so Label headers do not read `Ran Ran the tests`.
+/// Drop a leading `Run` / `Running` / `Ran` / `Cancelled` word (case-insensitive) plus following whitespace so Label headers do not read `Ran Ran the tests`.
 fn strip_leading_run_word(s: &str) -> String {
     let lower = s.to_ascii_lowercase();
-    let rest = if let Some(rest) = lower.strip_prefix("running") {
+    let rest = if let Some(rest) = lower.strip_prefix("cancelled") {
+        rest
+    } else if let Some(rest) = lower.strip_prefix("running") {
         rest
     } else if let Some(rest) = lower.strip_prefix("ran") {
         rest
@@ -707,7 +728,7 @@ impl BlockContent for ExecuteToolCallBlock {
             return None;
         }
         let theme = Theme::current();
-        if self.error.is_some() {
+        if self.error.is_some() || self.cancelled {
             Some(AccentStyle::static_color(theme.accent_error))
         } else if ctx.is_running {
             Some(AccentStyle::animated(
@@ -872,6 +893,7 @@ mod tests {
     fn strip_leading_run_word_handles_run_and_running() {
         assert_eq!(strip_leading_run_word("Run the tests"), "the tests");
         assert_eq!(strip_leading_run_word("Ran the tests"), "the tests");
+        assert_eq!(strip_leading_run_word("Cancelled the tests"), "the tests");
         assert_eq!(strip_leading_run_word("running checks"), "checks");
         assert_eq!(strip_leading_run_word("runtime config"), "runtime config");
         assert_eq!(strip_leading_run_word("Check status"), "Check status");
@@ -907,6 +929,13 @@ mod tests {
             empty.header_lines(&theme, ExecuteHeaderStyle::Label, false, false, false);
         assert_eq!(line_text(&nth(&running_empty, 0).0), "Running …");
         assert_eq!(line_text(&nth(&finished_empty, 0).0), "Ran …");
+
+        let mut cancelled = ExecuteToolCallBlock::new("echo hi");
+        cancelled.mark_cancelled();
+        let cancelled_header =
+            cancelled.header_lines(&theme, ExecuteHeaderStyle::Label, false, false, false);
+        assert_eq!(line_text(&nth(&cancelled_header, 0).0), "Cancelled echo hi");
+        assert!(!cancelled.is_success());
     }
 
     #[test]

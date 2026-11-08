@@ -1212,6 +1212,27 @@ impl ScrollbackState {
         }
     }
 
+    /// Mark still-running tool rows that never failed as cancelled.
+    /// A resumed transcript can leave those rows out of the tracker's pending map.
+    pub(crate) fn mark_running_unanswered_tools_cancelled(&mut self) {
+        let ids: Vec<EntryId> = self.running.iter().copied().collect();
+        for id in ids {
+            self.mark_entry_tool_cancelled(id);
+        }
+    }
+
+    pub(crate) fn mark_entry_tool_cancelled(&mut self, id: EntryId) {
+        let Some(entry) = self.get_by_id_mut(id) else {
+            return;
+        };
+        let RenderBlock::ToolCall(block) = &mut entry.block else {
+            return;
+        };
+        if block.mark_unanswered_cancelled() {
+            entry.invalidate_cache();
+        }
+    }
+
     /// Mark an entry as no longer running, with optional thinking time.
     ///
     /// For thinking blocks, the thinking_time_ms will be displayed in collapsed mode.

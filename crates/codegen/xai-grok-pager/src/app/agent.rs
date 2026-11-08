@@ -872,7 +872,20 @@ impl AgentSession {
     ///
     /// Called when `PromptResponse` is received.
     pub fn finish_turn(&mut self, scrollback: &mut ScrollbackState) {
-        self.tracker.finish_turn(scrollback);
+        self.finish_turn_inner(scrollback, false);
+    }
+
+    /// Finish a turn the shell reported as cancelled. Unanswered tool rows are cancelled, not successful.
+    pub fn finish_cancelled_turn(&mut self, scrollback: &mut ScrollbackState) {
+        self.finish_turn_inner(scrollback, true);
+    }
+
+    fn finish_turn_inner(&mut self, scrollback: &mut ScrollbackState, cancelled: bool) {
+        if cancelled {
+            self.tracker.finish_cancelled_turn(scrollback);
+        } else {
+            self.tracker.finish_turn(scrollback);
+        }
         self.state = AgentState::Idle;
         self.rate_limited = false;
         self.model_incompatible = false;
@@ -892,7 +905,7 @@ impl AgentSession {
     }
     /// Cancel the current turn: cleanup tracker, set state to Cancelling.
     pub fn cancel_turn(&mut self, scrollback: &mut ScrollbackState) {
-        self.tracker.finish_turn(scrollback);
+        self.tracker.finish_cancelled_turn(scrollback);
         self.state = AgentState::TurnCancelling;
     }
     /// Current activity within a running turn (for turn status line display).

@@ -823,7 +823,7 @@ Refresh these numbers at the end of a session.
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
-| W11 | Headless mode and tools | 32 | 0 | 7 | 2 | 0 |
+| W11 | Headless mode and tools | 31 | 0 | 8 | 2 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
@@ -831,9 +831,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 271. Skipped: 8. Done: 252. Already: 42. Deferred: 10.
+Catalog rows: 583. Pending: 270. Skipped: 8. Done: 253. Already: 42. Deferred: 10.
 
-**Next:** W11 headless mode and tools. First open row: cancelled turns mark unanswered tool calls as cancelled (`v50-x02`).
+**Next:** W11 headless mode and tools. First open row: `grok` accepts a prompt via piped stdin in headless mode (`v50-x16`).
 
 ## Waves
 
@@ -879,7 +879,7 @@ Pending: 0. Done: 43 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50
 
 ### W11 — Headless mode and tools
 
-Pending: 32. Done: 7 (`v46-x05`, `v48-x03`, `v48-x05`, `v50-f07`). Already: 2 (`v49-x03`, D-188; `v49-x04`, D-189). Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat. Cancelling one shell tool call stops that command and leaves the other parallel commands running (D-187). Allow once allows the command on the card and does not remember it for the session (D-188). A self-matching `pkill -f` or `pgrep -f` is refused before the shell starts (D-189).
+Pending: 31. Done: 8 (`v46-x05`, `v48-x03`, `v48-x05`, `v50-f07`, `v50-x02`). Already: 2 (`v49-x03`, D-188; `v49-x04`, D-189). Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat. Cancelling one shell tool call stops that command and leaves the other parallel commands running (D-187). Allow once allows the command on the card and does not remember it for the session (D-188). A self-matching `pkill -f` or `pgrep -f` is refused before the shell starts (D-189). A cancelled turn marks tool calls that never finished as cancelled, so a shell label says Cancelled instead of Ran (`v50-x02`).
 
 ### W12 — MCP, web, images, and browser
 
@@ -1188,7 +1188,7 @@ id | status | wave | kind | flag | covered | note
 - v49-x03 | already | W11 | Bug Fixes |  |  | **Allow once** in permission cards now applies only to the next shell command instead of the whole session.
 - v49-x04 | already | W11 | Bug Fixes |  |  | **pkill -f** and **pgrep -f** commands are now rejected earlier when the pattern would kill their own shell wrapper.
 - v50-f07 | done | W11 | Features |  |  | **Shell command output** now shows "Running …" while executing and "Ran …" when finished.
-- v50-x02 | pending | W11 | Bug Fixes |  |  | **Cancelled turns** now correctly mark unanswered tool calls as cancelled instead of succeeded.
+- v50-x02 | done | W11 | Bug Fixes |  |  | **Cancelled turns** now correctly mark unanswered tool calls as cancelled instead of succeeded.
 - v50-x16 | pending | W11 | Bug Fixes |  |  | `grok` now accepts a prompt via piped stdin in headless mode instead of trying to open the UI.
 - v50-x41 | pending | W11 | Bug Fixes |  |  | **Slash commands** now run regardless of case (e.g. /COMPACT or /Compact).
 - v50-x42 | pending | W11 | Bug Fixes |  |  | **/context** no longer shows an invented auto-compact threshold when the agent does not report one.

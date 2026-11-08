@@ -225,7 +225,14 @@ pub(super) fn finish_wake_turn(
     } = terminal;
 
     let had_output = agent.session.tracker.output_since_last_finish();
-    agent.session.tracker.finish_turn(&mut agent.scrollback);
+    if stop_reason == "cancelled" {
+        agent
+            .session
+            .tracker
+            .finish_cancelled_turn(&mut agent.scrollback);
+    } else {
+        agent.session.tracker.finish_turn(&mut agent.scrollback);
+    }
     // The stored `turn_start_ms` may belong to an earlier turn: a silent wake streamed no deltas of its own, and interleaved deltas can re-stamp it
     // Claim an elapsed only when the anchor is provably this wake's
     let anchor_is_ours = agent.turn_start_ms_prompt.as_deref() == Some(prompt_id);

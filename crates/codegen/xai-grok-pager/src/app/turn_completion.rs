@@ -532,7 +532,16 @@ pub(super) fn finalize_turn_from_terminal(
         cancellation_category,
         cancellation_context,
     );
-    agent.session.finish_turn(&mut agent.scrollback);
+    if matches!(
+        TurnStopReason::from(stop_reason),
+        TurnStopReason::Cancelled
+    ) {
+        agent
+            .session
+            .finish_cancelled_turn(&mut agent.scrollback);
+    } else {
+        agent.session.finish_turn(&mut agent.scrollback);
+    }
 
     // Wire meta wins; else the client-side expectation (older-shell fallback).
     // Taken at every viewer finalize so it can't go stale.
@@ -630,8 +639,17 @@ pub(super) fn finalize_child_view_turn(
             .or_else(|| prompt_id.filter(|pid| !pid.is_empty()).map(str::to_string))
     };
 
+    let cancelled_turn = matches!(TurnStopReason::from(stop_reason), TurnStopReason::Cancelled);
     if !other_prompt {
-        child.session.finish_turn(&mut child.scrollback);
+        if cancelled_turn {
+            child
+                .session
+                .finish_cancelled_turn(&mut child.scrollback);
+            // Rows a resumed transcript left running are outside the tracker's pending map.
+            child.scrollback.mark_running_unanswered_tools_cancelled();
+        } else {
+            child.session.finish_turn(&mut child.scrollback);
+        }
         // `finish_turn` only reaches rows the tracker saw. A resumed transcript's running tools would otherwise spin under an idle footer.
         child.scrollback.finish_all_running();
     }

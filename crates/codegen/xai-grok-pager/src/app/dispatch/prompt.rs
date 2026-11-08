@@ -1712,7 +1712,11 @@ pub(super) fn handle_prompt_response(
             "turn ended; client returning to idle",
         );
 
-        agent.session.finish_turn(&mut agent.scrollback);
+        if was_cancelling {
+            agent.session.finish_cancelled_turn(&mut agent.scrollback);
+        } else {
+            agent.session.finish_turn(&mut agent.scrollback);
+        }
 
         // Insert the session event message (skip TurnCompleted for bash-mode, which has no agent turn)
         let event = match (&result, was_cancelling) {

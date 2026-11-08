@@ -548,6 +548,31 @@ impl ToolCallBlock {
         }
     }
 
+    /// Mark a still-successful tool call cancelled. A real error, and a message that already shows Sent or Sending, stays as it is.
+    pub(crate) fn mark_unanswered_cancelled(&mut self) -> bool {
+        if !self.is_success() {
+            return false;
+        }
+        const LABEL: &str = "Cancelled";
+        match self {
+            ToolCallBlock::Execute(b) => b.mark_cancelled(),
+            ToolCallBlock::SentMessage(_) => return false,
+            ToolCallBlock::Read(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::Edit(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::Search(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::ListDir(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::WebFetch(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::WebSearch(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::IntegrationSearch(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::UseTool(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::MemorySearch(b) => b.set_error(Some(LABEL.to_string())),
+            ToolCallBlock::Skill(b) | ToolCallBlock::Other(b) => {
+                b.set_error(Some(LABEL.to_string()));
+            }
+        };
+        true
+    }
+
     /// Set `started_at` on the inner variant block.
     /// Unlike `transfer_timing_from`, this works across variant boundaries.
     /// For example, it can set `started_at` on a `Search` block from a value captured when the block was still `Other`.
