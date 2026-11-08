@@ -1,5 +1,21 @@
 use pretty_assertions::assert_eq;
 
+/// `--no-subagents` on `grok -p` disables subagents even when config turns them on.
+/// Omitting the flag leaves that config in charge.
+#[test]
+fn no_subagents_disables_headless_even_when_config_enables_them() {
+    let raw: toml::Value = toml::from_str("[subagents]\nenabled = true").unwrap();
+    let mut off = super::AgentConfig::new_from_toml_cfg(&raw).unwrap();
+    super::apply_headless_runtime(&mut off, &raw, true, None, false);
+    assert!(!off.subagents_enabled);
+    assert_eq!(Some(false), off.cli_subagents);
+
+    let mut on = super::AgentConfig::new_from_toml_cfg(&raw).unwrap();
+    super::apply_headless_runtime(&mut on, &raw, false, None, false);
+    assert!(on.subagents_enabled);
+    assert_eq!(None, on.cli_subagents);
+}
+
 #[tokio::test(start_paused = true)]
 async fn signalled_exit_stops_waiting_on_a_log_flush_that_never_answers() {
     let prompt_unacknowledged = false;

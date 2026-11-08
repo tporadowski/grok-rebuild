@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-167 — Headless `--no-subagents` uses the CLI tier
+
+`grok -p` was resolving subagents with no CLI value, so `--no-subagents` never reached the resolver. Headless now passes `Some(false)` for that flag, the same tier the TUI uses. Omitting the flag still leaves env and config in charge (`no_subagents_disables_headless_even_when_config_enables_them`) (`v51-x35`).
+
 ### D-166 — `--disallowed-tools` accepts model-facing names
 
 The shell tool's id is `run_terminal_cmd` and the model sees `run_terminal_command`. The subagent tool's id is `task` and the model sees `spawn_subagent`. A denylist entry matches either the id or that rename, on the main agent and on the session clamp (`disallowed_tools_accepts_the_names_shown_to_the_model`, `denylist_accepts_the_names_shown_to_the_model`) (`v51-x28`).
@@ -730,7 +734,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 36 | 0 | 8 | 1 | 0 |
+| W10 | Transcript, density, and copy | 35 | 0 | 9 | 1 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -739,9 +743,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 313. Skipped: 8. Done: 213. Already: 39. Deferred: 10.
+Catalog rows: 583. Pending: 312. Skipped: 8. Done: 214. Already: 39. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: `--no-subagents` works in headless sessions (`v51-x35`).
+**Next:** W10 transcript, density, and copy. First open row: `/cd` and the location picker accept quoted paths (`v51-x43`).
 
 ## Waves
 
@@ -783,7 +787,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 36. Done: 8 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166). Already: 1 (`v51-x03`, D-165). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 35. Done: 9 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167). Already: 1 (`v51-x03`, D-165). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1054,7 +1058,7 @@ id | status | wave | kind | flag | covered | note
 - v51-f18 | done | W10 | Features |  |  | **Editors offering file access** now receive a one-time transcript notice that the agent reads and writes disk files.
 - v51-x03 | already | W10 | Bug Fixes |  |  | Mode switch tool calls now appear in the transcript with the target mode name.
 - v51-x28 | done | W10 | Bug Fixes |  |  | **--disallowed-tools** now accepts the exact names shown to the model (run_terminal_command, spawn_subagent, etc.).
-- v51-x35 | pending | W10 | Bug Fixes |  |  | **--no-subagents** flag now works correctly in headless / -p sessions.
+- v51-x35 | done | W10 | Bug Fixes |  |  | **--no-subagents** flag now works correctly in headless / -p sessions.
 - v51-x43 | pending | W10 | Bug Fixes |  |  | **`/cd`** and the location picker now accept quoted or escaped folder paths.
 - v51-x81 | pending | W10 | Bug Fixes |  |  | **Background subagents** now respect saved approvals and --always-approve after the parent turn finishes.
 - v51-x93 | pending | W10 | Bug Fixes |  |  | Legacy UI density settings now combine correctly across config tiers and produce expected folding.

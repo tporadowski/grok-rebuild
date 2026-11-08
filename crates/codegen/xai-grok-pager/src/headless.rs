@@ -93,6 +93,30 @@ pub struct HeadlessOptions {
     pub memory_flush: bool,
     /// CLI `--experimental-memory` / `--no-memory` override for the headless agent.
     pub memory_enabled_override: Option<bool>,
+    /// `--no-subagents`. Only the explicit flag reaches the CLI tier; otherwise env and config decide.
+    pub no_subagents: bool,
+}
+/// Apply the headless launch flags to a parsed config. `--no-subagents` uses the same CLI tier as the TUI.
+pub(crate) fn apply_headless_runtime(
+    agent_config: &mut AgentConfig,
+    raw_config: &toml::Value,
+    no_subagents: bool,
+    memory_enabled_override: Option<bool>,
+    disable_web_search: bool,
+) {
+    agent_config.resolve_runtime_fields(&xai_grok_shell::agent::config::RuntimeResolutionContext {
+        raw_config,
+        remote_settings: None,
+        is_headless: true,
+        cli_subagents: no_subagents.then_some(false),
+        cli_web_search_model: None,
+        cli_session_summary_model: None,
+        memory_enabled_override,
+        disable_web_search,
+        todo_gate: false,
+        laziness_debug_log: None,
+        storage_mode: None,
+    });
 }
 struct HeadlessEmitter {
     format: OutputFormat,
@@ -943,19 +967,13 @@ pub async fn run_single_turn(
     if let Some(ref model) = options.model {
         agent_config.default_model_override = Some(model.clone());
     }
-    agent_config.resolve_runtime_fields(&xai_grok_shell::agent::config::RuntimeResolutionContext {
-        raw_config: &raw_config,
-        remote_settings: None,
-        is_headless: true,
-        cli_subagents: None,
-        cli_web_search_model: None,
-        cli_session_summary_model: None,
-        memory_enabled_override: options.memory_enabled_override,
-        disable_web_search: options.disable_web_search,
-        todo_gate: false,
-        laziness_debug_log: None,
-        storage_mode: None,
-    });
+    apply_headless_runtime(
+        &mut agent_config,
+        &raw_config,
+        options.no_subagents,
+        options.memory_enabled_override,
+        options.disable_web_search,
+    );
     agent_config.mode = xai_grok_shell::agent::config::AgentMode::Headless;
     agent_config.default_yolo_mode = options.yolo;
     agent_config.default_auto_mode = xai_grok_shell::util::config::effective_auto_for_launch(

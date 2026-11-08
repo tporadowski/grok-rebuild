@@ -2651,6 +2651,7 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                 ),
                 memory_flush,
                 memory_enabled_override,
+                no_subagents: args.no_subagents,
             },
         )
         .await;
