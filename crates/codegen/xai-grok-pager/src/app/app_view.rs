@@ -636,6 +636,9 @@ pub struct AppView {
     /// There is no live leader roster to poll outside leader mode.
     /// We fetch the same `x.ai/session/list` the resume picker uses and render those as idle rows.
     pub dashboard_local_sessions: Vec<crate::app::roster::RosterEntry>,
+    /// Sessions closed from this dashboard. A later session-list or roster refresh must not
+    /// put them back under Inactive; other dormant sessions stay listed.
+    pub dashboard_closed_sessions: std::collections::HashSet<String>,
     /// Whether the dashboard is currently loading local sessions (non-leader mode).
     pub dashboard_sessions_loading: bool,
     pub(crate) workspace_membership: crate::app::workspace_membership::WorkspaceMembership,
@@ -1594,6 +1597,7 @@ impl AppView {
             billing_poll_wanted: false,
             leader_roster: Vec::new(),
             dashboard_local_sessions: Vec::new(),
+            dashboard_closed_sessions: std::collections::HashSet::new(),
             dashboard_sessions_loading: false,
             workspace_membership: Default::default(),
             shared_prompt_queues: std::collections::HashMap::new(),
@@ -1915,6 +1919,9 @@ impl AppView {
     }
     /// Insert or replace a leader roster entry, keyed by `session_id`.
     pub fn upsert_roster_entry(&mut self, entry: crate::app::roster::RosterEntry) {
+        if self.closed_session_lists_as_inactive(&entry) {
+            return;
+        }
         if let Some(existing) = self
             .leader_roster
             .iter_mut()
@@ -1924,6 +1931,40 @@ impl AppView {
         } else {
             self.leader_roster.push(entry);
         }
+    }
+    /// Drop a session closed from this dashboard out of both roster sources.
+    /// A refresh that still has the on-disk row must not bring it back as Inactive.
+    pub fn remember_dashboard_close(&mut self, session_id: &str) {
+        if session_id.is_empty() {
+            return;
+        }
+        self.dashboard_closed_sessions
+            .insert(session_id.to_string());
+        self.dashboard_local_sessions
+            .retain(|entry| entry.session_id != session_id);
+        self.leader_roster
+            .retain(|entry| entry.session_id != session_id);
+    }
+    /// A closed session's idle or dormant roster row is the Inactive section.
+    pub(crate) fn closed_session_lists_as_inactive(
+        &self,
+        entry: &crate::app::roster::RosterEntry,
+    ) -> bool {
+        self.dashboard_closed_sessions.contains(&entry.session_id)
+            && matches!(
+                entry.activity,
+                crate::app::roster::RosterActivity::Idle
+                    | crate::app::roster::RosterActivity::Dormant
+            )
+    }
+    pub(crate) fn without_closed_inactive_sessions(
+        &self,
+        sessions: Vec<crate::app::roster::RosterEntry>,
+    ) -> Vec<crate::app::roster::RosterEntry> {
+        sessions
+            .into_iter()
+            .filter(|entry| !self.closed_session_lists_as_inactive(entry))
+            .collect()
     }
     /// Remove a leader roster entry by `session_id`.
     pub fn remove_roster_entry(&mut self, sid: &str) {

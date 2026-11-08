@@ -316,6 +316,7 @@ fn test_app() -> AppView {
         billing_poll_wanted: false,
         leader_roster: Vec::new(),
         dashboard_local_sessions: Vec::new(),
+        dashboard_closed_sessions: std::collections::HashSet::new(),
         dashboard_sessions_loading: false,
         workspace_membership: Default::default(),
         shared_prompt_queues: std::collections::HashMap::new(),

@@ -89,6 +89,9 @@ pub(in crate::app::dispatch) fn dispatch_sessions_confirm_close(
         .agents
         .get(&closed_id)
         .and_then(|agent| agent.session.session_id.clone());
+    if let Some(session_id) = session_id.as_ref() {
+        app.remember_dashboard_close(session_id.0.as_ref());
+    }
     let mut effects = quiesce_session_effect(session_id.as_ref());
     effects.extend(unregister_session_effect(session_id));
     remove_agent_and_cleanup(app, closed_id);

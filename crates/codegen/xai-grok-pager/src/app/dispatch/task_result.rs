@@ -749,7 +749,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             query,
         ),
         TaskResult::RosterLoaded { sessions } => {
-            app.leader_roster = sessions;
+            app.leader_roster = app.without_closed_inactive_sessions(sessions);
             app.dashboard_sessions_loading = false;
             vec![]
         }
@@ -759,7 +759,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             vec![]
         }
         TaskResult::DashboardSessionsLoaded { sessions } => {
-            app.dashboard_local_sessions = sessions;
+            app.dashboard_local_sessions = app.without_closed_inactive_sessions(sessions);
             app.dashboard_sessions_loading = false;
             vec![]
         }

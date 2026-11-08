@@ -2977,6 +2977,106 @@ fn roster_failed_clears_dashboard_sessions_loading() {
     );
     assert!(!app.dashboard_sessions_loading);
 }
+fn inactive_session_ids(app: &AppView) -> Vec<String> {
+    let (pinned, reorder) = app
+        .dashboard
+        .as_ref()
+        .map(|dashboard| (dashboard.pinned.clone(), dashboard.reorder.clone()))
+        .unwrap_or_default();
+    crate::views::dashboard::build_rows_with_roster(
+        &app.agents,
+        &pinned,
+        &reorder,
+        crate::views::dashboard::Grouping::State,
+        &crate::views::dashboard::Filter::None,
+        None,
+        app.dashboard_roster(),
+    )
+    .into_iter()
+    .filter(|row| row.state == crate::views::dashboard::RowState::Inactive)
+    .filter_map(|row| row.session_id)
+    .collect()
+}
+
+/// Closing a loaded session drops it from the dashboard. A later session-list or roster
+/// refresh must not put that session back under Inactive, while other dormant sessions stay.
+#[test]
+fn closing_a_dashboard_session_drops_it_from_inactive() {
+    let mut app = test_app_with_agent();
+    mark_agent_nonempty(&mut app, AgentId(0));
+    app.agents.get_mut(&AgentId(0)).unwrap().session.session_id =
+        Some(acp::SessionId::new("closed-sess"));
+    let _ = insert_second_agent(&mut app);
+    app.leader_mode = false;
+    app.dashboard_local_sessions = vec![
+        idle_roster_entry("closed-sess", "Closed"),
+        idle_roster_entry("disk-only", "Still here"),
+    ];
+    open_dashboard(&mut app);
+    app.dashboard.as_mut().unwrap().attached_agent = Some(AgentId(0));
+    app.active_view = ActiveView::Agent(AgentId(0));
+    assert_eq!(
+        inactive_session_ids(&app),
+        vec!["disk-only".to_string()],
+        "the loaded session is not Inactive while it is open"
+    );
+
+    let _ = dispatch_dashboard_overlay_stop(&mut app);
+    assert!(
+        !app.agents.contains_key(&AgentId(0)),
+        "close drops the in-memory session"
+    );
+    assert_eq!(inactive_session_ids(&app), vec!["disk-only".to_string()]);
+    assert!(
+        !app.dashboard_local_sessions
+            .iter()
+            .any(|entry| entry.session_id == "closed-sess")
+    );
+
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::DashboardSessionsLoaded {
+            sessions: vec![
+                idle_roster_entry("closed-sess", "Closed"),
+                idle_roster_entry("disk-only", "Still here"),
+            ],
+        }),
+        &mut app,
+    );
+    assert_eq!(
+        inactive_session_ids(&app),
+        vec!["disk-only".to_string()],
+        "a refreshed on-disk list must not restore the closed session under Inactive"
+    );
+
+    app.leader_mode = true;
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::RosterLoaded {
+            sessions: vec![
+                idle_roster_entry("closed-sess", "Closed"),
+                idle_roster_entry("disk-only", "Still here"),
+            ],
+        }),
+        &mut app,
+    );
+    assert_eq!(inactive_session_ids(&app), vec!["disk-only".to_string()]);
+    app.upsert_roster_entry(idle_roster_entry("closed-sess", "Closed"));
+    assert!(
+        !app.leader_roster
+            .iter()
+            .any(|entry| entry.session_id == "closed-sess"),
+        "a dormant roster upsert must not resurrect the closed session"
+    );
+    let mut working = idle_roster_entry("closed-sess", "Closed");
+    working.activity = crate::app::roster::RosterActivity::Working;
+    app.upsert_roster_entry(working);
+    assert!(
+        app.leader_roster
+            .iter()
+            .any(|entry| entry.session_id == "closed-sess"),
+        "a live roster upsert still shows the session"
+    );
+}
+
 /// `DashboardSessionsLoaded` stores the local idle sessions, and `dashboard_roster()` surfaces them when not in leader mode.
 /// `dashboard_roster()` surfaces them when not in leader mode.
 #[test]
