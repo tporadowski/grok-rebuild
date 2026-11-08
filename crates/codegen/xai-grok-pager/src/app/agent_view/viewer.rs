@@ -77,6 +77,9 @@ impl AgentView {
 
     /// Handle a key event while the line viewer is open.
     pub(super) fn handle_line_viewer_key(&mut self, key: &KeyEvent) -> InputOutcome {
+        if crate::app::app_view::is_ctrl_l_redraw(key) {
+            return InputOutcome::RedrawInPlace;
+        }
         let in_plan_approval = self.plan_approval_view.is_some();
 
         let input_bar_active = self
@@ -1087,6 +1090,9 @@ impl AgentView {
         let Some(viewer) = self.block_viewer.as_ref() else {
             return InputOutcome::Unchanged;
         };
+        if crate::app::app_view::is_ctrl_l_redraw(key) {
+            return InputOutcome::RedrawInPlace;
+        }
 
         if viewer.is_close_key(key) {
             self.dismiss_block_viewer();

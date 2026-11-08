@@ -459,6 +459,13 @@ impl AgentView {
         let thinking_label = self.scrollback.thinking_fold_label();
         let selected_is_user_prompt = selected_entry.is_some_and(|e| e.block.is_user_prompt());
         let selected_is_agent_message = selected_entry.is_some_and(|e| e.block.is_agent_message());
+        let copy_content_label = if self.active_pane == ActivePane::Scrollback
+            && !selected_is_group_header
+        {
+            selected_entry.and_then(|entry| entry.block.copy_content_hint())
+        } else {
+            None
+        };
         let mut hints = agent::build_hints(
             self.active_pane,
             self.parked_card()
@@ -497,6 +504,13 @@ impl AgentView {
             self.scrollback_search.as_ref(),
             crate::terminal::terminal_context().ctrl_enter_arrives_as_plain_enter(),
         );
+        if let Some(label) = copy_content_label.filter(|label| *label != "copy") {
+            for hint in &mut hints {
+                if hint.label == "copy" {
+                    hint.label = label.to_string().into();
+                }
+            }
+        }
         if (self.queue.is_visible() || !self.visible_queue_is_empty())
             && self.active_pane != ActivePane::Queue
             && !matches!(self.prompt_mode, PromptMode::EditingQueued { .. })

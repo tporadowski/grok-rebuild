@@ -431,3 +431,50 @@ fn a_failed_tool_search_viewer_shows_the_error() {
         .collect();
     assert_eq!(text, ["0 results", "", "no such server"]);
 }
+
+/// `y` copies the unified diff and the hint says so. `Y` copies the path and the hint says so.
+#[test]
+fn edit_copy_hint_names_the_patch_that_copy_text_returns() {
+    use similar::ChangeTag;
+    use xai_grok_pager_diff::DiffLine;
+
+    let path = "src/lib.rs";
+    let hunk = vec![DiffLine {
+        text: "let n = 1;\n".into(),
+        lo: 0,
+        ln: 1,
+        tag: ChangeTag::Insert,
+    }];
+    let entry = ScrollbackEntry::new(RenderBlock::edit_with_hunks(path, vec![hunk]));
+    let patch = entry.block.copy_text(false).expect("edit copy");
+    assert!(
+        patch.contains("@@"),
+        "edit copy_text must be a unified diff, got {patch}"
+    );
+    assert_ne!(patch, path);
+    assert_eq!(entry.block.copy_content_hint(), Some("copy patch"));
+    assert_eq!(entry.block.copy_meta_label(), Some("copy path"));
+    assert_eq!(entry.block.copy_meta().as_deref(), Some(path));
+
+    let mut pane = BlockViewerPane::for_edit(entry.id, &entry).expect("edit viewer");
+    let hints = pane.shortcuts_hints();
+    assert!(
+        hints.iter().any(|hint| hint.label == "copy patch"),
+        "y hint must name the patch, got {hints:?}"
+    );
+    assert!(
+        hints.iter().any(|hint| hint.label == "copy path"),
+        "Y hint must name the path, got {hints:?}"
+    );
+
+    assert!(pane.handle_key(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)));
+    let copied = pane.process_pending_copy(&entry).expect("y copies");
+    assert_eq!(copied, patch, "y must copy the same patch copy_text returns");
+
+    assert!(pane.handle_key(&KeyEvent::new(
+        KeyCode::Char('Y'),
+        KeyModifiers::SHIFT
+    )));
+    let meta = pane.process_pending_copy(&entry).expect("Y copies");
+    assert_eq!(meta, path);
+}

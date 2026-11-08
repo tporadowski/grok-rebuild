@@ -1055,6 +1055,7 @@ impl BlockViewerPane {
                 hints.push(HintItem::new(crate::key!('Y'), "copy cmd"));
             }
             ViewerKind::Edit => {
+                hints.push(HintItem::new(crate::key!('y'), "copy patch"));
                 hints.push(HintItem::new(crate::key!('Y'), "copy path"));
             }
             ViewerKind::WebFetch => {

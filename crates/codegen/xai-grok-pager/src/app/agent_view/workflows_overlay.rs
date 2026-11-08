@@ -85,6 +85,9 @@ impl AgentView {
                 if key!('q', CONTROL).matches(key) {
                     return Some(InputOutcome::Unchanged);
                 }
+                if crate::app::app_view::is_ctrl_l_redraw(key) {
+                    return Some(InputOutcome::RedrawInPlace);
+                }
                 if !key.modifiers.is_empty() {
                     return Some(InputOutcome::Changed);
                 }

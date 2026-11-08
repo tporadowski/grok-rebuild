@@ -384,6 +384,12 @@ pub enum InputOutcome {
     /// Nothing happened. Skip redraw to preserve cursor blink.
     Unchanged,
 }
+
+/// Ctrl+L when no screen has claimed it. The event loop repaints every cell without clearing.
+pub(crate) fn is_ctrl_l_redraw(key: &crossterm::event::KeyEvent) -> bool {
+    key.kind != KeyEventKind::Release && crate::key!('l', CONTROL).matches(key)
+}
+
 /// Immutable origin carried beside a paste event until its target consumes it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PasteProvenance {
@@ -2981,6 +2987,13 @@ impl AppView {
             ));
             return InputOutcome::Changed;
         }
+        // Welcome, a doc viewer, and any overlay that left the key unclaimed.
+        // A scrollback quote, the dashboard location picker, and send-now return before this.
+        if let Some(key) = key_event
+            && is_ctrl_l_redraw(key)
+        {
+            return InputOutcome::RedrawInPlace;
+        }
         InputOutcome::Unchanged
     }
     /// Handle a global-level action. Applies confirmation if required.
@@ -4152,7 +4165,8 @@ fn handle_menu_shortcuts(
         return InputOutcome::Action(Action::Quit);
     }
     for (i, &ch) in shortcuts.iter().enumerate() {
-        if key.code == KeyCode::Char(ch) {
+        // Bare letters only. Ctrl+L redraws; it must not fire the access-gate `l` item.
+        if key.code == KeyCode::Char(ch) && key.modifiers.is_empty() {
             return menu_dispatch(i);
         }
     }

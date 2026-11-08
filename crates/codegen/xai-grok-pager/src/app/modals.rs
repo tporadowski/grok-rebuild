@@ -458,11 +458,13 @@ impl AgentView {
 
         // EditConfirm: single char matching.
         let ch = match key.code {
-            KeyCode::Char(c) => c,
+            // Bare letters only, same as the reset-settings confirm. Ctrl+L redraws.
+            KeyCode::Char(c) if key.modifiers.is_empty() => c,
             KeyCode::Esc => {
                 self.active_modal = None;
                 return InputOutcome::Changed;
             }
+            _ if super::app_view::is_ctrl_l_redraw(key) => return InputOutcome::RedrawInPlace,
             _ => return InputOutcome::Changed, // consume, ignore
         };
 
@@ -1219,6 +1221,11 @@ impl AgentView {
 
     /// Basic input handler for documentation modals (DocPicker list / DocViewer panel).
     fn handle_doc_input(&mut self, ev: &crossterm::event::Event) -> InputOutcome {
+        if let Event::Key(key) = ev
+            && super::app_view::is_ctrl_l_redraw(key)
+        {
+            return InputOutcome::RedrawInPlace;
+        }
         use crate::views::modal::ActiveModal;
         use crate::views::picker::{
             PickerConfig, PickerEntry, PickerOutcome, PickerRow, handle_picker_input,

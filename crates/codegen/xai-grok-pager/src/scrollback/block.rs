@@ -1043,6 +1043,17 @@ impl RenderBlock {
         }
     }
 
+    /// Footer word for the content-copy chord. An edit with hunks copies a unified diff.
+    pub fn copy_content_hint(&self) -> Option<&'static str> {
+        match self {
+            RenderBlock::ToolCall(ToolCallBlock::Edit(edit)) if !edit.hunks.is_empty() => {
+                Some("copy patch")
+            }
+            other if other.supports_copy() => Some("copy"),
+            _ => None,
+        }
+    }
+
     /// Label for the copy-meta shortcut hint (e.g., "copy cmd", "copy path").
     ///
     /// Returns `None` for blocks without copyable metadata.

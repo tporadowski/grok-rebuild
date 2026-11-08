@@ -699,6 +699,11 @@ impl AgentView {
             };
         }
 
+        // After a confirmation dismiss and the pending-action lock. Those still own the key.
+        if crate::app::app_view::is_ctrl_l_redraw(key) {
+            return InputOutcome::RedrawInPlace;
+        }
+
         // If in setup or input mode, route to the form handler.
         if self
             .extensions_modal

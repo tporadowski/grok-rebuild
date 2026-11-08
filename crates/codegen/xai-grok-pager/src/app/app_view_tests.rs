@@ -5006,6 +5006,26 @@ fn welcome_pending_l_triggers_login() {
     assert!(matches!(outcome, InputOutcome::Action(Action::Login)));
 }
 #[test]
+fn ctrl_l_redraws_on_the_welcome_screen() {
+    let mut app = test_app();
+    let outcome = app.handle_input(&key_event(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    assert!(
+        matches!(outcome, InputOutcome::RedrawInPlace),
+        "welcome Ctrl+L must redraw in place, got {outcome:?}"
+    );
+}
+#[test]
+fn ctrl_l_redraws_on_the_login_screen_instead_of_signing_in() {
+    let mut app = test_app();
+    app.auth_state = AuthState::Pending { error: None };
+    app.welcome_prompt_focused = false;
+    let outcome = app.handle_input(&key_event(KeyCode::Char('l'), KeyModifiers::CONTROL));
+    assert!(
+        matches!(outcome, InputOutcome::RedrawInPlace),
+        "Ctrl+L must not sign in, got {outcome:?}"
+    );
+}
+#[test]
 fn welcome_pending_enter_triggers_login() {
     let mut app = test_app();
     app.auth_state = AuthState::Pending { error: None };

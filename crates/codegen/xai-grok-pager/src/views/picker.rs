@@ -2988,12 +2988,16 @@ pub fn handle_picker_input(
             if tab_count > 1 && !state.search_active {
                 // Dedicated L/R handling only when the tabs list itself is selected.
                 if state.tabs_focused {
-                    if key.code == KeyCode::Left || key.code == KeyCode::Char('h') {
+                    if key.code == KeyCode::Left
+                        || (key.code == KeyCode::Char('h') && key.modifiers.is_empty())
+                    {
                         return PickerOutcome::TabChanged(
                             (config.active_tab + tab_count - 1) % tab_count,
                         );
                     }
-                    if key.code == KeyCode::Right || key.code == KeyCode::Char('l') {
+                    if key.code == KeyCode::Right
+                        || (key.code == KeyCode::Char('l') && key.modifiers.is_empty())
+                    {
                         return PickerOutcome::TabChanged((config.active_tab + 1) % tab_count);
                     }
                 }

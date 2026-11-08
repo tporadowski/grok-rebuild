@@ -930,6 +930,10 @@ pub fn handle_modal_key(
     match key.code {
         KeyCode::Esc => ModalWindowOutcome::CloseRequested,
         KeyCode::Left | KeyCode::Char('h') => {
+            // Ctrl+L is the screen redraw. Only a bare `h` folds.
+            if matches!(key.code, KeyCode::Char('h')) && !key.modifiers.is_empty() {
+                return ModalWindowOutcome::Unhandled;
+            }
             if state.tabs_focused {
                 ModalWindowOutcome::Unhandled
             } else if let Some(ref fold) = config.fold_info {
@@ -947,6 +951,9 @@ pub fn handle_modal_key(
             }
         }
         KeyCode::Right | KeyCode::Char('l') => {
+            if matches!(key.code, KeyCode::Char('l')) && !key.modifiers.is_empty() {
+                return ModalWindowOutcome::Unhandled;
+            }
             if state.tabs_focused {
                 ModalWindowOutcome::Unhandled
             } else if let Some(ref fold) = config.fold_info {
@@ -1610,6 +1617,23 @@ mod tests {
         assert_eq!(
             handle_modal_key(&mut state, &l, &config),
             ModalWindowOutcome::ExpandGroup
+        );
+    }
+
+    #[test]
+    fn ctrl_l_redraws_instead_of_expanding_a_fold() {
+        let mut state = ModalWindowState::new();
+        let config = config_with_fold(FoldInfo {
+            collapsible: true,
+            expanded: false,
+            has_details: false,
+            details_expanded: false,
+            parent_index: None,
+        });
+        let ctrl_l = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL);
+        assert_eq!(
+            handle_modal_key(&mut state, &ctrl_l, &config),
+            ModalWindowOutcome::Unhandled
         );
     }
 

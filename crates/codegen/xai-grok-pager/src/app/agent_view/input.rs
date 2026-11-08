@@ -10,7 +10,7 @@ use super::{
 };
 use crate::actions::{ActionId, ActionRegistry, When};
 use crate::app::actions::Action;
-use crate::app::app_view::InputOutcome;
+use crate::app::app_view::{InputOutcome, is_ctrl_l_redraw};
 use crate::key;
 use crate::views::plan_approval_view::PlanApprovalFocus;
 use crossterm::event::{
@@ -457,6 +457,9 @@ impl AgentView {
             if let Event::Key(key) = ev
                 && key.kind != KeyEventKind::Release
             {
+                if is_ctrl_l_redraw(key) {
+                    return InputOutcome::RedrawInPlace;
+                }
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('g') | KeyCode::Char('q') => {
                         self.show_goal_detail = false;
@@ -2657,6 +2660,87 @@ mod scrollback_paste_focus_forward_tests {
         );
         assert!(agent.prompt.text().is_empty());
         assert!(agent.active_modal.is_none());
+    }
+
+    #[test]
+    fn ctrl_l_redraws_goal_detail_without_closing_it() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut agent, reg) = scrollback_agent();
+        agent.goal_state = Some(crate::app::agent::GoalDisplayState::test_stub());
+        agent.show_goal_detail = true;
+        let out = agent.handle_input(
+            &Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            &reg,
+        );
+        assert!(
+            matches!(out, InputOutcome::RedrawInPlace),
+            "goal detail Ctrl+L must redraw in place, got {out:?}"
+        );
+        assert!(agent.show_goal_detail, "redraw must leave the goal panel open");
+    }
+
+    #[test]
+    fn ctrl_l_redraws_the_workflow_list_without_closing_it() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut agent, reg) = scrollback_agent();
+        agent.show_workflows = true;
+        let out = agent.handle_input(
+            &Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            &reg,
+        );
+        assert!(
+            matches!(out, InputOutcome::RedrawInPlace),
+            "workflow list Ctrl+L must redraw in place, got {out:?}"
+        );
+        assert!(agent.show_workflows, "redraw must leave the workflow list open");
+    }
+
+    #[test]
+    fn ctrl_l_redraws_the_block_viewer_without_closing_it() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut agent, reg) = scrollback_agent();
+        agent.block_viewer = Some(crate::views::block_viewer::BlockViewerPane::for_plain_text(
+            "note", "body",
+        ));
+        let out = agent.handle_input(
+            &Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            &reg,
+        );
+        assert!(
+            matches!(out, InputOutcome::RedrawInPlace),
+            "block viewer Ctrl+L must redraw in place, got {out:?}"
+        );
+        assert!(agent.block_viewer.is_some(), "redraw must leave the viewer open");
+    }
+
+    #[test]
+    fn edit_copy_hint_names_the_patch_on_the_scrollback_footer() {
+        use similar::ChangeTag;
+        use xai_grok_pager_diff::DiffLine;
+        let (mut agent, reg) = scrollback_agent();
+        agent.vim_mode = true;
+        let path = "src/app.rs";
+        let hunk = vec![DiffLine {
+            text: "let n = 1;\n".into(),
+            lo: 0,
+            ln: 1,
+            tag: ChangeTag::Insert,
+        }];
+        let block = crate::scrollback::block::RenderBlock::edit_with_hunks(path, vec![hunk]);
+        let patch = block.copy_text(false).expect("patch");
+        assert!(patch.contains("@@"), "{patch}");
+        assert_eq!(block.copy_content_hint(), Some("copy patch"));
+        agent.scrollback.push_block(block);
+        agent.scrollback.set_selected(Some(0));
+        let hints = agent.current_shortcut_hints(&reg);
+        assert!(
+            hints.iter().any(|hint| hint.label == "copy patch"),
+            "scrollback footer must name the patch, got {hints:?}"
+        );
+        assert!(
+            hints.iter().any(|hint| hint.label == "copy path"),
+            "scrollback footer must still name the path, got {hints:?}"
+        );
     }
 
     #[test]

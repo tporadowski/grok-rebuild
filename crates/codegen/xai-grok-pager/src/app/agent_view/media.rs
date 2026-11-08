@@ -79,6 +79,9 @@ impl AgentView {
         if self.image_viewer.is_none() {
             return InputOutcome::Unchanged;
         }
+        if crate::app::app_view::is_ctrl_l_redraw(key) {
+            return InputOutcome::RedrawInPlace;
+        }
 
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => {
@@ -599,6 +602,9 @@ impl AgentView {
         let Some(ref mut viewer) = self.video_viewer else {
             return InputOutcome::Unchanged;
         };
+        if crate::app::app_view::is_ctrl_l_redraw(key) {
+            return InputOutcome::RedrawInPlace;
+        }
 
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => {
@@ -614,10 +620,11 @@ impl AgentView {
             KeyCode::Char(' ') => {
                 viewer.toggle_play_pause();
             }
-            KeyCode::Right | KeyCode::Char('l') => {
+            // Bare h/l seek. Ctrl+L is the screen redraw and must not move the playhead.
+            KeyCode::Right | KeyCode::Char('l') if key.modifiers.is_empty() => {
                 viewer.seek_forward();
             }
-            KeyCode::Left | KeyCode::Char('h') => {
+            KeyCode::Left | KeyCode::Char('h') if key.modifiers.is_empty() => {
                 viewer.seek_backward();
             }
             _ => {}
@@ -632,6 +639,9 @@ impl AgentView {
         let Some(ref mut gboom) = self.gboom else {
             return InputOutcome::Unchanged;
         };
+        if crate::app::app_view::is_ctrl_l_redraw(key) {
+            return InputOutcome::RedrawInPlace;
+        }
         match gboom.handle_key(key) {
             crate::gboom::GboomKeyOutcome::Close => {
                 // Clear the kitty image before closing (same as the video viewer) so no stale frame lingers in the cell grid
@@ -708,6 +718,38 @@ mod tests {
             test_support::calls(),
             before + 1,
             "closing the viewer must purge after the frame set drops"
+        );
+    }
+
+    /// Ctrl+L repaints. Bare `l` still seeks. The playhead is the shipped frame bytes.
+    #[test]
+    fn ctrl_l_redraws_the_video_viewer_without_seeking() {
+        use crate::app::app_view::InputOutcome;
+        use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+        let mut agent = make_agent();
+        let mut viewer = crate::prompt_images::VideoViewerState::test_stub();
+        viewer.frames = vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()];
+        viewer.fps = 1.0;
+        agent.video_viewer = Some(viewer);
+        let registry = crate::actions::ActionRegistry::defaults();
+        let ctrl_l = Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        let out = agent.handle_input(&ctrl_l, &registry);
+        assert!(
+            matches!(out, InputOutcome::RedrawInPlace),
+            "video Ctrl+L must redraw in place, got {out:?}"
+        );
+        assert_eq!(
+            agent.video_viewer.as_ref().unwrap().current_frame_data(),
+            b"a",
+            "Ctrl+L must not seek"
+        );
+        let bare_l = Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        let out = agent.handle_input(&bare_l, &registry);
+        assert!(matches!(out, InputOutcome::Changed), "{out:?}");
+        assert_eq!(
+            agent.video_viewer.as_ref().unwrap().current_frame_data(),
+            b"b",
+            "bare l still seeks forward one frame"
         );
     }
 
