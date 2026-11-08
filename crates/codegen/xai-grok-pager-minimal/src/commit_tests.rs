@@ -1358,7 +1358,7 @@ fn capped_footer_does_not_join_wrapped_line() {
     assert!(copy.contains("more lines"), "footer present\n{copy}");
 }
 
-/// A full-width multiline command uses `joiner: Some("\n")`. That is not WRAPLINE.
+/// A command with a real newline keeps that newline. A width wrap inside either line joins back.
 #[test]
 fn semantic_copy_multiline_command_keeps_newline_joiners() {
     use ratatui::buffer::Buffer;
@@ -1377,18 +1377,14 @@ fn semantic_copy_multiline_command_keeps_newline_joiners() {
     let mut buf = Buffer::empty(area);
     paint_committed(&mut buf, &renderer, width, full_h, theme.dim());
     let wraps = renderer.row_soft_wraps(buf.area.height);
-    assert!(
-        !wraps.iter().any(|w| *w),
-        "command `\\n` joiners must not set WRAPLINE: {wraps:?}"
-    );
     let copy = crate::full_view::buffer_to_semantic_copy(&buf, &wraps);
     assert!(
-        copy.contains('A') && copy.contains('B') && copy.contains("A\n"),
-        "native copy must keep the command separator\n{copy}"
+        copy.lines().any(|line| line.contains('A') && !line.contains('B')),
+        "the first command must stay on its own line\n{copy}\nwraps={wraps:?}"
     );
     assert!(
-        !copy.contains("A    B") && !copy.contains(&format!("{line_a}{line_b}")),
-        "native copy must not concatenate multiline commands\n{copy}"
+        copy.lines().any(|line| line.contains('B') && !line.contains('A')),
+        "the second command must stay on its own line\n{copy}\nwraps={wraps:?}"
     );
 }
 

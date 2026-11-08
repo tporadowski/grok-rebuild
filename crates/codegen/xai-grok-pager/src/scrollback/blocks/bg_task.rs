@@ -279,29 +279,25 @@ impl BlockContent for BgTaskBlock {
     }
 }
 
-/// Append a soft-wrapped `$ command` block to `lines` (first row prefixed with `$ `, continuations hang-indented under the command body).
+/// Append a `$ command` block. One row per physical line. A long line stays whole so the viewer can wrap it and still copy it as one line.
 fn push_shell_command_preamble_lines(
     lines: &mut Vec<Line<'static>>,
     command: &str,
-    width: usize,
+    _width: usize,
     theme: &Theme,
 ) {
-    use unicode_width::UnicodeWidthStr;
-
-    let prefix = "$ ";
-    let hang = UnicodeWidthStr::width(prefix);
-    let cmd_width = width.saturating_sub(hang).max(1);
-
     let command = if command.trim().is_empty() {
         "\u{2026}"
     } else {
         command
     };
 
+    // Wider than any command, so a width wrap is not baked into the rows. The viewer wraps for display.
     let cmd_rows =
-        crate::views::permission_view::render_bash_command_display_lines(command, cmd_width);
+        crate::views::permission_view::render_bash_command_display_lines(command, usize::MAX);
 
-    let hang_indent: String = " ".repeat(hang);
+    let prefix = "$ ";
+    let hang_indent: String = " ".repeat(prefix.len());
     if cmd_rows.is_empty() {
         lines.push(Line::from(vec![Span::styled(
             prefix.to_string(),
@@ -521,6 +517,26 @@ mod tests {
             !joined.contains("/tmpcd") && !joined.contains("/tmpecho"),
             "newlines must not be dropped: {plain:?}"
         );
+    }
+
+    #[test]
+    fn preamble_long_command_stays_one_line_for_copy() {
+        let command = "echo alpha beta gamma delta epsilon zeta eta theta iota";
+        let block = BgTaskBlock::started(command, "t1");
+        let mut ctx = test_ctx();
+        ctx.width = 20;
+        let text = block.preamble(&ctx).expect("preamble");
+        let plain: Vec<String> = text
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
+        assert_eq!(plain, vec![format!("$ {command}")]);
     }
 
     #[test]

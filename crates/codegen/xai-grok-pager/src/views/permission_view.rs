@@ -899,6 +899,21 @@ pub(crate) fn render_bash_command_display_lines(
     build_raw_bash_lines(command, content_width, usize::MAX)
 }
 
+/// One painted row of a shell command, plus how it joins to the previous row when copied.
+pub(crate) struct BashDisplayRow {
+    pub line: Line<'static>,
+    /// `None` on the first row. A physical newline is `"\n"`. A width wrap is the source text that was not painted, often a space, or empty when the break is mid-token.
+    pub joiner: Option<String>,
+}
+
+/// Same rows as [`render_bash_command_display_lines`], with the copy joiner for each row.
+pub(crate) fn bash_command_display_rows(
+    command: &str,
+    content_width: usize,
+) -> Vec<BashDisplayRow> {
+    build_raw_bash_rows(command, content_width, usize::MAX)
+}
+
 fn build_permission_bash_lines(
     raw: Option<&str>,
     content_width: usize,
@@ -1239,6 +1254,17 @@ fn build_raw_bash_lines(
     content_width: usize,
     max_rows: usize,
 ) -> Vec<Line<'static>> {
+    build_raw_bash_rows(command, content_width, max_rows)
+        .into_iter()
+        .map(|row| row.line)
+        .collect()
+}
+
+fn build_raw_bash_rows(
+    command: &str,
+    content_width: usize,
+    max_rows: usize,
+) -> Vec<BashDisplayRow> {
     let text = prepare_bash_display_text(command);
     if text.is_empty() || max_rows == 0 {
         return Vec::new();
@@ -1256,6 +1282,7 @@ fn build_raw_bash_lines(
 
     let mut out = Vec::new();
     let mut offset = 0usize;
+    let mut any = false;
     for (idx, physical) in text.split('\n').enumerate() {
         if out.len() >= max_rows {
             break;
@@ -1263,30 +1290,48 @@ fn build_raw_bash_lines(
         if idx > 0 {
             offset += 1;
         }
-        let spans = crate::syntax::highlight_line(physical, &mut hl, syntect, fallback);
         if physical.is_empty() {
-            out.push(Line::default());
+            out.push(BashDisplayRow {
+                line: Line::default(),
+                joiner: any.then(|| "\n".to_string()),
+            });
+            any = true;
             continue;
         }
+        let spans = crate::syntax::highlight_line(physical, &mut hl, syntect, fallback);
         debug_assert_eq!(
             spans.iter().map(|s| s.content.as_ref()).collect::<String>(),
             physical,
             "highlight spans must flatten back to the physical line"
         );
-        for row in soft_wrap_row_texts(
+        let wrapped = soft_wrap_row_texts(
             physical,
             offset,
             &full_breaks,
             &heredoc_payload,
             content_width,
             max_rows - out.len(),
-        ) {
-            let start = (row.as_ptr() as usize) - (physical.as_ptr() as usize);
-            out.push(Line::from(slice_highlighted_spans(
-                &spans,
-                start,
-                start + row.len(),
-            )));
+        );
+        let mut cursor = 0usize;
+        for (row_i, row) in wrapped.into_iter().enumerate() {
+            if out.len() >= max_rows {
+                break;
+            }
+            let start = (row.as_ptr() as usize).wrapping_sub(physical.as_ptr() as usize);
+            let end = start.saturating_add(row.len());
+            let joiner = if !any {
+                None
+            } else if row_i == 0 {
+                Some("\n".to_string())
+            } else {
+                Some(physical.get(cursor..start).unwrap_or("").to_string())
+            };
+            any = true;
+            out.push(BashDisplayRow {
+                line: Line::from(slice_highlighted_spans(&spans, start, end)),
+                joiner,
+            });
+            cursor = end;
         }
         offset += physical.len();
     }

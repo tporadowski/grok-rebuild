@@ -231,13 +231,20 @@ impl ExecuteToolCallBlock {
         let hang = extra_indent.saturating_add(prefix_w);
         let cmd_width = width.saturating_sub(hang).max(1);
 
-        let cmd_rows: Vec<Line<'static>> = if muted_command || command == "\u{2026}" {
+        // A width wrap copies back as one line. A physical newline stays a newline.
+        let cmd_rows: Vec<(Line<'static>, Option<String>)> = if muted_command || command == "\u{2026}"
+        {
             let style = theme.muted();
             let flat = command.replace('\n', " ");
             let line = Line::from(Span::styled(flat, style));
-            crate::render::wrapping::word_wrap_lines(std::iter::once(line), cmd_width)
+            let (wrapped, joiners) =
+                word_wrap_lines_with_joiners(std::iter::once(line), cmd_width);
+            wrapped.into_iter().zip(joiners).collect()
         } else {
-            crate::views::permission_view::render_bash_command_display_lines(command, cmd_width)
+            crate::views::permission_view::bash_command_display_rows(command, cmd_width)
+                .into_iter()
+                .map(|row| (row.line, row.joiner))
+                .collect()
         };
 
         let hang_indent: String = " ".repeat(hang);
@@ -250,7 +257,7 @@ impl ExecuteToolCallBlock {
             });
             return;
         }
-        for (i, row) in cmd_rows.into_iter().enumerate() {
+        for (i, (row, joiner)) in cmd_rows.into_iter().enumerate() {
             let mut spans = if i == 0 {
                 prefix_spans.clone()
             } else {
@@ -258,16 +265,16 @@ impl ExecuteToolCallBlock {
             };
             spans.extend(row.spans);
             let total = spans.len();
+            // The hang indent is painted, not part of the command. The joiner restores what the wrap skipped.
             let select_start = if i == 0 {
                 prefix_span_count.min(total)
             } else {
-                0
+                1.min(total)
             };
             lines.push(BlockLine {
                 selectable: Selectable::Spans(select_start..total),
                 selection_range: Some(TOOL_HEADER_RANGE),
-                // Preserve physical/soft-wrap structure as newlines when copying.
-                joiner: if i == 0 { None } else { Some("\n".to_string()) },
+                joiner,
                 content: Line::from(spans),
                 ..Default::default()
             });
@@ -928,11 +935,77 @@ mod tests {
             second.trim_start().starts_with("cargo"),
             "continuation under hang: {second:?}"
         );
-        assert_eq!(
+        assert_ne!(
             nth(&lines, 1).joiner.as_deref(),
             Some("\n"),
-            "copy must preserve line breaks between soft-wrap rows"
+            "a width wrap copies back as one line, not a new command line"
         );
+        let copied = copy_header(&lines);
+        assert_eq!(
+            copied,
+            "git status --short --branch && cargo test --workspace --all-features",
+            "wrapped command must copy as one line, got {copied:?}"
+        );
+    }
+
+    #[test]
+    fn wrapped_shell_command_copies_as_one_line_and_keeps_a_real_newline() {
+        let theme = Theme::current();
+        let one_line = "echo alpha beta gamma delta epsilon zeta eta theta";
+        let mut lines = Vec::new();
+        ExecuteToolCallBlock::new(one_line).push_header_lines(
+            &mut lines,
+            &theme,
+            ExecuteHeaderStyle::Shell,
+            false,
+            24,
+            0,
+            false,
+            true,
+        );
+        assert!(lines.len() >= 2, "command should wrap, got {}", lines.len());
+        assert!(
+            lines.iter().skip(1).all(|line| line.joiner.as_deref() != Some("\n")),
+            "width wraps must not copy as newlines: {:?}",
+            lines.iter().map(|line| line.joiner.clone()).collect::<Vec<_>>()
+        );
+        assert_eq!(copy_header(&lines), one_line);
+
+        let mut lines = Vec::new();
+        ExecuteToolCallBlock::new("echo a\necho b").push_header_lines(
+            &mut lines,
+            &theme,
+            ExecuteHeaderStyle::Shell,
+            false,
+            80,
+            0,
+            false,
+            true,
+        );
+        assert_eq!(copy_header(&lines), "echo a\necho b");
+    }
+
+    fn copy_header(lines: &[BlockLine]) -> String {
+        use crate::scrollback::text_selection::{ActiveTextDrag, RangeHit, SelectionKind};
+        let last = lines.len().saturating_sub(1);
+        let drag = ActiveTextDrag {
+            anchor: RangeHit {
+                entry_idx: 0,
+                range_id: TOOL_HEADER_RANGE,
+                block_line_idx: 0,
+                col_within_range: 0,
+            },
+            head: RangeHit {
+                entry_idx: 0,
+                range_id: TOOL_HEADER_RANGE,
+                block_line_idx: last,
+                col_within_range: u16::MAX,
+            },
+            kind: SelectionKind::Linear,
+            anchor_content_width: None,
+        };
+        crate::scrollback::text_selection::reconstruct_full_selection_text(lines, &drag)
+            .unwrap_or_default()
     }
 
     #[test]
