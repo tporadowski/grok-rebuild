@@ -88,7 +88,9 @@ impl AgentView {
                     }
                     return InputOutcome::Changed;
                 }
-                if let KeyCode::Char(ch @ '1'..='9') = key.code {
+                if let KeyCode::Char(ch @ '1'..='9') = key.code
+                    && key.modifiers.is_empty()
+                {
                     let idx = (ch as u8 - b'1') as usize;
                     if let Some(opt) = perm.options.get(idx) {
                         return InputOutcome::Action(Action::PermissionSelect(
@@ -247,7 +249,7 @@ impl AgentView {
                 };
                 InputOutcome::Action(Action::CancelTurnChoice(choice))
             }
-            KeyCode::Char(c @ '1'..='4') => {
+            KeyCode::Char(c @ '1'..='4') if key.modifiers.is_empty() => {
                 let idx = (c as usize) - ('1' as usize);
                 let Some(&choice) = CancelTurnChoice::ALL.get(idx) else {
                     return InputOutcome::Unchanged;
@@ -1445,7 +1447,9 @@ mod permission_mouse_tests {
     use super::*;
     use crate::app::app_view::InputOutcome;
     use agent_client_protocol as acp;
-    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
     use ratatui::layout::Rect;
     use std::sync::Arc;
     use std::time::Duration;
@@ -1515,6 +1519,68 @@ mod permission_mouse_tests {
             other => panic!("expected PermissionSelect, got {other:?}"),
         }
         assert!(agent.last_permission_click.is_none());
+    }
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+    /// A bare digit still picks the option. Ctrl+\, Ctrl+1, Alt+1, and Shift+1 do not.
+    #[test]
+    fn modified_digits_and_ctrl_backslash_do_not_select_card_options() {
+        let mut agent = make_agent();
+        setup_permission(&mut agent);
+        let selected = agent.handle_permission_key(&key(KeyCode::Char('1'), KeyModifiers::NONE));
+        match selected {
+            InputOutcome::Action(Action::PermissionSelect(id)) => {
+                assert_eq!(id.0.as_ref(), "opt-allow-once");
+            }
+            other => panic!("plain 1 must select the first option, got {other:?}"),
+        }
+        setup_permission(&mut agent);
+        for modifiers in [
+            KeyModifiers::CONTROL,
+            KeyModifiers::ALT,
+            KeyModifiers::SHIFT,
+        ] {
+            let outcome = agent.handle_permission_key(&key(KeyCode::Char('1'), modifiers));
+            assert!(
+                !matches!(outcome, InputOutcome::Action(Action::PermissionSelect(_))),
+                "{modifiers:?}+1 must not select a permission option, got {outcome:?}"
+            );
+        }
+        let backslash =
+            agent.handle_permission_key(&key(KeyCode::Char('\\'), KeyModifiers::CONTROL));
+        assert!(
+            !matches!(backslash, InputOutcome::Action(Action::PermissionSelect(_))),
+            "Ctrl+\\ must not select a permission option, got {backslash:?}"
+        );
+
+        agent.permission_queue.clear();
+        agent.cancel_turn_view = Some(crate::views::modal::CancelTurnViewState {
+            active_idx: 0,
+            running_count: 1,
+        });
+        let selected = agent.handle_cancel_turn_key(&key(KeyCode::Char('1'), KeyModifiers::NONE));
+        assert!(
+            matches!(
+                selected,
+                InputOutcome::Action(Action::CancelTurnChoice(
+                    crate::views::modal::CancelTurnChoice::StopRunning
+                ))
+            ),
+            "plain 1 must pick the first cancel option, got {selected:?}"
+        );
+        for (code, modifiers) in [
+            (KeyCode::Char('1'), KeyModifiers::CONTROL),
+            (KeyCode::Char('4'), KeyModifiers::ALT),
+            (KeyCode::Char('1'), KeyModifiers::SHIFT),
+            (KeyCode::Char('\\'), KeyModifiers::CONTROL),
+        ] {
+            let outcome = agent.handle_cancel_turn_key(&key(code, modifiers));
+            assert!(
+                !matches!(outcome, InputOutcome::Action(Action::CancelTurnChoice(_))),
+                "{modifiers:?}+{code:?} must not pick a cancel option, got {outcome:?}"
+            );
+        }
     }
     #[test]
     fn clicks_on_two_different_rows_select_but_do_not_submit() {
