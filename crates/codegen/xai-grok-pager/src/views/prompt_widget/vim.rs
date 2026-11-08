@@ -46,8 +46,18 @@ impl VimPrompt {
 
 impl PromptWidget {
     /// `NORMAL` / `INSERT` when prompt vim editing is on. Otherwise the info line stays as it is.
-    pub(crate) fn vim_prompt_info_label(&self) -> Option<&'static str> {
+    pub fn vim_prompt_info_label(&self) -> Option<&'static str> {
         vim_editing_enabled().then(|| self.vim_prompt.mode.label())
+    }
+
+    /// Test hook so the minimal info row can paint Normal without the pager key path.
+    pub fn set_vim_prompt_normal_for_test(&mut self, normal: bool) {
+        self.vim_prompt.mode = if normal {
+            VimPromptMode::Normal
+        } else {
+            VimPromptMode::Insert
+        };
+        self.vim_prompt.clear_pending();
     }
 
     /// `Some(true)` in Normal, `Some(false)` in Insert, `None` when prompt vim editing is off.

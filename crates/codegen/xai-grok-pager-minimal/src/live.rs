@@ -7,7 +7,7 @@
 //! When idle the tail is empty and only the status row, the prompt, and any optional panels show.
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Widget};
 use xai_grok_pager::app::PagerTerminal;
@@ -706,6 +706,13 @@ fn render_prompt_info(
             ));
         }
     }
+    if let Some(label) = agent.prompt.vim_prompt_info_label() {
+        let mut style = base;
+        if label == "NORMAL" {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        segs.insert(0, (label.to_string(), style));
+    }
     if queued > 0 {
         segs.push((format!("{queued} queued"), base));
         segs.push(("/queue".to_string(), base));
@@ -1111,6 +1118,72 @@ mod tests {
         assert!(text.contains("/transcript"), "fallback hint: {text:?}");
         assert!(!text.contains("ctrl+o"), "no dead chord: {text:?}");
     }
+    #[test]
+    fn prompt_info_starts_with_the_vim_mode_and_bolds_normal() {
+        use xai_grok_pager::appearance::VimKeys;
+        use xai_grok_pager::appearance::cache::{load_vim_keys, set_vim_keys};
+        struct Guard(VimKeys);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                set_vim_keys(self.0);
+            }
+        }
+        let _guard = Guard(load_vim_keys());
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 80, 1);
+        let paint = |a: &xai_grok_pager::app::agent_view::AgentView| {
+            let mut buf = Buffer::empty(area);
+            render_prompt_info(&mut buf, area, a, 0, "ctrl+o transcript", &theme);
+            buf
+        };
+        let text_of = |buf: &Buffer| -> String {
+            (0..area.width)
+                .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol().to_string()))
+                .collect()
+        };
+        set_vim_keys(VimKeys::Off);
+        let off = paint(&agent());
+        let off_text = text_of(&off);
+        assert!(
+            !off_text.contains("INSERT") && !off_text.contains("NORMAL"),
+            "vim off leaves the row alone: {off_text:?}"
+        );
+
+        set_vim_keys(VimKeys::All);
+        let mut a = agent();
+        let insert = paint(&a);
+        let insert_text = text_of(&insert);
+        assert!(
+            insert_text.trim_start().starts_with("INSERT"),
+            "insert starts the row: {insert_text:?}"
+        );
+        assert!(
+            !insert
+                .cell((0, 0))
+                .unwrap()
+                .modifier
+                .contains(Modifier::BOLD),
+            "INSERT is not bold"
+        );
+        a.prompt.set_vim_prompt_normal_for_test(true);
+        let normal = paint(&a);
+        let normal_text = text_of(&normal);
+        assert!(
+            normal_text.trim_start().starts_with("NORMAL"),
+            "normal starts the row: {normal_text:?}"
+        );
+        for x in 0..6 {
+            assert!(
+                normal
+                    .cell((x, 0))
+                    .unwrap()
+                    .modifier
+                    .contains(Modifier::BOLD),
+                "NORMAL is bold at column {x}"
+            );
+        }
+    }
+
     #[test]
     fn prompt_info_shows_session_mode_flag() {
         let theme = Theme::current();
