@@ -2177,6 +2177,34 @@ mod tests {
     }
 
     #[test]
+    fn double_click_does_not_fold_a_thought_with_no_text() {
+        use crate::scrollback::block::RenderBlock;
+        use crate::scrollback::types::DisplayMode;
+
+        let mut agent = make_agent();
+        agent.scrollback.push_block(RenderBlock::thinking(""));
+        agent
+            .scrollback
+            .push_block(RenderBlock::thinking("  \n\t"));
+        agent
+            .scrollback
+            .push_block(RenderBlock::thinking("look at the parser"));
+
+        let mode = |agent: &AgentView, idx: usize| agent.scrollback.get(idx).unwrap().display_mode();
+        assert_eq!(mode(&agent, 0), DisplayMode::Truncated);
+        double_click_gesture(&mut agent, Instant::now(), 0);
+        assert_eq!(mode(&agent, 0), DisplayMode::Truncated);
+        double_click_gesture(&mut agent, Instant::now(), 1);
+        assert_eq!(mode(&agent, 1), DisplayMode::Truncated);
+        double_click_gesture(
+            &mut agent,
+            Instant::now() + Duration::from_secs(2),
+            2,
+        );
+        assert_eq!(mode(&agent, 2), DisplayMode::Collapsed);
+    }
+
+    #[test]
     fn workflow_double_click_opens_matching_run_id_and_closes_goal_detail() {
         use crate::scrollback::blocks::WorkflowBlock;
         use crate::views::workflows::WorkflowRunSnapshot;

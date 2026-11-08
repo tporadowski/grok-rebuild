@@ -186,6 +186,16 @@ impl MarkdownContent {
         self.state.borrow().renderer.source().is_empty()
     }
 
+    /// Whether the source has a character that is not whitespace.
+    pub fn has_text(&self) -> bool {
+        self.state
+            .borrow()
+            .renderer
+            .source()
+            .chars()
+            .any(|ch| !ch.is_whitespace())
+    }
+
     /// Get the rendered text as plain text (all ratatui styles stripped).
     ///
     /// Useful for copy-to-clipboard in pretty mode.

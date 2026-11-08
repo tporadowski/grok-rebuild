@@ -252,6 +252,192 @@ fn apply_reference_link_rewrites(
     out
 }
 
+/// Turn an ampersand character reference (`&amp;`, `&#38;`, `&#x26;`) into `&`.
+/// Any other entity, including one the decoder does not recognize, stays as written.
+fn decode_ampersand_entities(span: &str) -> String {
+    if !span.contains('&') {
+        return span.to_string();
+    }
+    let bytes = span.as_bytes();
+    let mut out = String::with_capacity(span.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'&'
+            && let Some(end) = (i + 1..bytes.len().min(i + 33)).find(|&j| bytes[j] == b';')
+            && bytes[i + 1..end]
+                .iter()
+                .all(|b| matches!(b, b'#' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'))
+            && let Some(entity) = span.get(i..=end)
+            && let Some(decoded) = decode_html_entity(entity)
+            && decoded == "&"
+        {
+            out.push('&');
+            i = end + 1;
+            continue;
+        }
+        let ch = span[i..].chars().next().unwrap_or('&');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// Byte length of a CommonMark link destination at the start of `src`, including angle brackets.
+fn link_dest_len(src: &str) -> Option<usize> {
+    let bytes = src.as_bytes();
+    if bytes.first() == Some(&b'<') {
+        let end = src[1..].find('>')?;
+        return Some(end + 2);
+    }
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' if i + 1 < bytes.len() => i += 2,
+            b'(' => {
+                depth += 1;
+                i += 1;
+            }
+            b')' if depth == 0 => return Some(i),
+            b')' => {
+                depth -= 1;
+                i += 1;
+            }
+            b' ' | b'\t' | b'\n' | b'\r' if depth == 0 => return Some(i),
+            _ => i += 1,
+        }
+    }
+    (i > 0).then_some(i)
+}
+
+/// Destination of a link reference definition, inside angle brackets when those wrap it.
+fn refdef_dest_range(line: &str) -> Option<std::ops::Range<usize>> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < 3 && bytes.get(i) == Some(&b' ') {
+        i += 1;
+    }
+    if bytes.get(i) != Some(&b'[') {
+        return None;
+    }
+    let close = line[i + 1..].find("]:")?;
+    let mut dest_start = i + 1 + close + 2;
+    while line[dest_start..]
+        .chars()
+        .next()
+        .is_some_and(|ch| ch == ' ' || ch == '\t')
+    {
+        dest_start += 1;
+    }
+    if dest_start >= line.len() {
+        return None;
+    }
+    let len = link_dest_len(&line[dest_start..])?;
+    let mut range = dest_start..dest_start + len;
+    if line[range.clone()].starts_with('<')
+        && line[range.clone()].ends_with('>')
+        && range.len() >= 2
+    {
+        range = range.start + 1..range.end - 1;
+    }
+    Some(range)
+}
+
+fn is_quote_fence_line(line: &str) -> bool {
+    let rest = line.trim_start_matches(' ');
+    if line.len() - rest.len() > 3 || rest.len() < 3 {
+        return false;
+    }
+    let fence = rest.as_bytes()[0];
+    if fence != b'`' && fence != b'~' {
+        return false;
+    }
+    rest.as_bytes().iter().take_while(|b| **b == fence).count() >= 3
+}
+
+/// `&` inside a copied link destination stays `&`. Prose, link text, and fenced code are unchanged.
+fn preserve_ampersands_in_link_dests(src: &str) -> String {
+    if !src.contains('&') {
+        return src.to_string();
+    }
+    let mut out = String::with_capacity(src.len());
+    let mut in_fence = false;
+    for line in src.split_inclusive('\n') {
+        let (core, newline) = match line.strip_suffix('\n') {
+            Some(core) => (core, "\n"),
+            None => (line, ""),
+        };
+        let core = core.strip_suffix('\r').unwrap_or(core);
+        if is_quote_fence_line(core) {
+            in_fence = !in_fence;
+            out.push_str(core);
+            out.push_str(newline);
+            continue;
+        }
+        if in_fence {
+            out.push_str(core);
+            out.push_str(newline);
+            continue;
+        }
+        let mut ranges = Vec::new();
+        if let Some(range) = refdef_dest_range(core) {
+            ranges.push(range);
+        }
+        let bytes = core.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b']'
+                && bytes.get(i + 1) == Some(&b'(')
+                && let Some(len) = link_dest_len(&core[i + 2..])
+            {
+                let start = i + 2;
+                let mut range = start..start + len;
+                if core[range.clone()].starts_with('<')
+                    && core[range.clone()].ends_with('>')
+                    && range.len() >= 2
+                {
+                    range = range.start + 1..range.end - 1;
+                }
+                ranges.push(range);
+                i = start + len;
+                continue;
+            }
+            if bytes[i] == b'<' {
+                let rest = &core[i + 1..];
+                if rest.starts_with("https://")
+                    || rest.starts_with("http://")
+                    || rest.starts_with("mailto:")
+                {
+                    if let Some(end) = rest.find('>') {
+                        ranges.push(i + 1..i + 1 + end);
+                        i = i + 1 + end + 1;
+                        continue;
+                    }
+                }
+            }
+            let step = core[i..]
+                .chars()
+                .next()
+                .map(|ch| ch.len_utf8())
+                .unwrap_or(1);
+            i += step;
+        }
+        ranges.sort_by_key(|range| range.start);
+        let mut pos = 0;
+        for range in ranges {
+            if range.start < pos || range.end > core.len() {
+                continue;
+            }
+            out.push_str(&core[pos..range.start]);
+            out.push_str(&decode_ampersand_entities(&core[range.clone()]));
+            pos = range.end;
+        }
+        out.push_str(&core[pos..]);
+        out.push_str(newline);
+    }
+    out
+}
+
 /// Drop one blockquote marker from each line: up to three leading spaces, a `>`, and one following space.
 /// A nested quote keeps its own marker. A line with no marker is left as written.
 fn strip_one_blockquote_level(source: &str) -> String {
@@ -1454,7 +1640,9 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                 let end = range.end.max(start);
                 if let Some(src) = self.text.get(start..end) {
                     let rewritten = apply_reference_link_rewrites(src, start, &self.quote_ref_rewrites);
-                    let body = strip_one_blockquote_level(&rewritten);
+                    let body = preserve_ampersands_in_link_dests(&strip_one_blockquote_level(
+                        &rewritten,
+                    ));
                     if !body.trim().is_empty() {
                         self.buffers.quotes.push(crate::buffers::QuoteMeta {
                             body,

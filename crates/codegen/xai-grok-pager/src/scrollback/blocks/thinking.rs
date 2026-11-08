@@ -526,7 +526,8 @@ impl BlockContent for ThinkingBlock {
     }
 
     fn is_foldable(&self) -> bool {
-        true
+        // A header with no thought has nothing to open. Folding it only adds an expand hint.
+        self.content.has_text()
     }
 
     fn next_fold_mode(&self, current: DisplayMode, is_running: bool) -> DisplayMode {

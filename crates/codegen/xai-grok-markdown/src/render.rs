@@ -3323,6 +3323,38 @@ mod quote_math_line_tests {
     }
 
     #[test]
+    fn quote_copy_keeps_ampersands_in_links() {
+        let src = "> See [docs](https://example.com/search?q=a&amp;lang=en) and [ref][].\n>\n> [ref]: https://example.com/q?x=1&#38;y=2\n>\n> Tom &amp; Jerry\n>\n> ```\n> https://example.com/?a=1&amp;b=2\n> ```\n>\n> <https://example.com/auto?a=1&amp;b=2>\n";
+        let (out, _) = render_markdown_ratatui_full(src, test_style::STYLE, true, None);
+        assert_eq!(out.quotes.len(), 1, "{:?}", out.quotes);
+        let body = &out.quotes[0].body;
+        assert!(
+            body.contains("[docs](https://example.com/search?q=a&lang=en)"),
+            "inline dest: {body:?}"
+        );
+        assert!(
+            body.contains("[ref](https://example.com/q?x=1&y=2)"),
+            "reference dest: {body:?}"
+        );
+        assert!(
+            body.contains("[ref]: https://example.com/q?x=1&y=2"),
+            "definition dest: {body:?}"
+        );
+        assert!(
+            body.contains("<https://example.com/auto?a=1&b=2>"),
+            "autolink: {body:?}"
+        );
+        assert!(
+            body.contains("Tom &amp; Jerry"),
+            "prose entity stays: {body:?}"
+        );
+        assert!(
+            body.contains("https://example.com/?a=1&amp;b=2"),
+            "code stays literal: {body:?}"
+        );
+    }
+
+    #[test]
     fn quote_copy_turns_a_reference_link_into_an_inline_link() {
         let src = "> See [the docs][docs].\n>\n> [docs]: https://example.com/docs\n";
         let (out, _) = render_markdown_ratatui_full(src, test_style::STYLE, true, None);
