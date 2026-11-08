@@ -1223,6 +1223,8 @@ pub struct AgentView {
     pub(crate) typeahead_into_prompt: bool,
     /// Hit area for the [Esc] close button in the /btw panel title.
     pub(crate) hit_btw_close: HitArea,
+    /// Hit area for `[Copy]` on a finished `/btw` panel. Copies the whole answer.
+    pub(crate) hit_btw_copy: HitArea,
     /// Toast message to display briefly (e.g., "Copied!" after y).
     /// Tuple of (message, remaining_ticks). Decremented each tick, removed at 0.
     /// Does **not** carry sticky status banners; see [`Self::sticky_toast`].

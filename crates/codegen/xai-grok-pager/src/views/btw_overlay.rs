@@ -51,6 +51,14 @@ impl BtwOverlayState {
         }
     }
 
+    /// The finished answer's source. A scrolled panel still returns every line, not the visible slice.
+    pub fn answer_text(&self) -> Option<String> {
+        match self {
+            Self::Done { content, .. } => Some(content.text()),
+            Self::Loading { .. } | Self::Error { .. } => None,
+        }
+    }
+
     pub fn question(&self) -> &str {
         match self {
             Self::Loading { question }
@@ -215,8 +223,13 @@ pub fn render_btw_panel(
     media_paths: &[std::path::PathBuf],
     // Session cwd for resolving relative markdown link targets to on-disk files.
     cwd: Option<&std::path::Path>,
+    // Hit area for `[Copy]` on a finished answer. `None` still paints the button.
+    hit_copy: Option<&mut crate::app::agent_view::HitArea>,
 ) {
     if area.width < 12 || area.height < 3 {
+        if let Some(hit) = hit_copy {
+            hit.clear();
+        }
         return;
     }
     let theme = Theme::current();
@@ -290,11 +303,29 @@ pub fn render_btw_panel(
         hint_x = (area.x + area.width).saturating_sub(1 + hint_w);
     }
 
+    // A finished answer keeps `[Copy]` on the top border, left of `[Esc]`. It copies the whole
+    // answer, including lines the panel has scrolled out of view. A narrow panel drops it rather
+    // than covering the question or the close control.
+    let mut title_limit_x = hint_x;
+    let copy_button = if matches!(state, BtwOverlayState::Done { .. }) {
+        let copy_label = " [Copy] ";
+        let copy_w = copy_label.width() as u16;
+        let copy_x = hint_x.saturating_sub(copy_w);
+        if copy_w > 0 && copy_x >= title_x && copy_x.saturating_add(copy_w) <= hint_x {
+            title_limit_x = copy_x;
+            Some((copy_x, copy_w, copy_label))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Reserve the hint's columns so a long question truncates instead of hiding the hint
-    // The title may use everything left of `hint_x`, minus its own two padding spaces
+    // The title may use everything left of the copy button (or the hint), minus its own padding
     let question = state.question();
     let title_prefix = "/btw ";
-    let max_title = hint_x.saturating_sub(title_x).saturating_sub(2) as usize;
+    let max_title = title_limit_x.saturating_sub(title_x).saturating_sub(2) as usize;
     let title_style = Style::default()
         .fg(theme.accent_user)
         .bg(bg)
@@ -319,7 +350,7 @@ pub fn render_btw_panel(
     let title_text = format!(" {truncated} ");
     let title_line = Line::from(Span::styled(title_text.clone(), title_style));
     // Clamp the paint width so the title can never bleed into the hint region, even in degenerate narrow layouts
-    let title_render_w = (title_text.width() as u16).min(hint_x.saturating_sub(title_x));
+    let title_render_w = (title_text.width() as u16).min(title_limit_x.saturating_sub(title_x));
     buf.set_line(title_x, area.y, &title_line, title_render_w);
 
     if hint_w > 0 && hint_x >= title_x {
@@ -344,6 +375,30 @@ pub fn render_btw_panel(
             }));
         }
     } else if let Some(hit) = hit_close {
+        hit.clear();
+    }
+
+    if let Some((copy_x, copy_w, copy_label)) = copy_button {
+        let is_hovered = hit_copy.as_ref().is_some_and(|hit| hit.hovered);
+        let copy_style = if is_hovered {
+            Style::default()
+                .fg(theme.text_primary)
+                .bg(bg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.gray).bg(bg)
+        };
+        let copy_line = Line::from(Span::styled(copy_label, copy_style));
+        buf.set_line(copy_x, area.y, &copy_line, copy_w);
+        if let Some(hit) = hit_copy {
+            hit.set(Some(Rect {
+                x: copy_x,
+                y: area.y,
+                width: copy_w,
+                height: 1,
+            }));
+        }
+    } else if let Some(hit) = hit_copy {
         hit.clear();
     }
 
@@ -500,6 +555,7 @@ mod tests {
             None,
             &[],
             None,
+            None,
         );
         model
     }
@@ -519,6 +575,7 @@ mod tests {
             &mut model,
             None,
             &[],
+            None,
             None,
         );
         buf
@@ -550,6 +607,7 @@ mod tests {
             &mut model,
             Some(&mut links),
             &[],
+            None,
             None,
         );
         (model, links)
@@ -1056,6 +1114,53 @@ mod tests {
         );
     }
 
+    /// `[Copy]` on a finished panel copies the source, including lines the viewport has scrolled away.
+    #[test]
+    fn finished_panel_copy_button_holds_the_scrolled_off_answer() {
+        let response = hard_break_lines(20);
+        let state = done_with_scroll(&response, 100);
+        let width = 60;
+        let height = 6;
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        let mut model = ResolvedSelectionModel::default();
+        let mut close = crate::app::agent_view::HitArea::default();
+        let mut copy = crate::app::agent_view::HitArea::default();
+        render_btw_panel(
+            &mut buf,
+            &state,
+            area,
+            0,
+            false,
+            Some(&mut close),
+            &mut model,
+            None,
+            &[],
+            None,
+            Some(&mut copy),
+        );
+        let top = row_text(&buf, width, 0);
+        assert!(top.contains("[Copy]"), "{top}");
+        assert!(top.contains("[Esc]"), "{top}");
+        let body: String = (1..height.saturating_sub(1))
+            .map(|y| row_text(&buf, width, y))
+            .collect();
+        assert!(
+            !body.contains("line00"),
+            "the first answer line is scrolled off: {body}"
+        );
+        assert!(body.contains("line19"), "the last line stays visible: {body}");
+        let copied = state.answer_text().expect("finished answer");
+        assert!(copied.contains("line00"), "{copied}");
+        assert!(copied.contains("line19"), "{copied}");
+        assert_eq!(copied, response);
+        let copy_rect = copy.rect.expect("copy hit");
+        let close_rect = close.rect.expect("esc hit");
+        assert_eq!(copy_rect.y, 0);
+        assert!(copy_rect.x + copy_rect.width <= close_rect.x);
+        assert!(close_rect.x + close_rect.width <= width);
+    }
+
     /// The clickable [Esc] hit area is still registered even when the question is long enough to force truncation.
     #[test]
     fn long_question_still_registers_esc_hit_area() {
@@ -1076,6 +1181,7 @@ mod tests {
             &mut model,
             None,
             &[],
+            None,
             None,
         );
         let rect = hit

@@ -365,6 +365,7 @@ impl AgentView {
             btw_focused: false,
             typeahead_into_prompt: false,
             hit_btw_close: Default::default(),
+            hit_btw_copy: Default::default(),
             toast: None,
             ephemeral_tip: Default::default(),
             word_select_tip_prompt_snapshot: None,

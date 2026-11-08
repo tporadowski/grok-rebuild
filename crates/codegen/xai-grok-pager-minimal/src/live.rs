@@ -351,6 +351,7 @@ pub fn draw_live(app: &mut AppView, terminal: &mut PagerTerminal, ctx: &Terminal
                     None,
                     &[],
                     None,
+                    None,
                 );
                 agent.last_btw_area = btw_area;
             }

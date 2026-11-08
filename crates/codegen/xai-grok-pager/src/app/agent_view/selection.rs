@@ -3796,6 +3796,7 @@ mod tests {
             None,
             &[],
             None,
+            None,
         );
         agent.last_btw_selection_model = model;
     }

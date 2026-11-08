@@ -521,6 +521,20 @@ impl AgentView {
         if self.btw_state.is_some()
             && let Event::Mouse(mouse) = ev
             && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+            && self.hit_btw_copy.contains(mouse.column, mouse.row)
+        {
+            if let Some(text) = self
+                .btw_state
+                .as_ref()
+                .and_then(crate::views::btw_overlay::BtwOverlayState::answer_text)
+            {
+                self.copy_to_clipboard(&text);
+            }
+            return InputOutcome::Changed;
+        }
+        if self.btw_state.is_some()
+            && let Event::Mouse(mouse) = ev
+            && matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
             && self.hit_btw_close.contains(mouse.column, mouse.row)
         {
             return self.dismiss_btw_panel();
@@ -528,7 +542,8 @@ impl AgentView {
         if self.btw_state.is_some()
             && let Event::Mouse(mouse) = ev
             && matches!(mouse.kind, MouseEventKind::Moved)
-            && self.hit_btw_close.update_hover(mouse.column, mouse.row)
+            && (self.hit_btw_copy.update_hover(mouse.column, mouse.row)
+                || self.hit_btw_close.update_hover(mouse.column, mouse.row))
         {
             return InputOutcome::Changed;
         }

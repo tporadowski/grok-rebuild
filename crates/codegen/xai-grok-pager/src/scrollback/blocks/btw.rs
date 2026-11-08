@@ -5,6 +5,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
 use crate::scrollback::block::BlockContent;
+use crate::scrollback::code_copy::CodeCopyAffordance;
 use crate::scrollback::types::{AccentStyle, BlockContext, BlockLine, BlockOutput, DisplayMode};
 use crate::theme::Theme;
 
@@ -55,7 +56,7 @@ impl BlockContent for BtwBlock {
 
         let mut lines = vec![BlockLine::styled(header).with_selection_range(Some(0))];
 
-        // Collapsed: header only. Expanded: header, then separator, then markdown body.
+        // Collapsed: header, then a `[Copy]` row for the whole answer. Expanded: header, separator, markdown body.
         if !is_collapsed {
             lines.push(BlockLine::separator(Line::from("")));
             let body = self.content.output(ctx.width as usize);
@@ -63,9 +64,27 @@ impl BlockContent for BtwBlock {
                 bl.selection_range = Some(0);
                 lines.push(bl);
             }
+        } else {
+            let style = Style::default().fg(theme.gray);
+            lines.push(BlockLine::separator(Line::from(Span::styled(
+                "[Copy]",
+                style,
+            ))));
         }
 
         BlockOutput { lines }
+    }
+
+    fn code_copy_affordances(&self, ctx: &BlockContext) -> Vec<CodeCopyAffordance> {
+        // The folded row hides the answer. The button copies the source, not the one visible header.
+        if ctx.mode != DisplayMode::Collapsed {
+            return Vec::new();
+        }
+        vec![CodeCopyAffordance {
+            row_offset: 1,
+            label: "[Copy]".to_string(),
+            body: self.content.text(),
+        }]
     }
 
     fn accent(&self, _ctx: &BlockContext) -> Option<AccentStyle> {
@@ -94,5 +113,55 @@ impl BlockContent for BtwBlock {
 
     fn default_display_mode(&self) -> DisplayMode {
         DisplayMode::Collapsed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scrollback::types::line_plain_text;
+
+    fn context(mode: DisplayMode) -> BlockContext {
+        BlockContext {
+            width: 80,
+            mode,
+            is_running: false,
+            raw: false,
+            max_lines: None,
+            appearance: Default::default(),
+            is_selected: false,
+            cwd: None,
+        }
+    }
+
+    fn plain(block: &BtwBlock, mode: DisplayMode) -> String {
+        block
+            .output(&context(mode))
+            .lines
+            .iter()
+            .map(|line| line_plain_text(&line.content))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn folded_row_copy_button_holds_the_whole_answer() {
+        let answer = "visible lead\n\nHIDDEN_ANSWER_TOKEN sits past the fold\n";
+        let block = BtwBlock::new("what changed", answer);
+        let folded = plain(&block, DisplayMode::Collapsed);
+        assert_eq!(folded, "/btw what changed\n[Copy]");
+        assert!(!folded.contains("HIDDEN_ANSWER_TOKEN"));
+        let affordances = block.code_copy_affordances(&context(DisplayMode::Collapsed));
+        assert_eq!(affordances.len(), 1);
+        assert_eq!(affordances[0].row_offset, 1);
+        assert_eq!(affordances[0].label, "[Copy]");
+        assert_eq!(affordances[0].clipboard_text(), answer);
+        let expanded = plain(&block, DisplayMode::Expanded);
+        assert!(expanded.contains("HIDDEN_ANSWER_TOKEN"), "{expanded}");
+        assert!(
+            block
+                .code_copy_affordances(&context(DisplayMode::Expanded))
+                .is_empty()
+        );
     }
 }

@@ -1942,6 +1942,7 @@ impl AgentView {
                 Some(&mut btw_links),
                 &self.media_link_paths,
                 self.scrollback.cwd(),
+                Some(&mut self.hit_btw_copy),
             );
             self.last_btw_area = layout.btw;
             if !btw_links.is_empty() {
@@ -1982,6 +1983,7 @@ impl AgentView {
             }
         } else {
             self.hit_btw_close.clear();
+            self.hit_btw_copy.clear();
         }
         if let Some(idx) = self.highlighted_link_idx {
             if self.visible_link_map.is_empty() {
