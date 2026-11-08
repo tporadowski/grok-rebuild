@@ -1149,6 +1149,51 @@ fn resolve_location_input_expands_and_joins() {
     assert_eq!(resolve_location_input("~/x", &cwd), Some(home.join("x")));
     assert_eq!(resolve_location_input("   ", &cwd), None);
 }
+
+/// `/cd` and a typed picker query accept a quoted or backslash-escaped folder.
+/// `~` still expands after the quotes come off. A leading `\~` stays a literal name.
+#[test]
+fn resolve_location_input_accepts_quoted_and_escaped_paths() {
+    let cwd = PathBuf::from("/work/dir");
+    assert_eq!(
+        resolve_location_input("\"/tmp/my dir\"", &cwd),
+        Some(PathBuf::from("/tmp/my dir"))
+    );
+    assert_eq!(
+        resolve_location_input("  '/tmp/my dir'  ", &cwd),
+        Some(PathBuf::from("/tmp/my dir"))
+    );
+    assert_eq!(
+        resolve_location_input("/tmp/my\\ dir", &cwd),
+        Some(PathBuf::from("/tmp/my dir"))
+    );
+    assert_eq!(
+        resolve_location_input("\"sub/dir\"", &cwd),
+        Some(PathBuf::from("/work/dir/sub/dir"))
+    );
+    let home = xai_dirs::home_dir().expect("home dir");
+    assert_eq!(
+        resolve_location_input("\"~/My Documents\"", &cwd),
+        Some(home.join("My Documents"))
+    );
+    assert_eq!(resolve_location_input("'~/x'", &cwd), Some(home.join("x")));
+    // Single quotes keep backslashes. An unclosed quote stays in the text.
+    assert_eq!(
+        resolve_location_input("'/tmp/my\\ dir'", &cwd),
+        Some(PathBuf::from("/tmp/my\\ dir"))
+    );
+    assert_eq!(
+        resolve_location_input("\"/tmp/my dir", &cwd),
+        Some(cwd.join("\"/tmp/my dir"))
+    );
+    // `\~` is a literal tilde, not home.
+    assert_eq!(
+        resolve_location_input("\\~folder", &cwd),
+        Some(cwd.join("~folder"))
+    );
+    assert_eq!(resolve_location_input("\"\"", &cwd), None);
+    assert_eq!(resolve_location_input("''", &cwd), None);
+}
 #[test]
 fn open_location_picker_without_dashboard_is_noop() {
     let mut app = test_app();
@@ -1250,6 +1295,30 @@ async fn dashboard_change_location_invalid_keeps_cwd_and_sets_error() {
         .as_ref()
         .expect("picker stays open on error");
     assert!(lp.error.is_some(), "an inline error must be set");
+}
+
+/// A quoted folder with a space is the same change as the path with the quotes removed.
+#[tokio::test]
+async fn dashboard_change_location_quoted_path_resolves() {
+    let mut app = test_app();
+    app.active_view = ActiveView::AgentDashboard;
+    app.dashboard = Some(crate::views::dashboard::DashboardState::new());
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("my dir");
+    std::fs::create_dir(&dir).unwrap();
+    let target = dunce::canonicalize(&dir).unwrap_or(dir);
+    let effects = dispatch(
+        Action::DashboardChangeLocation {
+            input: format!("\"{}\"", target.display()),
+        },
+        &mut app,
+    );
+    assert_eq!(app.cwd, target);
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::SetWorkingDir { path } if path == &target))
+    );
 }
 /// Applying a git-repo location with the picker's worktree toggle on arms
 /// the dashboard's worktree dispatch so it survives the modal closing.

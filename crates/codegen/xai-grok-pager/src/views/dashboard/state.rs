@@ -809,20 +809,21 @@ impl LocationPickerState {
     }
 
     /// Whether the current query should be treated as a filesystem path (directory completion) rather than a fuzzy filter over recents.
+    /// Quotes and Unix `\` escapes are removed first, so `"~/x"` and `/tmp/my\ dir` enter path mode.
     pub fn query_is_path(&self) -> bool {
-        let q = self.picker.query();
+        let (q, expand_tilde) = unescape_location_path(self.picker.query());
         q.starts_with('/')
-            || q.starts_with('~')
+            || (expand_tilde && q.starts_with('~'))
             || q.contains('/')
             // Windows: native absolute paths (`C:\…`) and backslash separators
             // Gated so a literal backslash in a Unix filename never forces path mode on non-Windows hosts
-            || (cfg!(windows) && (q.contains('\\') || has_windows_drive_prefix(q)))
+            || (cfg!(windows) && (q.contains('\\') || has_windows_drive_prefix(&q)))
     }
 
     /// Split a path-mode query into the `(parent_dir, partial_name)` to complete: everything up to the
     /// last separator resolves to a directory, and the trailing segment is the prefix to match.
     fn path_query_parts(&self) -> (PathBuf, String) {
-        let q = self.picker.query();
+        let (q, expand_tilde) = unescape_location_path(self.picker.query());
         // Last path separator: `/` always; `\` additionally on Windows.
         let sep = match (q.rfind('/'), cfg!(windows).then(|| q.rfind('\\')).flatten()) {
             (Some(a), Some(b)) => Some(a.max(b)),
@@ -830,16 +831,23 @@ impl LocationPickerState {
         };
         match sep {
             Some(i) => {
-                let parent = resolve_dir_prefix(q.get(..=i).unwrap_or(q), &self.base_cwd);
+                let parent = resolve_dir_prefix(
+                    q.get(..=i).unwrap_or(&q),
+                    &self.base_cwd,
+                    expand_tilde,
+                );
                 (parent, q.get(i + 1..).unwrap_or("").to_owned())
             }
-            // No separator: a bare `~` (or `~name`) lists home; on Windows a bare drive (`C:`) lists that drive's root
+            // No separator: a bare `~` (or `~name`) lists home; on Windows a bare drive (`C:`) lists that drive's root.
+            // A leading `\~` is a literal tilde name, completed against the cwd instead of home.
             None => {
-                if cfg!(windows) && has_windows_drive_prefix(q) && q.len() == 2 {
+                if cfg!(windows) && has_windows_drive_prefix(&q) && q.len() == 2 {
                     (PathBuf::from(format!("{q}\\")), String::new())
-                } else {
+                } else if expand_tilde && q.starts_with('~') {
                     let home = xai_dirs::home_dir().unwrap_or_else(|| self.base_cwd.clone());
                     (home, q.trim_start_matches('~').to_string())
+                } else {
+                    (self.base_cwd.clone(), q)
                 }
             }
         }
@@ -923,9 +931,57 @@ fn has_windows_drive_prefix(s: &str) -> bool {
     matches!(b, [drive, b':', ..] if drive.is_ascii_alphabetic())
 }
 
+/// Unquote a `/cd` or location-picker path before `~` expansion.
+///
+/// A matching outer `"` or `'` pair is removed. On Unix, `\` in a double-quoted or unquoted path
+/// escapes the next character, so `\ ` is a space. Inside `'`, and on Windows where `\` is a
+/// separator, backslashes stay. An unclosed quote is left as typed.
+///
+/// The bool is whether a leading `~` should expand. It is false when the text before backslash
+/// processing starts with `\~`, so that tilde is a literal name and not the home directory.
+pub(crate) fn unescape_location_path(input: &str) -> (String, bool) {
+    let s = input.trim();
+    if s.len() >= 2 {
+        let quote = s.as_bytes()[0];
+        if (quote == b'"' || quote == b'\'') && s.as_bytes()[s.len() - 1] == quote {
+            let inner = &s[1..s.len() - 1];
+            if quote == b'\'' || cfg!(windows) {
+                return (inner.to_string(), true);
+            }
+            return (
+                unescape_location_backslashes(inner),
+                !inner.starts_with("\\~"),
+            );
+        }
+    }
+    if cfg!(windows) {
+        return (s.to_string(), true);
+    }
+    (
+        unescape_location_backslashes(s),
+        !s.starts_with("\\~"),
+    )
+}
+
+fn unescape_location_backslashes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some(next) => out.push(next),
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Resolve a path-prefix ending in a separator (e.g. `~/src/`, `/etc/`, `../`, or on Windows `C:\Users\`) to an absolute directory.
-/// `~` expands to home; relative prefixes join `base`.
-fn resolve_dir_prefix(prefix: &str, base: &Path) -> PathBuf {
+/// `~` expands to home when `expand_tilde` is set; relative prefixes join `base`.
+fn resolve_dir_prefix(prefix: &str, base: &Path, expand_tilde: bool) -> PathBuf {
     // Strip trailing separators; `/` always, `\` additionally on Windows
     let trimmed = if cfg!(windows) {
         prefix.trim_end_matches(['/', '\\'])
@@ -946,7 +1002,7 @@ fn resolve_dir_prefix(prefix: &str, base: &Path) -> PathBuf {
         } else {
             PathBuf::from(trimmed)
         }
-    } else if trimmed == "~" || prefix.starts_with("~/") {
+    } else if expand_tilde && (trimmed == "~" || prefix.starts_with("~/")) {
         let rest = trimmed.trim_start_matches('~').trim_start_matches('/');
         let mut home = xai_dirs::home_dir().unwrap_or_else(|| base.to_path_buf());
         if !rest.is_empty() {

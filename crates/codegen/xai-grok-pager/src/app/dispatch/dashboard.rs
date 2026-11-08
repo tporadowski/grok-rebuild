@@ -804,22 +804,23 @@ fn location_picker_label(path: &std::path::Path) -> String {
     let raw = path.file_name().and_then(|n| n.to_str()).unwrap_or("/");
     crate::render::line_utils::truncate_str(raw, 30)
 }
-/// Resolve a raw location-picker / `/cd` path string to an absolute path, expanding a leading `~` and joining relative paths against `cwd`.
-/// Returns `None` for empty input or when `~` can't be expanded. The caller validates that the result is a directory.
+/// Resolve a raw location-picker / `/cd` path string to an absolute path.
+///
+/// Quotes and Unix `\` escapes are removed first ([`unescape_location_path`](crate::views::dashboard::state::unescape_location_path)), then a leading `~` or `~/` expands and a relative path joins `cwd`. A leading `\~` stays literal. Returns `None` for empty input (including `""` and `''`) or when `~` can't be expanded. The caller validates that the result is a directory.
 pub(super) fn resolve_location_input(
     input: &str,
     cwd: &std::path::Path,
 ) -> Option<std::path::PathBuf> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
+    let (text, expand_tilde) = crate::views::dashboard::state::unescape_location_path(input);
+    if text.is_empty() {
         return None;
     }
-    let expanded: std::path::PathBuf = if trimmed == "~" {
+    let expanded: std::path::PathBuf = if expand_tilde && text == "~" {
         xai_dirs::home_dir()?
-    } else if let Some(rest) = trimmed.strip_prefix("~/") {
-        xai_dirs::home_dir()?.join(rest)
+    } else if expand_tilde && text.starts_with("~/") {
+        xai_dirs::home_dir()?.join(&text[2..])
     } else {
-        std::path::PathBuf::from(trimmed)
+        std::path::PathBuf::from(&text)
     };
     if expanded.is_absolute() {
         Some(expanded)

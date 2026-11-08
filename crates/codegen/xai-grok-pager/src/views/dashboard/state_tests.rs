@@ -6180,14 +6180,34 @@ fn location_visible_filters_recents_by_substring() {
 #[test]
 fn location_query_is_path_detection() {
     let mut lp = location_picker(vec![]);
-    for q in ["/abs", "~/x", "rel/sub", "~"] {
+    for q in ["/abs", "~/x", "rel/sub", "~", "\"~/x\"", "\"~\"", "'/abs'"] {
         lp.picker.set_query(q);
         assert!(lp.query_is_path(), "`{q}` should be path mode");
     }
-    for q in ["", "alpha", "bet"] {
+    for q in ["", "alpha", "bet", "\"alpha\"", "\\~plain"] {
         lp.picker.set_query(q);
         assert!(!lp.query_is_path(), "`{q}` should be recents mode");
     }
+}
+
+/// A quoted or backslash-escaped directory is listed from the real parent, not the quote character.
+#[test]
+fn location_path_completion_unquotes_before_listing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("my dir");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::create_dir(dir.join("child")).unwrap();
+    let mut lp = location_picker(vec![]);
+
+    lp.picker.set_query(format!("\"{}/\"", dir.display()));
+    assert!(lp.query_is_path());
+    lp.refresh_suggestions();
+    assert_eq!(visible_labels(&lp), vec!["child"]);
+
+    let escaped = format!("{}/", dir.display().to_string().replace(' ', "\\ "));
+    lp.picker.set_query(escaped);
+    lp.refresh_suggestions();
+    assert_eq!(visible_labels(&lp), vec!["child"]);
 }
 
 /// Windows drive-prefix detection is platform-independent (the
