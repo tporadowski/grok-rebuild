@@ -247,6 +247,24 @@ fn refuse_on_failed_tab(agent: &mut AgentView, minimal: bool) -> bool {
     true
 }
 
+/// `/exit` in a dashboard details view closes that session and returns to the dashboard.
+/// The same text outside that view still quits Grok.
+fn close_dashboard_details_or_quit(app: &mut AppView) -> Vec<Effect> {
+    let in_details = matches!(
+        app.active_view,
+        ActiveView::Agent(id)
+            if app
+                .dashboard
+                .as_ref()
+                .is_some_and(|dashboard| dashboard.attached_agent == Some(id))
+    );
+    if in_details {
+        super::dashboard::dispatch_dashboard_overlay_stop(app)
+    } else {
+        dispatch(Action::Quit, app)
+    }
+}
+
 pub(super) fn dispatch_send_prompt(app: &mut AppView, text: String) -> Vec<Effect> {
     crate::unified_log::info(
         "prompt.enqueue",
@@ -1055,6 +1073,13 @@ pub(super) fn dispatch_send_prompt_submission(
                 ));
                 return effects;
             }
+            CommandResult::Action(Action::Quit) => {
+                if consume_input {
+                    agent.prompt.set_text("");
+                }
+                effects.extend(close_dashboard_details_or_quit(app));
+                return effects;
+            }
             CommandResult::Action(mut action) => {
                 match &mut action {
                     Action::SendFeedback { images, .. } => {
@@ -1150,7 +1175,7 @@ pub(super) fn dispatch_send_prompt_submission(
         if consume_input {
             agent.prompt.set_text("");
         }
-        effects.extend(dispatch(Action::Quit, app));
+        effects.extend(close_dashboard_details_or_quit(app));
         return effects;
     } else {
         // Server-authoritative immediate send (plain prompt only)

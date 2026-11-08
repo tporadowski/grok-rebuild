@@ -4824,6 +4824,49 @@ fn dashboard_overlay_stop_closes_session_and_returns_to_dashboard() {
         Some(format!("{} Session closed", crate::glyphs::check_mark()).as_str()),
     );
 }
+/// `/exit` and its aliases in the dashboard details view close that session and stay in Grok.
+#[serial_test::serial(GROK_AGENT_DASHBOARD)]
+#[test]
+fn dashboard_details_exit_closes_only_that_session() {
+    for text in ["/exit", "/quit", "exit", ":q", ":wq"] {
+        let mut app = test_app_with_agent();
+        mark_agent_nonempty(&mut app, AgentId(0));
+        let id2 = AgentId(1);
+        let session2 = make_test_agent_session(&app, id2, "second");
+        let mut agent2 = AgentView::new(session2, ScrollbackState::new());
+        agent2.generated_session_title = Some("Second".into());
+        app.agents.insert(id2, agent2);
+        open_dashboard(&mut app);
+        let id = AgentId(0);
+        let _ = dispatch_dashboard_attach(
+            &mut app,
+            crate::views::dashboard::DashboardRowId::TopLevel(id),
+        );
+        let effects = dispatch(Action::SendPrompt(text.to_owned()), &mut app);
+        assert!(
+            !effects.iter().any(|effect| matches!(effect, Effect::Quit)),
+            "{text} must not quit Grok, got {effects:?}"
+        );
+        assert!(
+            matches!(app.active_view, ActiveView::AgentDashboard),
+            "{text} must return to the dashboard, got {:?}",
+            app.active_view
+        );
+        assert!(
+            !app.agents.contains_key(&id),
+            "{text} must close the attached session"
+        );
+        assert!(
+            app.agents.contains_key(&id2),
+            "{text} must leave the other session"
+        );
+        assert_eq!(
+            app.dashboard.as_ref().unwrap().error_toast.as_deref(),
+            Some(format!("{} Session closed", crate::glyphs::check_mark()).as_str()),
+            "{text}"
+        );
+    }
+}
 /// Overlay stop on the ONLY session: the close is refused (same guard as session close), but the user still lands on the dashboard with the refusal toast surfaced there; the session itself survives.
 #[serial_test::serial(GROK_AGENT_DASHBOARD)]
 #[test]
