@@ -951,6 +951,7 @@ impl ScrollbackPane {
                 link_overlay: result.link_overlay,
                 inline_media: result.inline_media,
                 diagram_affordances: result.diagram_affordances,
+                table_copy_rows: result.table_copy_rows,
                 ..Default::default()
             },
             selection_boundaries,

@@ -210,6 +210,20 @@ impl MarkdownContent {
         f(state.renderer.view().tables)
     }
 
+    /// Tables in the current render, cloned so the caller can insert copy rows after the wrap borrow ends.
+    pub fn table_copy_metas(&self) -> Vec<xai_grok_markdown::TableCopyMeta> {
+        self.with_table_copy_meta(|tables| tables.to_vec())
+    }
+
+    pub fn table_count(&self) -> usize {
+        self.with_table_copy_meta(|tables| {
+            tables
+                .iter()
+                .filter(|table| table.n_cols > 0 && !table.cells.is_empty())
+                .count()
+        })
+    }
+
     /// Pre-wrap line ranges of the ` ```mermaid ` blocks in the current rendered output, reflecting the current render width.
     /// Avoids allocation (no source rebuild) so the caption path can call it every frame.
     /// The detection skeleton with the diagram source lives in [`mermaid_content`](Self::mermaid_content).

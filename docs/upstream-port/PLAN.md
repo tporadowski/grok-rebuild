@@ -56,6 +56,12 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-160 — Table copy buttons export TSV, CSV, and Markdown
+
+A finished agent message draws `[TSV]  [CSV]  [Markdown]` on a non-selectable row under each rendered table. The labels are in the block text. Clicks use hit rects, the same way Mermaid buttons do, and are not painted a second time. Raw mode shows the source table and no buttons. `/btw` does not get the row, because its output prepends a header. The line viewer shows the labels and does not register clicks. Drag-select still copies TSV. Message copy does not include the button labels.
+
+TSV joins cells with tabs and turns a tab or a newline inside a cell into a space. CSV quotes a field that contains a comma, a quote, or a newline, and doubles a quote inside it. Markdown uses the first cell row as the header, then a `---` separator, escapes a pipe, and turns a newline into a space. A tab stays. The cells are the renderer's original cell text, header then body (`table_copy_buttons_export_tsv_csv_and_markdown`, `agent_message_shows_table_copy_buttons_under_the_table`). Copy rows that must survive minimal and fullscreen stay `v59-x06` (`v50-f10`).
+
 ### D-159 — Timestamps are off, minimal, or on
 
 Old `show_timestamps = false` is off and `true` is on. An absent value stays on. Minimal shows the short clock and does not expand it. On keeps that short clock and shows the date when the pointer is on the clock (`minimal_keeps_the_short_clock_and_on_expands_it_on_hover`, `timestamps_command_cycles_and_accepts_a_mode`, `timestamps_picker_enter_on_minimal_dispatches_that_mode`). `/timestamps` with no argument cycles off, minimal, on. Settings opens that same list. Off and on still save as the old bool. Minimal saves as the word `minimal` (`v50-f06`).
@@ -696,7 +702,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 43 | 0 | 2 | 0 | 0 |
+| W10 | Transcript, density, and copy | 42 | 0 | 3 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -705,9 +711,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 320. Skipped: 8. Done: 207. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 319. Skipped: 8. Done: 208. Already: 38. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: table copy buttons (`v50-f10`).
+**Next:** W10 transcript, density, and copy. First open row: em-dashes in status messages and subagent rows (`v50-x04`).
 
 ## Waves
 
@@ -749,7 +755,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 43. Done: 2 (`v50-f01`, D-158; `v50-f06`, D-159). Look first: `show_timestamps` is a bool today. Extend it to off / minimal / on; map the old `false` to off and `true` to on. `/density` is not in the slash list. Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 42. Done: 3 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160). Look first: `/density` is not in the slash list. Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1013,7 +1019,7 @@ id | status | wave | kind | flag | covered | note
 - v78-f03 | done | W9 | Features |  |  | **@ mentions** now support :N line suffixes and @!hidden files.
 - v50-f01 | done | W10 | Features |  |  | **Compact mode** now collapses recaps and keeps inner spacing on tall terminals.
 - v50-f06 | done | W10 | Features |  |  | New **timestamps** setting offers off, minimal, and on modes in Settings and `/timestamps`.
-- v50-f10 | pending | W10 | Features |  |  | Tables rendered by grok now show copy buttons underneath that export clean TSV, CSV or Markdown suitable for spreadsheets.
+- v50-f10 | done | W10 | Features |  |  | Tables rendered by grok now show copy buttons underneath that export clean TSV, CSV or Markdown suitable for spreadsheets.
 - v50-x04 | pending | W10 | Bug Fixes |  |  | **Em-dashes** no longer appear in status messages and subagent rows.
 - v50-x24 | pending | W10 | Bug Fixes |  |  | **Continue to run** no longer kills commands running inside background subagents.
 - v51-f04 | pending | W10 | Features |  |  | **New `/density` command** and Tool call density setting let you choose how much detail tool calls show in the transcript.

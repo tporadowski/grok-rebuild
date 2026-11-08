@@ -648,6 +648,9 @@ impl AgentView {
         let mut scrollback_diagram_affordances: Vec<
             crate::scrollback::render::DiagramAffordancePlacement,
         > = Vec::new();
+        #[allow(unused_assignments)]
+        let mut scrollback_table_copies: Vec<crate::scrollback::table_copy::TableCopyPlacement> =
+            Vec::new();
         if self.inline_media_active
             && (self.image_viewer.is_some()
                 || self.video_viewer.is_some()
@@ -1643,6 +1646,7 @@ impl AgentView {
             self.last_link_overlay = sb_output.link_overlay;
             scrollback_inline_media = sb_output.inline_media;
             scrollback_diagram_affordances = sb_output.diagram_affordances;
+            scrollback_table_copies = sb_output.table_copy_rows;
             if self.visible_link_map.is_stale(self.scrollback.generation()) {
                 let citation_links =
                     collect_citation_links(&self.scrollback, &sb_output.selection_model);
@@ -4241,6 +4245,7 @@ impl AgentView {
         }
         if !dropdown_active {
             self.paint_diagram_affordances(buf, scrollback_diagram_affordances, &theme);
+            self.register_table_copy_hits(scrollback_table_copies);
         }
         if !self.inline_media_active
             && prompt_post_flush.is_none()

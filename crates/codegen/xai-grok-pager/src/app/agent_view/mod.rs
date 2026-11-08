@@ -87,6 +87,14 @@ pub(crate) struct InlineMediaHitAreas {
     )>,
     /// Diagram sources for the visible affordance rows; [`mermaid_buttons`] index into this (one entry per visible diagram).
     pub mermaid_sources: Vec<String>,
+    /// Table copy buttons: `(rect, format, payload index)`.
+    pub table_buttons: Vec<(
+        ratatui::layout::Rect,
+        crate::scrollback::table_copy::TableCopyFormat,
+        usize,
+    )>,
+    /// Cell text for each visible table copy row. [`table_buttons`] index into this.
+    pub table_payloads: Vec<(Vec<String>, usize)>,
 }
 /// Inline video playback state for scrollback media entries.
 /// Created when the user clicks or presses Enter on a video poster frame.

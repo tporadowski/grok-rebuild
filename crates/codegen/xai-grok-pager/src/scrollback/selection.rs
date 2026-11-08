@@ -64,6 +64,8 @@ pub struct RenderOutput {
     pub inline_media: Vec<crate::scrollback::render::InlineMediaPlacement>,
     /// Mermaid diagram affordance rows to paint + register click hit-rects for.
     pub diagram_affordances: Vec<crate::scrollback::render::DiagramAffordancePlacement>,
+    /// Table copy-button rows whose labels are already painted. The rects register clicks.
+    pub table_copy_rows: Vec<crate::scrollback::table_copy::TableCopyPlacement>,
     /// Screen row (relative to the scrollback area top) of the sticky header's gap row, when this frame drew a pinned header.
     /// The ▲ response-top indicator renders here.
     /// Publishing the row the pane actually used keeps the indicator from re-deriving (and possibly disagreeing with) the frame's layout.

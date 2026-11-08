@@ -226,6 +226,44 @@ impl AgentView {
         Some(format!("{transmit_esc}{place_esc}"))
     }
 
+    /// Register click rects for table copy buttons. The labels are already in the block text.
+    pub(super) fn register_table_copy_hits(
+        &mut self,
+        placements: Vec<crate::scrollback::table_copy::TableCopyPlacement>,
+    ) {
+        use crate::scrollback::table_copy::table_copy_buttons;
+        use unicode_width::UnicodeWidthStr;
+
+        for placement in placements {
+            let fits = table_copy_buttons().iter().any(|button| {
+                button.col + UnicodeWidthStr::width(button.label) as u16 <= placement.screen_rect.width
+            });
+            if !fits {
+                continue;
+            }
+            let idx = self.inline_media_hits.table_payloads.len();
+            self.inline_media_hits
+                .table_payloads
+                .push((placement.cells, placement.n_cols));
+            for button in table_copy_buttons() {
+                let width = UnicodeWidthStr::width(button.label) as u16;
+                if button.col.saturating_add(width) > placement.screen_rect.width {
+                    continue;
+                }
+                self.inline_media_hits.table_buttons.push((
+                    ratatui::layout::Rect {
+                        x: placement.screen_rect.x.saturating_add(button.col),
+                        y: placement.screen_rect.y,
+                        width,
+                        height: 1,
+                    },
+                    button.format,
+                    idx,
+                ));
+            }
+        }
+    }
+
     /// Paint each visible Mermaid affordance row (`◇ mermaid [Open Image] [Copy Image Path] [Copy Source]`) and register its click hit-rects.
     /// Every button is always clickable (`[Open]`/`[Copy path]` render lazily on click).
     /// The painted labels and the hit-rects therefore can't drift.
@@ -538,6 +576,26 @@ impl AgentView {
         {
             let path_str = path.display().to_string();
             self.copy_to_clipboard(&path_str);
+            return Some(InputOutcome::Changed);
+        }
+
+        let table_hit = self
+            .inline_media_hits
+            .table_buttons
+            .iter()
+            .find(|(rect, _, _)| rect.contains(pos))
+            .map(|&(_, format, idx)| (format, idx));
+        if let Some((format, idx)) = table_hit {
+            let text = self
+                .inline_media_hits
+                .table_payloads
+                .get(idx)
+                .map(|(cells, n_cols)| {
+                    crate::scrollback::table_copy::export_table(cells, *n_cols, format)
+                });
+            if let Some(text) = text {
+                self.copy_to_clipboard(&text);
+            }
             return Some(InputOutcome::Changed);
         }
 

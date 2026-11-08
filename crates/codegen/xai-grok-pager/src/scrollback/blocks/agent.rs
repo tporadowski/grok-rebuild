@@ -118,63 +118,95 @@ impl AgentMessageBlock {
         )
     }
 
-    /// It is deterministic for a given `ctx`, so the two calls produce matching rows and offsets without a shared cache
-    /// that could drift. Only callers that have already confirmed there are diagrams and we are not in raw mode should
-    /// reach here. The common diagram-free path never pays this build.
-    fn rendered_output(
+    /// Markdown body, then Mermaid rows, then one copy-button row under each table.
+    /// Table inserts that land above a diagram shift that diagram's row.
+    fn compose(
         &self,
         ctx: &BlockContext,
-    ) -> (BlockOutput, Vec<mermaid_content::DiagramAffordance>) {
+    ) -> (
+        BlockOutput,
+        Vec<mermaid_content::DiagramAffordance>,
+        Vec<crate::scrollback::table_copy::TableCopyAffordance>,
+    ) {
         let mut out = self.content.output(ctx.width as usize);
-        // Diagram pre-wrap ranges in document order
-        // The fence count and order are width-invariant, so range index `idx` pairs with the diagram's source (`self.mermaid.source(idx)`)
-        let ranges = self.content.mermaid_block_ranges();
+        let mut diagrams = Vec::new();
+        if !ctx.raw
+            && !self.mermaid.is_empty()
+            && self.mermaid_display_mode() == mermaid_content::MermaidDisplay::Affordances
+        {
+            let ranges = self.content.mermaid_block_ranges();
+            diagrams = mermaid_content::apply_affordance_rows(&mut out, &ranges, |idx| {
+                self.mermaid.source(idx).unwrap_or_default().to_string()
+            });
+        }
+        let tables = if ctx.raw || self.content.is_raw() {
+            Vec::new()
+        } else {
+            let metas = self.content.table_copy_metas();
+            let tables = crate::scrollback::table_copy::apply_table_copy_rows(&mut out, &metas);
+            shift_diagrams_for_table_rows(&mut diagrams, &tables);
+            tables
+        };
+        (out, diagrams, tables)
+    }
+}
 
-        match self.mermaid_display_mode() {
-            mermaid_content::MermaidDisplay::SourceOnly => (out, Vec::new()),
-            mermaid_content::MermaidDisplay::Affordances => {
-                let affordances =
-                    mermaid_content::apply_affordance_rows(&mut out, &ranges, |idx| {
-                        self.mermaid.source(idx).unwrap_or_default().to_string()
-                    });
-                (out, affordances)
+/// A table button inserted above a diagram pushes that diagram down by one row.
+fn shift_diagrams_for_table_rows(
+    diagrams: &mut [mermaid_content::DiagramAffordance],
+    tables: &[crate::scrollback::table_copy::TableCopyAffordance],
+) {
+    for diagram in diagrams {
+        let mut shift = 0u16;
+        for (index, table) in tables.iter().enumerate() {
+            let original_at = (table.row_offset as usize).saturating_sub(index);
+            if original_at <= diagram.row_offset as usize {
+                shift = shift.saturating_add(1);
             }
         }
+        diagram.row_offset = diagram.row_offset.saturating_add(shift);
     }
 }
 
 impl BlockContent for AgentMessageBlock {
     fn output(&self, ctx: &BlockContext) -> BlockOutput {
-        // Common path: no diagrams (or raw mode) renders plain markdown, with no affordance machinery and no extra output rebuild
-        if ctx.raw || self.mermaid.is_empty() {
-            return self.content.output(ctx.width as usize);
-        }
-        self.rendered_output(ctx).0
+        self.compose(ctx).0
     }
 
     fn diagram_affordances(&self, ctx: &BlockContext) -> Vec<mermaid_content::DiagramAffordance> {
-        // Affordance rows exist only under the affordance display with diagrams
-        // For every other (much more common) case, return without building output()
         if ctx.raw
             || self.mermaid.is_empty()
             || self.mermaid_display_mode() != mermaid_content::MermaidDisplay::Affordances
         {
             return Vec::new();
         }
-        self.rendered_output(ctx).1
+        self.compose(ctx).1
+    }
+
+    fn table_copy_affordances(
+        &self,
+        ctx: &BlockContext,
+    ) -> Vec<crate::scrollback::table_copy::TableCopyAffordance> {
+        if ctx.raw || self.content.is_raw() {
+            return Vec::new();
+        }
+        self.compose(ctx).2
     }
 
     fn estimate_extra_rows(&self) -> u16 {
-        // Each diagram inserts one treatment row (affordance row or fallback caption) into output() that the source-text estimate can't see
-        // Count one per diagram (a safe over-estimate if a range is empty) so the off-screen estimate never under-reserves
-        // Raw mode and the `off` setting add no such row
-        if self.mermaid.is_empty()
-            || self.content.is_raw()
-            || self.mermaid_display_mode() == mermaid_content::MermaidDisplay::SourceOnly
-        {
+        // Diagram treatment rows and the table copy-button row are not in the source-text estimate.
+        if self.content.is_raw() {
             return 0;
         }
-        self.mermaid.len() as u16
+        let tables = self.content.table_count() as u16;
+        let diagrams = if self.mermaid.is_empty()
+            || self.mermaid_display_mode() == mermaid_content::MermaidDisplay::SourceOnly
+        {
+            0
+        } else {
+            self.mermaid.len() as u16
+        };
+        diagrams.saturating_add(tables)
     }
 
     fn accent(&self, _ctx: &BlockContext) -> Option<AccentStyle> {
@@ -231,6 +263,109 @@ mod tests {
             out.lines
                 .iter()
                 .all(|line| !matches!(line.selectable, Selectable::None))
+        );
+    }
+
+    #[test]
+    fn agent_message_shows_table_copy_buttons_under_the_table() {
+        use crate::scrollback::table_copy::TableCopyFormat;
+
+        let block = AgentMessageBlock::new(
+            "before\n\n| Name | Note |\n| --- | --- |\n| Ada | a, b |\n\nafter\n",
+        );
+        let pretty = ctx(80, false);
+        let raw_ctx = ctx(80, true);
+        let out = block.output(&pretty);
+        let affordances = block.table_copy_affordances(&pretty);
+        assert_eq!(affordances.len(), 1, "one table, one button row");
+        let row = affordances[0].row_offset as usize;
+        let label = out
+            .lines
+            .get(row)
+            .map(|line| {
+                line.content
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        assert!(
+            label.contains("[TSV]") && label.contains("[CSV]") && label.contains("[Markdown]"),
+            "buttons sit on the row under the table: {label}"
+        );
+        assert!(
+            row > 0
+                && out.lines.get(row - 1).is_some_and(|line| {
+                    let text: String = line
+                        .content
+                        .spans
+                        .iter()
+                        .map(|span| span.content.as_ref())
+                        .collect();
+                    !text.contains("[TSV]")
+                }),
+            "the buttons are underneath the table, not inside it"
+        );
+        assert_eq!(affordances[0].n_cols, 2);
+        assert_eq!(
+            affordances[0].cells,
+            ["Name", "Note", "Ada", "a, b"]
+                .map(str::to_string)
+                .to_vec()
+        );
+        assert!(matches!(
+            out.lines[row].selectable,
+            Selectable::None
+        ));
+        assert_eq!(
+            affordances[0].clipboard_text(TableCopyFormat::Tsv),
+            "Name\tNote\nAda\ta, b"
+        );
+        assert_eq!(
+            affordances[0].clipboard_text(TableCopyFormat::Csv),
+            "Name,Note\nAda,\"a, b\""
+        );
+        assert_eq!(
+            affordances[0].clipboard_text(TableCopyFormat::Markdown),
+            "| Name | Note |\n| --- | --- |\n| Ada | a, b |"
+        );
+        assert!(!block.copy_text(false).contains("[TSV]"));
+        assert_eq!(block.estimate_extra_rows(), 1);
+        let texts: Vec<String> = out
+            .lines
+            .iter()
+            .map(|line| {
+                line.content
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
+            .collect();
+        let ada = texts.iter().position(|text| text.contains("Ada")).unwrap();
+        let after = texts.iter().position(|text| text.contains("after")).unwrap();
+        assert!(
+            ada < row && row < after,
+            "the button row sits between the table and the text after it"
+        );
+        let raw = block.output(&raw_ctx);
+        assert!(
+            raw.lines.iter().all(|line| {
+                let text: String = line
+                    .content
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect();
+                !text.contains("[TSV]")
+            }),
+            "raw mode shows the source table, not the copy buttons"
+        );
+        assert!(
+            AgentMessageBlock::new("no table here")
+                .table_copy_affordances(&pretty)
+                .is_empty()
         );
     }
 
