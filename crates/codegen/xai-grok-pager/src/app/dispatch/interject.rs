@@ -383,4 +383,75 @@ mod tests {
             [Effect::SendInterject { blocks: None, .. }]
         ));
     }
+
+    fn press_send_now(app: &mut AppView, line: &str) -> crate::app::app_view::InputOutcome {
+        let id = AgentId(0);
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.start_turn_boundary(Some("running"));
+        agent.prompt.set_text(line);
+        agent.handle_prompt_key_for_test(
+            &crate::app::agent_view::test_fixtures::force_interject_key(),
+        )
+    }
+
+    /// Ctrl+Enter on `/compact` while a turn is running queues the command. It does not cancel the turn and send the line as a prompt.
+    #[test]
+    fn send_now_on_a_slash_command_queues_it_as_a_command() {
+        let mut app = test_app_with_agent();
+        let id = AgentId(0);
+        let outcome = press_send_now(&mut app, "/compact");
+        let text = match outcome {
+            crate::app::app_view::InputOutcome::Action(Action::SendPrompt(text)) => text,
+            other => panic!("slash send-now must submit the command, got {other:?}"),
+        };
+        let effects = dispatch(Action::SendPrompt(text), &mut app);
+        assert!(
+            effects
+                .iter()
+                .all(|effect| !matches!(effect, Effect::SendPromptNow { .. })),
+            "a slash command must not be sent as a prompt, effects={effects:?}"
+        );
+        let agent = app.agents.get(&id).unwrap();
+        assert_eq!(agent.prompt.text(), "");
+        let queued = agent
+            .session
+            .pending_prompts
+            .back()
+            .expect("command queued");
+        assert_eq!(queued.kind, crate::app::agent::QueueEntryKind::Command);
+        assert_eq!(queued.text, "/compact");
+    }
+
+    /// Ctrl+Enter on `/help` runs the command. The palette opens and the line is not queued as a prompt.
+    #[test]
+    fn send_now_on_help_runs_the_command() {
+        use crate::views::modal::ActiveModal;
+        let mut app = test_app_with_agent();
+        let id = AgentId(0);
+        let outcome = press_send_now(&mut app, "/help");
+        let text = match outcome {
+            crate::app::app_view::InputOutcome::Action(Action::SendPrompt(text)) => text,
+            other => panic!("slash send-now must submit the command, got {other:?}"),
+        };
+        let effects = dispatch(Action::SendPrompt(text), &mut app);
+        assert!(
+            effects
+                .iter()
+                .all(|effect| !matches!(effect, Effect::SendPromptNow { .. }))
+        );
+        let agent = app.agents.get(&id).unwrap();
+        assert_eq!(agent.prompt.text(), "");
+        assert!(
+            matches!(agent.active_modal, Some(ActiveModal::CommandPalette { .. })),
+            "help must open the command palette"
+        );
+        assert!(
+            agent
+                .session
+                .pending_prompts
+                .iter()
+                .all(|row| row.text != "/help"),
+            "help must not be queued as a prompt"
+        );
+    }
 }

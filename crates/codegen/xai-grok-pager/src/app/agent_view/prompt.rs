@@ -574,6 +574,21 @@ impl AgentView {
                     let can_send_now = self.can_send_now();
                     if !text.is_empty() {
                         if can_send_now {
+                            // A slash line is a command. Send-now must run it or queue it as a command, not cancel the turn and send the text as a prompt.
+                            if self.prompt_input_mode == PromptInputMode::Normal
+                                && text.starts_with('/')
+                            {
+                                if self.paste_probe_in_flight > 0 {
+                                    self.deferred_send = Some(AgentDeferredSend::SendPrompt);
+                                    return InputOutcome::Changed;
+                                }
+                                if let Some(sent) = self.prompt.try_send() {
+                                    return InputOutcome::Action(
+                                        PromptInputMode::Normal.send_action(sent),
+                                    );
+                                }
+                                return InputOutcome::Changed;
+                            }
                             // Paste-then-immediate-send: an image probe is still off-thread
                             // Stash (draft untouched) and re-issue on completion so the not-yet-attached chip isn't dropped
                             if self.paste_probe_in_flight > 0 {
