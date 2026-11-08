@@ -2548,17 +2548,11 @@ pub(crate) fn render_session_picker_body(
             pinned: false,
         });
     } else if !controls_hidden {
+        // `d:delete` comes from `action_keys` below. Listing it here as well paints it twice.
         default_shortcuts.push(HintItem {
             keys: vec![],
             label: "filter".into(),
             custom_display: Some("f"),
-            description: None,
-            pinned: false,
-        });
-        default_shortcuts.push(HintItem {
-            keys: vec![],
-            label: "delete".into(),
-            custom_display: Some("d"),
             description: None,
             pinned: false,
         });
@@ -2567,7 +2561,8 @@ pub(crate) fn render_session_picker_body(
     let config = PickerConfig {
         title: Some("Resume session"),
         show_search_hint: true,
-        expandable: true,
+        // A confirm footer already uses `y`. Leave expand/copy off so `y:copy` is not a second `y`.
+        expandable: !ctx.pending_delete,
         esc_clears_query: true,
         shortcuts: Some(&default_shortcuts),
         pending_hint: ctx.pending_hint,
@@ -3387,6 +3382,80 @@ mod tests {
         } else {
             panic!("expected Row, got Header");
         }
+    }
+
+    #[test]
+    fn session_picker_footer_lists_each_shortcut_once() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let theme = crate::theme::Theme::default();
+        let area = Rect::new(0, 0, 140, 24);
+        let entries = vec![make_entry("s1", "Fix the parser", "repo")];
+        let paint = |pending_delete: bool| -> String {
+            let mut buf = Buffer::empty(area);
+            let mut state = PickerState::default();
+            render_session_picker(
+                area,
+                &mut buf,
+                &theme,
+                SessionPickerRenderMode::Fullscreen,
+                &mut SessionPickerRenderCtx {
+                    state: &mut state,
+                    sessions: Some(&entries),
+                    cwd: std::path::Path::new("/repo"),
+                    loading: false,
+                    pending_hint: None,
+                    shortcuts_area: None,
+                    content_results: None,
+                    content_loading: false,
+                    entries_query: None,
+                    tick: 0,
+                    grouped: false,
+                    source_filter: crate::views::session_picker::SourceFilter::default(),
+                    pending_delete,
+                    chat_mode: false,
+                },
+            );
+            (0..area.height)
+                .map(|y| {
+                    (0..area.width)
+                        .map(|x| {
+                            buf.cell((x, y))
+                                .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
+                        })
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        let open = paint(false);
+        assert_eq!(
+            open.matches(":delete").count(),
+            1,
+            "delete must appear once in the session picker footer:\n{open}"
+        );
+        assert_eq!(
+            open.matches(":filter").count(),
+            1,
+            "filter must appear once in the session picker footer:\n{open}"
+        );
+
+        let confirming = paint(true);
+        assert_eq!(
+            confirming.matches("y:").count(),
+            1,
+            "confirming a delete must list y once:\n{confirming}"
+        );
+        assert!(
+            confirming.contains("confirm delete"),
+            "confirm footer must keep the confirm hint:\n{confirming}"
+        );
+        assert!(
+            !confirming.contains(":copy"),
+            "confirm footer must not also list y as copy:\n{confirming}"
+        );
     }
 
     fn resume_picker_config() -> crate::views::picker::PickerConfig<'static> {
