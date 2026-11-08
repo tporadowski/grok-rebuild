@@ -15,6 +15,7 @@ mod groknight;
 pub mod md_style;
 pub mod osc11;
 pub mod prompt_band;
+mod gruvbox;
 mod oscura;
 mod rosepine;
 pub mod system_appearance;
@@ -34,6 +35,8 @@ pub enum ThemeKind {
     TokyoNight = 2,
     RosePineMoon = 3,
     OscuraMidnight = 5,
+    /// Published Gruvbox dark hard. Canvas is `#1d2021`. Does not need truecolor.
+    GruvboxDarkHard = 7,
     /// Every bg is `Reset` so the terminal canvas shows through; legible on both polarities without appearance detection.
     /// Hidden and unparseable while `cache::terminal_theme_enabled()` is off.
     Terminal = 6,
@@ -49,6 +52,7 @@ impl ThemeKind {
         ThemeKind::TokyoNight,
         ThemeKind::RosePineMoon,
         ThemeKind::OscuraMidnight,
+        ThemeKind::GruvboxDarkHard,
         ThemeKind::Terminal,
     ];
 
@@ -103,6 +107,7 @@ impl ThemeKind {
             Self::GrokDay => "grokday",
             Self::RosePineMoon => "rosepine-moon",
             Self::OscuraMidnight => "oscura-midnight",
+            Self::GruvboxDarkHard => "gruvbox-dark-hard",
             Self::Terminal => "terminal",
             Self::Auto => "auto",
         }
@@ -116,6 +121,8 @@ impl ThemeKind {
             Self::GrokDay => false,
             Self::RosePineMoon => true,
             Self::OscuraMidnight => true,
+            // The published palette includes 256-color approximations, so a 256-color terminal keeps this theme.
+            Self::GruvboxDarkHard => false,
             // Reset plus named ANSI-16 entries only — nothing to quantize.
             Self::Terminal => false,
             // Auto is resolved to a concrete theme before rendering.
@@ -137,6 +144,7 @@ impl ThemeKind {
             Self::GrokDay => &["grok-day", "light", "day"],
             Self::RosePineMoon => &["rosepine", "rose-pine", "rose-pine-moon"],
             Self::OscuraMidnight => &["oscura"],
+            Self::GruvboxDarkHard => &["gruvbox"],
             Self::Terminal => &["terminal-default", "transparent", "native"],
             Self::Auto => &["system"],
         }
@@ -191,6 +199,7 @@ pub fn display_name_for_canonical(value: &str) -> &str {
         "grokday" => "Grok Day",
         "tokyonight" => "Tokyo Night",
         "rosepine-moon" => "Rose Pine Moon",
+        "gruvbox-dark-hard" => "Gruvbox Dark Hard",
         "terminal" => "Terminal",
         other => other,
     }
@@ -308,6 +317,7 @@ impl Theme {
             ThemeKind::GrokDay => Self::grokday(),
             ThemeKind::RosePineMoon => Self::rosepine_moon(),
             ThemeKind::OscuraMidnight => Self::oscura_midnight(),
+            ThemeKind::GruvboxDarkHard => Self::gruvbox_dark_hard(),
             // Handled by the early return above.
             ThemeKind::Terminal => Self::terminal(),
             // Auto is resolved to a concrete theme before being stored; if reached, fall back to GrokNight
@@ -705,6 +715,7 @@ mod tests {
         assert!(!ThemeKind::TokyoNight.is_auto());
         assert!(!ThemeKind::RosePineMoon.is_auto());
         assert!(!ThemeKind::OscuraMidnight.is_auto());
+        assert!(!ThemeKind::GruvboxDarkHard.is_auto());
     }
 
     #[test]
@@ -1041,6 +1052,7 @@ mod tests {
                 ThemeKind::TokyoNight => Theme::tokyonight(),
                 ThemeKind::RosePineMoon => Theme::rosepine_moon(),
                 ThemeKind::OscuraMidnight => Theme::oscura_midnight(),
+                ThemeKind::GruvboxDarkHard => Theme::gruvbox_dark_hard(),
                 // Reset plus named ANSI entries: the scrollbar rides the
                 // terminal's own fg/bg contrast, so there is no RGB delta.
                 ThemeKind::Terminal => continue,
@@ -1192,6 +1204,14 @@ mod tests {
         assert_eq!(
             ThemeKind::from_name("oscura-midnight"),
             Some(ThemeKind::OscuraMidnight)
+        );
+        assert_eq!(
+            ThemeKind::from_name("gruvbox-dark-hard"),
+            Some(ThemeKind::GruvboxDarkHard)
+        );
+        assert_eq!(
+            ThemeKind::from_name("gruvbox"),
+            Some(ThemeKind::GruvboxDarkHard)
         );
     }
 

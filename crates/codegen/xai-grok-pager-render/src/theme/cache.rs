@@ -40,6 +40,7 @@ fn theme_kind_from_u8(byte: u8) -> ThemeKind {
         x if x == ThemeKind::TokyoNight as u8 => ThemeKind::TokyoNight,
         x if x == ThemeKind::RosePineMoon as u8 => ThemeKind::RosePineMoon,
         x if x == ThemeKind::OscuraMidnight as u8 => ThemeKind::OscuraMidnight,
+        x if x == ThemeKind::GruvboxDarkHard as u8 => ThemeKind::GruvboxDarkHard,
         x if x == ThemeKind::Terminal as u8 => ThemeKind::Terminal,
         x if x == ThemeKind::Auto as u8 => ThemeKind::Auto,
         _ => ThemeKind::GrokNight,

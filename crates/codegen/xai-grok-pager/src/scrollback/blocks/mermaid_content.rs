@@ -760,6 +760,7 @@ mod tests {
             ThemeKind::TokyoNight,
             ThemeKind::RosePineMoon,
             ThemeKind::OscuraMidnight,
+            ThemeKind::GruvboxDarkHard,
         ] {
             assert!(theme_is_dark(dark), "{dark:?} should be dark");
         }

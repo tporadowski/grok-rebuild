@@ -541,6 +541,79 @@ mod tests {
         });
     }
 
+    /// `/theme gruvbox-dark-hard` selects the published Gruvbox dark-hard canvas.
+    #[test]
+    fn theme_command_selects_gruvbox_dark_hard() {
+        with_test_env(|| {
+            let cmd = ThemeCommand;
+            let models = crate::acp::model_state::ModelState::default();
+            let bundle = crate::app::bundle::BundleState::default();
+            let mut ctx = CommandExecCtx {
+                models: &models,
+                session_id: None,
+                bundle_state: &bundle,
+                screen_mode: crate::app::ScreenMode::Inline,
+                billing_surface_visible: true,
+                usage_command_visible: true,
+                pager_state: crate::settings::PagerLocalSnapshot {
+                    multiline_mode: false,
+                    yolo_mode: false,
+                    ..crate::settings::PagerLocalSnapshot::default()
+                },
+            };
+            match cmd.run(&mut ctx, "gruvbox-dark-hard") {
+                CommandResult::Action(Action::SetTheme(name)) => {
+                    assert_eq!(name, "gruvbox-dark-hard");
+                }
+                other => panic!("expected Action::SetTheme(\"gruvbox-dark-hard\"), got {other:?}"),
+            }
+            match cmd.run(&mut ctx, "Gruvbox") {
+                CommandResult::Action(Action::SetTheme(name)) => {
+                    assert_eq!(name, "gruvbox-dark-hard", "alias must normalise");
+                }
+                other => panic!("expected alias Action::SetTheme, got {other:?}"),
+            }
+
+            let app_ctx = AppCtx {
+                models: &models,
+                cwd: std::path::Path::new("."),
+                has_session_announcements: false,
+                billing_surface_visible: true,
+                usage_command_visible: true,
+                workflows_available: true,
+                saved_workflows: &[],
+                workflow_runs: &[],
+                screen_mode: crate::app::ScreenMode::Fullscreen,
+                current_title: None,
+            };
+            let items = cmd.suggest_args(&app_ctx, "").expect("picker items");
+            assert!(
+                items.iter().any(|item| item.insert_text == "gruvbox-dark-hard"),
+                "picker must offer gruvbox-dark-hard, got {items:?}"
+            );
+
+            let raw = Theme::gruvbox_dark_hard();
+            assert_eq!(
+                raw.bg_base,
+                ratatui::style::Color::Rgb(29, 32, 33),
+                "hard canvas is the published #1d2021"
+            );
+            assert_ne!(raw.bg_visual, raw.bg_highlight);
+
+            cmd.preview_arg("gruvbox-dark-hard");
+            assert_eq!(Theme::current_kind(), ThemeKind::GruvboxDarkHard);
+            assert_eq!(
+                Theme::current().bg_base,
+                ratatui::style::Color::Rgb(29, 32, 33),
+                "applying the kind paints the hard canvas"
+            );
+            assert_eq!(
+                crate::theme::display_name_for_canonical("gruvbox-dark-hard"),
+                "Gruvbox Dark Hard"
+            );
+        });
+    }
+
     // -- preview_arg ----------------------------------------------------------
 
     #[test]

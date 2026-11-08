@@ -6,7 +6,7 @@ Grok Build draws all TUI colors from a central theme. You can switch themes whil
 
 ## Available Themes
 
-Grok includes six built-in themes, plus an `auto` option that follows your system appearance:
+Grok includes seven built-in themes, plus an `auto` option that follows your system appearance:
 
 | Theme | Config Names | Description | Truecolor Required |
 |-------|-------------|-------------|--------------------|
@@ -15,6 +15,7 @@ Grok includes six built-in themes, plus an `auto` option that follows your syste
 | **TokyoNight** | `tokyonight`, `tokyo-night`, `tokyo` | Dark, blue-tinted backgrounds from the Tokyo Night palette. Loses its character when quantized. | Yes |
 | **RosePineMoon** | `rosepine`, `rose-pine`, `rosepine-moon`, `rose-pine-moon` | Muted dark palette with mauve accents, from the Rosé Pine family. | Yes |
 | **OscuraMidnight** | `oscura`, `oscura-midnight` | Deep dark base with purple accents. | Yes |
+| **GruvboxDarkHard** | `gruvbox-dark-hard`, `gruvbox` | Gruvbox dark palette at hard contrast. The background is `#1d2021`. | No |
 | **Terminal** | `terminal`, `terminal-default`, `transparent`, `native` | Your terminal's own colors: no background of its own, so the terminal canvas (translucency, background images) shows through. | No |
 
 Theme names are case-insensitive. The `auto` option (alias `system`) is documented under [Auto Theme (System Appearance)](#auto-theme-system-appearance).
