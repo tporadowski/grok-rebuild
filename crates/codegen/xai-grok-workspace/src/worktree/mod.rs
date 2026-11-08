@@ -969,6 +969,15 @@ fn grok_home() -> std::path::PathBuf {
     xai_fast_worktree::resolve_grok_home().unwrap_or_else(|_| std::env::temp_dir().join(".grok"))
 }
 
+/// The sandbox profile's own refusal when it cannot write `<grok home>/worktrees`.
+/// `None` when this process was not started under a confining profile, or that
+/// profile can write the directory.
+fn sandboxed_worktree_refusal() -> Option<String> {
+    let profile = xai_grok_sandbox::requested_confinement_profile()?;
+    let workspace = xai_grok_sandbox::confinement_root()?;
+    xai_grok_sandbox::worktree_create_refusal(profile, workspace)
+}
+
 /// Returns `~/.grok/worktrees/<repo_slug>` for the given git root.
 pub fn worktree_base_dir(git_root: &Path) -> std::path::PathBuf {
     worktree_base_dir_in(&grok_home(), git_root)
@@ -1133,6 +1142,12 @@ pub fn touch_worktree_for_cwd_in(grok_home: &Path, cwd: &str) {
 }
 
 pub async fn prepare_worktree_creation(req: &CreateWorktreeRequest) -> PrepareWorktreeResult {
+    if let Some(message) = sandboxed_worktree_refusal() {
+        return PrepareWorktreeResult {
+            response: Err(anyhow::anyhow!(message)),
+            spawn_task: false,
+        };
+    }
     let source_path = Path::new(&req.source_path);
     let grove_requested = req.grove_worktree.unwrap_or(false);
     let layout = match create_root::resolve_create_source_layout(source_path, grove_requested).await
@@ -1280,6 +1295,12 @@ pub async fn create_worktree_streaming_in<N: WorktreeNotificationSender>(
     req: &CreateWorktreeRequest,
     notifier: &N,
 ) -> WorktreeStatus {
+    if let Some(message) = sandboxed_worktree_refusal() {
+        return WorktreeStatus::Error {
+            session_id: req.session_id.clone(),
+            message,
+        };
+    }
     let start = std::time::Instant::now();
     let source_path = Path::new(&req.source_path);
     let session_id = req.session_id.clone();
@@ -1953,6 +1974,12 @@ fn resolve_fork_worktree_path(
 pub async fn prepare_worktree_from_worktree(
     req: &CreateWorktreeFromWorktreeRequest,
 ) -> PrepareWorktreeResult {
+    if let Some(message) = sandboxed_worktree_refusal() {
+        return PrepareWorktreeResult {
+            response: Err(anyhow::anyhow!(message)),
+            spawn_task: false,
+        };
+    }
     let source_path = Path::new(&req.source_worktree_path);
     let grove_requested = req.grove_worktree.unwrap_or(false);
     let layout = match create_root::resolve_create_source_layout(source_path, grove_requested).await
@@ -2102,6 +2129,12 @@ pub async fn create_worktree_from_worktree_streaming<N: WorktreeNotificationSend
     notifier: &N,
     pinned_dest_path: Option<String>,
 ) -> WorktreeStatus {
+    if let Some(message) = sandboxed_worktree_refusal() {
+        return WorktreeStatus::Error {
+            session_id: req.new_session_id.clone(),
+            message,
+        };
+    }
     let start = std::time::Instant::now();
     let source_path = Path::new(&req.source_worktree_path);
     let session_id = req.new_session_id.clone();
@@ -2483,6 +2516,9 @@ pub async fn create_worktree_from_worktree_streaming<N: WorktreeNotificationSend
 pub async fn create_worktree_from_worktree_sync(
     req: &CreateWorktreeFromWorktreeRequest,
 ) -> Result<CreateWorktreeFromWorktreeResponse> {
+    if let Some(message) = sandboxed_worktree_refusal() {
+        return Err(anyhow::anyhow!(message));
+    }
     let start = std::time::Instant::now();
     let source_path = Path::new(&req.source_worktree_path);
     let grove_enabled = req.grove_worktree.unwrap_or(false);
@@ -2914,6 +2950,9 @@ async fn jj_commit_id(cwd: &Path) -> Option<String> {
 pub async fn create_jj_workspace(
     req: &CreateWorktreeFromWorktreeRequest,
 ) -> Result<CreateWorktreeFromWorktreeResponse> {
+    if let Some(message) = sandboxed_worktree_refusal() {
+        return Err(anyhow::anyhow!(message));
+    }
     let source_path = Path::new(&req.source_worktree_path);
     let grove = req.grove_worktree.unwrap_or(false);
     let source_buf = source_path.to_path_buf();

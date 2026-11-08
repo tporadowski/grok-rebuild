@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-086 — A strict sandbox profile refuses worktree creation up front
+
+`strict` can write `sessions/` and not `<grok home>/worktrees`. Create, fork, jj, and a subagent worktree now stop before making a directory and say `worktree creation is unavailable under sandbox profile 'strict'`. An unknown profile returns the sandbox's own not-found error. `workspace` and `read-only` can write the grok home, so they still create (`v64-x04`, `strict_profile_refuses_worktree_creation`).
+
 ### D-085 — Tracked ignored files stay, exclude-only files stay out
 
 The worktree copy treated every `.gitignore` match as skippable, so a tracked file such as `secret.env` never arrived. It also copied untracked files whose only ignore rule was `.git/info/exclude` or `core.excludesFile`. The copy now applies those two sources, and a tracked path the walker skipped is copied afterwards. An untracked file that matches only one of those rules is left out (`v64-x01`, `create_keeps_tracked_gitignored_files_and_omits_exclude_only_files`).
@@ -395,7 +399,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 10 | 0 | 28 | 3 | 0 |
+| W7 | Worktrees | 9 | 0 | 29 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -407,9 +411,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 396. Skipped: 8. Done: 136. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 395. Skipped: 8. Done: 137. Already: 33. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: `grok -w`, `grok worktree create`, worktree forks, and subagent worktrees refuse up front with the sandbox's message when the sandbox profile does not allow creating worktrees (`v64-x04`).
+**Next:** W7 worktrees. First open row: worktree options are hidden in `/fork`, `/new`, and the Welcome screen when the sandbox profile does not allow creating worktrees (`v64-x05`).
 
 ## Waves
 
@@ -439,7 +443,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 10. Done: 28 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 9. Done: 29 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -624,7 +628,7 @@ id | status | wave | kind | flag | covered | note
 - v63-x03 | done | W7 | Bug Fixes |  |  | **`grok -w` and `Ctrl+W`** explain that no worktree was made when you run them outside a git repository.
 - v64-f01 | done | W7 | Features |  |  | **Worktree names** typed with `Ctrl+W` keep Unicode letters such as `café`, and a name or ref that starts with `-` is refused.
 - v64-x01 | done | W7 | Bug Fixes |  |  | **New worktrees** keep tracked files that match `.gitignore`, and leave out files excluded only by `.git/info/exclude` or `core.excludesFile`.
-- v64-x04 | pending | W7 | Bug Fixes |  |  | **`grok -w`, `grok worktree create`, worktree forks, and subagent worktrees** refuse up front with the sandbox's message when the sandbox profile does not allow creating worktrees.
+- v64-x04 | done | W7 | Bug Fixes |  |  | **`grok -w`, `grok worktree create`, worktree forks, and subagent worktrees** refuse up front with the sandbox's message when the sandbox profile does not allow creating worktrees.
 - v64-x05 | pending | W7 | Bug Fixes |  |  | **Worktree options** are hidden in `/fork`, `/new`, and the Welcome screen when the sandbox profile does not allow creating worktrees.
 - v64-x06 | pending | W7 | Bug Fixes |  |  | **A worktree name you type** that is already taken is refused instead of getting a numbered suffix, and a name whose folder you deleted by hand can be used again.
 - v67-f01 | pending | W7 | Features |  |  | **Worktrees** also use their main checkout's saved "always allow" answers, so you are not asked again for a tool you already allowed there. Set `[features] worktree_inherits_main_approvals = false` to turn this off; the main checkout's "never allow" answers apply either way.

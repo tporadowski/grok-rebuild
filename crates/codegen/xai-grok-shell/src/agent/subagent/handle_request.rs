@@ -647,6 +647,15 @@ pub(crate) async fn run_shell_child(
             }
         }
     } else if effective_runtime.isolation != xai_tool_types::SubagentIsolationMode::None {
+        if let Some(message) =
+            xai_grok_sandbox::requested_confinement_profile().and_then(|profile| {
+                xai_grok_sandbox::confinement_root().and_then(|workspace| {
+                    xai_grok_sandbox::worktree_create_refusal(profile, workspace)
+                })
+            })
+        {
+            return child_run_output(failure_result(&request, &message), completion_data, None);
+        }
         let source_cwd = parent_source_cwd(&ctx);
         let dest = match crate::session::worktree::worktree_base_dir_for_source(&source_cwd) {
             Ok(base) => base.join(format!("subagent-{}", request.id)),

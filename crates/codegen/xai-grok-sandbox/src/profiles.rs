@@ -132,6 +132,36 @@ pub fn load_sandbox_config(workspace: &Path) -> SandboxConfig {
     config
 }
 
+/// `Some` when `profile_name` cannot write `<grok home>/worktrees`. The text is the
+/// refusal `grok -w`, `grok worktree create`, forks, and subagent worktrees show
+/// before they create a directory. `off` and a profile that can write that
+/// directory return `None`.
+pub fn worktree_create_refusal(profile_name: &str, workspace: &Path) -> Option<String> {
+    let profile = profile_name.parse::<ProfileName>().ok()?;
+    if profile == ProfileName::Off {
+        return None;
+    }
+    let config = load_sandbox_config(workspace);
+    let resolved = match profile.resolve_profile(workspace, &config) {
+        Ok(resolved) => resolved,
+        Err(error) => return Some(error.to_string()),
+    };
+    let dest = grok_home().join("worktrees");
+    let allowed = resolved
+        .read_write
+        .iter()
+        .any(|root| dest.starts_with(root));
+    if allowed {
+        return None;
+    }
+    Some(format!(
+        "worktree creation is unavailable under sandbox profile '{profile_name}': \
+         that profile does not allow writing {}. Disable the profile at the source that selected it \
+         (CLI, env, config, or a managed requirement).",
+        dest.display()
+    ))
+}
+
 pub fn sandbox_profile_conflicts(workspace: &Path) -> Vec<String> {
     let global = load_config_file(&grok_home().join(SANDBOX_CONFIG_FILENAME)).unwrap_or_default();
     let project = load_config_file(&workspace.join(".grok").join(SANDBOX_CONFIG_FILENAME))
@@ -619,6 +649,23 @@ mod tests {
     fn display_custom() {
         let p = ProfileName::Custom("my-custom".to_string());
         assert_eq!(p.to_string(), "my-custom");
+    }
+
+    #[test]
+    fn strict_profile_refuses_worktree_creation() {
+        let workspace = std::env::current_dir().unwrap();
+        let strict = worktree_create_refusal("strict", &workspace).expect("strict refuses");
+        assert!(strict.contains("sandbox profile 'strict'"), "{strict}");
+        assert!(strict.contains("worktrees"), "{strict}");
+        assert!(worktree_create_refusal("workspace", &workspace).is_none());
+        assert!(worktree_create_refusal("read-only", &workspace).is_none());
+        assert!(worktree_create_refusal("off", &workspace).is_none());
+        let missing = worktree_create_refusal("no-such-profile", &workspace)
+            .expect("an unknown profile is the sandbox's own error");
+        assert!(
+            missing.contains("Custom sandbox profile 'no-such-profile' not found"),
+            "{missing}"
+        );
     }
 
     #[test]

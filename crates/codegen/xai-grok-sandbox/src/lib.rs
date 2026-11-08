@@ -46,6 +46,7 @@ pub use network_policy::{
 };
 pub use profiles::{
     ProfileName, SandboxConfig, SandboxProfile, load_sandbox_config, sandbox_profile_conflicts,
+    worktree_create_refusal,
 };
 pub use read_deny_verify::{verify_data_write_deny_enforced, verify_read_deny_enforced};
 pub use types::{SandboxEvent, SandboxEventType, SandboxMetrics};
