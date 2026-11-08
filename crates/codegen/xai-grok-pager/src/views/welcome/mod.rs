@@ -1725,6 +1725,32 @@ fn render_announcement_section(
     (Some(text_area), truncated, cta_rect)
 }
 
+/// Rows of the signed-in Welcome menu.
+/// Order: optional Import, Resume session (`ctrl+r`), optional New worktree (`ctrl+w`), optional Changelog, Quit.
+pub(crate) fn session_menu_rows(
+    has_claude_import: bool,
+    hide_worktree: bool,
+    show_changelog: bool,
+    quit_key: &'static str,
+) -> Vec<(&'static str, &'static str)> {
+    let mut items = Vec::with_capacity(5);
+    if has_claude_import {
+        // The trailing "[x]" is a clickable dismiss control.
+        // The welcome screen mouse handler treats clicks on the rightmost 3 cells of this row as dismiss instead of open. Keyboard: ctrl-shift-i.
+        // The key string is right-aligned by render_menu, so [x] sits at the very end of the row.
+        items.push(("ctrl+i  [x]", "Import Claude settings"));
+    }
+    items.push(("ctrl+r", "Resume session"));
+    if !hide_worktree {
+        items.push(("ctrl+w", "New worktree"));
+    }
+    if show_changelog {
+        items.push(("", "Changelog"));
+    }
+    items.push((quit_key, "Quit"));
+    items
+}
+
 /// Render the normal welcome screen (Done state, already authenticated).
 fn render_welcome_done(
     content_area: Rect,
@@ -1793,30 +1819,12 @@ fn render_welcome_done(
         gate_menu = [(key_g, cta), (key_l, "Logout"), (key_q, "Quit")];
         &gate_menu
     } else {
-        let (key_w, key_resume, key_q, key_i_with_x) = (
-            "ctrl+w",
-            "ctrl+r",
-            if in_vscode_family { "ctrl+d" } else { "ctrl+q" },
-            "ctrl+i  [x]",
+        owned_menu = session_menu_rows(
+            p.has_claude_import,
+            crate::app::app_view::worktree_options_hidden(),
+            show_changelog_action,
+            key_q,
         );
-        // Insert the import row at the top when there are pending `.claude/` settings to import; it's the most actionable item right now
-        let mut items: Vec<(&str, &str)> = Vec::with_capacity(5);
-        if p.has_claude_import {
-            // The trailing "[x]" is a clickable dismiss control
-            // The welcome screen mouse handler treats clicks on the rightmost 3 cells of this row as dismiss instead of open. Keyboard: ctrl-shift-i.
-            // The key string is right-aligned by render_menu, so [x] sits at the very end of the row
-            items.push((key_i_with_x, "Import Claude settings"));
-        }
-        if !crate::app::app_view::worktree_options_hidden() {
-            items.push((key_w, "New worktree"));
-        }
-        items.push((key_resume, "Resume session"));
-        // "Changelog" above Quit; no shortcut, opened by click (row or block)
-        if show_changelog_action {
-            items.push(("", "Changelog"));
-        }
-        items.push((key_q, "Quit"));
-        owned_menu = items;
         owned_menu.as_slice()
     };
 
@@ -2731,6 +2739,29 @@ fn masked_auth_token_view(input: &str, cursor_byte: usize, width: usize) -> (Str
 mod tests {
     use super::*;
     use crate::app::app_view::SessionPickerEntry;
+
+    #[test]
+    fn welcome_menu_lists_resume_above_new_worktree() {
+        let rows = session_menu_rows(false, false, true, "ctrl+q");
+        let labels: Vec<&str> = rows.iter().map(|(_, label)| *label).collect();
+        assert_eq!(
+            labels,
+            vec!["Resume session", "New worktree", "Changelog", "Quit"]
+        );
+        assert_eq!(rows[0].0, "ctrl+r");
+        assert_eq!(rows[1].0, "ctrl+w");
+
+        let with_import = session_menu_rows(true, false, false, "ctrl+q");
+        assert_eq!(with_import[0].1, "Import Claude settings");
+        assert_eq!(with_import[1].1, "Resume session");
+        assert_eq!(with_import[2].1, "New worktree");
+
+        let hidden = session_menu_rows(false, true, false, "ctrl+d");
+        assert_eq!(
+            hidden,
+            vec![("ctrl+r", "Resume session"), ("ctrl+d", "Quit")]
+        );
+    }
     use crate::views::picker::PickerState;
     use crate::views::session_picker::{build_grouped_picker_entries, build_session_entry_data};
 

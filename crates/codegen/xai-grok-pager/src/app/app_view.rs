@@ -4150,7 +4150,7 @@ pub(crate) fn worktree_options_hidden() -> bool {
 }
 
 /// Dispatch an action for a welcome menu item by index.
-/// Menu order: `[Import]`, New worktree, Resume session, `[Changelog]`, Quit.
+/// The rows come from [`crate::views::welcome::session_menu_rows`]: `[Import]`, Resume session, New worktree, `[Changelog]`, Quit.
 /// The New worktree row is absent when `hide_worktree` is set.
 /// `show_changelog_action` is true when the Changelog row is rendered; release notes open only once `changelog_md` is available.
 fn dispatch_menu_action(
@@ -4160,37 +4160,29 @@ fn dispatch_menu_action(
     changelog_md: Option<&str>,
     hide_worktree: bool,
 ) -> InputOutcome {
-    let base = if has_claude_import { 1 } else { 0 };
-    let worktree_idx = (!hide_worktree).then_some(base);
-    let after_worktree = usize::from(!hide_worktree);
-    let resume_idx = base + after_worktree;
-    let (changelog_idx, quit_idx) = if show_changelog_action {
-        (Some(base + after_worktree + 1), base + after_worktree + 2)
-    } else {
-        (None, base + after_worktree + 1)
-    };
-    if has_claude_import && index == 0 {
-        return InputOutcome::Action(Action::ImportClaudeSettings);
-    }
-    if Some(index) == worktree_idx {
-        return InputOutcome::Action(Action::OpenNewWorktreeDialog);
-    }
-    if index == resume_idx {
-        return InputOutcome::Action(Action::FetchSessionList);
-    }
-    if Some(index) == changelog_idx {
-        if let Some(md) = changelog_md {
-            return InputOutcome::Action(Action::ShowReleaseNotes {
-                title: "Release Notes".to_string(),
-                content: md.trim().to_string(),
-            });
+    let rows = crate::views::welcome::session_menu_rows(
+        has_claude_import,
+        hide_worktree,
+        show_changelog_action,
+        "ctrl+q",
+    );
+    match rows.get(index).map(|(_, label)| *label) {
+        Some("Import Claude settings") => InputOutcome::Action(Action::ImportClaudeSettings),
+        Some("New worktree") => InputOutcome::Action(Action::OpenNewWorktreeDialog),
+        Some("Resume session") => InputOutcome::Action(Action::FetchSessionList),
+        Some("Changelog") => {
+            if let Some(md) = changelog_md {
+                InputOutcome::Action(Action::ShowReleaseNotes {
+                    title: "Release Notes".to_string(),
+                    content: md.trim().to_string(),
+                })
+            } else {
+                InputOutcome::Unchanged
+            }
         }
-        return InputOutcome::Unchanged;
+        Some("Quit") => InputOutcome::Action(Action::Quit),
+        _ => InputOutcome::Unchanged,
     }
-    if index == quit_idx {
-        return InputOutcome::Action(Action::Quit);
-    }
-    InputOutcome::Unchanged
 }
 impl AppView {
     /// Merge notification escape sequences with render-produced post-flush escapes.

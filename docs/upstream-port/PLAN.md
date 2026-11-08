@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-092 — Resume sits above New worktree on the Welcome menu
+
+The signed-in Welcome rows are Import (when present), Resume session (`ctrl+r`), New worktree (`ctrl+w`, omitted when the sandbox cannot create one), Changelog, Quit. Clicks use that same row list (`v69-f04`, `welcome_menu_lists_resume_above_new_worktree`).
+
 ### D-091 — A failed tracked copy stops creation
 
 Linked and standalone creates check the copy issues before `git reset`. A `could not copy` line for a tracked file, or a disk-full line on any copy, returns `worktree copy failed` and the partial directory is removed. A lost mode stays a warning. An ignored file that fails for another reason stays a warning (`v68-x01`, `tracked_copy_failure_stops_creation_and_a_lost_mode_does_not`, `disk_full_stops_creation_even_for_an_ignored_file`).
@@ -419,7 +423,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 4 | 0 | 34 | 3 | 0 |
+| W7 | Worktrees | 3 | 0 | 35 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -431,9 +435,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 390. Skipped: 8. Done: 142. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 389. Skipped: 8. Done: 143. Already: 33. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: Welcome menu lists Resume session above New worktree (`v69-f04`).
+**Next:** W7 worktrees. First open row: worktree creation notes stay on screen when a queued prompt starts (`v73-x08`).
 
 ## Waves
 
@@ -463,7 +467,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 4. Done: 34 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086; `v64-x05`, D-087; `v64-x06`, D-088; `v67-f01`, D-089; `v68-f01`, D-090; `v68-x01`, D-091). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 3. Done: 35 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086; `v64-x05`, D-087; `v64-x06`, D-088; `v67-f01`, D-089; `v68-f01`, D-090; `v68-x01`, D-091; `v69-f04`, D-092). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -654,7 +658,7 @@ id | status | wave | kind | flag | covered | note
 - v67-f01 | done | W7 | Features |  |  | **Worktrees** also use their main checkout's saved "always allow" answers, so you are not asked again for a tool you already allowed there. Set `[features] worktree_inherits_main_approvals = false` to turn this off; the main checkout's "never allow" answers apply either way.
 - v68-f01 | done | W7 | Features |  |  | **Worktree create and fork** now list files that could not be copied and any mode changes that were lost.
 - v68-x01 | done | W7 | Bug Fixes |  |  | **Worktree create** now fails cleanly instead of falling back when it cannot copy tracked files or runs out of disk space.
-- v69-f04 | pending | W7 | Features |  |  | **Welcome menu** now lists Resume session (`Ctrl+R`) above New worktree (`Ctrl+W`).
+- v69-f04 | done | W7 | Features |  |  | **Welcome menu** now lists Resume session (`Ctrl+R`) above New worktree (`Ctrl+W`).
 - v73-x08 | pending | W7 | Bug Fixes |  |  | **Worktree creation notes** stay on screen when a queued prompt starts.
 - v73-x13 | pending | W7 | Bug Fixes |  |  | **`--restore-code`** restores its own stash even when another worktree changes the stash list meanwhile, and keeps your changes stashed when a post-checkout hook fails after the checkout.
 - v75-x01 | pending | W7 | Bug Fixes |  |  | **Notes above a queued prompt**, such as a model switch result or a ready worktree, stay on screen when the prompt starts instead of scrolling out of view.
