@@ -22,6 +22,10 @@ pub enum LinkTarget {
     BgTask(Arc<str>),
 }
 
+/// Markdown destination prefix for a subagent named in a finished reply.
+/// The visible text is the subagent's label. The id stays in the destination so the click can open that transcript.
+pub const SUBAGENT_LINK_PREFIX: &str = "grok-subagent:";
+
 /// Shortest id the transcript will turn into a link.
 /// Session ids are UUIDs or `ag1.` handles. A shorter token is left as plain text so a tiny id cannot link every copy of a common word.
 pub const MIN_TRANSCRIPT_ID_LEN: usize = 8;

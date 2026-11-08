@@ -16,6 +16,17 @@ pub struct AgentMessageBlock {
     video_refs: Vec<crate::prompt_images::ScrollbackVideoRef>,
     /// Detected ` ```mermaid ` diagrams and render skeleton, populated at construction/finish (never per streaming chunk) like the media refs.
     mermaid: MermaidContent,
+    /// Finished-reply render with subagent ids replaced by labels. Keyed by the label-set generation and the source generation.
+    labeled: std::cell::RefCell<Option<LabeledMarkdown>>,
+}
+
+#[derive(Debug, Clone)]
+struct LabeledMarkdown {
+    generation: u64,
+    source_generation: u64,
+    content: MarkdownContent,
+    /// Clicks on the substituted label. The painted text is the label, so these are not markdown destinations.
+    links: Vec<xai_grok_markdown::HyperlinkTarget>,
 }
 
 impl AgentMessageBlock {
@@ -31,6 +42,7 @@ impl AgentMessageBlock {
             image_refs,
             video_refs,
             mermaid,
+            labeled: std::cell::RefCell::new(None),
         }
     }
 
@@ -41,12 +53,14 @@ impl AgentMessageBlock {
             image_refs: Vec::new(),
             video_refs: Vec::new(),
             mermaid: MermaidContent::default(),
+            labeled: std::cell::RefCell::new(None),
         }
     }
 
     /// Push a streaming chunk of markdown text.
     pub fn push_chunk(&mut self, chunk: &str) {
         self.content.push_chunk(chunk);
+        *self.labeled.borrow_mut() = None;
     }
 
     /// Push a chunk without rendering immediately.
@@ -66,6 +80,7 @@ impl AgentMessageBlock {
 
     /// Finish streaming and do a full re-render for safety.
     pub fn finish(&mut self) {
+        *self.labeled.borrow_mut() = None;
         self.content.finish();
         let text = self.content.text();
         self.image_refs = crate::prompt_images::extract_image_refs(&text);
@@ -118,6 +133,60 @@ impl AgentMessageBlock {
         )
     }
 
+    /// Finished replies render from a labeled copy when this entry's subagent labels name an id in the source.
+    /// Streaming replies keep the raw id. The guard is the one `ensure_cached` installs from the entry.
+    fn ensure_labeled(&self) -> Option<std::cell::Ref<'_, MarkdownContent>> {
+        use std::cell::Ref;
+        if !self.content.is_finished() || self.content.is_raw() {
+            return None;
+        }
+        let set = crate::scrollback::subagent_labels::active_labels();
+        if set.labels.is_empty() {
+            return None;
+        }
+        let source_generation = self.content.generation();
+        let current = self.labeled.borrow();
+        if current.as_ref().is_some_and(|view| {
+            view.generation == set.generation && view.source_generation == source_generation
+        }) {
+            return Some(Ref::map(current, |slot| &slot.as_ref().unwrap().content));
+        }
+        drop(current);
+        let source = self.content.text();
+        let rewritten =
+            crate::scrollback::subagent_labels::rewrite_finished_reply(&source, &set.labels);
+        if rewritten == source {
+            return None;
+        }
+        let content = MarkdownContent::new(rewritten);
+        let links = label_hyperlinks(&content.pre_wrap_lines(), &set.labels);
+        *self.labeled.borrow_mut() = Some(LabeledMarkdown {
+            generation: set.generation,
+            source_generation,
+            content,
+            links,
+        });
+        let current = self.labeled.borrow();
+        Some(Ref::map(current, |slot| &slot.as_ref().unwrap().content))
+    }
+
+    /// Hyperlinks for the lines `output()` just painted. A labeled reply's links live on that copy.
+    pub(crate) fn with_display_hyperlinks<R>(
+        &self,
+        f: impl FnOnce(&[xai_grok_markdown::HyperlinkTarget]) -> R,
+    ) -> R {
+        if let Some(labeled) = self.ensure_labeled() {
+            let mut merged = labeled.with_hyperlinks(|links| links.to_vec());
+            drop(labeled);
+            if let Some(view) = self.labeled.borrow().as_ref() {
+                merged.extend(view.links.iter().cloned());
+            }
+            f(&merged)
+        } else {
+            self.content.with_hyperlinks(f)
+        }
+    }
+
     /// Markdown body, then Mermaid rows, then copy-button rows under tables and code blocks.
     /// Inserts that land above a diagram shift that diagram's row.
     fn compose(
@@ -129,39 +198,107 @@ impl AgentMessageBlock {
         Vec<crate::scrollback::table_copy::TableCopyAffordance>,
         Vec<crate::scrollback::code_copy::CodeCopyAffordance>,
     ) {
-        let mut out = self.content.output(ctx.width as usize);
+        let labeled = if ctx.raw {
+            None
+        } else {
+            self.ensure_labeled()
+        };
+        if let Some(content) = labeled.as_ref() {
+            self.compose_with(ctx, content)
+        } else {
+            self.compose_with(ctx, &self.content)
+        }
+    }
+
+    fn compose_with(
+        &self,
+        ctx: &BlockContext,
+        content: &MarkdownContent,
+    ) -> (
+        BlockOutput,
+        Vec<mermaid_content::DiagramAffordance>,
+        Vec<crate::scrollback::table_copy::TableCopyAffordance>,
+        Vec<crate::scrollback::code_copy::CodeCopyAffordance>,
+    ) {
+        let mut out = content.output(ctx.width as usize);
         let mut diagrams = Vec::new();
         let show_diagrams = !ctx.raw
             && !self.mermaid.is_empty()
             && self.mermaid_display_mode() == mermaid_content::MermaidDisplay::Affordances;
         if show_diagrams {
-            let ranges = self.content.mermaid_block_ranges();
+            let ranges = content.mermaid_block_ranges();
             diagrams = mermaid_content::apply_affordance_rows(&mut out, &ranges, |idx| {
                 self.mermaid.source(idx).unwrap_or_default().to_string()
             });
         }
-        let tables = if ctx.raw || self.content.is_raw() {
+        let tables = if ctx.raw || content.is_raw() {
             Vec::new()
         } else {
-            let metas = self.content.table_copy_metas();
+            let metas = content.table_copy_metas();
             let tables = crate::scrollback::table_copy::apply_table_copy_rows(&mut out, &metas);
-            shift_diagrams_below(
-                &mut diagrams,
-                tables.iter().map(|table| table.row_offset),
-            );
+            shift_diagrams_below(&mut diagrams, tables.iter().map(|table| table.row_offset));
             tables
         };
-        let codes = if ctx.raw || self.content.is_raw() || !self.content.is_finished() {
+        let codes = if ctx.raw || content.is_raw() || !self.content.is_finished() {
             Vec::new()
         } else {
-            let spans = self.content.code_blocks();
-            let codes =
-                crate::scrollback::code_copy::apply_code_copy_rows(&mut out, &spans);
+            let spans = content.code_blocks();
+            let codes = crate::scrollback::code_copy::apply_code_copy_rows(&mut out, &spans);
             shift_diagrams_below(&mut diagrams, codes.iter().map(|code| code.row_offset));
             codes
         };
         (out, diagrams, tables, codes)
     }
+}
+
+/// Pre-wrap clicks for each substituted label. Longer labels win when one label contains another.
+fn label_hyperlinks(
+    lines: &[ratatui::text::Line<'static>],
+    labels: &[crate::scrollback::subagent_labels::SubagentLabel],
+) -> Vec<xai_grok_markdown::HyperlinkTarget> {
+    use unicode_width::UnicodeWidthStr;
+    let mut ordered: Vec<_> = labels.iter().collect();
+    ordered.sort_by_key(|label| std::cmp::Reverse(label.label.len()));
+    let mut links = Vec::new();
+    let mut next_id = 1u32 << 20;
+    for (line_index, line) in lines.iter().enumerate() {
+        let text: String = line.spans.iter().map(|span| span.content.as_ref()).collect();
+        let mut consumed = vec![false; text.len()];
+        for label in &ordered {
+            let needle = label.label.as_ref();
+            if needle.is_empty() {
+                continue;
+            }
+            let mut from = 0;
+            while from < text.len() {
+                let Some(rel) = text[from..].find(needle) else {
+                    break;
+                };
+                let at = from + rel;
+                let end = at + needle.len();
+                if consumed[at..end].iter().any(|bit| *bit) {
+                    from = at + 1;
+                    continue;
+                }
+                consumed[at..end].fill(true);
+                let start_col = UnicodeWidthStr::width(&text[..at]);
+                let end_col = start_col + UnicodeWidthStr::width(&text[at..end]);
+                links.push(xai_grok_markdown::HyperlinkTarget {
+                    line_index,
+                    column_range: start_col..end_col,
+                    url: format!(
+                        "{}{}",
+                        crate::render::osc8::SUBAGENT_LINK_PREFIX,
+                        label.id
+                    ),
+                    id: next_id,
+                });
+                next_id = next_id.saturating_add(1);
+                from = end;
+            }
+        }
+    }
+    links
 }
 
 /// A button row inserted above a diagram pushes that diagram down by one row.

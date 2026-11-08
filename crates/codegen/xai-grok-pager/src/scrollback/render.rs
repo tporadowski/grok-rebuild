@@ -963,7 +963,13 @@ pub(crate) fn map_hyperlinks_to_overlay(
     // Reused across every link segment so the row's plain text is not reallocated per segment per frame; only written when reordering is on
     let mut row_plain_buf = String::new();
     for h in hyperlinks {
-        let target = if crate::app::link_opener::is_safe_to_open(&h.url, scheme_filter) {
+        let target = if let Some(id) = h
+            .url
+            .strip_prefix(crate::render::osc8::SUBAGENT_LINK_PREFIX)
+            && !id.is_empty()
+        {
+            crate::render::osc8::LinkTarget::Subagent(Arc::from(id))
+        } else if crate::app::link_opener::is_safe_to_open(&h.url, scheme_filter) {
             crate::render::osc8::LinkTarget::Url(Arc::from(h.url.as_str()))
         } else if let Some(file_target) =
             crate::render::osc8::local_link_to_file_target(&h.url, media_paths, cwd)

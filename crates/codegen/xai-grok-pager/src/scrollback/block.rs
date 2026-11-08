@@ -1110,7 +1110,7 @@ impl RenderBlock {
         f: impl FnOnce(&[xai_grok_markdown::HyperlinkTarget]) -> R,
     ) -> R {
         match self {
-            RenderBlock::AgentMessage(b) => b.content().with_hyperlinks(f),
+            RenderBlock::AgentMessage(b) => b.with_display_hyperlinks(f),
             RenderBlock::Thinking(b) => b.content().with_hyperlinks(f),
             RenderBlock::Btw(b) => b.content().with_hyperlinks(f),
             _ => f(&[]),

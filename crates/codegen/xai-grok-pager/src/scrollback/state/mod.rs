@@ -216,6 +216,9 @@ pub struct ScrollbackState {
 
     /// Session/worktree cwd (`AgentSession.cwd`) for Expanded tool paths.
     cwd: Option<std::path::PathBuf>,
+
+    /// Subagent ids a finished reply may show as labels. Empty leaves the raw id.
+    subagent_labels: std::sync::Arc<crate::scrollback::subagent_labels::SubagentLabelSet>,
 }
 
 impl Default for ScrollbackState {
@@ -274,7 +277,44 @@ impl ScrollbackState {
             #[cfg(test)]
             layout_rebuilds: 0,
             cwd: None,
+            subagent_labels: std::sync::Arc::new(
+                crate::scrollback::subagent_labels::SubagentLabelSet::empty(),
+            ),
         }
+    }
+
+    /// Replace the labels a finished reply uses for subagent ids. Same contents leave caches alone.
+    pub(crate) fn set_subagent_labels(
+        &mut self,
+        labels: Vec<crate::scrollback::subagent_labels::SubagentLabel>,
+    ) {
+        let next = std::sync::Arc::new(
+            crate::scrollback::subagent_labels::SubagentLabelSet::from_labels(labels),
+        );
+        if *self.subagent_labels == *next {
+            return;
+        }
+        self.subagent_labels = next;
+        self.broadcast_subagent_labels();
+        for entry in self.entries.values_mut() {
+            entry.invalidate_cache();
+        }
+        self.dirty_heights = self.entries.keys().copied().collect();
+        self.layout_cache = None;
+        self.gaps_may_be_dirty = true;
+        self.bump_generation();
+    }
+
+    fn broadcast_subagent_labels(&self) {
+        for entry in self.entries.values() {
+            entry.set_subagent_labels(std::sync::Arc::clone(&self.subagent_labels));
+        }
+    }
+
+    pub(crate) fn subagent_label_set(
+        &self,
+    ) -> std::sync::Arc<crate::scrollback::subagent_labels::SubagentLabelSet> {
+        std::sync::Arc::clone(&self.subagent_labels)
     }
 
     pub fn cwd(&self) -> Option<&std::path::Path> {
@@ -1382,6 +1422,9 @@ impl ScrollbackState {
     /// The one pre-render mutation point: refresh viewport size, rebuild the layout cache if needed, then apply follow-mode scroll.
     /// Callers must not mutate layout elsewhere or heights and scroll position drift from what is painted.
     pub fn prepare_layout(&mut self, width: u16, height: u16) -> bool {
+        self.broadcast_subagent_labels();
+        let _subagent_labels =
+            crate::scrollback::subagent_labels::install(self.subagent_label_set());
         // Mid-session ffmpeg install: invalidate cached banner-sized reservations.
         if !self.ffmpeg_available_snapshot && crate::inline_media_ffmpeg::ffmpeg_available() {
             self.ffmpeg_available_snapshot = true;

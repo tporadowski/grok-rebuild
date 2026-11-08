@@ -17,6 +17,8 @@ struct CachedOutput {
     cwd: Option<PathBuf>,
     /// Minimal mode forces inline overlays off and drops the blank diagram row, which shifts table and code copy rows.
     inline_overlay_off: bool,
+    /// Generation of the subagent labels applied while this output was built. `0` is no labels.
+    subagent_label_generation: u64,
     rendered: RenderedBlockOutput,
 }
 
@@ -24,8 +26,8 @@ struct CachedOutput {
 /// Streaming invalidates the layout cache on each push; without this, every entry height is recomputed.
 /// `cwd` is keyed because Edit/Read header wrap can change between absolute and relative paths.
 /// The last `bool` is `inline_overlay_off`: minimal mode drops the diagram row, so the height changes with it.
-/// Tuple is `(content_width, raw, theme, cwd, inline_overlay_off, height)`.
-type CachedTruncatedHeight = (u16, bool, ThemeKind, Option<PathBuf>, bool, u16);
+/// Tuple is `(content_width, raw, theme, cwd, inline_overlay_off, subagent_label_generation, height)`.
+type CachedTruncatedHeight = (u16, bool, ThemeKind, Option<PathBuf>, bool, u64, u16);
 
 /// Unique identifier for a scrollback entry.
 /// EntryIds are stable across mutations: they won't become invalid if other entries are added or removed.
@@ -104,6 +106,9 @@ pub struct ScrollbackEntry {
     /// Display width of each source line. Width-independent, so unlike every other cache here it survives a resize.
     /// Re-deriving it per width is what made a resize cost O(total conversation bytes).
     cached_line_widths: RefCell<Option<Vec<u32>>>,
+
+    /// Subagent ids this entry may replace in a finished reply. Copied from the scrollback before layout.
+    subagent_labels: RefCell<std::sync::Arc<crate::scrollback::subagent_labels::SubagentLabelSet>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +172,9 @@ impl ScrollbackEntry {
             cached_truncated_height: RefCell::new(None),
             cached_estimate_lines: RefCell::new(None),
             cached_line_widths: RefCell::new(None),
+            subagent_labels: RefCell::new(std::sync::Arc::new(
+                crate::scrollback::subagent_labels::SubagentLabelSet::empty(),
+            )),
         }
     }
 
@@ -196,6 +204,20 @@ impl ScrollbackEntry {
             cached_truncated_height: RefCell::new(None),
             cached_estimate_lines: RefCell::new(None),
             cached_line_widths: RefCell::new(None),
+            subagent_labels: RefCell::new(std::sync::Arc::new(
+                crate::scrollback::subagent_labels::SubagentLabelSet::empty(),
+            )),
+        }
+    }
+
+    /// Remember the session's subagent labels. A newer generation replaces the previous set.
+    pub(crate) fn set_subagent_labels(
+        &self,
+        labels: std::sync::Arc<crate::scrollback::subagent_labels::SubagentLabelSet>,
+    ) {
+        let mut slot = self.subagent_labels.borrow_mut();
+        if **slot != *labels {
+            *slot = labels;
         }
     }
 
@@ -337,6 +359,8 @@ impl ScrollbackEntry {
         let cwd_key = cwd.map(|p| p.to_path_buf());
         // Read at lookup time. A `/minimal` switch sets this without resizing or changing the theme.
         let inline_overlay_off = crate::terminal::image::scrollback_inline_overlay_forced_off();
+        let subagent_labels = std::sync::Arc::clone(&self.subagent_labels.borrow());
+        let subagent_label_generation = subagent_labels.generation;
         {
             let cache = self.cached_output.borrow();
             if let Some(cached) = cache.as_ref()
@@ -346,12 +370,14 @@ impl ScrollbackEntry {
                 && cached.is_selected == effective_selected
                 && cached.cwd == cwd_key
                 && cached.inline_overlay_off == inline_overlay_off
+                && cached.subagent_label_generation == subagent_label_generation
             {
                 return; // cache hit
             }
         }
 
-        // Cache miss: regenerate
+        // Cache miss: regenerate. The guard lets a finished agent reply swap ids for labels.
+        let _subagent_labels = crate::scrollback::subagent_labels::install(subagent_labels);
         let ctx = BlockContext {
             mode: self.display_mode,
             is_running: self.is_running,
@@ -370,6 +396,7 @@ impl ScrollbackEntry {
             is_selected: effective_selected,
             cwd: cwd_key,
             inline_overlay_off,
+            subagent_label_generation,
             rendered,
         });
     }
@@ -406,6 +433,8 @@ impl ScrollbackEntry {
         let current_theme = theme_cache::current_kind();
         let cwd_key = cwd.map(|p| p.to_path_buf());
         let inline_overlay_off = crate::terminal::image::scrollback_inline_overlay_forced_off();
+        let subagent_labels = std::sync::Arc::clone(&self.subagent_labels.borrow());
+        let subagent_label_generation = subagent_labels.generation;
         {
             let cache = self.cached_truncated_height.borrow();
             if let Some(&(
@@ -414,6 +443,7 @@ impl ScrollbackEntry {
                 cached_theme,
                 ref cached_cwd,
                 cached_overlay_off,
+                cached_label_generation,
                 height,
             )) = cache.as_ref()
                 && cached_width == content_width
@@ -421,12 +451,14 @@ impl ScrollbackEntry {
                 && cached_theme == current_theme
                 && *cached_cwd == cwd_key
                 && cached_overlay_off == inline_overlay_off
+                && cached_label_generation == subagent_label_generation
             {
                 return height;
             }
         }
 
         // Force Truncated for sticky-header height; include cwd (header wrap).
+        let _subagent_labels = crate::scrollback::subagent_labels::install(subagent_labels);
         let ctx = self.context_with_mode(content_width, DisplayMode::Truncated, appearance, cwd);
         let output = self.block.output(&ctx);
         let has_vpad = self.block.has_vpad(&ctx);
@@ -440,6 +472,7 @@ impl ScrollbackEntry {
             current_theme,
             cwd_key,
             inline_overlay_off,
+            subagent_label_generation,
             height,
         ));
         height

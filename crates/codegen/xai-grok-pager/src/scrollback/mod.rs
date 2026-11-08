@@ -21,6 +21,7 @@ pub mod link_map;
 pub mod render;
 pub mod scrollback_pane;
 pub mod search;
+pub(crate) mod subagent_labels;
 pub mod selection;
 pub mod state;
 pub mod sticky;

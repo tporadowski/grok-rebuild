@@ -314,6 +314,42 @@ impl AgentView {
         mentions
     }
 
+    /// Labels for subagent ids a finished reply should show instead of the raw id.
+    pub(crate) fn reply_subagent_labels(
+        &self,
+    ) -> Vec<crate::scrollback::subagent_labels::SubagentLabel> {
+        use crate::render::osc8::MIN_TRANSCRIPT_ID_LEN;
+        use crate::scrollback::subagent_labels::SubagentLabel;
+        let mut labels = Vec::new();
+        for info in self.subagent_sessions.values() {
+            let text = crate::app::subagent::subagent_display_label(info);
+            if text.is_empty() {
+                continue;
+            }
+            let label = std::sync::Arc::<str>::from(text);
+            if info.subagent_id.len() >= MIN_TRANSCRIPT_ID_LEN {
+                labels.push(SubagentLabel {
+                    id: std::sync::Arc::clone(&info.subagent_id),
+                    label: std::sync::Arc::clone(&label),
+                });
+            }
+            if info.child_session_id != info.subagent_id
+                && info.child_session_id.len() >= MIN_TRANSCRIPT_ID_LEN
+            {
+                labels.push(SubagentLabel {
+                    id: std::sync::Arc::clone(&info.child_session_id),
+                    label,
+                });
+            }
+        }
+        labels
+    }
+
+    pub(crate) fn sync_reply_subagent_labels(&mut self) {
+        self.scrollback
+            .set_subagent_labels(self.reply_subagent_labels());
+    }
+
     /// Open the subagent view or task output a transcript link names.
     /// `false` when this session has no such id, or the subagent view was never created.
     pub(crate) fn open_transcript_mention(
@@ -504,6 +540,81 @@ mod link_click_tests {
         assert_eq!(agent.active_subagent.as_deref(), Some(CHILD));
         assert!(!agent.open_transcript_mention(&LinkTarget::BgTask(Arc::from(UNKNOWN))));
         assert!(!agent.open_transcript_mention(&LinkTarget::Subagent(Arc::from(UNKNOWN))));
+        assert_eq!(agent.active_subagent.as_deref(), Some(CHILD));
+    }
+
+    #[test]
+    fn finished_reply_shows_the_subagent_label_instead_of_its_id() {
+        use crate::render::osc8::LinkTarget;
+        use crate::scrollback::block::RenderBlock;
+        use crate::scrollback::render::ScratchBuffer;
+        use crate::scrollback::scrollback_pane::ScrollbackPane;
+        use crate::scrollback::VisibleLinkMap;
+        use ratatui::buffer::Buffer;
+        use unicode_width::UnicodeWidthStr;
+
+        const ID: &str = "019f972a-7c1b-7abc-a896-4f08f91b9999";
+        const CHILD: &str = "child1";
+
+        let mut agent = make_agent();
+        let mut info = super::test_fixtures::running_subagent_info(CHILD);
+        info.subagent_id = Arc::from(ID);
+        info.description = Arc::from("ports");
+        let label = crate::app::subagent::subagent_display_label(&info);
+        agent.subagent_sessions.insert(CHILD.into(), info);
+        agent.insert_test_child(CHILD.into(), Box::new(make_agent()));
+
+        agent.scrollback.push_block(RenderBlock::agent_message(format!(
+            "asked {ID} now\n\n```\n{ID}\n```\n"
+        )));
+        let live = agent
+            .scrollback
+            .push_block(RenderBlock::agent_message_streaming());
+        agent
+            .scrollback
+            .get_by_id_mut(live)
+            .expect("streaming reply")
+            .block
+            .as_agent_message_mut()
+            .expect("agent message")
+            .push_chunk(&format!("live {ID}\n"));
+        agent.sync_reply_subagent_labels();
+
+        let area = Rect::new(0, 0, 140, 40);
+        agent.scrollback.prepare_layout(area.width, area.height);
+        let mut buf = Buffer::empty(area);
+        let mut scratch = ScratchBuffer::new();
+        let rendered = ScrollbackPane::new().render_with_scratch_and_selection_boundaries(
+            area,
+            &mut buf,
+            &agent.scrollback,
+            &mut scratch,
+        );
+        let painted = buffer_plain(&buf);
+        let rows: Vec<&str> = painted.lines().collect();
+        assert!(
+            rows.iter()
+                .any(|row| row.contains(label.as_str()) && !row.contains(ID)),
+            "finished prose shows the label: {painted}"
+        );
+        assert!(
+            rows.iter().any(|row| row.contains(ID)),
+            "the fence and the streaming reply keep the raw id: {painted}"
+        );
+
+        let mut map = VisibleLinkMap::default();
+        map.rebuild(1, &rendered.output.link_overlay, Vec::new());
+        let label_width = UnicodeWidthStr::width(label.as_str());
+        let link = map
+            .links()
+            .iter()
+            .find(|link| {
+                matches!(&link.target, LinkTarget::Subagent(id) if id.as_ref() == ID)
+                    && link.rects.iter().map(|rect| rect.width as usize).sum::<usize>()
+                        == label_width
+            })
+            .expect("the label is the link");
+        assert!(agent.open_transcript_mention(&link.target));
         assert_eq!(agent.active_subagent.as_deref(), Some(CHILD));
     }
 

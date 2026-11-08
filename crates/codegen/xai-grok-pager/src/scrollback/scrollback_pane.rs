@@ -167,6 +167,8 @@ impl ScrollbackPane {
         if area.width == 0 || area.height == 0 {
             return RenderOutputWithSelectionBoundaries::default();
         }
+        let _subagent_labels =
+            crate::scrollback::subagent_labels::install(state.subagent_label_set());
 
         // Get scroll info for Viewport to render scrollbar
         let (scroll_offset, viewport_height, total_height) = state.scroll_info();
