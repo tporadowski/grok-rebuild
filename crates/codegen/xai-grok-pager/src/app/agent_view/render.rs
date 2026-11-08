@@ -208,14 +208,27 @@ impl AgentView {
             .prompt
             .width
             .saturating_sub(QUESTION_VIEW_HPAD) as usize;
-        let ctrl_f_hint = perm.has_collapsible_display(perm_content_w).then(|| {
-            let label = if perm.args_expanded {
-                "collapse"
+        let ctrl_f_hint = if perm
+            .auto_review
+            .as_ref()
+            .is_some_and(|notice| notice.explanation.is_some())
+        {
+            let label = if perm.auto_review_explanation_open {
+                "hide"
             } else {
-                "expand"
+                "explanation"
             };
-            HintItem::new(key!('f', CONTROL), label)
-        });
+            Some(HintItem::new(key!('f', CONTROL), label))
+        } else {
+            perm.has_collapsible_display(perm_content_w).then(|| {
+                let label = if perm.args_expanded {
+                    "collapse"
+                } else {
+                    "expand"
+                };
+                HintItem::new(key!('f', CONTROL), label)
+            })
+        };
         match perm.focus {
             PermissionFocus::FollowupInput => {
                 let mut hints = vec![HintItem::new(key!(Enter), "send")];

@@ -97,6 +97,8 @@ fn set_yolo_mode_on_drains_permission_queue_with_allow_once() {
         subagent_label: None,
         options_area_height: 0,
         options_scroll_offset: 0,
+        auto_review: None,
+        auto_review_explanation_open: false,
     });
     assert_eq!(agent.permission_queue.len(), 1);
 
@@ -575,6 +577,8 @@ fn push_bash_allow_always(
         subagent_label: None,
         options_area_height: 0,
         options_scroll_offset: 0,
+        auto_review: None,
+        auto_review_explanation_open: false,
     });
     rx
 }

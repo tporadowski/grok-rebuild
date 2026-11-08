@@ -5,7 +5,9 @@ use std::time::Instant;
 use crate::permission::{
     bash_command_splitting::{BashCommandHighlights, primary_command_from_script},
     grants::web_fetch_deny_key_from_url,
-    types::{AccessKind, ClientType, HOOK_ASK_META_KEY, HookAsk},
+    types::{
+        AUTO_REVIEW_META_KEY, AccessKind, AutoReviewNotice, ClientType, HOOK_ASK_META_KEY, HookAsk,
+    },
 };
 use agent_client_protocol::{self as acp, Client as _};
 use xai_acp_lib::AcpAgentGatewaySender as GatewaySender;
@@ -545,6 +547,7 @@ impl AcpPrompter {
         access: &AccessKind,
         protected_edit: Option<crate::permission::ProtectedEditReason>,
         hook_ask: Option<&HookAsk>,
+        auto_review: Option<&AutoReviewNotice>,
     ) -> Option<acp::Meta> {
         let mut meta = self
             .bash_selection_meta(access)
@@ -552,6 +555,9 @@ impl AcpPrompter {
             .unwrap_or_default();
         if let Some(value) = hook_ask.and_then(|ask| serde_json::to_value(ask).ok()) {
             meta.insert(HOOK_ASK_META_KEY.to_owned(), value);
+        }
+        if let Some(value) = auto_review.and_then(|notice| serde_json::to_value(notice).ok()) {
+            meta.insert(AUTO_REVIEW_META_KEY.to_owned(), value);
         }
         (!meta.is_empty()).then_some(meta)
     }
@@ -733,12 +739,14 @@ impl AcpPrompter {
 
     /// Prompt the user.
     /// `hook_ask` is set when a `PreToolUse` hook forced this prompt; it is prepended to the request title so the user sees which hook asked and why.
+    /// `auto_review` is set for a shell command Auto-review blocked or could not review. The hub transport does not read it; the ACP `_meta` path does.
     pub async fn request(
         &self,
         access: &AccessKind,
         tool_call_update: &acp::ToolCallUpdate,
         protected_edit: Option<crate::permission::ProtectedEditReason>,
         hook_ask: Option<&HookAsk>,
+        auto_review: Option<&AutoReviewNotice>,
     ) -> PromptOutcome {
         let tool_name = tool_name_for_access(access);
         // events.jsonl: `PermissionRequested` at prompt-start
@@ -777,6 +785,7 @@ impl AcpPrompter {
                     access,
                     protected_edit,
                     hook_ask,
+                    auto_review,
                 ));
                 match self.gateway.request_permission(req).await {
                     Ok(resp) => match resp.outcome {
@@ -1076,7 +1085,7 @@ mod tests {
         let access = AccessKind::Edit("a.rs".to_owned());
 
         let meta = prompter
-            .permission_request_meta(&access, /*protected_edit=*/ None, Some(&ask))
+            .permission_request_meta(&access, /*protected_edit=*/ None, Some(&ask), None)
             .expect("a hook ask always produces meta");
         assert_eq!(
             serde_json::Value::Object(meta),
@@ -1089,6 +1098,7 @@ mod tests {
                 &access,
                 Some(crate::permission::ProtectedEditReason::Sensitive),
                 Some(&ask),
+                None,
             )
             .expect("an ask plus a protected edit always produces meta");
         assert_eq!(
@@ -1102,7 +1112,8 @@ mod tests {
         assert!(
             prompter
                 .permission_request_meta(
-                    &access, /*protected_edit=*/ None, /*hook_ask=*/ None
+                    &access, /*protected_edit=*/ None, /*hook_ask=*/ None,
+                    /*auto_review=*/ None
                 )
                 .is_none(),
             "no ask and no protected edit leaves the meta absent"
@@ -1134,6 +1145,34 @@ mod tests {
                 .title,
             titled.fields.title,
             "no ask leaves the title untouched"
+        );
+    }
+
+    #[test]
+    fn auto_review_notice_is_stored_on_the_request_meta() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let prompter = AcpPrompter::new(
+            acp::SessionId::new(Arc::from("sess-review")),
+            GatewaySender::new(tx),
+            ClientType::GrokPager,
+        );
+        let notice = crate::permission::auto_review_notice(
+            Some(crate::permission::reasons::AUTO_CLASSIFIER_DENY),
+            Some("  pushes to a remote  "),
+        )
+        .expect("a classifier deny is a shell-card notice");
+        let access = AccessKind::Bash("git push origin main".to_owned());
+        let meta = prompter
+            .permission_request_meta(&access, None, None, Some(&notice))
+            .expect("an auto-review notice always produces meta");
+        let value = serde_json::Value::Object(meta);
+        assert_eq!(value["autoReview"]["kind"], "blocked");
+        assert_eq!(value["autoReview"]["explanation"], "pushes to a remote");
+        assert!(
+            prompter
+                .permission_request_meta(&access, None, None, None)
+                .is_none(),
+            "no notice and no other meta leaves the request meta absent"
         );
     }
 
@@ -2105,6 +2144,7 @@ mod tests {
                 &tool_call_update,
                 /*protected_edit=*/ None,
                 /*hook_ask=*/ None,
+                /*auto_review=*/ None,
             )
             .await;
         assert!(
@@ -2175,6 +2215,7 @@ mod tests {
                 &tool_call_update,
                 /*protected_edit=*/ None,
                 /*hook_ask=*/ None,
+                /*auto_review=*/ None,
             )
             .await;
         assert!(matches!(outcome, PromptOutcome::Error(_)));

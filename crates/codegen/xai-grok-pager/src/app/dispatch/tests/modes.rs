@@ -763,6 +763,8 @@ fn set_yolo_mode_on_with_no_allow_once_option_sends_cancelled() {
         subagent_label: None,
         options_area_height: 0,
         options_scroll_offset: 0,
+        auto_review: None,
+        auto_review_explanation_open: false,
     });
 
     let _ = dispatch(Action::SetYoloMode(true), &mut app);
@@ -844,6 +846,8 @@ fn set_yolo_mode_on_drains_multi_item_queue() {
             subagent_label: None,
             options_area_height: 0,
             options_scroll_offset: 0,
+            auto_review: None,
+            auto_review_explanation_open: false,
         });
     }
     assert_eq!(agent.permission_queue.len(), 3);
@@ -921,6 +925,8 @@ fn set_yolo_mode_on_duplicate_dispatch_still_drains_queue() {
             subagent_label: None,
             options_area_height: 0,
             options_scroll_offset: 0,
+            auto_review: None,
+            auto_review_explanation_open: false,
         });
 
     // Second dispatch (same value): MUST still drain. A "skip-drain-on-no-op" regression would leak this permission.
@@ -1910,6 +1916,8 @@ fn dispatch_cycle_mode_plan_to_always_approve_drains_queue_via_inner() {
             subagent_label: None,
             options_area_height: 0,
             options_scroll_offset: 0,
+            auto_review: None,
+            auto_review_explanation_open: false,
         });
 
     let _ = dispatch(Action::CycleMode, &mut app);

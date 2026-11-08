@@ -857,6 +857,8 @@ fn test_followup_permission_state() -> crate::views::permission_view::Permission
         subagent_label: None,
         options_area_height: 0,
         options_scroll_offset: 0,
+        auto_review: None,
+        auto_review_explanation_open: false,
     }
 }
 

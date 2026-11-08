@@ -2120,6 +2120,8 @@ pub(crate) mod test_fixtures {
             subagent_label: None,
             options_area_height: 0,
             options_scroll_offset: 0,
+            auto_review: None,
+            auto_review_explanation_open: false,
         }
     }
     pub(crate) fn make_plan_approval_view_state()

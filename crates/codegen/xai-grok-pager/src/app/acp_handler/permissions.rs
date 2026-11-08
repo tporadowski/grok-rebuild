@@ -147,6 +147,11 @@ fn enqueue_permission(
 
     let active_idx = crate::appearance::permission_cursor::resolve_initial_cursor(&options);
 
+    let is_shell = bash_highlights.is_some()
+        || bash_command_raw.is_some()
+        || perm.request.tool_call.fields.kind == Some(acp::ToolKind::Execute);
+    let auto_review = auto_review_for_card(&perm.request, is_shell);
+
     agent.permission_queue.push_back(PermissionViewState {
         request: perm,
         id: perm_id,
@@ -165,6 +170,8 @@ fn enqueue_permission(
         subagent_label,
         options_area_height: 0,
         options_scroll_offset: 0,
+        auto_review,
+        auto_review_explanation_open: false,
     });
 
     agent.last_active_at = Some(std::time::Instant::now());
@@ -303,6 +310,20 @@ fn permission_description_lines(
         lines.insert(0, ask.ask_line());
     }
     lines
+}
+
+fn auto_review_for_card(
+    req: &acp::RequestPermissionRequest,
+    is_shell: bool,
+) -> Option<xai_grok_workspace::permission::AutoReviewNotice> {
+    if !is_shell {
+        return None;
+    }
+    let value = req
+        .meta
+        .as_ref()?
+        .get(xai_grok_workspace::permission::AUTO_REVIEW_META_KEY)?;
+    serde_json::from_value(value.clone()).ok()
 }
 
 fn hook_ask(
@@ -492,6 +513,252 @@ pub(super) fn apply_recap_block(agent: &mut AgentView, auto: bool, recap_block: 
         None => {
             agent.scrollback.push_block(recap_block);
         }
+    }
+}
+
+#[cfg(test)]
+mod auto_review_card_tests {
+    use super::*;
+    use crate::actions::ActionRegistry;
+    use crate::app::app_view::InputOutcome;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use xai_grok_workspace::permission::{
+        AUTO_REVIEW_META_KEY, ClassifierFailure, auto_review_notice, reasons,
+    };
+
+    fn request_with_notice(
+        raw_input: serde_json::Value,
+        title: &str,
+        notice: Option<&xai_grok_workspace::permission::AutoReviewNotice>,
+    ) -> xai_acp_lib::AcpArgs<acp::RequestPermissionRequest> {
+        let (response_tx, _rx) = tokio::sync::oneshot::channel();
+        let mut meta = serde_json::Map::new();
+        if let Some(notice) = notice {
+            meta.insert(
+                AUTO_REVIEW_META_KEY.to_owned(),
+                serde_json::to_value(notice).unwrap(),
+            );
+        }
+        let fields = acp::ToolCallUpdateFields::new()
+            .raw_input(Some(raw_input))
+            .title(Some(title.to_owned()));
+        let request = acp::RequestPermissionRequest::new(
+            acp::SessionId::new(std::sync::Arc::from("s1")),
+            acp::ToolCallUpdate::new(acp::ToolCallId::new(std::sync::Arc::from("call-1")), fields),
+            vec![acp::PermissionOption::new(
+                acp::PermissionOptionId::new(std::sync::Arc::from("allow-once")),
+                "Yes, proceed",
+                acp::PermissionOptionKind::AllowOnce,
+            )],
+        )
+        .meta((!meta.is_empty()).then_some(meta));
+        xai_acp_lib::AcpArgs {
+            request,
+            response_tx,
+        }
+    }
+
+    fn render_text(state: &PermissionViewState) -> String {
+        let theme = crate::theme::Theme::current();
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        let _ = crate::views::permission_view::render_permission_view(
+            &mut buf, area, state, "", None, None, &theme, true,
+        );
+        (0..area.height)
+            .map(|row| {
+                (0..area.width)
+                    .map(|col| {
+                        buf.cell((col, row))
+                            .map(|cell| cell.symbol().to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn ctrl_f(agent: &mut crate::app::agent_view::AgentView) -> InputOutcome {
+        agent.pane_areas.prompt = Rect::new(0, 0, 80, 24);
+        agent.handle_input(
+            &Event::Key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL)),
+            &ActionRegistry::defaults(),
+        )
+    }
+
+    #[test]
+    fn shell_card_says_when_auto_review_blocked_and_ctrl_f_shows_the_explanation() {
+        let notice = auto_review_notice(
+            Some(reasons::AUTO_CLASSIFIER_DENY),
+            Some("pushes to a remote"),
+        )
+        .expect("deny");
+        let line = notice.card_line();
+        let mut agent = crate::test_util::make_agent_view(Some("s1"), "/tmp");
+        enqueue_permission(
+            request_with_notice(
+                serde_json::json!({
+                    "command": "git push origin main",
+                    "description": "Push the branch",
+                }),
+                "Execute `git push origin main`",
+                Some(&notice),
+            ),
+            &mut agent,
+        );
+        let closed_h = {
+            let card = agent.permission_queue.front().expect("shell card");
+            assert_eq!(card.auto_review.as_ref(), Some(&notice));
+            assert!(!card.auto_review_explanation_open);
+            let closed = render_text(card);
+            assert!(closed.contains(line), "blocked status missing:\n{closed}");
+            assert!(
+                !closed.contains("pushes to a remote"),
+                "explanation stays closed until Ctrl+F:\n{closed}"
+            );
+            assert!(
+                closed.contains("ctrl+f") && closed.contains("explanation"),
+                "Ctrl+F hint missing:\n{closed}"
+            );
+            crate::views::permission_view::permission_view_height(card, 40, 80)
+        };
+
+        let outcome = ctrl_f(&mut agent);
+        assert!(matches!(outcome, InputOutcome::Changed), "{outcome:?}");
+        let card = agent.permission_queue.front().unwrap();
+        assert!(card.auto_review_explanation_open);
+        assert!(
+            !card.args_expanded,
+            "Ctrl+F opens the explanation, not the command"
+        );
+        let open = render_text(card);
+        assert!(
+            open.contains(line),
+            "status stays while the explanation is open:\n{open}"
+        );
+        assert!(
+            open.contains("pushes to a remote"),
+            "explanation missing:\n{open}"
+        );
+        let open_h = crate::views::permission_view::permission_view_height(card, 40, 80);
+        assert_eq!(
+            closed_h, open_h,
+            "opening the explanation must not resize the card"
+        );
+    }
+
+    #[test]
+    fn shell_card_says_when_auto_review_could_not_review() {
+        let explanation = ClassifierFailure::Timeout.to_string();
+        let notice = auto_review_notice(
+            Some(reasons::AUTO_CLASSIFIER_TIMEOUT),
+            Some(explanation.as_str()),
+        )
+        .expect("timeout");
+        let line = notice.card_line();
+        let mut agent = crate::test_util::make_agent_view(Some("s1"), "/tmp");
+        enqueue_permission(
+            request_with_notice(
+                serde_json::json!({
+                    "command": "git push origin main",
+                    "description": "Push the branch",
+                }),
+                "Execute `git push origin main`",
+                Some(&notice),
+            ),
+            &mut agent,
+        );
+        let closed = render_text(agent.permission_queue.front().unwrap());
+        assert!(
+            closed.contains(line),
+            "couldn't-review status missing:\n{closed}"
+        );
+        assert!(
+            !closed.contains(explanation.as_str()),
+            "timeout text stays behind Ctrl+F:\n{closed}"
+        );
+        ctrl_f(&mut agent);
+        let open = render_text(agent.permission_queue.front().unwrap());
+        assert!(
+            open.contains(explanation.as_str()),
+            "timeout explanation missing:\n{open}"
+        );
+    }
+
+    #[test]
+    fn card_without_an_auto_review_notice_still_expands_a_long_command() {
+        let command = (0..12)
+            .map(|i| format!("echo line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut agent = crate::test_util::make_agent_view(Some("s1"), "/tmp");
+        enqueue_permission(
+            request_with_notice(
+                serde_json::json!({
+                    "command": command,
+                    "description": "Run the script",
+                }),
+                "Execute script",
+                None,
+            ),
+            &mut agent,
+        );
+        let card = agent.permission_queue.front().unwrap();
+        assert!(card.auto_review.is_none());
+        let collapsed = render_text(card);
+        assert!(
+            !collapsed.contains("Auto-review"),
+            "a normal shell card stays quiet:\n{collapsed}"
+        );
+        assert!(
+            !collapsed.contains("echo line4"),
+            "the long command starts collapsed:\n{collapsed}"
+        );
+        let outcome = ctrl_f(&mut agent);
+        assert!(matches!(outcome, InputOutcome::Changed), "{outcome:?}");
+        let card = agent.permission_queue.front().unwrap();
+        assert!(card.args_expanded);
+        let expanded = render_text(card);
+        assert!(
+            expanded.contains("echo line11"),
+            "Ctrl+F still expands a command that has no explanation:\n{expanded}"
+        );
+        assert!(!expanded.contains("Auto-review"), "{expanded}");
+    }
+
+    #[test]
+    fn edit_card_does_not_show_an_auto_review_notice() {
+        let notice = auto_review_notice(
+            Some(reasons::AUTO_CLASSIFIER_DENY),
+            Some("rewrites a protected file"),
+        )
+        .expect("deny");
+        let mut agent = crate::test_util::make_agent_view(Some("s1"), "/tmp");
+        enqueue_permission(
+            request_with_notice(
+                serde_json::json!({
+                    "file_path": "/tmp/x.rs",
+                    "old_string": "a",
+                    "new_string": "b",
+                }),
+                "Edit /tmp/x.rs",
+                Some(&notice),
+            ),
+            &mut agent,
+        );
+        let card = agent.permission_queue.front().unwrap();
+        assert!(
+            card.auto_review.is_none(),
+            "edit cards do not name Auto-review"
+        );
+        let text = render_text(card);
+        assert!(
+            !text.contains(notice.card_line()),
+            "edit card rendered the shell notice:\n{text}"
+        );
     }
 }
 

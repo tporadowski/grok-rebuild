@@ -169,6 +169,12 @@ pub struct PermissionViewState {
     pub options_area_height: usize,
 
     pub options_scroll_offset: usize,
+
+    /// Auto-review block or missed review on a shell card. Absent on every other prompt.
+    pub auto_review: Option<xai_grok_workspace::permission::AutoReviewNotice>,
+
+    /// Whether Ctrl+F is showing the reviewer's explanation.
+    pub auto_review_explanation_open: bool,
 }
 
 pub const ALLOW_ALWAYS_COMMAND_OPTION_ID: &str = "allow-always-command";
@@ -314,6 +320,16 @@ fn permission_chrome_height(state: &PermissionViewState, content_w: usize) -> u1
         h += 1;
     }
     h += 1;
+    if state.auto_review.is_some() {
+        h = h.saturating_add(1);
+        if state
+            .auto_review
+            .as_ref()
+            .is_some_and(|notice| notice.explanation.is_some())
+        {
+            h = h.saturating_add(1);
+        }
+    }
     h = h.saturating_add(bash_line_count);
     let (args_rows, indicator) = mcp_args_visible_rows(state, content_w);
     let args_rows = args_rows
@@ -484,6 +500,45 @@ pub fn render_permission_view(
     }
     y += 1;
 
+    let auto_review_owns_ctrl_f = state
+        .auto_review
+        .as_ref()
+        .is_some_and(|notice| notice.explanation.is_some());
+    if let Some(notice) = state.auto_review.as_ref() {
+        if y < area_bottom {
+            let style = Style::default().fg(theme.warning);
+            buf.set_line(
+                content_x,
+                y,
+                &Line::from(Span::styled(notice.card_line(), style)),
+                content_width,
+            );
+        }
+        y += 1;
+        if notice.explanation.is_some() {
+            if y < area_bottom {
+                let line = if state.auto_review_explanation_open {
+                    let text = notice.explanation.clone().unwrap_or_default();
+                    Line::from(Span::styled(
+                        text,
+                        Style::default().fg(theme.text_secondary),
+                    ))
+                } else {
+                    let dim = Style::default()
+                        .fg(theme.text_secondary)
+                        .add_modifier(Modifier::DIM);
+                    let key_style = Style::default().fg(theme.accent_user);
+                    Line::from(vec![
+                        Span::styled("ctrl+f", key_style),
+                        Span::styled("  explanation", dim),
+                    ])
+                };
+                buf.set_line(content_x, y, &line, content_width);
+            }
+            y += 1;
+        }
+    }
+
     let (bash_rows, bash_indicator) = bash_visible_rows(state, content_width as usize);
     let mut bash_lines: Vec<Line<'_>> =
         if state.bash_highlights.is_some() || state.bash_command_raw.is_some() {
@@ -498,7 +553,7 @@ pub fn render_permission_view(
             Vec::new()
         };
     if bash_indicator {
-        bash_lines.push(truncation_indicator_line(theme));
+        bash_lines.push(truncation_indicator_line(theme, !auto_review_owns_ctrl_f));
     }
     {
         let (args_rows, indicator) = mcp_args_visible_rows(state, content_width as usize);
@@ -509,7 +564,7 @@ pub fn render_permission_view(
             args_rows,
         ));
         if indicator {
-            bash_lines.push(truncation_indicator_line(theme));
+            bash_lines.push(truncation_indicator_line(theme, !auto_review_owns_ctrl_f));
         }
     }
 
@@ -1348,8 +1403,11 @@ fn build_mcp_args_lines(
     out
 }
 
-fn truncation_indicator_line(theme: &Theme) -> Line<'static> {
+fn truncation_indicator_line(theme: &Theme, offer_ctrl_f: bool) -> Line<'static> {
     let style = Style::default().fg(theme.gray).bg(theme.bg_light);
+    if !offer_ctrl_f {
+        return Line::from(Span::styled("...", style));
+    }
     Line::from(vec![
         Span::styled("... ", style),
         Span::styled(
@@ -1722,6 +1780,8 @@ mod tests {
             subagent_label: Some("subagent: worker".to_string()),
             options_area_height: 0,
             options_scroll_offset: 0,
+            auto_review: None,
+            auto_review_explanation_open: false,
         }
     }
 
@@ -1838,6 +1898,8 @@ mod tests {
             subagent_label: None,
             options_area_height: 0,
             options_scroll_offset: 0,
+            auto_review: None,
+            auto_review_explanation_open: false,
         }
     }
 

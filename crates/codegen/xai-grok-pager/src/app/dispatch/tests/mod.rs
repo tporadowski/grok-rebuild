@@ -1002,6 +1002,8 @@ fn enqueue_permission_with_enable_always_approve(
         subagent_label: None,
         options_area_height: 0,
         options_scroll_offset: 0,
+        auto_review: None,
+        auto_review_explanation_open: false,
     });
     response_rx
 }
@@ -1101,6 +1103,8 @@ fn push_synthetic_permission(
         subagent_label: None,
         options_area_height: 0,
         options_scroll_offset: 0,
+        auto_review: None,
+        auto_review_explanation_open: false,
     };
     agent.permission_queue.push_back(state);
     rx

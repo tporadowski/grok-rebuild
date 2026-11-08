@@ -760,6 +760,7 @@ pub fn spawn_permission_manager_with_pin(
                         policy_forced_prompt || shell_forced_prompt || hook_forced_prompt;
                     let mut auto_forced_prompt = false;
                     let mut auto_prompt_reason: Option<&'static str> = None;
+                    let mut auto_review_explanation: Option<String> = None;
 
                     if let Some(Decision::Reject(reason)) = policy_decision {
                         tracing::info!(
@@ -966,6 +967,9 @@ pub fn spawn_permission_manager_with_pin(
                                     .as_ref()
                                     .map_or(ClassifierVerdict::Unavailable, |o| o.verdict());
                                 let is_timeout = outcome.as_ref().is_some_and(|o| o.is_timeout());
+                                // Shell cards show this text when Ctrl+F opens the Auto-review explanation.
+                                auto_review_explanation =
+                                    outcome.as_ref().and_then(|o| o.reason().map(str::to_owned));
                                 tracing::info!(
                                     tool = %tool_name,
                                     verdict = ?verdict,
@@ -1367,8 +1371,16 @@ pub fn spawn_permission_manager_with_pin(
                             let _ = tx.send(());
                         }
                     }
+                    // Shell cards name an Auto-review block or a review that did not finish.
+                    let auto_review = match &access {
+                        AccessKind::Bash(_) => crate::permission::auto_review_notice(
+                            auto_prompt_reason,
+                            auto_review_explanation.as_deref(),
+                        ),
+                        _ => None,
+                    };
                     let prompt_outcome = tokio::select! {
-                        outcome = prompter.request(&access, &tool_call_update, protected_edit, hook_ask.as_ref()) => outcome,
+                        outcome = prompter.request(&access, &tool_call_update, protected_edit, hook_ask.as_ref(), auto_review.as_ref()) => outcome,
                         _ = respond_to.closed() => PromptOutcome::Cancelled,
                     };
                     // A subagent message or a plain tool has no grant store: every "always" answer holds for this call only.

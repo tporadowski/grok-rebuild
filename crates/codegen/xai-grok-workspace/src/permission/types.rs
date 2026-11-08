@@ -131,6 +131,61 @@ pub struct HookAsk {
 
 pub const HOOK_ASK_META_KEY: &str = "hookAsk";
 
+/// Request `_meta` key for an Auto-review block or a review that did not finish.
+pub const AUTO_REVIEW_META_KEY: &str = "autoReview";
+
+/// Why a shell approval card is naming Auto-review.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoReviewKind {
+    /// The reviewer blocked the command, or the denial limit handed it back.
+    Blocked,
+    /// The reviewer timed out or was not available.
+    Unavailable,
+}
+
+/// Auto-review status carried on a shell approval card.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoReviewNotice {
+    pub kind: AutoReviewKind,
+    /// Reviewer text. `Ctrl+F` reveals it. Empty text is stored as `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
+}
+
+impl AutoReviewNotice {
+    pub fn card_line(&self) -> &'static str {
+        match self.kind {
+            AutoReviewKind::Blocked => "Auto-review blocked this command",
+            AutoReviewKind::Unavailable => "Auto-review couldn't review this command",
+        }
+    }
+}
+
+/// Map a permission-prompt trigger onto the shell card notice.
+/// A block (`auto_classifier_deny`, `auto_denial_limit`) and a missed review
+/// (`auto_classifier_timeout`, `auto_classifier_unavailable`) are named.
+/// Every other trigger, including an ordinary ask, stays quiet.
+pub fn auto_review_notice(
+    trigger: Option<&str>,
+    explanation: Option<&str>,
+) -> Option<AutoReviewNotice> {
+    use crate::permission::reasons;
+    let kind = match trigger? {
+        reasons::AUTO_CLASSIFIER_DENY | reasons::AUTO_DENIAL_LIMIT => AutoReviewKind::Blocked,
+        reasons::AUTO_CLASSIFIER_TIMEOUT | reasons::AUTO_CLASSIFIER_UNAVAILABLE => {
+            AutoReviewKind::Unavailable
+        }
+        _ => return None,
+    };
+    let explanation = explanation.and_then(|text| {
+        let text = text.trim();
+        (!text.is_empty()).then(|| text.to_owned())
+    });
+    Some(AutoReviewNotice { kind, explanation })
+}
+
 const HOOK_ASK_SEPARATOR: &str = " — ";
 
 impl HookAsk {
@@ -228,6 +283,52 @@ mod tests {
             reason: Some("confirm\nthis".to_owned()),
         };
         assert_eq!(multiline.ask_line(), with_reason.ask_line());
+    }
+
+    #[test]
+    fn auto_review_notice_maps_block_and_unavailable_reasons() {
+        use crate::permission::reasons;
+
+        let blocked = auto_review_notice(
+            Some(reasons::AUTO_CLASSIFIER_DENY),
+            Some("  pushes to a remote \n"),
+        )
+        .expect("a classifier deny is named on the card");
+        assert_eq!(blocked.kind, AutoReviewKind::Blocked);
+        assert_eq!(blocked.explanation.as_deref(), Some("pushes to a remote"));
+        assert_eq!(blocked.card_line(), "Auto-review blocked this command");
+
+        let limit = auto_review_notice(Some(reasons::AUTO_DENIAL_LIMIT), Some("   ")).unwrap();
+        assert_eq!(limit.kind, AutoReviewKind::Blocked);
+        assert!(
+            limit.explanation.is_none(),
+            "blank reviewer text is dropped"
+        );
+        assert_eq!(limit.card_line(), blocked.card_line());
+
+        let timeout = auto_review_notice(
+            Some(reasons::AUTO_CLASSIFIER_TIMEOUT),
+            Some("permission auto classifier timed out"),
+        )
+        .unwrap();
+        assert_eq!(timeout.kind, AutoReviewKind::Unavailable);
+        assert_eq!(
+            timeout.explanation.as_deref(),
+            Some("permission auto classifier timed out")
+        );
+        assert_eq!(
+            timeout.card_line(),
+            "Auto-review couldn't review this command"
+        );
+
+        let down = auto_review_notice(Some(reasons::AUTO_CLASSIFIER_UNAVAILABLE), None).unwrap();
+        assert_eq!(down.kind, AutoReviewKind::Unavailable);
+        assert!(down.explanation.is_none());
+        assert_eq!(down.card_line(), timeout.card_line());
+
+        assert!(auto_review_notice(Some(reasons::NEEDS_USER), Some("ask the user")).is_none());
+        assert!(auto_review_notice(Some(reasons::POLICY_ASK), None).is_none());
+        assert!(auto_review_notice(None, Some("pushes to a remote")).is_none());
     }
 
     #[test]

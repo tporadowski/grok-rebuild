@@ -51,9 +51,19 @@ impl AgentView {
         let Some(perm) = self.permission_queue.front_mut() else {
             return InputOutcome::Unchanged;
         };
-        if key!('f', CONTROL).matches(key) && perm.has_collapsible_display(perm_content_w) {
-            perm.args_expanded = !perm.args_expanded;
-            return InputOutcome::Changed;
+        if key!('f', CONTROL).matches(key) {
+            if perm
+                .auto_review
+                .as_ref()
+                .is_some_and(|notice| notice.explanation.is_some())
+            {
+                perm.auto_review_explanation_open = !perm.auto_review_explanation_open;
+                return InputOutcome::Changed;
+            }
+            if perm.has_collapsible_display(perm_content_w) {
+                perm.args_expanded = !perm.args_expanded;
+                return InputOutcome::Changed;
+            }
         }
         match perm.focus {
             PermissionFocus::FollowupInput => {
