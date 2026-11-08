@@ -1029,7 +1029,9 @@ impl AgentBuilder {
         }
         tool_config
             .tools
-            .retain(|tc| definition.session_tools_allowed(&tc.id));
+            .retain(|tc| {
+                definition.session_tool_allowed(&tc.id, tc.name_override.as_deref())
+            });
         let mut scheduler_denies = definition.disallowed_tools.clone();
         if let Some(session_deny) = &definition.session_tools_denylist {
             scheduler_denies.extend(session_deny.iter().cloned());
@@ -2841,6 +2843,29 @@ mod tests {
         assert!(!applied.0.auto_background_on_timeout);
         assert_eq!(applied.0.max_timeout_secs, Some(36_000.0));
         assert!(!applied.0.allow_background_operator);
+    }
+    #[tokio::test]
+    async fn disallowed_tools_accepts_the_names_shown_to_the_model() {
+        let agent = build_with_tools(
+            vec![],
+            vec!["run_terminal_command".into(), "spawn_subagent".into()],
+        )
+        .await;
+        let names: Vec<String> = agent
+            .tool_definitions()
+            .await
+            .iter()
+            .map(|definition| definition.function.name.clone())
+            .collect();
+        assert!(
+            !names.iter().any(|name| name == "run_terminal_command"),
+            "{names:?}"
+        );
+        assert!(
+            !names.iter().any(|name| name == "spawn_subagent"),
+            "{names:?}"
+        );
+        assert!(names.iter().any(|name| name == "read_file"), "{names:?}");
     }
     #[tokio::test]
     async fn disallowed_agent_type_strips_from_allowed() {

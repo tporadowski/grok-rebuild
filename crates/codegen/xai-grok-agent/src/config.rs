@@ -1216,6 +1216,10 @@ pub fn short_tool_name(id: &str) -> &str {
 pub(crate) fn tool_id_eq(entry: &str, id: &str) -> bool {
     entry == id || entry == short_tool_name(id)
 }
+/// Whether `entry` names `id` or the model-facing rename (`run_terminal_command`, `spawn_subagent`).
+pub(crate) fn tool_entry_names(entry: &str, id: &str, model_name: Option<&str>) -> bool {
+    tool_id_eq(entry, id) || model_name.is_some_and(|name| entry == name)
+}
 /// Whether any `list` entry refers to tool `id`.
 pub(crate) fn tool_id_matches(list: &[String], id: &str) -> bool {
     list.iter().any(|e| tool_id_eq(e, id))
@@ -1316,16 +1320,22 @@ impl AgentDefinition {
 impl AgentDefinition {
     /// Whether `id` passes the session-operator clamp: denylist wins, then an unset allowlist allows all.
     pub(crate) fn session_tools_allowed(&self, id: &str) -> bool {
+        self.session_tool_allowed(id, None)
+    }
+    /// Same clamp, also accepting the model-facing name when it differs from `id`.
+    pub(crate) fn session_tool_allowed(&self, id: &str, model_name: Option<&str>) -> bool {
+        let hits = |list: &[String]| {
+            list.iter()
+                .any(|entry| tool_entry_names(entry, id, model_name))
+        };
         if self
             .session_tools_denylist
             .as_deref()
-            .is_some_and(|d| tool_id_matches(d, id))
+            .is_some_and(hits)
         {
             return false;
         }
-        self.session_tools_allowlist
-            .as_deref()
-            .is_none_or(|a| tool_id_matches(a, id))
+        self.session_tools_allowlist.as_deref().is_none_or(hits)
     }
     /// Whether a hosted/server-side tool `id` survives the agent's own `disallowed_tools`/`tools` and the session clamp.
     /// Hosted tools aren't in `tool_config`, so they're gated by name here.
@@ -1607,6 +1617,18 @@ impl AgentDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A session denylist of the model-facing shell name removes that tool and leaves the others.
+    #[test]
+    fn session_denylist_accepts_the_model_facing_shell_name() {
+        let bash = bash_tool_config();
+        let mut def = AgentDefinition::general_purpose();
+        def.session_tools_denylist = Some(vec!["run_terminal_command".into()]);
+        assert!(
+            !def.session_tool_allowed(&bash.id, bash.name_override.as_deref()),
+            "the renamed shell tool is denied"
+        );
+        assert!(def.session_tool_allowed("GrokBuild:read_file", None));
+    }
     /// Pins the `spawn_subagent` rename to the shared predicate.
     #[test]
     fn task_tool_rename_matches_task_tool_id_predicate() {

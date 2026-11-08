@@ -5,7 +5,9 @@ use std::collections::HashSet;
 use xai_grok_tools::registry::types::ToolConfig;
 use xai_grok_tools::types::tool::ToolKind;
 
-use crate::config::{AGENT_TASK_CLASSIFIER_RE, short_tool_name, tool_id_eq, tool_id_matches};
+use crate::config::{
+    AGENT_TASK_CLASSIFIER_RE, short_tool_name, tool_entry_names, tool_id_eq,
+};
 
 /// An `Agent` or `Task` allowlist entry keeps the task tool and its lifecycle companions.
 const TASK_DEPS: &[&str] = &["task", "get_task_output", "kill_task", "wait_tasks"];
@@ -77,13 +79,16 @@ pub fn listed_tools<'a>(
         .iter()
         .map(String::as_str)
         .partition(|entry| AGENT_TASK_CLASSIFIER_RE.is_match(entry));
-    let in_toolset = |name: &str| toolset.iter().any(|tool| tool_id_eq(name, &tool.id));
+    let names_tool = |entry: &str, tool: &ToolConfig| {
+        tool_entry_names(entry, &tool.id, tool.name_override.as_deref())
+    };
+    let in_toolset = |name: &str| toolset.iter().any(|tool| names_tool(name, tool));
 
     match list {
         ToolList::Denylist => ListedTools {
             tools: toolset
                 .iter()
-                .filter(|tool| !tool_id_matches(entries, &tool.id))
+                .filter(|tool| !entries.iter().any(|entry| names_tool(entry, tool)))
                 .collect(),
             unmatched: names.into_iter().filter(|name| !in_toolset(name)).collect(),
             spawn_directives,
@@ -119,7 +124,7 @@ pub fn listed_tools<'a>(
                 .filter(|tool| {
                     // An unknown name (typo / a tool we don't model): keep the full toolset rather than cripple the agent
                     !unknown.is_empty()
-                        || tool_id_matches(entries, &tool.id)
+                        || entries.iter().any(|entry| names_tool(entry, tool))
                         || tool.kind.is_some_and(|kind| allow_kinds.contains(&kind))
                         || (spawns && TASK_DEPS.contains(&short_tool_name(&tool.id)))
                         // MCP access is always-on under a `tools:` allowlist (compat parity): keep the `search_tool`/`use_tool` meta-tools

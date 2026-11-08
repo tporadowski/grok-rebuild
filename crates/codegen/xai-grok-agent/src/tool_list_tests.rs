@@ -39,6 +39,33 @@ fn unrelated_deny_keeps_the_scheduler_bundle() {
 }
 
 #[test]
+fn denylist_accepts_the_names_shown_to_the_model() {
+    let toolset = crate::config::toolset_for_preset("grok-build")
+        .expect("grok-build preset")
+        .tools;
+    let denied = entries(&["run_terminal_command", "spawn_subagent"]);
+    let listed = listed_tools(ToolList::Denylist, &denied, &toolset);
+    let kept = ids(&listed);
+    assert!(
+        !kept.iter().any(|id| short_tool_name(id) == "run_terminal_cmd"),
+        "run_terminal_command must remove the shell tool: {kept:?}"
+    );
+    assert!(
+        !kept.iter().any(|id| short_tool_name(id) == "task"),
+        "spawn_subagent must remove the subagent tool: {kept:?}"
+    );
+    assert!(
+        kept.iter().any(|id| short_tool_name(id) == "read_file"),
+        "other tools stay: {kept:?}"
+    );
+    assert!(
+        listed.unmatched.is_empty(),
+        "model-facing names are known: {:?}",
+        listed.unmatched
+    );
+}
+
+#[test]
 fn denylist_matches_tool_ids_only() {
     let toolset = [
         tool("GrokBuild:read_file", ToolKind::Read),
