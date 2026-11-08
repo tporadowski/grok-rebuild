@@ -1322,6 +1322,68 @@ fn verb_group_expand_and_collapse_round_trip() {
     assert_eq!(cached_height_at(&state, 1), 0);
 }
 
+/// An expanded tool group keeps every member visible when another call of the same kind arrives.
+#[test]
+fn expanded_tool_group_stays_expanded_when_a_new_call_joins() {
+    let mut state = verb_state();
+    let ids = push_reads(&mut state, 2);
+    state.prepare_layout(80, 40);
+    state.set_selected(Some(0));
+    assert!(state.toggle_group_expansion());
+    state.prepare_layout(80, 40);
+    assert!(cached_height_at(&state, 1) > 0);
+
+    state.push_block(RenderBlock::read("f-new.rs", None));
+    state.prepare_layout(80, 40);
+
+    assert!(
+        state.expanded_groups.contains(&at(&ids, 0)),
+        "the expansion must survive the new call"
+    );
+    assert_eq!(header_count_at(&mut state, 0), 3, "the new call joins the group");
+    assert!(
+        cached_height_at(&state, 1) > 0,
+        "the earlier member stays visible"
+    );
+    assert!(
+        cached_height_at(&state, 2) > 0,
+        "the new call stays visible inside the expanded group"
+    );
+}
+
+/// An expanded "N more" group stays open when another collapsed tool call joins the run.
+#[test]
+fn expanded_truncation_group_stays_expanded_when_a_new_call_joins() {
+    crate::appearance::cache::set_group_tool_verbs(false);
+    let mut state = ScrollbackState::new();
+    let mut appearance = AppearanceConfig::default();
+    appearance.scrollback.display.group_max_visible = 2;
+    state.set_appearance(appearance);
+    let ids = push_tool_calls(&mut state, 5);
+    state.prepare_layout(80, 40);
+    assert_eq!(cached_height_at(&state, 1), 0, "truncated before expand");
+    state.set_selected(Some(0));
+    assert!(state.toggle_group_expansion());
+    state.prepare_layout(80, 40);
+    assert!(cached_height_at(&state, 1) > 0);
+
+    push_tool_calls(&mut state, 1);
+    state.prepare_layout(80, 40);
+    assert!(
+        state.expanded_groups.contains(&at(&ids, 0)),
+        "the expansion must survive the new call"
+    );
+    assert!(
+        cached_height_at(&state, 1) > 0,
+        "an earlier member stays visible"
+    );
+    assert!(
+        cached_height_at(&state, 5) > 0,
+        "the new call stays visible inside the expanded group"
+    );
+    crate::appearance::cache::set_group_tool_verbs(true);
+}
+
 #[test]
 fn verb_group_singleton_expand_and_collapse_round_trip() {
     let mut state = verb_state();

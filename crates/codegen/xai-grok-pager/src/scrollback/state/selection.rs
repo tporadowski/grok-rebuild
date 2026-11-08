@@ -413,9 +413,12 @@ impl ScrollbackState {
     /// Opening the head entry drops it to transparent, so the run re-anchors on the next member. Migrate a manual
     /// expansion keyed on the flipped entry or a former anchor onto the run's CURRENT first entry. The group then stays
     /// expanded across member open/close instead of snapping into a fresh collapsed fold.
-    pub(super) fn rekey_verb_group_expansion(&mut self, i: usize) {
+    ///
+    /// Returns the exclusive index covered by the resolved run, so a caller folding many thoughts can skip the rest of that run.
+    pub(super) fn rekey_verb_group_expansion(&mut self, i: usize) -> usize {
+        let fallback = i.saturating_add(1);
         if !crate::appearance::cache::load_group_tool_verbs() {
-            return;
+            return fallback;
         }
         let show_thinking = crate::appearance::cache::load_show_thinking_blocks();
         // The run `i` belongs to after the flip: `i` itself when it (re)joined, else the run past the transparent entries it opened out of
@@ -426,21 +429,22 @@ impl ScrollbackState {
                 break range;
             }
             let Some((_, entry)) = self.entries.get_index(j) else {
-                return;
+                return fallback;
             };
             if matches!(
                 super::verb_group::run_step(entry, show_thinking),
                 super::verb_group::RunStep::Break
             ) {
-                return;
+                return fallback;
             }
             j += 1;
         };
+        let covered = range.end;
         let Some((&first_id, _)) = self.entries.get_index(range.start) else {
-            return;
+            return covered;
         };
         if self.expanded_groups.contains(&first_id) {
-            return;
+            return covered;
         }
         // A stale key sits on the flipped entry (it just opened out of the head) or on an interior entry
         // An interior key means the head just rejoined in front of the interim anchor. Move the key onto the current anchor.
@@ -455,6 +459,7 @@ impl ScrollbackState {
             self.expanded_groups.remove(&old);
             self.expanded_groups.insert(first_id);
         }
+        covered
     }
 
     /// Capture the scroll/follow state a fold-shaped change must not disturb.
@@ -639,10 +644,18 @@ impl ScrollbackState {
         // When expanding, also expand all truncated groups so everything is visible
         // When collapsing, clear expansions so groups re-truncate
         if target_mode == DisplayMode::Expanded {
-            // Opened thoughts go transparent, so a keyed thought-anchored run re-anchors on its first tool; migrate the keys
-            for id in &changed_ids {
-                if let Some(idx) = self.entries.get_index_of(id) {
-                    self.rekey_verb_group_expansion(idx);
+            // Opened thoughts go transparent, so a keyed thought-anchored run re-anchors on its first tool.
+            // One pass per run: a long transcript must not re-walk the same run for every thought in it.
+            if !self.expanded_groups.is_empty() {
+                let mut covered_until = 0usize;
+                for id in &changed_ids {
+                    let Some(idx) = self.entries.get_index_of(id) else {
+                        continue;
+                    };
+                    if idx < covered_until {
+                        continue;
+                    }
+                    covered_until = self.rekey_verb_group_expansion(idx);
                 }
             }
             // Mark all group-start entries as expanded so truncation is skipped.
@@ -691,8 +704,46 @@ impl ScrollbackState {
         self.bump_generation();
     }
 
+    /// Indices claimed by a folding verb run. One forward scan, matching `groups::scan_verb_runs`.
+    fn verb_run_claimed_mask(&self) -> Vec<bool> {
+        let n = self.entries.len();
+        let mut claimed = vec![false; n];
+        if n == 0 || !crate::appearance::cache::load_group_tool_verbs() {
+            return claimed;
+        }
+        let show_thinking = crate::appearance::cache::load_show_thinking_blocks();
+        let entry_at = |idx: usize| self.entries.get_index(idx).map(|(_, entry)| entry);
+        let mut i = 0;
+        while i < n {
+            let Some(scan) = super::verb_group::scan_run_forward(entry_at, i, show_thinking) else {
+                i += 1;
+                continue;
+            };
+            if scan.folds() {
+                let end = scan.end.min(n);
+                for offset in 0..end.saturating_sub(i) {
+                    let Some(entry) = entry_at(i + offset) else {
+                        continue;
+                    };
+                    if matches!(
+                        super::verb_group::run_step(entry, show_thinking),
+                        super::verb_group::RunStep::Member(_)
+                            | super::verb_group::RunStep::ThoughtMember
+                    ) && let Some(slot) = claimed.get_mut(i + offset)
+                    {
+                        *slot = true;
+                    }
+                }
+                i = end.max(i + 1);
+            } else {
+                i = scan.stop.max(i + 1);
+            }
+        }
+        claimed
+    }
+
     /// Expand all truncated groups (add every group-start ID to expanded_groups).
-    /// Runs are walked with the shared `joins_dense_run` predicate, so the inserted ids agree with the truncation pass's breaks on claimed entries and turn-terminal markers.
+    /// Runs are walked with the same join rule as `joins_dense_run`, so the inserted ids agree with the truncation pass's breaks on claimed entries and turn-terminal markers.
     /// Leading hidden thinking can still skew the keyed id off the truncation header, the same pre-existing divergence as `group_range_of`.
     fn expand_all_groups(&mut self) {
         let max_visible = self.appearance.scrollback.display.group_max_visible as usize;
@@ -700,9 +751,17 @@ impl ScrollbackState {
             return;
         }
         let n = self.entries.len();
+        // One verb-run pass. `joins_dense_run` would re-walk each run from every thought, which is what made Ctrl+E slow.
+        let claimed = self.verb_run_claimed_mask();
+        let joins = |idx: usize| {
+            claimed.get(idx) != Some(&true)
+                && self.entries.get_index(idx).is_some_and(|(_, entry)| {
+                    super::groups::can_join_dense_run(entry, /*collapsed_only=*/ true)
+                })
+        };
         let mut i = 0;
         while i < n {
-            if !self.joins_dense_run(i, /*collapsed_only=*/ true) {
+            if !joins(i) {
                 i += 1;
                 continue;
             }
@@ -712,7 +771,7 @@ impl ScrollbackState {
                 continue;
             };
             let mut j = i + 1;
-            while j < n && self.joins_dense_run(j, /*collapsed_only=*/ true) {
+            while j < n && joins(j) {
                 j += 1;
             }
             let group_len = j - group_start;
