@@ -33,12 +33,12 @@ impl AgentView {
         path: &std::path::Path,
         initial_range: Option<std::ops::Range<usize>>,
     ) {
-        // Resolve path relative to cwd.
-        let full_path = if path.is_relative() {
-            self.session.cwd.join(path)
-        } else {
-            path.to_path_buf()
-        };
+        // `~/...` names the home folder. Other relative paths stay under the session cwd.
+        let full_path = xai_grok_workspace::file_system::resolve_typed_at_path(
+            path,
+            &self.session.cwd,
+            xai_dirs::home_dir().as_deref(),
+        );
 
         // Get the element ID of the last file ref element (just created).
         let element_id = self

@@ -52,7 +52,10 @@ mod jj_status;
 pub use jj_status::jj_status;
 
 mod attach_file;
-pub use attach_file::{FileReference, render_embedded_resource, render_file_reference};
+pub use attach_file::{
+    FileReference, expand_typed_home_mention, render_embedded_resource, render_file_reference,
+    resolve_typed_at_path,
+};
 
 pub use xai_fuzzy_file_search::{
     FuzzyFileMatcher, FuzzyFileMatcherDaemon, FuzzyMatchResult, FuzzyMatcherDaemonResults,

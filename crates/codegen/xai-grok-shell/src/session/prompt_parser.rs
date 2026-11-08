@@ -168,7 +168,11 @@ pub(crate) async fn parse_prompt_with_skills(
         let Some(mut file_ref) = FileReference::parse(&token) else {
             continue;
         };
-        file_ref.path = working_directory.join(&file_ref.path);
+        file_ref.path = xai_grok_workspace::file_system::resolve_typed_at_path(
+            &file_ref.path,
+            &working_directory,
+            xai_dirs::home_dir().as_deref(),
+        );
         let rendered_file = render_file_reference(file_ref, is_cursor).await;
         let success = rendered_file.is_some();
         xai_grok_telemetry::event_span!("prompt.at_mention", mention_type = "file", success);

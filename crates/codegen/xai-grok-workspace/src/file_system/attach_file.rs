@@ -3,7 +3,7 @@ use agent_client_protocol::{BlobResourceContents, EmbeddedResource, EmbeddedReso
 use base64::{Engine as _, engine::general_purpose};
 use regex::Regex;
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::warn;
 use xai_grok_tools::util::truncate::estimate_tokens;
 #[cfg(test)]
@@ -42,6 +42,35 @@ impl FileReference {
             end_line,
         })
     }
+}
+
+/// Turn a typed `@~/...` or `@~` mention into a path under `home`.
+///
+/// `~other` stays as written. A missing home, or a path that is not a home mention, is unchanged.
+/// The caller joins a relative result onto the working directory.
+pub fn expand_typed_home_mention(path: &Path, home: Option<&Path>) -> PathBuf {
+    let Some(home) = home else {
+        return path.to_path_buf();
+    };
+    let Some(raw) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    if raw == "~" {
+        return home.to_path_buf();
+    }
+    if let Some(rest) = raw.strip_prefix("~/") {
+        return if rest.is_empty() {
+            home.to_path_buf()
+        } else {
+            home.join(rest)
+        };
+    }
+    path.to_path_buf()
+}
+
+/// Resolve a typed `@` path: `~/` names `home`, anything else is relative to `working_directory`.
+pub fn resolve_typed_at_path(path: &Path, working_directory: &Path, home: Option<&Path>) -> PathBuf {
+    working_directory.join(expand_typed_home_mention(path, home))
 }
 /// Cursor clients get `<code_selection>`; others get `<file_contents>`.
 /// Content over [`MAX_FILE_TOKENS`] becomes a metadata-only stub so the model still knows the file exists.
@@ -244,6 +273,42 @@ async fn write_to_session_subdir(subdir: &str, filename: &str, content: &[u8]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn typed_at_tilde_slash_resolves_to_the_home_folder() {
+        let home = PathBuf::from("/home/ada");
+        let cwd = PathBuf::from("/work/repo");
+        let parsed = FileReference::parse("~/notes.txt").expect("parse ~/notes.txt");
+        assert_eq!(
+            resolve_typed_at_path(&parsed.path, &cwd, Some(&home)),
+            home.join("notes.txt")
+        );
+        let ranged = FileReference::parse("~/notes.txt:10-12").expect("parse range");
+        assert_eq!(ranged.start_line, Some(10));
+        assert_eq!(ranged.end_line, Some(12));
+        assert_eq!(
+            resolve_typed_at_path(&ranged.path, &cwd, Some(&home)),
+            home.join("notes.txt")
+        );
+        let bare = FileReference::parse("~").expect("parse ~");
+        assert_eq!(resolve_typed_at_path(&bare.path, &cwd, Some(&home)), home);
+        let slash = FileReference::parse("~/").expect("parse ~/");
+        assert_eq!(resolve_typed_at_path(&slash.path, &cwd, Some(&home)), home);
+        let relative = FileReference::parse("src/main.rs").expect("parse relative");
+        assert_eq!(
+            resolve_typed_at_path(&relative.path, &cwd, Some(&home)),
+            cwd.join("src/main.rs")
+        );
+        let other = FileReference::parse("~ada/notes.txt").expect("parse ~user");
+        assert_eq!(
+            resolve_typed_at_path(&other.path, &cwd, Some(&home)),
+            cwd.join("~ada/notes.txt")
+        );
+        let missing_home = FileReference::parse("~/notes.txt").expect("parse again");
+        assert_eq!(
+            resolve_typed_at_path(&missing_home.path, &cwd, None),
+            cwd.join("~/notes.txt")
+        );
+    }
     #[test]
     fn test_file_url_regex() {
         let expected = vec![
