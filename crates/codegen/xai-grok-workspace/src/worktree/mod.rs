@@ -858,8 +858,9 @@ const LABEL_CLAIM_DIR: &str = ".grok-wt-claim";
 ///
 /// A name is taken when its directory exists or another create in this or another
 /// live process has already claimed it. The claim is what lets two simultaneous
-/// creates of the same label both succeed: the second gets `label-2` instead of
-/// failing later with "already exists".
+/// creates of a name grok chose both succeed: the second gets `label-2` instead of
+/// both choosing `label`. A name the user typed uses [`resolve_typed_label`] and
+/// is refused instead of suffixed.
 pub fn resolve_label_collision(base_dir: &Path, label: &str) -> String {
     if claim_worktree_label(base_dir, label) {
         return label.to_owned();
@@ -873,6 +874,31 @@ pub fn resolve_label_collision(base_dir: &Path, label: &str) -> String {
     let fallback = auto_label();
     let _ = claim_worktree_label(base_dir, &fallback);
     fallback
+}
+
+/// Claim the exact directory name the user typed.
+/// A directory or a live claim keeps the name; this does not invent `name-2`.
+/// A missing folder, including one deleted by hand, can be claimed again.
+pub fn resolve_typed_label(base_dir: &Path, label: &str) -> Result<String, String> {
+    if claim_worktree_label(base_dir, label) {
+        Ok(label.to_owned())
+    } else {
+        Err(format!("worktree name '{label}' is already taken"))
+    }
+}
+
+fn label_was_typed(raw: Option<&str>, resolved: &str) -> bool {
+    raw.map(str::trim)
+        .filter(|name| !name.is_empty())
+        .is_some_and(|name| sanitize_label(name) == resolved)
+}
+
+fn claim_directory_name(base_dir: &Path, label: &str, typed: bool) -> Result<String, String> {
+    if typed {
+        resolve_typed_label(base_dir, label)
+    } else {
+        Ok(resolve_label_collision(base_dir, label))
+    }
 }
 
 /// `true` when this call now owns the in-flight claim for `name`.
@@ -909,9 +935,23 @@ fn claim_worktree_label(base_dir: &Path, name: &str) -> bool {
 }
 
 fn label_claim_is_live(path: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return false;
-    };
+    // The creator publishes the file, then writes its pid. An empty read in
+    // that gap is still a live claim. A file that stays empty was left by a
+    // crash and can be taken.
+    let mut text = String::new();
+    for attempt in 0..8 {
+        text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(_) => return false,
+        };
+        if !text.trim().is_empty() {
+            break;
+        }
+        if attempt + 1 == 8 {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
     let Ok(pid) = text.trim().parse::<u32>() else {
         return false;
     };
@@ -1057,7 +1097,8 @@ fn resolve_worktree_path(
 
     let base = worktree_base_dir_in(grok_home, git_root);
     let label = derive_worktree_label(req.label.as_deref())?;
-    let dir_name = resolve_label_collision(&base, &label);
+    let dir_name =
+        claim_directory_name(&base, &label, label_was_typed(req.label.as_deref(), &label))?;
     Ok(base.join(dir_name).to_string_lossy().to_string())
 }
 
@@ -1966,7 +2007,7 @@ fn resolve_fork_worktree_path(
         worktree_base_dir_in(&grok_home, git_root)
     };
     let dir_name = derive_worktree_label(label)?;
-    let dir_name = resolve_label_collision(&base, &dir_name);
+    let dir_name = claim_directory_name(&base, &dir_name, label_was_typed(label, &dir_name))?;
     Ok(base.join(dir_name).to_string_lossy().into_owned())
 }
 
@@ -5045,6 +5086,28 @@ mod tests {
     }
 
     #[test]
+    fn typed_name_is_refused_while_taken_and_reusable_after_the_folder_is_gone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        std::fs::create_dir_all(base.join("cafe")).unwrap();
+        let taken = resolve_typed_label(base, "cafe").expect_err("existing folder");
+        assert!(
+            taken.contains("worktree name 'cafe' is already taken"),
+            "{taken}"
+        );
+        assert!(!taken.contains("cafe-2"), "{taken}");
+        assert!(!base.join(".grok-wt-claim").join("cafe-2").exists());
+        std::fs::remove_dir_all(base.join("cafe")).unwrap();
+        assert_eq!(resolve_typed_label(base, "cafe").unwrap(), "cafe");
+
+        assert_eq!(resolve_typed_label(base, "busy").unwrap(), "busy");
+        let claimed = resolve_typed_label(base, "busy").expect_err("live claim");
+        assert!(claimed.contains("already taken"), "{claimed}");
+        release_label_claim(&base.join("busy").to_string_lossy());
+        assert_eq!(resolve_typed_label(base, "busy").unwrap(), "busy");
+    }
+
+    #[test]
     fn repeated_label_leaves_the_existing_directory_alone() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
@@ -5127,18 +5190,26 @@ mod tests {
         };
         let first = prepare_worktree_creation(&req("same-a")).await;
         let second = prepare_worktree_creation(&req("same-b")).await;
-        assert!(first.spawn_task && second.spawn_task);
-        let name = |result: PrepareWorktreeResult| match result.response {
-            Ok(CreateWorktreeResponse::Creating { worktree_path, .. }) => Path::new(&worktree_path)
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned(),
-            other => panic!("expected Creating, got {other:?}"),
+        assert!(first.spawn_task, "the first typed name is free");
+        assert!(
+            !second.spawn_task,
+            "a typed name that is already claimed is refused"
+        );
+        let message = match second.response {
+            Err(error) => error.to_string(),
+            other => panic!("expected a refusal, got {other:?}"),
         };
-        let mut names = [name(first), name(second)];
-        names.sort();
-        assert_eq!(names, ["same".to_string(), "same-2".to_string()]);
+        assert!(
+            message.contains("worktree name 'same' is already taken"),
+            "{message}"
+        );
+        assert!(!message.contains("same-2"), "{message}");
+        match first.response {
+            Ok(CreateWorktreeResponse::Creating { worktree_path, .. }) => {
+                assert!(worktree_path.ends_with("same"), "{worktree_path}");
+            }
+            other => panic!("expected Creating, got {other:?}"),
+        }
     }
 
     #[tokio::test]

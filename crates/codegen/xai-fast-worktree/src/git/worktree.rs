@@ -11,6 +11,12 @@ pub(crate) fn worktree_add_no_checkout(source: &Path, dest: &str, git_ref: &str)
     if git_ref.trim().starts_with('-') {
         anyhow::bail!("worktree ref must not start with '-'");
     }
+    let dest_path = Path::new(dest);
+    // A folder deleted by hand leaves `.git/worktrees/<name>`. Drop that
+    // registration so the same typed name can be added again.
+    if matches!(dest_path.try_exists(), Ok(false)) {
+        let _ = remove_stale_worktree_registration(source, dest_path);
+    }
     let output = git_command()
         .current_dir(source)
         .args([
@@ -205,6 +211,26 @@ pub(crate) fn normalized_for_match(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_add_reuses_a_name_after_the_folder_was_deleted() {
+        xai_test_utils::require_git!();
+        let (tmp, repo) = init_repo_with_worktrees();
+        let dest = tmp.path().join("fix");
+        worktree_add_no_checkout(&repo, dest.to_str().unwrap(), "HEAD").unwrap();
+        std::fs::remove_dir_all(&dest).unwrap();
+        assert!(
+            repo.join(".git/worktrees")
+                .read_dir()
+                .unwrap()
+                .next()
+                .is_some(),
+            "deleting the folder leaves the git worktree name"
+        );
+        worktree_add_no_checkout(&repo, dest.to_str().unwrap(), "HEAD")
+            .expect("the deleted folder's name can be added again");
+        assert!(dest.join(".git").exists());
+    }
 
     #[test]
     fn worktree_add_refuses_a_leading_dash() {

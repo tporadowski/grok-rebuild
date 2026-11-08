@@ -1192,6 +1192,9 @@ fn execute_git_checkout_worktree(plan: WorktreePlan) -> Result<CreateWorktreeRes
             )
         })?;
     }
+    if matches!(dest.try_exists(), Ok(false)) {
+        let _ = git::remove_stale_worktree_registration(&source_root, dest);
+    }
     let output = git::checkout::git_command()
         .current_dir(&source_root)
         .arg("-c")
