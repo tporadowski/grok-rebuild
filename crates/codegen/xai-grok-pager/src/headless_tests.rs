@@ -746,6 +746,75 @@ fn json_result_reports_the_opened_worktree_folder() {
     );
 }
 
+fn load_error(message: &str, detail: Option<&str>) -> acp::Error {
+    let mut err = acp::Error::new(acp::ErrorCode::InternalError.into(), message.to_string());
+    if let Some(detail) = detail {
+        err = err.data(serde_json::json!({ "detail": detail }));
+    }
+    err
+}
+
+/// A resumed load reports the ACP reason. An empty error stays "Session does not exist".
+/// JSON mode, before the session opens, is one error object and has no worktree folder.
+#[test]
+fn resume_load_failure_reports_the_reason_as_one_json_error() {
+    use crate::app::session_startup::SessionStartupIntent;
+
+    let denied = load_error(
+        "Permission denied.",
+        Some("open history.jsonl: Permission denied (os error 13)"),
+    );
+    let why = super::session_load_failure_message(&denied);
+    assert_eq!(
+        why,
+        "Permission denied.: open history.jsonl: Permission denied (os error 13)"
+    );
+    assert_ne!(why, "Session does not exist");
+
+    let missing = load_error("", None);
+    assert_eq!(
+        super::session_load_failure_message(&missing),
+        "Session does not exist"
+    );
+
+    let emitter = HeadlessEmitter::new(OutputFormat::Json, false);
+    let reported = emitter.json_error(&why);
+    let object = reported.as_object().expect("one JSON object");
+    assert_eq!(object.len(), 2, "one error object, got {reported}");
+    assert_eq!(reported["type"], "error");
+    assert_eq!(reported["message"], why);
+    assert!(reported.get("worktreePath").is_none());
+
+    assert!(super::intent_resumes_or_forks(
+        &SessionStartupIntent::Resume {
+            session_id: Some("sess".into()),
+            most_recent_for_cwd: false,
+        }
+    ));
+    assert!(super::intent_resumes_or_forks(
+        &SessionStartupIntent::Resume {
+            session_id: None,
+            most_recent_for_cwd: true,
+        }
+    ));
+    assert!(super::intent_resumes_or_forks(
+        &SessionStartupIntent::ForkFrom {
+            source_session_id: None,
+            most_recent_for_cwd: true,
+            new_session_id: None,
+        }
+    ));
+    assert!(!super::intent_resumes_or_forks(
+        &SessionStartupIntent::NewAuto
+    ));
+
+    let already = anyhow::Error::new(super::HeadlessFailureAlreadyReported);
+    assert!(super::failure_already_reported(&already));
+    assert!(!super::failure_already_reported(&anyhow::anyhow!(
+        "Session does not exist"
+    )));
+}
+
 #[test]
 fn json_error_includes_the_worktree_folder_after_the_session_starts() {
     let root = std::path::Path::new("/home/me/.grok/worktrees/repo/feature-2");

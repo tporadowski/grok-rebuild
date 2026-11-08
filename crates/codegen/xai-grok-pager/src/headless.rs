@@ -320,6 +320,15 @@ impl HeadlessEmitter {
             );
         }
     }
+    fn reports_single_json_error(&self) -> bool {
+        self.format == OutputFormat::Json
+    }
+    /// One JSON error for a resume, continue, or fork that failed before the session opened.
+    /// The returned error is already printed, so the process exit must not print it again.
+    fn fail_json_before_open(&mut self, message: &str) -> anyhow::Error {
+        self.on_error(message, None);
+        anyhow::Error::new(HeadlessFailureAlreadyReported)
+    }
     /// `--output-format json` error object. The worktree folder is present only
     /// after [`Self::note_opened_worktree`].
     fn json_error(&self, message: &str) -> serde_json::Value {
@@ -397,6 +406,44 @@ impl HeadlessEmitter {
             }
         }
     }
+}
+/// Why a `session/load` failed. An empty ACP error stays the old "Session does not exist".
+fn session_load_failure_message(err: &acp::Error) -> String {
+    let message = err.message.trim();
+    let detail = err
+        .data
+        .as_ref()
+        .and_then(error_detail_from_data)
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
+    match (message.is_empty(), detail) {
+        (false, Some(detail)) if detail != message => format!("{message}: {detail}"),
+        (false, _) => message.to_string(),
+        (true, Some(detail)) => detail,
+        (true, None) => "Session does not exist".to_string(),
+    }
+}
+/// Resume, continue, and fork. Continue is a most-recent resume.
+fn intent_resumes_or_forks(intent: &crate::app::session_startup::SessionStartupIntent) -> bool {
+    use crate::app::session_startup::SessionStartupIntent;
+    matches!(
+        intent,
+        SessionStartupIntent::Resume { .. } | SessionStartupIntent::ForkFrom { .. }
+    )
+}
+/// Marker for a headless failure whose user-facing report was already written.
+#[derive(Debug)]
+struct HeadlessFailureAlreadyReported;
+impl std::fmt::Display for HeadlessFailureAlreadyReported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("headless failure already reported")
+    }
+}
+impl std::error::Error for HeadlessFailureAlreadyReported {}
+/// True when headless already printed the failure, so the process must not print it again.
+pub fn failure_already_reported(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.is::<HeadlessFailureAlreadyReported>())
 }
 pub(crate) fn attach_result_usage(result: &mut serde_json::Value, usage: &serde_json::Value) {
     xai_grok_shell::extensions::notification::attach_result_usage_fail_closed(result, usage);
@@ -572,15 +619,17 @@ async fn open_session(
             acp_tx,
         )
         .await;
-        if let Ok(resp) = try_load {
-            return Ok(OpenedSession {
-                session_id: acp::SessionId::new(sid.to_string()),
-                models: ModelState::from(resp.models),
-                cwd: cwd.to_path_buf(),
-                worktree_root: None,
-            });
+        match try_load {
+            Ok(resp) => {
+                return Ok(OpenedSession {
+                    session_id: acp::SessionId::new(sid.to_string()),
+                    models: ModelState::from(resp.models),
+                    cwd: cwd.to_path_buf(),
+                    worktree_root: None,
+                });
+            }
+            Err(err) => anyhow::bail!("{}", session_load_failure_message(&err)),
         }
-        anyhow::bail!("Session does not exist");
     }
     let mut meta = serde_json::json!({ "sessionKind": "headless" })
         .as_object()
@@ -1032,19 +1081,26 @@ pub async fn run_single_turn(
         PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Error);
     })?;
     let cwd_str = cwd.to_string_lossy().to_string();
-    let materialized = session_startup::materialize_startup_for_cwd(
+    let materialized = match session_startup::materialize_startup_for_cwd(
         headless_materialize_ctx(
             options.resume_title_pinned,
             options.restore_code,
             worktree.is_some(),
         ),
-        intent,
+        intent.clone(),
         &cwd_str,
     )
     .await
-    .inspect_err(|_| {
-        PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Error);
-    })?;
+    {
+        Ok(materialized) => materialized,
+        Err(err) => {
+            PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Error);
+            if intent_resumes_or_forks(&intent) && emitter.reports_single_json_error() {
+                return Err(emitter.fail_json_before_open(&err.to_string()));
+            }
+            return Err(err);
+        }
+    };
     let restore_code = match &materialized {
         MaterializedStartup::Resume {
             suppress_code_restore: true,
@@ -1056,6 +1112,10 @@ pub async fn run_single_turn(
         } => Some(false),
         _ => options.restore_code.then_some(true),
     };
+    let resume_or_fork = matches!(
+        &materialized,
+        MaterializedStartup::Resume { .. } | MaterializedStartup::Fork { .. }
+    );
     let t_session = Instant::now();
     xai_grok_telemetry::startup::enter(crate::acp::StartupPhase::SessionCreate);
     let opened = match (materialized, worktree.as_ref()) {
@@ -1128,6 +1188,9 @@ pub async fn run_single_turn(
         Err(e) => {
             PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Error);
             let msg = format!("Couldn't create session: {e}");
+            if resume_or_fork && emitter.reports_single_json_error() {
+                return Err(emitter.fail_json_before_open(&msg));
+            }
             emitter.on_error(&msg, None);
             anyhow::bail!("{msg}");
         }

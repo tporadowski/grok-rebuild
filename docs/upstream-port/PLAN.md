@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-120 — A failed resume names the load error, and JSON prints it once
+
+`grok -p --resume` (and continue or fork) reports the session/load error, and uses "Session does not exist" only when that error is empty. With `--output-format json`, a failure before the session opens writes one `{"type":"error","message":...}` object and the process does not print that failure again (`resume_load_failure_reports_the_reason_as_one_json_error`) (`v74-x22`).
+
 ### D-119 — A resumed background command finishes in the turn that ran it
 
 Replayed `task_completed` uses the snapshot's start and end, and the completion row is inserted at the end of the turn that contains the started row. A live completion still appends where it arrives (`replayed_completion_stays_in_the_turn_that_ran_it`) (`v74-x04`).
@@ -532,7 +536,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 4 | 0 | 37 | 2 | 0 |
+| W8 | Sessions, resume, and dashboard | 3 | 0 | 38 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -543,9 +547,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 362. Skipped: 8. Done: 168. Already: 35. Deferred: 10.
+Catalog rows: 583. Pending: 361. Skipped: 8. Done: 169. Already: 35. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: `grok -p --resume` says why a session could not load (`v74-x22`).
+**Next:** W8 sessions, resume, and dashboard. First open row: a session with an unrecognized reasoning effort or unreadable history bytes still resumes (`v74-x23`).
 
 ## Waves
 
@@ -579,7 +583,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 4. Done: 37 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119). Already: 2 (`v68-x02`, D-114; `v72-x04`, D-117). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 3. Done: 38 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120). Already: 2 (`v68-x02`, D-114; `v72-x04`, D-117). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -806,7 +810,7 @@ id | status | wave | kind | flag | covered | note
 - v72-x04 | already | W8 | Bug Fixes |  |  | **Dashboard** shows the new folder on the dispatch box's top border right after a `Ctrl+L` or `/cd` pick.
 - v73-f06 | done | W8 | Features |  |  | **Start in multiline** in `/settings` (`[ui] multiline_default`) starts new sessions and the dashboard in multiline mode, where `Enter` inserts a newline.
 - v74-x04 | done | W8 | Bug Fixes |  |  | **Resumed sessions** show a background command's completion in the turn that ran it, with its real run time instead of about 0.0s.
-- v74-x22 | pending | W8 | Bug Fixes |  |  | **`grok -p --resume`** shows why a session couldn't load instead of always "Session does not exist", and with `--output-format json` a resume, continue or fork that fails before the session opens prints one JSON error.
+- v74-x22 | done | W8 | Bug Fixes |  |  | **`grok -p --resume`** shows why a session couldn't load instead of always "Session does not exist", and with `--output-format json` a resume, continue or fork that fails before the session opens prints one JSON error.
 - v74-x23 | pending | W8 | Bug Fixes |  |  | **Sessions with an unrecognized reasoning effort or unreadable bytes in their history** resume instead of failing: the session runs at the model's default effort and says so once, and the unreadable lines are left out of the transcript.
 - v74-x29 | done | W8 | Bug Fixes |  |  | **Dashboard**: the peek header reads `Responding` while a reply streams, and the `Esc` footer hint reads `new agent` like the other lowercase hints.
 - v75-f06 | done | W8 | Features |  |  | **`Left` on an empty prompt** opens the dashboard from any session or the welcome screen, not only from a session you opened from the dashboard.

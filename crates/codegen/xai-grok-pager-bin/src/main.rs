@@ -2231,11 +2231,15 @@ fn main() {
     if let Err(e) = result {
         xai_tty_utils::restore_native_stderr();
         finalize_span_profile();
-        let report = match e.downcast_ref::<xai_grok_pager::app::StartupFailure>() {
-            Some(startup) => startup.user_report(),
-            None => format!("Error: {e:#}"),
-        };
-        xai_grok_pager::best_effort_stderr::eprint_line(&report);
+        // A JSON resume, continue, or fork that failed before the session opened
+        // already wrote its one error object.
+        if !xai_grok_pager::headless::failure_already_reported(&e) {
+            let report = match e.downcast_ref::<xai_grok_pager::app::StartupFailure>() {
+                Some(startup) => startup.user_report(),
+                None => format!("Error: {e:#}"),
+            };
+            xai_grok_pager::best_effort_stderr::eprint_line(&report);
+        }
         drop(_sentry_guard);
         std::process::exit(1);
     }
