@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-131 — Ctrl+Enter does not answer an open question
+
+Bare Enter still submits the focused question. Ctrl+Enter and Shift+Enter do not (`ctrl_enter_does_not_answer_an_open_question`) (`v51-x19`).
+
 ### D-130 — Send-now does not turn on always-approve over a permission card
 
 While a permission card has the keyboard, a key that is the send-now chord does not flip always-approve. On Apple Terminal that chord is Ctrl+O. Where Ctrl+O is only the always-approve shortcut, it still toggles (`send_now_does_not_enable_always_approve_on_a_permission_card`) (`v51-x14`).
@@ -577,7 +581,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 29 | 0 | 5 | 2 | 0 |
+| W9 | Prompt, mentions, and keyboard | 28 | 0 | 6 | 2 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -587,9 +591,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 351. Skipped: 8. Done: 177. Already: 37. Deferred: 10.
+Catalog rows: 583. Pending: 350. Skipped: 8. Done: 178. Already: 37. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: send-now (Ctrl+Enter) no longer answers an open question card (`v51-x19`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: long pastes without bracketed-paste markers are read completely (`v51-x29`).
 
 ## Waves
 
@@ -627,7 +631,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 29. Done: 5 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130). Already: 2 (`v51-f12`, D-128; `v51-x11`, D-129). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 28. Done: 6 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131). Already: 2 (`v51-f12`, D-128; `v51-x11`, D-129). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -864,7 +868,7 @@ id | status | wave | kind | flag | covered | note
 - v51-f12 | already | W9 | Features |  |  | **Shift+Enter, Ctrl+., Ctrl+/ and Ctrl+[ / ]** now work inside tmux when extended-keys are enabled.
 - v51-x11 | already | W9 | Bug Fixes |  |  | Very large pasted prompts are now offloaded to a file instead of being sent inline.
 - v51-x14 | done | W9 | Bug Fixes |  |  | The send-now shortcut no longer accidentally enables always-approve mode while a permission card is open.
-- v51-x19 | pending | W9 | Bug Fixes |  |  | Send-now (Ctrl+Enter) no longer accidentally answers an open question card.
+- v51-x19 | done | W9 | Bug Fixes |  |  | Send-now (Ctrl+Enter) no longer accidentally answers an open question card.
 - v51-x29 | pending | W9 | Bug Fixes |  |  | Long pastes without bracketed-paste markers are now read completely instead of stalling after ~1 KB.
 - v51-x62 | pending | W9 | Bug Fixes |  |  | **@-file completion** no longer accepts a match from an earlier query when you type quickly.
 - v51-x78 | pending | W9 | Bug Fixes |  |  | **@ file search** no longer accepts keys or moves the highlight while results are still updating.

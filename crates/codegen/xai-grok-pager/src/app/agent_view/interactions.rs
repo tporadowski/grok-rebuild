@@ -481,7 +481,7 @@ impl AgentView {
                             }
                         }
                     }
-                    KeyCode::Enter => {
+                    KeyCode::Enter if key.modifiers.is_empty() => {
                         if qv.is_on_freeform_row() {
                             let text = qv.activate_freeform_input();
                             self.prompt.set_text_preserving(&text);
@@ -2456,6 +2456,40 @@ mod question_freeform_chip_tests {
     }
 }
 #[cfg(test)]
+mod question_send_now_tests {
+    use super::question_no_freeform_tests::open_question;
+    use super::test_fixtures::make_agent;
+    use crate::actions::ActionRegistry;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+
+    fn press(agent: &mut super::super::AgentView, code: KeyCode, modifiers: KeyModifiers) {
+        let registry = ActionRegistry::non_vscode_for_test();
+        let _ = agent.handle_input(&Event::Key(KeyEvent::new(code, modifiers)), &registry);
+    }
+
+    /// Send-now is Ctrl+Enter. That chord must not submit the open question. Bare Enter still does.
+    #[test]
+    fn ctrl_enter_does_not_answer_an_open_question() {
+        let mut agent = make_agent();
+        open_question(&mut agent, false);
+        press(&mut agent, KeyCode::Enter, KeyModifiers::CONTROL);
+        assert!(
+            agent.question_view.is_some(),
+            "Ctrl+Enter must leave the question card open"
+        );
+        press(&mut agent, KeyCode::Enter, KeyModifiers::SHIFT);
+        assert!(
+            agent.question_view.is_some(),
+            "Shift+Enter must leave the question card open"
+        );
+        press(&mut agent, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(
+            agent.question_view.is_none(),
+            "bare Enter still submits the question"
+        );
+    }
+}
+
 mod question_answer_focus_tests {
     //! The question card's answer walk.
     //! Tab used to hand focus to the scrollback while the card stayed drawn; these tests pin the walk that replaced it.
