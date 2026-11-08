@@ -1860,6 +1860,92 @@ async fn pause_headless_goal(session_id: &acp::SessionId, acp_tx: &AcpAgentTx) {
     }
 }
 
+/// A tool result that already carries a finished task or subagent lets headless stop waiting on it.
+/// The completion notification can be missing once that output was read in the same turn.
+fn note_terminal_output_read(
+    pending: &mut HashSet<BackgroundWork>,
+    state: &mut BackgroundLifecycleState,
+    raw: Option<&serde_json::Value>,
+) {
+    let Some(raw) = raw else {
+        return;
+    };
+    for id in terminal_work_ids(raw) {
+        release_finished_background(pending, state, &id);
+    }
+}
+
+fn terminal_work_ids(raw: &serde_json::Value) -> Vec<String> {
+    let Some(kind) = raw.get("type").and_then(|value| value.as_str()) else {
+        return Vec::new();
+    };
+    match kind {
+        "TaskOutput" => task_output_ids(raw),
+        "SubagentCompleted" => raw
+            .get("subagent_id")
+            .and_then(|value| value.as_str())
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .into_iter()
+            .collect(),
+        "Text" => raw
+            .get("consumed_completion_task_id")
+            .and_then(|value| value.as_str())
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .into_iter()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn task_output_ids(raw: &serde_json::Value) -> Vec<String> {
+    if let Some(result) = raw.get("Result") {
+        return terminal_result_id(result).into_iter().collect();
+    }
+    let Some(results) = raw
+        .get("MultiResult")
+        .and_then(|multi| multi.get("results"))
+        .and_then(|results| results.as_array())
+    else {
+        return Vec::new();
+    };
+    results.iter().filter_map(terminal_result_id).collect()
+}
+
+fn terminal_result_id(result: &serde_json::Value) -> Option<String> {
+    let status = result.get("status").and_then(|value| value.as_str())?;
+    if !matches!(status, "completed" | "failed" | "cancelled" | "timed_out") {
+        return None;
+    }
+    result
+        .get("task_id")
+        .and_then(|value| value.as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
+fn release_finished_background(
+    pending: &mut HashSet<BackgroundWork>,
+    state: &mut BackgroundLifecycleState,
+    id: &str,
+) {
+    state.completed_tasks.insert(id.to_string());
+    if state.subagents.contains_key(id) {
+        track_background_lifecycle(
+            ExtEvent::SubagentFinished {
+                subagent_id: id.to_string(),
+                attempt_id: None,
+                event_seq: None,
+            },
+            pending,
+            state,
+        );
+    }
+    pending.remove(&BackgroundWork::Task(id.to_string()));
+    pending.remove(&BackgroundWork::Subagent(id.to_string()));
+}
+
 fn track_background_lifecycle(
     event: ExtEvent,
     pending_bg: &mut HashSet<BackgroundWork>,
@@ -2061,9 +2147,27 @@ fn handle_headless_acp_message(
                         emitter.on_thought_chunk(&text.text);
                     }
                 }
-                acp::SessionUpdate::ToolCall(_)
-                | acp::SessionUpdate::ToolCallUpdate(_)
-                | acp::SessionUpdate::Plan(_)
+                acp::SessionUpdate::ToolCall(call) => {
+                    note_terminal_output_read(
+                        pending_bg,
+                        background_lifecycle,
+                        call.raw_output.as_ref(),
+                    );
+                    if let Some(event) = map_session_update(&boxed.request.update) {
+                        emitter.reduce_and_emit(event);
+                    }
+                }
+                acp::SessionUpdate::ToolCallUpdate(update) => {
+                    note_terminal_output_read(
+                        pending_bg,
+                        background_lifecycle,
+                        update.fields.raw_output.as_ref(),
+                    );
+                    if let Some(event) = map_session_update(&boxed.request.update) {
+                        emitter.reduce_and_emit(event);
+                    }
+                }
+                acp::SessionUpdate::Plan(_)
                 | acp::SessionUpdate::AvailableCommandsUpdate(_) => {
                     if let Some(event) = map_session_update(&boxed.request.update) {
                         emitter.reduce_and_emit(event);

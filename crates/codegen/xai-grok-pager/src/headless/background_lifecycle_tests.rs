@@ -412,3 +412,122 @@ fn finished_legacy_duplicate_spawn_does_not_rearm_pending() {
     assert!(s1(&state).is_finished());
     assert!(pending.is_empty());
 }
+
+#[test]
+fn reading_finished_output_in_the_turn_releases_the_headless_wait() {
+    let mut pending = std::collections::HashSet::new();
+    let mut state = super::BackgroundLifecycleState::default();
+    let task = super::BackgroundWork::Task("t1".into());
+    let child = super::BackgroundWork::Subagent("s1".into());
+
+    super::track_background_lifecycle(
+        super::ExtEvent::TaskBackgrounded {
+            task_id: "t1".into(),
+            is_monitor: false,
+        },
+        &mut pending,
+        &mut state,
+    );
+    super::track_background_lifecycle(spawn_event("at1.one", 1), &mut pending, &mut state);
+    assert!(pending.contains(&task));
+    assert!(pending.contains(&child));
+
+    super::note_terminal_output_read(
+        &mut pending,
+        &mut state,
+        Some(&serde_json::json!({
+            "type": "TaskOutput",
+            "Result": { "task_id": "t1", "status": "running", "output": "partial" }
+        })),
+    );
+    assert!(
+        pending.contains(&task),
+        "a read of a still-running task keeps the wait"
+    );
+
+    super::note_terminal_output_read(
+        &mut pending,
+        &mut state,
+        Some(&serde_json::json!({
+            "type": "TaskOutput",
+            "Result": { "task_id": "t1", "status": "completed", "output": "done" }
+        })),
+    );
+    assert!(!pending.contains(&task));
+    super::track_background_lifecycle(
+        super::ExtEvent::TaskBackgrounded {
+            task_id: "t1".into(),
+            is_monitor: false,
+        },
+        &mut pending,
+        &mut state,
+    );
+    assert!(
+        !pending.contains(&task),
+        "a later backgrounded notice must not re-arm a task whose output was read"
+    );
+
+    super::note_terminal_output_read(
+        &mut pending,
+        &mut state,
+        Some(&serde_json::json!({
+            "type": "TaskOutput",
+            "MultiResult": {
+                "results": [
+                    { "task_id": "s1", "status": "completed", "output": "answer" },
+                    { "task_id": "still", "status": "running" }
+                ]
+            }
+        })),
+    );
+    assert!(!pending.contains(&child));
+    assert!(s1(&state).is_finished());
+    super::track_background_lifecycle(spawn_event("at1.one", 1), &mut pending, &mut state);
+    assert!(
+        !pending.contains(&child),
+        "replaying the finished attempt must not re-arm the wait"
+    );
+    super::track_background_lifecycle(spawn_event("at1.two", 3), &mut pending, &mut state);
+    assert!(
+        pending.contains(&child),
+        "a new attempt after the read is still waited on"
+    );
+
+    super::track_background_lifecycle(
+        super::ExtEvent::SubagentSpawned {
+            subagent_id: "child-2".into(),
+            attempt_id: Some("at2.one".into()),
+            event_seq: Some(1),
+        },
+        &mut pending,
+        &mut state,
+    );
+    super::track_background_lifecycle(
+        super::ExtEvent::TaskBackgrounded {
+            task_id: "awaited".into(),
+            is_monitor: false,
+        },
+        &mut pending,
+        &mut state,
+    );
+    super::note_terminal_output_read(
+        &mut pending,
+        &mut state,
+        Some(&serde_json::json!({
+            "type": "SubagentCompleted",
+            "subagent_id": "child-2",
+            "output": "joined"
+        })),
+    );
+    super::note_terminal_output_read(
+        &mut pending,
+        &mut state,
+        Some(&serde_json::json!({
+            "type": "Text",
+            "text": "Task completed.",
+            "consumed_completion_task_id": "awaited"
+        })),
+    );
+    assert!(!pending.contains(&super::BackgroundWork::Subagent("child-2".into())));
+    assert!(!pending.contains(&super::BackgroundWork::Task("awaited".into())));
+}
