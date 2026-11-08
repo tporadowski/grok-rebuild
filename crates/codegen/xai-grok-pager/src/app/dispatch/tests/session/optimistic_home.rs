@@ -260,6 +260,103 @@ fn welcome_shift_tab_honors_always_worktree() {
     };
     assert!(agent.plan_mode_pending.unwrap_or(agent.plan_mode_active));
 }
+fn home_skill_command() -> acp::AvailableCommand {
+    let meta = serde_json::json!({
+        "scope": "local",
+        "path": "/home/user/.grok/skills/my-skill/SKILL.md",
+    });
+    acp::AvailableCommand::new("my-skill".to_string(), "A skill".to_string())
+        .meta(meta.as_object().expect("skill meta object").clone())
+}
+
+fn give_home_session_a_skill(app: &mut AppView) {
+    let home = app.home_session_agent.expect("home session");
+    app.agents
+        .get_mut(&home)
+        .expect("home agent")
+        .session
+        .replace_available_commands(
+            vec![home_skill_command()],
+            crate::app::command_catalog::CommandCatalogSource::SessionUpdate,
+        );
+}
+
+fn dashboard_slash_displays(app: &mut AppView, query: &str) -> Vec<String> {
+    let dash = app.dashboard.as_mut().expect("dashboard open");
+    dash.dispatch.set_text(query);
+    let models = dash.models.clone();
+    dash.dispatch.refresh_slash(&models);
+    dash.dispatch
+        .slash_snapshot()
+        .matches
+        .iter()
+        .map(|row| row.display.clone())
+        .collect()
+}
+
+/// Opening the dashboard from Welcome, before the home session is revealed, still lists its skills.
+#[test]
+fn dashboard_slash_menu_shows_home_session_skills_when_opened_early() {
+    let mut app = test_app();
+    maybe_create_home_session(&mut app);
+    give_home_session_a_skill(&mut app);
+    let _ = crate::app::dispatch::dashboard::dispatch_open_dashboard(&mut app);
+    assert!(matches!(app.active_view, ActiveView::AgentDashboard));
+    assert!(
+        app.home_session_agent.is_some(),
+        "opening the dashboard must not reveal the home session"
+    );
+    let displays = dashboard_slash_displays(&mut app, "/my-ski");
+    assert!(
+        displays.iter().any(|row| row == "/my-skill"),
+        "early dashboard slash menu must list the home session skill, got {displays:?}"
+    );
+    assert!(
+        !displays.iter().any(|row| row == "/compact"),
+        "the session-less menu must still hide session commands, got {displays:?}"
+    );
+    assert!(
+        app.dashboard.as_ref().is_some_and(|dash| dash
+            .dispatch
+            .slash_controller
+            .registry()
+            .get("my-skill")
+            .is_some_and(|command| command.is_skill())),
+        "the dashboard menu entry must be the home session's skill"
+    );
+}
+
+/// A dashboard already open when the home session's skills arrive picks them up on the next tick.
+#[test]
+fn open_dashboard_slash_menu_gains_home_session_skills_on_tick() {
+    let mut app = test_app();
+    maybe_create_home_session(&mut app);
+    let _ = crate::app::dispatch::dashboard::dispatch_open_dashboard(&mut app);
+    let before = dashboard_slash_displays(&mut app, "/my-ski");
+    assert!(
+        !before.iter().any(|row| row == "/my-skill"),
+        "the seed catalog has no skill yet, got {before:?}"
+    );
+    give_home_session_a_skill(&mut app);
+    assert_eq!(
+        app.tick_demand(),
+        crate::app::app_view::TickDemand::Fast,
+        "a home-session skill catalog must keep the dashboard ticking"
+    );
+    assert!(app.tick(), "the tick must copy the new catalog");
+    let displays = dashboard_slash_displays(&mut app, "/my-ski");
+    assert!(
+        displays.iter().any(|row| row == "/my-skill"),
+        "the open dashboard slash menu must gain the skill, got {displays:?}"
+    );
+    assert!(
+        app.bootstrap_acp_commands
+            .iter()
+            .any(|command| command.name == "my-skill"),
+        "the promoted catalog is what the next session starts with"
+    );
+}
+
 /// Skills that reached the hidden home session must be in the revealed composer's slash catalog.
 #[test]
 fn skills_on_the_hidden_home_session_reach_the_revealed_composer() {

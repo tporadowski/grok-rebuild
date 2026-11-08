@@ -111,10 +111,39 @@ pub(super) fn ensure_dashboard_state(app: &mut AppView) {
         .set_usage_command_visible(usage_cmd);
     app.dashboard = Some(state);
 }
+/// Skills the shell advertised on the hidden home session, before that catalog has been copied
+/// into the session-less slash menus. Generation 1 is the bootstrap seed, not this catalog.
+pub(crate) fn home_session_has_unpromoted_slash_catalog(app: &AppView) -> bool {
+    let Some(id) = app.home_session_agent else {
+        return false;
+    };
+    let Some(agent) = app.agents.get(&id) else {
+        return false;
+    };
+    agent.session.available_commands_generation > 1
+        && agent.acp_synced_generation != agent.session.available_commands_generation
+        && !agent.session.available_commands.is_empty()
+}
+
+/// The home session's slash catalog when [`home_session_has_unpromoted_slash_catalog`] is set.
+pub(crate) fn unpromoted_home_session_slash_commands(
+    app: &AppView,
+) -> Option<Vec<agent_client_protocol::AvailableCommand>> {
+    if !home_session_has_unpromoted_slash_catalog(app) {
+        return None;
+    }
+    app.home_session_agent
+        .and_then(|id| app.agents.get(&id))
+        .map(|agent| agent.session.available_commands.clone())
+}
+
 /// Configure the dashboard for display: snapshot app-wide state (cwd, models, plugins, permission mode) and clear the staged dispatch settings.
 /// Shared by `dispatch_open_dashboard` and the overlay-cycle path; a no-op when the dashboard is unallocated.
 fn configure_dashboard_state(app: &mut AppView) {
-    let bootstrap_commands = app.bootstrap_acp_commands.clone();
+    // Opening the dashboard from Welcome happens before the home session is revealed, so its
+    // skill catalog is not in `bootstrap_acp_commands` yet. Use that catalog directly.
+    let bootstrap_commands = unpromoted_home_session_slash_commands(app)
+        .unwrap_or_else(|| app.bootstrap_acp_commands.clone());
     let models = app.models.clone();
     let disable_plugins = app.appearance.disable_plugins;
     let default_yolo = app.default_yolo;

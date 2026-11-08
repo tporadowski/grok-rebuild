@@ -5502,6 +5502,22 @@ impl AppView {
                 }
             }
         }
+        // The home session is not the active view while Welcome or the dashboard is open, so the
+        // block above never copies its skill catalog. Promote it once the shell has replaced the seed.
+        if !matches!(self.active_view, ActiveView::Agent(_))
+            && bootstrap_commands_update.is_none()
+            && let Some(commands) = super::dispatch::unpromoted_home_session_slash_commands(self)
+            && let Some(id) = self.home_session_agent
+            && let Some(agent) = self.agents.get_mut(&id)
+        {
+            let tools = agent.session.available_tools.clone();
+            agent
+                .prompt
+                .sync_acp_commands(&commands, tools.as_ref(), &agent.session.models);
+            agent.acp_synced_generation = agent.session.available_commands_generation;
+            bootstrap_commands_update = Some(commands);
+            needs_redraw = true;
+        }
         if let Some(commands) = bootstrap_commands_update {
             self.welcome_prompt
                 .sync_acp_commands(&commands, None, &self.models);
@@ -5691,6 +5707,10 @@ impl AppView {
                     .values()
                     .any(|c| c.edit_hl_needs_tick())
         }) {
+            return TickDemand::Fast;
+        }
+        // Skills can land on the hidden home session while Welcome or the dashboard is showing.
+        if super::dispatch::home_session_has_unpromoted_slash_catalog(self) {
             return TickDemand::Fast;
         }
         match self.active_view {

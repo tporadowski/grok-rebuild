@@ -43,7 +43,8 @@ pub(crate) use billing::{
 pub(crate) use ctx::{SwitchCause, switch_to_agent};
 pub(crate) use dashboard::{
     DashboardStopReadiness, dashboard_overlay_agent_order, dashboard_overlay_position,
-    dashboard_stop_readiness,
+    dashboard_stop_readiness, home_session_has_unpromoted_slash_catalog,
+    unpromoted_home_session_slash_commands,
 };
 pub(crate) use modes::{downgrade_displayed_auto_if_gated, effective_auto};
 pub(crate) use notes::FEEDBACK_TRACE_UPLOAD_TIMEOUT_MS;
