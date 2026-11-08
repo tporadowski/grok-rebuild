@@ -421,7 +421,7 @@ fn paint_row(
     ];
     if let Some(activity) = row.activity.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
-            format!(" — {activity}"),
+            format!(" \u{00b7} {activity}"),
             Style::default().fg(theme.gray),
         ));
     }
@@ -636,8 +636,12 @@ mod tests {
             "row must not start with '.', got {first:?}"
         );
         assert!(
-            first.contains("Explore find dashboard render path — reading render.rs"),
+            first.contains("Explore find dashboard render path \u{00b7} reading render.rs"),
             "{first}"
+        );
+        assert!(
+            !first.contains('\u{2014}'),
+            "subagent rows do not use an em dash: {first}"
         );
         assert!(first.trim_end().ends_with("grok-4.5 2m14s"), "{first}");
         assert!(
