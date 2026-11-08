@@ -3885,3 +3885,157 @@ fn failed_load_lists_several_held_rows_as_not_sent() {
         "{listed:?}"
     );
 }
+
+fn resume_list_entry(id: &str, title: &str) -> crate::app::app_view::SessionPickerEntry {
+    crate::app::app_view::SessionPickerEntry {
+        id: id.into(),
+        summary: title.into(),
+        updated_at: chrono::Utc::now(),
+        created_at: chrono::Utc::now(),
+        cwd: "/tmp/repo".into(),
+        hostname: None,
+        source: "local".into(),
+        model_id: None,
+        num_messages: 1,
+        last_active_at: None,
+        branch: None,
+        repo_name: "tmp-repo".into(),
+        worktree_label: None,
+        last_turn_summary: None,
+        last_recap: None,
+        session_kind: None,
+        card_detail: None,
+    }
+}
+
+fn finish_resume_list(
+    app: &mut AppView,
+    query: &str,
+    sessions: Vec<crate::app::app_view::SessionPickerEntry>,
+) -> Vec<Effect> {
+    dispatch(
+        Action::TaskComplete(TaskResult::SessionListLoaded {
+            host: crate::views::session_picker_surface::SessionPickerHost::Welcome,
+            generation: app.session_picker_generation,
+            sessions,
+            partial: None,
+            scope: ListScope::Cwd,
+            seq: app.session_picker_list_seq,
+            query: Some(query.to_string()),
+        }),
+        app,
+    )
+}
+
+fn picker_is_open(app: &AppView) -> bool {
+    app.agents
+        .values()
+        .any(|agent| matches!(agent.active_modal, Some(ActiveModal::SessionPicker { .. })))
+        || (app.session_picker_entries.is_some() && app.session_picker_state.search_active)
+}
+
+/// `/resume <title>` with one separator-insensitive title match loads that session.
+/// The picker stays closed.
+#[test]
+fn resume_unique_title_opens_the_session() {
+    let mut app = test_app_with_agent();
+    let effects = dispatch(
+        Action::ShowSessionPicker(Some("fix-login-bug".into())),
+        &mut app,
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::FetchSessionList { query: Some(query), .. } if query == "fix-login-bug"
+        )),
+        "the list fetch carries the resume query, got {effects:?}"
+    );
+    assert!(!picker_is_open(&app), "the picker waits for the list");
+    let effects = finish_resume_list(
+        &mut app,
+        "fix-login-bug",
+        vec![
+            resume_list_entry("sess-1", "Fix login bug"),
+            resume_list_entry("sess-2", "Other work"),
+        ],
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::LoadSession { session_id, .. } if session_id == "sess-1"
+        )),
+        "the unique title must load, got {effects:?}"
+    );
+    assert!(!picker_is_open(&app));
+    assert!(app.resume_direct_query.is_none());
+}
+
+/// An exact session id is the same direct open.
+#[test]
+fn resume_unique_id_opens_the_session() {
+    let mut app = test_app_with_agent();
+    let _ = dispatch(Action::ShowSessionPicker(Some("sess-9".into())), &mut app);
+    let effects = finish_resume_list(
+        &mut app,
+        "sess-9",
+        vec![
+            resume_list_entry("sess-9", "Fix login bug"),
+            resume_list_entry("sess-2", "Other work"),
+        ],
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::LoadSession { session_id, .. } if session_id == "sess-9"
+        )),
+        "the unique id must load, got {effects:?}"
+    );
+    assert!(!picker_is_open(&app));
+}
+
+/// Two exact titles, a word prefix, and a bare `/resume` stay on the picker.
+#[test]
+fn resume_ambiguous_or_empty_query_opens_the_picker() {
+    let mut app = test_app_with_agent();
+    let _ = dispatch(
+        Action::ShowSessionPicker(Some("fix-login-bug".into())),
+        &mut app,
+    );
+    let effects = finish_resume_list(
+        &mut app,
+        "fix-login-bug",
+        vec![
+            resume_list_entry("sess-1", "Fix login bug"),
+            resume_list_entry("sess-2", "Fix login bug"),
+        ],
+    );
+    assert!(
+        effects
+            .iter()
+            .all(|effect| !matches!(effect, Effect::LoadSession { .. })),
+        "two exact titles must not pick one, got {effects:?}"
+    );
+    assert!(picker_is_open(&app), "an ambiguous title opens the picker");
+
+    let mut app = test_app_with_agent();
+    let _ = dispatch(Action::ShowSessionPicker(Some("fix".into())), &mut app);
+    let effects = finish_resume_list(
+        &mut app,
+        "fix",
+        vec![resume_list_entry("sess-1", "Fix login bug")],
+    );
+    assert!(
+        effects
+            .iter()
+            .all(|effect| !matches!(effect, Effect::LoadSession { .. })),
+        "a word prefix is a picker filter, not a direct open, got {effects:?}"
+    );
+    assert!(picker_is_open(&app));
+
+    let mut app = test_app_with_agent();
+    let _ = dispatch(Action::ShowSessionPicker(None), &mut app);
+    assert!(
+        picker_is_open(&app),
+        "resume with no query opens the picker immediately"
+    );
+}

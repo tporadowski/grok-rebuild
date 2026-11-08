@@ -182,6 +182,7 @@ pub(in crate::app::dispatch) fn handle_session_list_loaded(
         sessions.retain(|entry| !workspace_session_ids.contains(entry.id.as_str()));
     }
     let chat_mode = app.chat_mode && !dashboard_request;
+    let echoed_query = query.clone();
     let is_browse = query.is_none();
     let notice;
     {
@@ -227,7 +228,103 @@ pub(in crate::app::dispatch) fn handle_session_list_loaded(
     if !dashboard_request && !scope.is_relaxed() && is_browse {
         app.session_picker_relaxed_notified_for = None;
     }
+    if let Some(wanted) = app.resume_direct_query.take()
+        && echoed_query
+            .as_deref()
+            .is_some_and(|query| query.trim() == wanted.trim())
+    {
+        let hit = app
+            .session_picker_entries
+            .as_ref()
+            .and_then(|entries| unique_exact_resume(entries, wanted.trim()))
+            .map(|entry| ResumeHit {
+                id: entry.id.clone(),
+                source: entry.source.clone(),
+                cwd: entry.cwd.clone(),
+            });
+        if let Some(hit) = hit {
+            app.session_picker_entries = None;
+            app.session_picker_loading = false;
+            app.session_picker_state.set_query("");
+            app.session_picker_state.search_active = false;
+            if let Some(agent) = get_active_agent_mut(app) {
+                agent.active_modal = None;
+            }
+            return open_unique_resume(app, hit);
+        }
+        present_resume_picker(app, wanted.trim());
+    }
     vec![]
+}
+
+struct ResumeHit {
+    id: String,
+    source: String,
+    cwd: String,
+}
+
+/// One session whose id or separator-insensitive title equals `query`.
+/// A word-prefix or other fuzzy hit is not enough: that still opens the picker.
+pub(crate) fn unique_exact_resume<'a>(
+    entries: &'a [SessionPickerEntry],
+    query: &str,
+) -> Option<&'a SessionPickerEntry> {
+    let query = query.trim();
+    if query.is_empty() {
+        return None;
+    }
+    let mut exact = entries.iter().filter(|entry| {
+        entry.id.eq_ignore_ascii_case(query)
+            || xai_grok_shell::session::resume_match::separator_insensitive_title(
+                &entry.summary,
+                query,
+            )
+    });
+    let first = exact.next()?;
+    exact.next().is_none().then_some(first)
+}
+
+fn open_unique_resume(app: &mut AppView, hit: ResumeHit) -> Vec<Effect> {
+    let chat_kind = hit.source == "conversation";
+    if chat_kind {
+        return super::load::dispatch_load_session(app, hit.id, None, true);
+    }
+    if hit.source == "remote" || hit.source == "both" {
+        return super::load::dispatch_load_session_with_restore(app, hit.id, hit.cwd);
+    }
+    let cwd = (!hit.cwd.is_empty()).then(|| std::path::PathBuf::from(hit.cwd));
+    super::load::dispatch_load_session(app, hit.id, cwd, false)
+}
+
+fn present_resume_picker(app: &mut AppView, query: &str) {
+    if matches!(app.active_view, crate::app::app_view::ActiveView::Agent(_)) {
+        let entries = app.session_picker_entries.clone();
+        let entries_query = app.session_picker_entries_query.clone();
+        if let Some(agent) = get_active_agent_mut(app) {
+            agent.active_modal = Some(crate::views::modal::session_picker_modal(None));
+            if let Some(ActiveModal::SessionPicker {
+                state,
+                entries: slot,
+                loading,
+                entries_query: stored,
+                ..
+            }) = agent.active_modal.as_mut()
+            {
+                *slot = entries;
+                *loading = false;
+                *stored = entries_query;
+                state.set_query(query);
+                state.search_active = true;
+            }
+        }
+        app.session_picker_entries = None;
+        app.session_picker_loading = false;
+        app.session_picker_state.set_query("");
+        app.session_picker_state.search_active = false;
+    } else {
+        app.session_picker_state.set_query(query);
+        app.session_picker_state.search_active = true;
+    }
 }
 
 pub(in crate::app::dispatch) fn handle_session_list_failed(

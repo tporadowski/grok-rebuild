@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-108 — A unique `/resume` match opens that session
+
+`/resume <id or title>` loads the session when exactly one id or separator-insensitive title matches. Two exact titles, a word prefix, and a bare `/resume` still open the picker (`resume_unique_title_opens_the_session`, `resume_unique_id_opens_the_session`, `resume_ambiguous_or_empty_query_opens_the_picker`) (`v61-f02`).
+
 ### D-107 — Esc on the first dashboard question parks on the scrollback
 
 Esc on the first question of a session opened from the dashboard moves focus to the scrollback and leaves the question pending, the same as a standalone session. The next Esc from that scrollback still leaves the overlay (`esc_on_the_first_dashboard_question_focuses_the_scrollback`, `overlay_esc_exits_when_question_nav_unselected`) (`v60-x02`).
@@ -484,7 +488,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 16 | 0 | 27 | 0 | 0 |
+| W8 | Sessions, resume, and dashboard | 15 | 0 | 28 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -495,9 +499,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 374. Skipped: 8. Done: 158. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 373. Skipped: 8. Done: 159. Already: 33. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: `/resume <id or name>` opens the session directly when it matches exactly one session (`v61-f02`).
+**Next:** W8 sessions, resume, and dashboard. First open row: dashboard peek text can be selected by dragging and copied on release (`v61-x01`).
 
 ## Waves
 
@@ -531,7 +535,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 16. Done: 27 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 15. Done: 28 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -740,7 +744,7 @@ id | status | wave | kind | flag | covered | note
 - v60-f01 | done | W8 | Features |  |  | **`grok --resume <title>`** lists matching sessions newest first with when each was last updated, and suggests similar titles when nothing matches.
 - v60-x02 | done | W8 | Bug Fixes |  |  | **Esc** on the first question in a session opened from the dashboard moves focus to the scrollback, as it does in a standalone session, instead of returning to the dashboard.
 - v61-f01 | done | W8 | Features |  |  | **Resume picker** finds sessions whose titles contain every word you type, in any order.
-- v61-f02 | pending | W8 | Features |  |  | **`/resume <id or name>`** opens the session directly when the ID or title matches exactly one session, instead of always opening the picker.
+- v61-f02 | done | W8 | Features |  |  | **`/resume <id or name>`** opens the session directly when the ID or title matches exactly one session, instead of always opening the picker.
 - v61-x01 | pending | W8 | Bug Fixes |  |  | **Dashboard peek** text can be selected by dragging over it with the mouse, and the selection is copied to the clipboard when you release.
 - v62-x02 | pending | W8 | Bug Fixes |  |  | **Cold `/resume` from the dashboard overlay** keeps the overlay attached, so you can still back out with Left or `Ctrl+\`.
 - v62-x04 | done | W8 | Bug Fixes |  |  | **CLI commands** such as `grok models`, `grok sessions` and `grok export` no longer crash when their output pipe closes early, such as when piped to `head`, or when the output device is full.

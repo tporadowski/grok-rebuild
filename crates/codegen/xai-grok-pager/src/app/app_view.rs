@@ -830,6 +830,9 @@ pub struct AppView {
     /// The search query `session_picker_entries` were server-fetched with (`None` means an unfiltered fetch).
     /// Via [`crate::views::session_picker::effective_filter_query`], skips the local fuzzy re-filter for server search results.
     pub session_picker_entries_query: Option<String>,
+    /// `/resume <id or title>` waiting on the session list. A unique exact match opens that
+    /// session; anything else falls through to the picker. Cleared when the list arrives.
+    pub resume_direct_query: Option<String>,
     pub session_picker_pending_delete: Option<crate::views::session_picker::PendingDelete>,
     /// Tick counter for welcome screen spinner animation.
     pub welcome_tick: u64,
@@ -1478,6 +1481,7 @@ impl AppView {
             session_picker_generation: 0,
             dashboard_session_picker: None,
             session_picker_entries_query: None,
+            resume_direct_query: None,
             session_picker_pending_delete: None,
             welcome_tick: 0,
             welcome_shimmer_frame: 0,

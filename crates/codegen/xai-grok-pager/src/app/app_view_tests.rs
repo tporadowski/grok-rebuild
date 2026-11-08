@@ -266,6 +266,7 @@ pub(crate) fn test_app() -> AppView {
         session_picker_generation: 0,
         dashboard_session_picker: None,
         session_picker_entries_query: None,
+        resume_direct_query: None,
         session_picker_pending_delete: None,
         welcome_tick: 0,
         welcome_shimmer_frame: 0,

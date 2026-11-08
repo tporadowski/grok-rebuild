@@ -1657,17 +1657,20 @@ pub(in crate::app::dispatch) fn dispatch_show_session_picker(
     app: &mut AppView,
     query: Option<String>,
 ) -> Vec<Effect> {
+    let direct = query
+        .as_deref()
+        .is_some_and(|query| !query.trim().is_empty());
+    if direct {
+        // Wait for the list. A unique id or title opens that session; the picker
+        // opens only when the match is missing or ambiguous.
+        app.resume_direct_query = query.clone();
+        return dispatch_fetch_session_list_query(app, query);
+    }
+    app.resume_direct_query = None;
     with_active_agent(app, |agent| {
         agent.active_modal = Some(crate::views::modal::session_picker_modal(None));
-        if let Some(query) = query.as_deref().filter(|query| !query.is_empty())
-            && let Some(crate::views::modal::ActiveModal::SessionPicker { state, .. }) =
-                agent.active_modal.as_mut()
-        {
-            state.set_query(query);
-            state.search_active = true;
-        }
     });
-    dispatch_fetch_session_list_query(app, query)
+    dispatch_fetch_session_list_query(app, None)
 }
 /// The picker (modal `/resume` or welcome screen) was dismissed without a pick.
 /// A modal's fields (and generation) die with it, so its in-flight fetches are dropped by host liveness.
