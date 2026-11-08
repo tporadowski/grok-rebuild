@@ -984,33 +984,7 @@ pub(super) fn dispatch_dashboard_overlay_cycle(app: &mut AppView, delta: i32) ->
     if app.agents.len() <= 1 {
         return vec![];
     }
-    let order = if app.workspace_dashboard_enabled {
-        let filter = app
-            .dashboard
-            .as_ref()
-            .map_or(&crate::views::dashboard::Filter::None, |d| &d.filter);
-        workspace_rows(app, filter)
-            .0
-            .into_iter()
-            .filter_map(|row| match row.id {
-                DashboardRowId::TopLevel(id) => Some(id),
-                _ => None,
-            })
-            .collect()
-    } else {
-        match app.dashboard.as_ref() {
-            Some(d) => crate::views::dashboard::overlay_cycle_order(d, &app.agents),
-            None => {
-                if !crate::views::dashboard::dashboard_enabled()
-                    || !matches!(app.auth_state, crate::app::app_view::AuthState::Done)
-                {
-                    return vec![];
-                }
-                let transient = dashboard_state_for_mode(app);
-                crate::views::dashboard::overlay_cycle_order(&transient, &app.agents)
-            }
-        }
-    };
+    let order = dashboard_overlay_agent_order(app);
     if order.len() <= 1 {
         return vec![];
     }
@@ -1690,6 +1664,56 @@ pub(super) fn dispatch_dashboard_commit_rename(app: &mut AppView) -> Vec<Effect>
     crate::app::workspace_sync::request(app);
     effects
 }
+/// Agents in the order the open dashboard paints them, including the active grouping.
+/// The overlay `‹ i/n ›` counter and `‹` / `›` both read this, so they cannot drift.
+pub(crate) fn dashboard_overlay_agent_order(app: &AppView) -> Vec<crate::app::agent::AgentId> {
+    use crate::views::dashboard::DashboardRowId;
+    if app.workspace_dashboard_enabled {
+        let filter = app
+            .dashboard
+            .as_ref()
+            .map_or(&crate::views::dashboard::Filter::None, |d| &d.filter);
+        return workspace_rows(app, filter)
+            .0
+            .into_iter()
+            .filter_map(|row| match row.id {
+                DashboardRowId::TopLevel(id) => Some(id),
+                _ => None,
+            })
+            .collect();
+    }
+    match app.dashboard.as_ref() {
+        Some(d) => crate::views::dashboard::overlay_cycle_order(d, &app.agents),
+        None => {
+            if !crate::views::dashboard::dashboard_enabled()
+                || !matches!(app.auth_state, crate::app::app_view::AuthState::Done)
+            {
+                return Vec::new();
+            }
+            let persisted = app.dashboard_persisted.clone().unwrap_or_else(|| {
+                crate::views::dashboard::load_persisted()
+                    .unwrap_or_else(crate::views::dashboard::PersistedDashboard::defaults)
+            });
+            let resolver = crate::views::dashboard::SessionIdResolver::from_agents(&app.agents);
+            let transient =
+                crate::views::dashboard::DashboardState::from_persisted(&persisted, &resolver);
+            crate::views::dashboard::overlay_cycle_order(&transient, &app.agents)
+        }
+    }
+}
+
+/// 1-based `‹ i/n ›` position of `id` in [`dashboard_overlay_agent_order`].
+pub(crate) fn dashboard_overlay_position(
+    app: &AppView,
+    id: crate::app::agent::AgentId,
+) -> Option<(usize, usize)> {
+    let order = dashboard_overlay_agent_order(app);
+    order
+        .iter()
+        .position(|agent| *agent == id)
+        .map(|idx| (idx + 1, order.len()))
+}
+
 /// Dashboard v2 rows in display order, the same build the renderer runs.
 pub(super) fn workspace_rows(
     app: &AppView,

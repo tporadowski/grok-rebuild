@@ -5495,6 +5495,21 @@ fn reanchor_keeps_live_section_cursor() {
     assert!(!state.new_agent_button_focused());
 }
 
+/// A workspace directory view has no state headers. A collapsed "Working" flag on the saved
+/// grouping must not pull the cursor off a row that is visible in that view.
+#[test]
+fn reanchor_keeps_a_row_cursor_under_the_workspace_directory_view() {
+    let mut state = DashboardState::new();
+    state.set_section_collapsed(SectionKey::State(RowState::Working), true);
+    let sel = DashboardRowId::TopLevel(AgentId(1));
+    state.focus_row(sel.clone());
+    state.observe_workspace_grouping(Grouping::Directory);
+    let rows = vec![reanchor_test_row(1, RowState::Working)];
+    state.reanchor_selection(&rows);
+    assert_eq!(state.selected, Some(sel));
+    assert!(state.selected_section.is_none());
+}
+
 /// A selected row that state churn migrated INTO a collapsed section (still present in `rows`, but
 /// hidden by the collapse) moves the cursor onto the section header that hid it — never an
 /// invisible row with live footer hints / peek.

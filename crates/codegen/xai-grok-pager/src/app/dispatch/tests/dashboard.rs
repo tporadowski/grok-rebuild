@@ -5092,6 +5092,107 @@ fn dashboard_overlay_cycle_respects_filter() {
         "cycle through a filter that hides all rows must NOT walk",
     );
 }
+/// Directory grouping and state grouping list the same agents in different orders.
+/// The overlay counter and the `‹` / `›` cycle both follow the grouping that is active.
+#[serial_test::serial(GROK_AGENT_DASHBOARD)]
+#[test]
+fn overlay_counter_and_cycle_follow_directory_grouping() {
+    let mut app = test_app_with_agent();
+    mark_agent_nonempty(&mut app, AgentId(0));
+    {
+        let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+        agent.session.cwd = std::path::PathBuf::from("/z");
+        agent.session.state = AgentState::TurnRunning;
+    }
+    let later = insert_second_agent(&mut app);
+    app.agents.get_mut(&later).unwrap().session.cwd = std::path::PathBuf::from("/a");
+    open_dashboard(&mut app);
+
+    app.dashboard.as_mut().unwrap().grouping = crate::views::dashboard::Grouping::State;
+    assert_eq!(
+        crate::app::dispatch::dashboard_overlay_agent_order(&app),
+        vec![AgentId(0), later],
+        "state grouping lists the working session first"
+    );
+
+    app.dashboard.as_mut().unwrap().grouping = crate::views::dashboard::Grouping::Directory;
+    assert_eq!(
+        crate::app::dispatch::dashboard_overlay_agent_order(&app),
+        vec![later, AgentId(0)],
+        "directory grouping lists /a before /z"
+    );
+    assert_eq!(
+        crate::app::dispatch::dashboard_overlay_position(&app, later),
+        Some((1, 2))
+    );
+    assert_eq!(
+        crate::app::dispatch::dashboard_overlay_position(&app, AgentId(0)),
+        Some((2, 2))
+    );
+
+    app.active_view = ActiveView::Agent(later);
+    app.dashboard.as_mut().unwrap().attached_agent = Some(later);
+    let _ = dispatch_dashboard_overlay_cycle(&mut app, 1);
+    assert_eq!(app.active_view, ActiveView::Agent(AgentId(0)));
+    assert_eq!(
+        app.dashboard.as_ref().unwrap().selected,
+        Some(crate::views::dashboard::DashboardRowId::TopLevel(AgentId(
+            0
+        )))
+    );
+}
+
+/// The workspace list can be grouped by directory while the saved classic grouping is still state.
+/// The counter must use the workspace view, not that saved setting.
+#[test]
+fn workspace_overlay_counter_follows_the_workspace_directory_view() {
+    let mut app = test_app_with_agent();
+    mark_agent_nonempty(&mut app, AgentId(0));
+    {
+        let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+        agent.session.cwd = std::path::PathBuf::from("/z");
+        agent.session.state = AgentState::TurnRunning;
+    }
+    let later = insert_second_agent(&mut app);
+    app.agents.get_mut(&later).unwrap().session.cwd = std::path::PathBuf::from("/a");
+    app.workspace_dashboard_enabled = true;
+    open_dashboard(&mut app);
+    app.dashboard.as_mut().unwrap().grouping = crate::views::dashboard::Grouping::State;
+    app.workspace_membership
+        .set_snapshot_for_test(xai_grok_dashboard_store::WorkspaceSnapshot {
+            grouping: xai_grok_dashboard_store::Grouping::Directory,
+            members: vec![
+                workspace_member_for("test-session", "/z"),
+                workspace_member_for("second", "/a"),
+            ],
+            data_version: 1,
+        });
+    assert_eq!(
+        crate::app::dispatch::dashboard_overlay_agent_order(&app),
+        vec![later, AgentId(0)]
+    );
+    assert_eq!(
+        crate::app::dispatch::dashboard_overlay_position(&app, later),
+        Some((1, 2))
+    );
+}
+
+fn workspace_member_for(session_id: &str, cwd: &str) -> xai_grok_dashboard_store::Member {
+    xai_grok_dashboard_store::Member {
+        session_id: xai_grok_dashboard_store::SessionId::new(session_id).unwrap(),
+        kind: xai_grok_dashboard_store::MemberKind::Build,
+        origin: xai_grok_dashboard_store::MemberOrigin::Local,
+        cwd: Some(cwd.to_owned()),
+        title: Some(session_id.to_owned()),
+        model: None,
+        last_turn_summary: None,
+        is_worktree: false,
+        last_change_unix_ms: 1,
+        pin_rank: None,
+        order_rank: None,
+    }
+}
+
 /// `overlay_cycle_order` returns top-level agents in the same order `render_dashboard` paints them, NOT the agent map's insertion order. The cycle dispatcher reads from this helper, so the `‹` / `›` chips walk the user through what they actually see.
 /// `AgentView::new` stamps `last_active_at = Instant::now()`, so freshly-created agents sort DESCENDING by creation
 /// (most-recent first), matching the dashboard's "Idle" group ordering.

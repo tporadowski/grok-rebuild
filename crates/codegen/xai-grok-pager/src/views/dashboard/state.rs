@@ -1762,6 +1762,11 @@ impl DashboardState {
         self.repair_grouping_change(grouping);
     }
 
+    /// Grouping the list is painted with. A workspace view wins over the saved classic setting.
+    pub(crate) fn active_grouping(&self) -> Grouping {
+        self.workspace_grouping.unwrap_or(self.grouping)
+    }
+
     pub(crate) fn observe_workspace_grouping(&mut self, grouping: Grouping) {
         if self.workspace_grouping == Some(grouping) {
             return;
@@ -4068,9 +4073,10 @@ impl DashboardState {
         // Section-cursor validation: a selected section header can go stale without any grouping toggle: a
         // `s:state` filter suppresses all state headers, and row churn (the last Working agent going idle)
         // removes the header outright.
+        let grouping = self.active_grouping();
         let focusables = super::render::focusables(
             rows,
-            self.grouping,
+            grouping,
             &self.filter,
             &self.collapsed_sections,
             self.idle_show_all,
@@ -4102,8 +4108,7 @@ impl DashboardState {
                 .iter()
                 .any(|f| matches!(f, Focusable::Row(id) if *id == sel));
             if !visible
-                && let Some(key) =
-                    super::render::section_of_row(rows, self.grouping, &self.filter, &sel)
+                && let Some(key) = super::render::section_of_row(rows, grouping, &self.filter, &sel)
             {
                 self.focus_section(key);
             }
