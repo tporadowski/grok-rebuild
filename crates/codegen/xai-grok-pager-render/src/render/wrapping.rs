@@ -306,8 +306,7 @@ fn is_table_line(line: &Line<'_>) -> bool {
             }
             false
         }
-        // ASCII table borders (TableBorders::ASCII uses '+' and '|')
-        Some('|') => true,
+        // An ASCII `|` is not a rendered table. Markdown tables use box-drawing borders, so a line that merely contains `|` wraps like other text.
         _ => false,
     }
 }
@@ -1390,6 +1389,46 @@ mod tests {
     }
 
     #[test]
+    fn non_table_pipe_line_wraps_instead_of_clipping() {
+        use unicode_width::UnicodeWidthStr;
+
+        let text = "| this is not a markdown table and the rest of the sentence must stay visible past the edge";
+        let width = 20;
+        let line = Line::from(text);
+        let wrapped = word_wrap_line(&line, width);
+        assert!(
+            wrapped.len() > 1,
+            "a line with '|' that is not a table must wrap, got {wrapped:?}"
+        );
+        let joined: String = wrapped.iter().map(concat_line).collect();
+        let compact = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        assert_eq!(
+            compact(&joined),
+            compact(text),
+            "wrapping dropped characters: {joined:?}"
+        );
+        for (i, row) in wrapped.iter().enumerate() {
+            let row_text = concat_line(row);
+            let row_width = row_text.width();
+            assert!(
+                row_width <= width,
+                "row {i} is {row_width} cols: {row_text:?}"
+            );
+        }
+
+        let mid = "Use foo | bar when the pipeline output is longer than the terminal";
+        let mid_line = Line::from(mid);
+        let wrapped_mid = word_wrap_line(&mid_line, width);
+        assert!(wrapped_mid.len() > 1, "a mid-line pipe must wrap");
+        let joined_mid: String = wrapped_mid.iter().map(concat_line).collect();
+        assert_eq!(
+            compact(&joined_mid),
+            compact(mid),
+            "wrapping dropped characters: {joined_mid:?}"
+        );
+    }
+
+    #[test]
     fn normal_text_still_wraps() {
         let line = Line::from("This is a normal paragraph that should wrap at word boundaries");
         let (wrapped, _) = word_wrap_line_with_joiners(&line, 20);
@@ -1408,8 +1447,9 @@ mod tests {
         assert!(is_table_line(&Line::from("│ cell │")));
         assert!(is_table_line(&Line::from("│ a │ b │")));
 
-        // ASCII table borders
-        assert!(is_table_line(&Line::from("| cell |")));
+        // An ASCII pipe is prose, not a rendered table.
+        assert!(!is_table_line(&Line::from("| cell |")));
+        assert!(!is_table_line(&Line::from("| not a table, just a pipe")));
 
         // NOT table lines
         assert!(!is_table_line(&Line::from("Hello world")));
