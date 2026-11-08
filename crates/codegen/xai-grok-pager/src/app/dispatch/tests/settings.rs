@@ -860,6 +860,127 @@ fn set_simple_mode_emits_persist_setting_with_correct_payload() {
     }
     assert_eq!(app.current_ui.simple_mode, Some(false));
 }
+/// Closing the settings theme picker without Enter puts the previous theme back.
+#[test]
+fn settings_theme_picker_click_outside_restores_the_previous_theme() {
+    use crate::app::app_view::InputOutcome;
+    use crate::views::settings_modal::{SettingsKeyOutcome, SettingsModalMode, handle_settings_key};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::layout::Rect;
+
+    let _guard = crate::theme::cache::test_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    crate::theme::cache::reset_for_test();
+    crate::theme::cache::set(crate::theme::ThemeKind::GrokNight);
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    let _ = dispatch(
+        Action::OpenSettingsFocus {
+            key: "theme".into(),
+        },
+        &mut app,
+    );
+    let original = {
+        let agent = app.agents.get_mut(&id).expect("agent");
+        let Some(crate::views::modal::ActiveModal::Settings { state }) = agent.active_modal.as_mut()
+        else {
+            panic!("settings should be open");
+        };
+        let SettingsModalMode::PickingEnum {
+            original_value, ..
+        } = state.mode()
+        else {
+            panic!("theme focus should open the picker, got {:?}", state.mode());
+        };
+        let crate::settings::SettingValue::Enum(original) = original_value else {
+            panic!("theme original must be an enum");
+        };
+        state.window.popup_area = Some(Rect::new(5, 5, 40, 20));
+        let moved = handle_settings_key(
+            state,
+            &KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        );
+        (original, moved)
+    };
+    let SettingsKeyOutcome::Action(Action::PreviewTheme(preview)) = original.1 else {
+        panic!("down in the theme picker must preview, got {:?}", original.1);
+    };
+    assert_ne!(preview, original.0);
+    let _ = dispatch(Action::PreviewTheme(preview), &mut app);
+    assert_ne!(
+        crate::theme::Theme::current_kind(),
+        crate::theme::ThemeKind::GrokNight
+    );
+
+    let mouse = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 0,
+        row: 0,
+        modifiers: KeyModifiers::NONE,
+    };
+    let outcome = {
+        let agent = app.agents.get_mut(&id).expect("agent");
+        agent.handle_modal_mouse_with_registry(&mouse, &crate::actions::ActionRegistry::defaults())
+    };
+    let InputOutcome::Action(Action::PreviewTheme(restored)) = outcome else {
+        panic!("clicking outside the theme picker must restore, got {outcome:?}");
+    };
+    assert_eq!(restored, original.0);
+    let _ = dispatch(Action::PreviewTheme(restored), &mut app);
+    assert_eq!(
+        crate::theme::Theme::current_kind(),
+        crate::theme::ThemeKind::GrokNight
+    );
+    assert!(app.agents.get(&id).unwrap().active_modal.is_none());
+
+    let _ = dispatch(
+        Action::OpenSettingsFocus {
+            key: "theme".into(),
+        },
+        &mut app,
+    );
+    let preview_name = {
+        let agent = app.agents.get_mut(&id).expect("agent");
+        let Some(crate::views::modal::ActiveModal::Settings { state }) =
+            agent.active_modal.as_mut()
+        else {
+            panic!("settings should reopen");
+        };
+        let moved = handle_settings_key(state, &KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let SettingsKeyOutcome::Action(Action::PreviewTheme(name)) = moved else {
+            panic!("down should preview before Enter, got {moved:?}");
+        };
+        name
+    };
+    let _ = dispatch(Action::PreviewTheme(preview_name.clone()), &mut app);
+    let commit = {
+        let agent = app.agents.get_mut(&id).expect("agent");
+        let Some(crate::views::modal::ActiveModal::Settings { state }) =
+            agent.active_modal.as_mut()
+        else {
+            panic!("picker should still be open before Enter");
+        };
+        handle_settings_key(state, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+    };
+    let name = match commit {
+        SettingsKeyOutcome::ActionThenClose(Action::SetTheme(name)) => {
+            app.agents.get_mut(&id).unwrap().active_modal = None;
+            name
+        }
+        SettingsKeyOutcome::Action(Action::SetTheme(name)) => name,
+        other => panic!("Enter must commit the theme, got {other:?}"),
+    };
+    assert_eq!(name, preview_name);
+    let _ = dispatch(Action::SetTheme(name), &mut app);
+    assert_ne!(
+        crate::theme::Theme::current_kind(),
+        crate::theme::ThemeKind::GrokNight,
+        "Enter keeps the preview"
+    );
+    crate::theme::cache::reset_for_test();
+}
+
 /// Opening settings leaves the `/theme` picker, so the unconfirmed preview is restored.
 #[test]
 fn theme_picker_settings_restores_the_previous_theme() {

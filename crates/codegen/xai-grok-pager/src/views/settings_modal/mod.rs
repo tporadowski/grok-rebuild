@@ -31,3 +31,4 @@ pub use render::{ResetConfirmOverlay, render_settings_modal};
 #[allow(unused_imports)] // re-export for crate path; used by settings/registry tests
 pub(crate) use state::{MAX_PICKER_CHOICES, RowVisibility};
 pub use state::{MODAL_TITLE, RowEntry, SettingsKeyOutcome, SettingsModalMode, SettingsModalState};
+pub(crate) use state::preview_revert_on_dismiss;

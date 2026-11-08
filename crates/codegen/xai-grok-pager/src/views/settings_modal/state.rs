@@ -951,6 +951,26 @@ pub(super) fn action_for_bool(key: SettingKey, new: bool) -> Option<Action> {
     }
 }
 
+/// Closing the settings window while a preview picker is open is not Enter, so the live theme goes back.
+pub(crate) fn preview_revert_on_dismiss(state: &SettingsModalState) -> Option<Action> {
+    let SettingsMode::PickingEnum {
+        key,
+        original_value,
+        supports_preview,
+        ..
+    } = &state.state.mode
+    else {
+        return None;
+    };
+    if !supports_preview {
+        return None;
+    }
+    let SettingValue::Enum(original) = original_value else {
+        return None;
+    };
+    action_for_enum(key, original)
+}
+
 /// Construct `Action::Preview*` for an Enum setting, used by the picker's Up/Down (live preview) and Esc (revert).
 /// Preview actions never persist; they only mutate the live visual.
 pub(super) fn action_for_enum(key: SettingKey, choice: &'static str) -> Option<Action> {

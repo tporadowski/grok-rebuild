@@ -1536,8 +1536,12 @@ impl AgentView {
                 mw::handle_modal_mouse(&mut state.window, mouse.kind, mouse.column, mouse.row);
             match outcome {
                 ModalWindowOutcome::CloseRequested => {
+                    let revert = crate::views::settings_modal::preview_revert_on_dismiss(state);
                     self.active_modal = None;
-                    return InputOutcome::Changed;
+                    return match revert {
+                        Some(action) => InputOutcome::Action(action),
+                        None => InputOutcome::Changed,
+                    };
                 }
                 ModalWindowOutcome::Handled => {
                     if matches!(mouse.kind, MouseEventKind::Moved) {
