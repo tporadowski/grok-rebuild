@@ -556,29 +556,22 @@ impl ScrollbackState {
         self.enable_follow_with_preserve();
     }
 
-    /// Index of the `Worktree ready` line in the system run directly above `prompt_idx`.
-    /// Other system lines in that run stay on screen because they sit between this line and the prompt.
-    /// A system line that is not part of a worktree-ready run does not move the anchor.
-    fn worktree_creation_note_anchor(&self, prompt_idx: usize) -> usize {
+    /// First system note in the run directly above `prompt_idx`.
+    /// Page-flip keeps that run on screen: a model-switch result, a `Worktree ready` line, and the lines between it and the prompt.
+    /// A system note with a non-system entry between it and the prompt does not move the anchor.
+    fn queued_prompt_note_anchor(&self, prompt_idx: usize) -> usize {
         let mut anchor = prompt_idx;
         let mut idx = prompt_idx;
         while idx > 0 {
             let prev = idx - 1;
-            let Some(text) = self.entries.get_index(prev).and_then(|(_, entry)| {
-                if let RenderBlock::System(message) = &entry.block {
-                    Some(message.text.as_str())
-                } else {
-                    None
-                }
-            }) else {
+            let is_note = self
+                .entries
+                .get_index(prev)
+                .is_some_and(|(_, entry)| matches!(entry.block, RenderBlock::System(_)));
+            if !is_note {
                 break;
-            };
-            if text
-                .trim_start()
-                .starts_with(crate::scrollback::WORKTREE_CREATION_NOTE_PREFIX)
-            {
-                anchor = prev;
             }
+            anchor = prev;
             idx = prev;
         }
         anchor
@@ -593,7 +586,7 @@ impl ScrollbackState {
         }
         if page_flip {
             if let Some(idx) = prompt_idx {
-                let anchor = self.worktree_creation_note_anchor(idx);
+                let anchor = self.queued_prompt_note_anchor(idx);
                 self.page_flip_showing(anchor, idx);
             } else {
                 self.release_pin_reserve();
@@ -1203,12 +1196,34 @@ mod tests {
         assert_eq!(state.scroll_offset(), pinned);
         state.scroll_to_entry_top(prompt_idx);
         assert!(state.scroll_offset() > pinned);
+    }
+
+    #[test]
+    fn queued_prompt_page_flip_keeps_the_model_switch_note_on_screen() {
+        let mut state = ScrollbackState::new();
+        for i in 0..30 {
+            state.push_block(agent_block(&format!("filler line {i}")));
+        }
+        state.push_block(RenderBlock::system("Switched to grok-4 (high effort)"));
+        state.push_block(user_block("queued prompt"));
+        let prompt_idx = state.len() - 1;
+        let note_idx = prompt_idx - 1;
+        state.prepare_layout(80, 8);
+        state.goto_bottom();
+        state.follow_new_turn(Some(prompt_idx), true);
+        let pinned = state.scroll_offset();
+        assert_eq!(state.selected(), Some(prompt_idx));
+        state.scroll_to_entry_top(note_idx);
+        assert_eq!(state.scroll_offset(), pinned);
+        state.scroll_to_entry_top(prompt_idx);
+        assert!(state.scroll_offset() > pinned);
 
         let mut state = ScrollbackState::new();
         for i in 0..30 {
             state.push_block(agent_block(&format!("filler line {i}")));
         }
-        state.push_block(RenderBlock::system("switched to another model"));
+        state.push_block(RenderBlock::system("Switched to grok-4 (high effort)"));
+        state.push_block(agent_block("previous answer"));
         state.push_block(user_block("queued prompt"));
         let prompt_idx = state.len() - 1;
         state.prepare_layout(80, 8);
@@ -1216,7 +1231,11 @@ mod tests {
         state.follow_new_turn(Some(prompt_idx), true);
         let pinned = state.scroll_offset();
         state.scroll_to_entry_top(prompt_idx);
-        assert_eq!(state.scroll_offset(), pinned);
+        assert_eq!(
+            state.scroll_offset(),
+            pinned,
+            "a note behind another entry stays above the new page"
+        );
     }
 
     #[test]
