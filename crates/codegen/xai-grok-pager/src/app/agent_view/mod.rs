@@ -1218,6 +1218,9 @@ pub struct AgentView {
     pub(crate) minimal_btw_lifecycle: Option<crate::minimal_api::MinimalBtwLifecycle>,
     /// Whether the /btw panel holds keyboard focus. The panel is non-blocking, so Up/Down/PgUp/PgDn scroll it when focused and otherwise reach the prompt. Set on a `Done` answer; cleared when the user types in or clicks the prompt.
     pub(crate) btw_focused: bool,
+    /// The next key is the character that moved focus from the transcript to the prompt.
+    /// It is typed into the prompt, and a parked card or plan approval is left waiting.
+    pub(crate) typeahead_into_prompt: bool,
     /// Hit area for the [Esc] close button in the /btw panel title.
     pub(crate) hit_btw_close: HitArea,
     /// Toast message to display briefly (e.g., "Copied!" after y).

@@ -7,6 +7,11 @@ use crate::key;
 use crate::scrollback::ScrollbackSearchState;
 use crate::views::block_viewer::format_blockquote;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+
+/// Letters, digits, symbols, and non-ASCII text. Space and controls stay with the transcript.
+fn scrollback_char_types_into_prompt(c: char) -> bool {
+    !c.is_control() && !c.is_whitespace() && (c.is_ascii_graphic() || !c.is_ascii())
+}
 /// Kill target behind a dock Watchers row.
 pub(crate) enum DockWatcherId {
     /// Running `monitor` bg task (bg-task id).
@@ -116,15 +121,17 @@ impl AgentView {
         if let Some(outcome) = resolve_action(action) {
             return outcome;
         }
-        // Vim off: a typed letter, digit, or symbol moves focus to the prompt and is typed there.
+        // Vim off: a typed letter, digit, symbol, or non-ASCII character moves focus to the prompt and is typed there.
         // `?` and Shift+/ stay with the command palette. Space, arrows, and Ctrl chords do not.
         if !self.vim_mode
             && let KeyCode::Char(c) = key.code
             && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT)
             && c != '?'
             && !(c == '/' && key.modifiers.contains(KeyModifiers::SHIFT))
-            && (c.is_ascii_alphabetic() || c.is_ascii_graphic())
+            && scrollback_char_types_into_prompt(c)
         {
+            // The forwarded key is typed into the prompt. A parked card or plan approval stays pending.
+            self.typeahead_into_prompt = true;
             return InputOutcome::ActionThenForward(Action::FocusPrompt);
         }
         InputOutcome::Unchanged
@@ -1667,6 +1674,66 @@ mod btw_wheel_tests {
         assert_eq!(
             agent.btw_state.as_ref().expect("btw panel").scroll_offset(),
             reachable - 3
+        );
+    }
+}
+
+#[cfg(test)]
+mod scrollback_typeahead_tests {
+    use super::super::test_fixtures::{
+        make_agent, make_followup_permission_state, make_plan_approval_view_state,
+    };
+    use super::super::AgentPane;
+    use crate::actions::ActionRegistry;
+    use crate::app::actions::Action;
+    use crate::app::app_view::InputOutcome;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+
+    /// FocusPrompt's dispatch, then the forwarded key, the way the event loop runs `ActionThenForward`.
+    fn type_from_scrollback(agent: &mut super::super::AgentView, c: char) -> InputOutcome {
+        let reg = ActionRegistry::defaults();
+        let event = Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        let first = agent.handle_input(&event, &reg);
+        assert!(
+            matches!(
+                first,
+                InputOutcome::ActionThenForward(Action::FocusPrompt)
+            ),
+            "{c:?} from the transcript must focus the prompt, got {first:?}"
+        );
+        agent.set_active_pane(AgentPane::Prompt, false);
+        agent.handle_input(&event, &reg)
+    }
+
+    #[test]
+    fn non_ascii_from_the_transcript_is_typed_into_the_prompt() {
+        let mut agent = make_agent();
+        agent.vim_mode = false;
+        agent.set_active_pane(AgentPane::Scrollback, true);
+        let _ = type_from_scrollback(&mut agent, '你');
+        assert_eq!(agent.prompt.text(), "你");
+    }
+
+    #[test]
+    fn typing_from_the_transcript_leaves_a_parked_card_and_plan() {
+        let mut agent = make_agent();
+        agent.vim_mode = false;
+        agent.set_active_pane(AgentPane::Scrollback, true);
+        agent
+            .permission_queue
+            .push_back(make_followup_permission_state());
+        agent.plan_approval_view = Some(make_plan_approval_view_state());
+        let plan_focus = agent.plan_approval_view.as_ref().unwrap().focus;
+        let queued = agent.permission_queue.len();
+
+        let outcome = type_from_scrollback(&mut agent, 'é');
+
+        assert_eq!(agent.prompt.text(), "é");
+        assert_eq!(agent.permission_queue.len(), queued);
+        assert_eq!(agent.plan_approval_view.as_ref().unwrap().focus, plan_focus);
+        assert!(
+            !matches!(outcome, InputOutcome::Action(Action::PermissionSelect(_))),
+            "the parked card must not take the key, got {outcome:?}"
         );
     }
 }

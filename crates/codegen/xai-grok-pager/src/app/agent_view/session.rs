@@ -333,6 +333,7 @@ impl AgentView {
             btw_state: None,
             minimal_btw_lifecycle: None,
             btw_focused: false,
+            typeahead_into_prompt: false,
             hit_btw_close: Default::default(),
             toast: None,
             ephemeral_tip: Default::default(),

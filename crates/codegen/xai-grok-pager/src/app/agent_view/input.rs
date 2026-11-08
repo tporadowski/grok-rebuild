@@ -331,6 +331,16 @@ impl AgentView {
         registry: &ActionRegistry,
         prompt_paging: bool,
     ) -> InputOutcome {
+        // The character that left the transcript is typed into the prompt.
+        // A pending card or plan approval does not take that key.
+        if self.typeahead_into_prompt {
+            self.typeahead_into_prompt = false;
+            if let Event::Key(key) = ev
+                && key.kind != KeyEventKind::Release
+            {
+                return self.handle_prompt_key(key, registry, prompt_paging);
+            }
+        }
         if self.scrollback_drag_latched() {
             match ev {
                 Event::Mouse(MouseEvent {
