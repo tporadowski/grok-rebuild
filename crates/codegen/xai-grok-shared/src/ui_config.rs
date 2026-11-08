@@ -83,6 +83,11 @@ pub struct UiConfig {
     /// Vim-style scrollback navigation (hjkl, gg/G, /).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vim_mode: Option<bool>,
+    /// Kitty keyboard protocol for an unidentified terminal.
+    /// Unset keeps the startup skip. `"query"` asks the terminal, so Shift+Enter can insert a newline when it answers.
+    /// The probe can wait up to two seconds, which is why it stays opt-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kitty_keyboard: Option<String>,
     /// How ` ```mermaid ` code blocks are rendered (`auto` | `on` | `off`).
     /// Written by the pager's settings modal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -290,6 +295,7 @@ impl Default for UiConfig {
             invert_scroll: None,
             scroll_lines: None,
             vim_mode: None,
+            kitty_keyboard: None,
             render_mermaid: None,
             hunk_tracker_mode: None,
             voice_capture_mode: None,
@@ -397,6 +403,15 @@ impl UiConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kitty_keyboard_query_is_read_from_ui_config() {
+        let ui: UiConfig = serde_json::from_str(r#"{"kitty_keyboard":"query"}"#)
+            .expect("[ui] must accept kitty_keyboard");
+        assert_eq!(ui.kitty_keyboard.as_deref(), Some("query"));
+        let plain: UiConfig = serde_json::from_str("{}").expect("empty ui");
+        assert!(plain.kitty_keyboard.is_none());
+    }
 
     /// The leniency lives in `StatusLineConfig`'s own `Deserialize`.
     /// This pins that the real `[ui]` table gets it, and that `skip_serializing_if` keeps a section we misread out of a save that merges per key.

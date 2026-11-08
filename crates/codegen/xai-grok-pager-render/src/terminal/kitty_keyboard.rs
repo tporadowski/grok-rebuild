@@ -31,6 +31,58 @@ use crossterm::event::KeyboardEnhancementFlags;
 /// Git builds strip `-dev` before packing, so a pre-fix `0.24.2-dev` reports `2402` and escapes this gate.
 pub const ALACRITTY_BROKEN_EVENT_TYPES_MAX_PACKED: u32 = 2401;
 
+/// How `[ui].kitty_keyboard` treats an unidentified terminal.
+/// `Auto` keeps today's skip, so startup does not wait on a probe.
+/// `Query` asks that terminal whether it speaks the Kitty keyboard protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum KittyKeyboardMode {
+    /// Skip an unidentified terminal. No probe.
+    #[default]
+    Auto,
+    /// Drop only the unidentified-terminal skip and run the probe.
+    Query,
+}
+
+impl KittyKeyboardMode {
+    /// `query` is the only opt-in. Anything else, including unset, stays `Auto`.
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(value) if value.eq_ignore_ascii_case("query") => Self::Query,
+            _ => Self::Auto,
+        }
+    }
+}
+
+/// Lift the unidentified-terminal skip when the user asked to query.
+/// Every other reason (VTE, screen, old tmux, Zed, Windows Terminal) still skips.
+pub fn effective_kitty_skip_reason(
+    detected: Option<&'static str>,
+    mode: KittyKeyboardMode,
+) -> Option<&'static str> {
+    if mode == KittyKeyboardMode::Query && detected == Some("unknown_no_multiplexer") {
+        None
+    } else {
+        detected
+    }
+}
+
+/// Skip reason for the startup push.
+/// A remaining detected reason wins and the probe is not called.
+/// With no reason, `probe` returning `Some(true)` pushes flags; anything else skips as `unsupported`.
+pub fn kitty_push_skip_reason(
+    detected: Option<&'static str>,
+    mode: KittyKeyboardMode,
+    probe: impl FnOnce() -> Option<bool>,
+) -> Option<&'static str> {
+    if let Some(reason) = effective_kitty_skip_reason(detected, mode) {
+        return Some(reason);
+    }
+    match probe() {
+        Some(true) => None,
+        _ => Some("unsupported"),
+    }
+}
+
 /// Empty means push nothing. Unknown version never downgrades — DA2 is often skipped, and only a positively identified broken version pays the cost.
 /// No brand check: [`super::da2`]'s gate admits Alacritty alone, so widening that gate widens this one.
 pub fn negotiated_kitty_flags(
@@ -113,6 +165,66 @@ mod tests {
             negotiated_kitty_flags(None, None),
             DISAMBIGUATE | EVENT_TYPES
         );
+    }
+
+    /// `[ui] kitty_keyboard = "query"` asks an unidentified terminal. The default does not.
+    /// A yes from the probe negotiates flags, which is what lets Shift+Enter arrive as a newline.
+    /// A known-bad terminal is not asked.
+    #[test]
+    fn query_mode_lets_an_unidentified_terminal_negotiate_shift_enter() {
+        let detected = Some("unknown_no_multiplexer");
+        let mut probes = 0;
+        let skipped = kitty_push_skip_reason(detected, KittyKeyboardMode::Auto, || {
+            probes += 1;
+            Some(true)
+        });
+        assert_eq!(skipped, detected);
+        assert_eq!(probes, 0);
+        assert!(
+            negotiated_kitty_flags(skipped, None).is_empty(),
+            "auto must not push flags for an unidentified terminal"
+        );
+
+        let negotiated = kitty_push_skip_reason(detected, KittyKeyboardMode::Query, || {
+            probes += 1;
+            Some(true)
+        });
+        assert_eq!(negotiated, None);
+        assert_eq!(probes, 1);
+        assert!(
+            !negotiated_kitty_flags(negotiated, None).is_empty(),
+            "a positive probe must push the flags Shift+Enter needs"
+        );
+
+        let declined = kitty_push_skip_reason(detected, KittyKeyboardMode::Query, || Some(false));
+        assert_eq!(declined, Some("unsupported"));
+        assert!(negotiated_kitty_flags(declined, None).is_empty());
+
+        let mut probes = 0;
+        let vte = kitty_push_skip_reason(Some("vte"), KittyKeyboardMode::Query, || {
+            probes += 1;
+            Some(true)
+        });
+        assert_eq!(vte, Some("vte"));
+        assert_eq!(probes, 0);
+    }
+
+    #[test]
+    fn kitty_keyboard_query_parses_only_that_word() {
+        assert_eq!(
+            KittyKeyboardMode::parse(Some("query")),
+            KittyKeyboardMode::Query
+        );
+        assert_eq!(
+            KittyKeyboardMode::parse(Some(" Query ")),
+            KittyKeyboardMode::Query
+        );
+        assert_eq!(KittyKeyboardMode::parse(None), KittyKeyboardMode::Auto);
+        assert_eq!(
+            KittyKeyboardMode::parse(Some("off")),
+            KittyKeyboardMode::Auto
+        );
+        assert_eq!(KittyKeyboardMode::parse(Some("")), KittyKeyboardMode::Auto);
     }
 
     /// A skip reason outranks any version, so teardown owes no pop.

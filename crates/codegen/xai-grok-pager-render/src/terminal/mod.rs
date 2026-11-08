@@ -37,8 +37,9 @@ pub use keyboard::{
     keyboard_capabilities_for_host,
 };
 pub use kitty_keyboard::{
-    kitty_event_types_withheld, kitty_flags_pushed, kitty_releases_reported,
-    negotiated_kitty_flags, pushed_kitty_flags, set_pushed_kitty_flags, take_kitty_flags_pushed,
+    KittyKeyboardMode, effective_kitty_skip_reason, kitty_event_types_withheld,
+    kitty_flags_pushed, kitty_push_skip_reason, kitty_releases_reported, negotiated_kitty_flags,
+    pushed_kitty_flags, set_pushed_kitty_flags, take_kitty_flags_pushed,
 };
 pub use pop_fence::{PopFence, PopFenceOutcome};
 pub use term_version::{TermVersion, TermVersionSource};

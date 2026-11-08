@@ -1033,7 +1033,10 @@ pub async fn run(
     let (frame_tx, writer_sync, writer_event_rx, writer_thread) =
         crate::render::draw::spawn_writer_thread()
             .context("failed to spawn the term-writer thread")?;
-    let cursor_blink = event_loop::load_initial_ui_config().cursor_blink;
+    let initial_ui = event_loop::load_initial_ui_config();
+    let cursor_blink = initial_ui.cursor_blink;
+    let kitty_keyboard =
+        crate::terminal::KittyKeyboardMode::parse(initial_ui.kitty_keyboard.as_deref());
     let TerminalInit {
         mut terminal,
         screen_mode,
@@ -1045,6 +1048,7 @@ pub async fn run(
         frame_tx,
         writer_sync,
         cursor_blink,
+        kitty_keyboard,
     )?;
     MINIMAL_SHOW_SWITCH_BACK_TO_FULLSCREEN.store(
         relaunched_into_minimal && screen_mode.is_minimal(),
@@ -1510,6 +1514,7 @@ fn init_terminal(
     frame_tx: WriterSender,
     writer_sync: WriterSync,
     cursor_blink: Option<bool>,
+    kitty_keyboard: crate::terminal::KittyKeyboardMode,
 ) -> io::Result<TerminalInit> {
     xai_crash_handler::enable_terminal_escape_restore();
     terminal::enable_raw_mode()?;
@@ -1582,12 +1587,16 @@ fn init_terminal(
         startup_typeahead.extend(event_loop::capture_startup_typeahead(drain_timeout));
         crate::theme::apply_cursor_color();
         let ctx = crate::terminal::terminal_context();
-        let skip_reason: Option<&str> =
-            ctx.kitty_skip_reason()
-                .or_else(|| match terminal::supports_keyboard_enhancement() {
-                    Ok(true) => None,
-                    _ => Some("unsupported"),
-                });
+        // `query` drops only the unidentified-terminal skip, then this probe runs.
+        // A positive answer pushes flags, so Shift+Enter arrives as a modified Enter.
+        let skip_reason: Option<&str> = crate::terminal::kitty_push_skip_reason(
+            ctx.kitty_skip_reason(),
+            kitty_keyboard,
+            || match terminal::supports_keyboard_enhancement() {
+                Ok(supported) => Some(supported),
+                Err(_) => None,
+            },
+        );
         let alacritty_conservative_version = (ctx.brand
             == crate::terminal::TerminalName::Alacritty)
             .then_some(crate::terminal::kitty_keyboard::ALACRITTY_BROKEN_EVENT_TYPES_MAX_PACKED);
