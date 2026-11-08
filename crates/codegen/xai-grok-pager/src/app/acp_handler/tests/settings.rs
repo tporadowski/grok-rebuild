@@ -242,6 +242,9 @@
     fn settings_update_collapsed_edit_blocks_flip_refolds_live_edits() {
         use crate::scrollback::types::DisplayMode;
 
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactShells,
+        );
         crate::appearance::cache::set_collapsed_edit_blocks(false);
         let mut app = make_app_with_agent("sess-1");
         let id = {
@@ -274,6 +277,9 @@
         );
         // Restore default (off) for other tests that share the process cache.
         crate::appearance::cache::set_collapsed_edit_blocks(false);
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactGrouped,
+        );
     }
 
     /// The live-refresh flip mirrors `set_group_tool_verbs_inner`'s cleanup of stale group expansions.

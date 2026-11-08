@@ -24,6 +24,7 @@ const ALL_SETTINGS_EXERCISED: &[&str] = &[
     "compact_mode",
     "screen_mode",
     "show_timestamps",
+    "tool_call_density",
     "show_timeline",
     "page_flip_on_send",
     "dashboard_preview",
@@ -183,6 +184,27 @@ fn navigate_to(state: &mut SettingsModalState, target: &str) {
         if guard > 100 {
             panic!("navigate_to(`{target}`): runaway navigation (100+ keystrokes)");
         }
+    }
+}
+
+fn assert_density_picker(state: &SettingsModalState, outcome: SettingsKeyOutcome) {
+    assert!(
+        matches!(outcome, SettingsKeyOutcome::Changed),
+        "opening the density picker must change the modal, got {outcome:?}"
+    );
+    match state.mode() {
+        SettingsModalMode::PickingEnum {
+            key,
+            original_value,
+            ..
+        } => {
+            assert_eq!(key, "tool_call_density");
+            assert_eq!(
+                original_value,
+                SettingValue::Enum("compact-all-grouped")
+            );
+        }
+        other => panic!("expected the density picker, got {other:?}"),
     }
 }
 
@@ -404,6 +426,33 @@ fn enter_on_show_timestamps_opens_the_mode_picker() {
     navigate_to(&mut s, "show_timestamps");
     let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
     assert_timestamps_picker(&s, outcome);
+}
+
+#[test]
+fn enter_on_tool_call_density_opens_the_mode_picker() {
+    let mut s = make_state();
+    navigate_to(&mut s, "tool_call_density");
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    assert_density_picker(&s, outcome);
+}
+
+#[test]
+fn density_picker_enter_on_grouped_dispatches_that_mode() {
+    let mut s = make_state();
+    navigate_to(&mut s, "tool_call_density");
+    let _ = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    // Default compact-all-grouped is the last choice. Up moves to compact-grouped.
+    let _ = handle_settings_key(&mut s, &press(KeyCode::Up));
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    match outcome {
+        SettingsKeyOutcome::Action(Action::SetToolCallDensity(mode)) => {
+            assert_eq!(
+                mode,
+                xai_grok_pager::appearance::ToolCallDensity::CompactGrouped
+            );
+        }
+        other => panic!("expected SetToolCallDensity(CompactGrouped), got {other:?}"),
+    }
 }
 
 #[test]
@@ -746,6 +795,33 @@ fn mouse_click_on_show_timestamps_two_stage_select_then_toggle() {
         row_y,
     );
     assert_timestamps_picker(&s, outcome);
+}
+
+/// Click on an unselected density row only selects it; a second click opens the picker.
+#[test]
+fn mouse_click_on_tool_call_density_two_stage_select_then_open() {
+    let mut s = make_state();
+    synth_rects(&mut s);
+    let row_y = row_idx_for(&s, "tool_call_density") as u16;
+
+    let outcome = handle_settings_mouse(
+        &mut s,
+        MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        10,
+        row_y,
+    );
+    assert!(
+        matches!(outcome, SettingsKeyOutcome::Changed),
+        "first click on a different row body should only select, got: {outcome:?}"
+    );
+
+    let outcome = handle_settings_mouse(
+        &mut s,
+        MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        10,
+        row_y,
+    );
+    assert_density_picker(&s, outcome);
 }
 
 /// Value-column click toggles `show_timeline` in one click.

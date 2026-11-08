@@ -734,10 +734,12 @@ impl BlockContent for ExecuteToolCallBlock {
         if self.bash_mode {
             // Interactive bash: full output on finish, like a terminal; the streaming preview would silently drop the middle lines
             Some(DisplayMode::Expanded)
+        } else if crate::appearance::cache::load_tool_call_density().expands_agent_shells() {
+            // Detailed density opens agent shell output when the command finishes.
+            Some(DisplayMode::Expanded)
         } else {
-            // Agent tools: do **not** force a mode on finish.
-            // - Never auto-expanded at start (default Collapsed).
-            // - If the user manually expanded while running, keep that mode (no snap-shut). If they left it collapsed, it stays collapsed.
+            // Other densities: do not force a mode on finish.
+            // Never auto-expanded at start (default Collapsed). A manual expand stays; a collapsed row stays collapsed.
             None
         }
     }
@@ -966,6 +968,9 @@ mod tests {
 
     #[test]
     fn agent_execute_does_not_auto_expand_and_preserves_fold_on_finish() {
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactAllGrouped,
+        );
         let agent = ExecuteToolCallBlock::new("echo hi").with_description("say hi");
         // No auto-expand: start collapsed (title only).
         assert_eq!(agent.default_display_mode(), DisplayMode::Collapsed);
@@ -993,6 +998,29 @@ mod tests {
         assert_eq!(
             failed_bash.finished_display_mode(),
             Some(DisplayMode::Expanded)
+        );
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactGrouped,
+        );
+    }
+
+    #[test]
+    fn detailed_density_expands_agent_shells_on_finish() {
+        let agent = ExecuteToolCallBlock::new("echo hi").with_description("say hi");
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::Detailed,
+        );
+        assert_eq!(agent.finished_display_mode(), Some(DisplayMode::Expanded));
+        let mut bash = ExecuteToolCallBlock::new("ls");
+        bash.bash_mode = true;
+        assert_eq!(bash.finished_display_mode(), Some(DisplayMode::Expanded));
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactGrouped,
+        );
+        assert_eq!(
+            agent.finished_display_mode(),
+            None,
+            "grouped density leaves a collapsed agent shell collapsed"
         );
     }
 

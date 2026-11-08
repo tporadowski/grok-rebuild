@@ -1082,6 +1082,64 @@ pub(super) fn set_timestamps_inner(app: &mut AppView, new: crate::appearance::Ti
     crate::appearance::cache::set_timestamps(new);
 }
 
+pub(super) fn set_tool_call_density_inner(
+    app: &mut AppView,
+    new: crate::appearance::ToolCallDensity,
+) {
+    let prev = crate::appearance::cache::load_tool_call_density();
+    if prev == new {
+        app.current_ui.tool_call_density = Some(new);
+        return;
+    }
+    let legacy_edits = crate::appearance::cache::load_collapsed_edit_blocks();
+    let old_edits_collapsed = legacy_edits || prev.compact_edits();
+    let new_edits_collapsed = legacy_edits || new.compact_edits();
+    crate::appearance::cache::set_tool_call_density(new);
+    app.current_ui.tool_call_density = Some(new);
+    for agent in app.agents.values_mut() {
+        if old_edits_collapsed != new_edits_collapsed {
+            agent
+                .scrollback
+                .apply_collapsed_edit_blocks_flip(old_edits_collapsed, new_edits_collapsed);
+            for child in agent.subagent_views.values_mut() {
+                child
+                    .scrollback
+                    .apply_collapsed_edit_blocks_flip(old_edits_collapsed, new_edits_collapsed);
+            }
+        }
+        agent.scrollback.clear_group_expansion();
+        agent.scrollback.invalidate_heights();
+        for child in agent.subagent_views.values_mut() {
+            child.scrollback.clear_group_expansion();
+            child.scrollback.invalidate_heights();
+        }
+    }
+}
+
+pub(in crate::app::dispatch) fn set_tool_call_density(
+    app: &mut AppView,
+    new: crate::appearance::ToolCallDensity,
+) -> Vec<Effect> {
+    let prev = crate::appearance::cache::load_tool_call_density();
+    if prev == new {
+        return vec![];
+    }
+    set_tool_call_density_inner(app, new);
+    refresh_open_settings_modals(app);
+    tracing::info!(
+        target: "settings",
+        key = "tool_call_density",
+        value = new.as_str(),
+        "setting changed",
+    );
+    app.show_toast(&format!("\u{2713} Tool call density: {}", new.as_str()));
+    vec![Effect::PersistSetting {
+        key: "tool_call_density",
+        value: crate::settings::SettingValue::Enum(new.as_str()),
+        rollback_value: crate::settings::SettingValue::Enum(prev.as_str()),
+    }]
+}
+
 pub(in crate::app::dispatch) fn set_timestamps(
     app: &mut AppView,
     new: crate::appearance::TimestampMode,

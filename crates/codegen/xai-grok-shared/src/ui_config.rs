@@ -150,6 +150,14 @@ pub struct UiConfig {
     /// `None` means on (client default). Written by the pager's settings modal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_tool_verbs: Option<bool>,
+    /// How much of each tool call the transcript shows. Absent means [`ToolCallDensity::CompactAllGrouped`].
+    /// Written by `/density` and the settings modal. `group_tool_verbs = false` still turns every fold off.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_tool_call_density"
+    )]
+    pub tool_call_density: Option<ToolCallDensity>,
     /// Show Edit tool calls as a collapsed one-line `+N/-M` diffstat summary by default (expand for the diff).
     /// `None` means off (client default). Written by the pager's settings modal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -300,6 +308,89 @@ impl TimestampMode {
     }
 }
 
+/// How much of each tool call the transcript shows.
+/// The names are the `[ui].tool_call_density` values and the `/density` arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToolCallDensity {
+    /// Full shells and edit diffs, and no folded tool rows.
+    Detailed,
+    /// Shell rows stay on their title. Edits stay open. Nothing is folded together.
+    CompactShells,
+    /// Shells and edits stay compact. Nothing is folded together.
+    CompactUngrouped,
+    /// Compact rows. Reads, searches, and lists fold. Shells and edits stay separate.
+    CompactGrouped,
+    /// Compact rows. Every tool call folds into a summary, including shells and edits.
+    #[default]
+    CompactAllGrouped,
+}
+
+impl ToolCallDensity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Detailed => "detailed",
+            Self::CompactShells => "compact-shells",
+            Self::CompactUngrouped => "compact-ungrouped",
+            Self::CompactGrouped => "compact-grouped",
+            Self::CompactAllGrouped => "compact-all-grouped",
+        }
+    }
+
+    /// Canonical names, plus the short words `/density` accepts.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "detailed" | "detail" => Some(Self::Detailed),
+            "compact-shells" | "shells" => Some(Self::CompactShells),
+            "compact-ungrouped" | "ungrouped" => Some(Self::CompactUngrouped),
+            "compact-grouped" | "grouped" => Some(Self::CompactGrouped),
+            "compact-all-grouped" | "compact-all" | "all" => Some(Self::CompactAllGrouped),
+            _ => None,
+        }
+    }
+
+    /// `/density` with no argument walks detailed → … → compact-all-grouped → detailed.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Detailed => Self::CompactShells,
+            Self::CompactShells => Self::CompactUngrouped,
+            Self::CompactUngrouped => Self::CompactGrouped,
+            Self::CompactGrouped => Self::CompactAllGrouped,
+            Self::CompactAllGrouped => Self::Detailed,
+        }
+    }
+
+    /// Reads, searches, and lists may fold into one row.
+    pub fn groups_reads(self) -> bool {
+        matches!(self, Self::CompactGrouped | Self::CompactAllGrouped)
+    }
+
+    /// Shells, edits, and the other action rows may fold too.
+    pub fn groups_all(self) -> bool {
+        matches!(self, Self::CompactAllGrouped)
+    }
+
+    /// Agent shell rows open their output when the command finishes.
+    pub fn expands_agent_shells(self) -> bool {
+        matches!(self, Self::Detailed)
+    }
+
+    /// Edits start as a one-line diffstat instead of the full diff.
+    pub fn compact_edits(self) -> bool {
+        !matches!(self, Self::Detailed | Self::CompactShells)
+    }
+}
+
+fn deserialize_tool_call_density<'de, D>(
+    deserializer: D,
+) -> Result<Option<ToolCallDensity>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(value.and_then(|raw| ToolCallDensity::parse(&raw)))
+}
+
 impl Serialize for TimestampMode {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
@@ -398,6 +489,7 @@ impl Default for UiConfig {
             selection_highlight_duration_ms: None,
             show_thinking_blocks: None,
             group_tool_verbs: None,
+            tool_call_density: None,
             collapsed_edit_blocks: None,
             prompt_suggestions: None,
             multiline_default: None,
@@ -422,6 +514,11 @@ impl UiConfig {
     /// Absent `[ui].show_timestamps` is on, matching the old bool default.
     pub fn timestamp_mode(&self) -> TimestampMode {
         self.show_timestamps.unwrap_or_default()
+    }
+
+    /// Absent `[ui].tool_call_density` is the compact summary that folds every tool row.
+    pub fn tool_call_density(&self) -> ToolCallDensity {
+        self.tool_call_density.unwrap_or_default()
     }
 
     /// The single source of truth for the timeline-sidebar default (opt-in). TODO: migrate the other boolean UI settings
@@ -654,6 +751,47 @@ mod tests {
         assert_eq!(word_off.timestamp_mode(), TimestampMode::Off);
         assert_eq!(UiConfig::default().timestamp_mode(), TimestampMode::On);
         assert!(UiConfig::default().show_timestamps.is_none());
+    }
+
+    #[test]
+    fn tool_call_density_parses_cycles_and_defaults_to_the_compact_summary() {
+        assert_eq!(
+            ToolCallDensity::default(),
+            ToolCallDensity::CompactAllGrouped
+        );
+        assert!(ToolCallDensity::default().groups_all());
+        assert!(ToolCallDensity::default().compact_edits());
+        assert!(!ToolCallDensity::default().expands_agent_shells());
+        assert!(!ToolCallDensity::Detailed.groups_reads());
+        assert!(ToolCallDensity::Detailed.expands_agent_shells());
+        assert!(!ToolCallDensity::CompactShells.compact_edits());
+        assert!(ToolCallDensity::CompactUngrouped.compact_edits());
+        assert!(!ToolCallDensity::CompactUngrouped.groups_reads());
+        assert!(ToolCallDensity::CompactGrouped.groups_reads());
+        assert!(!ToolCallDensity::CompactGrouped.groups_all());
+        assert_eq!(
+            ToolCallDensity::CompactAllGrouped.next(),
+            ToolCallDensity::Detailed
+        );
+        assert_eq!(
+            ToolCallDensity::parse("grouped"),
+            Some(ToolCallDensity::CompactGrouped)
+        );
+        assert!(ToolCallDensity::parse("tight").is_none());
+
+        let shells: UiConfig =
+            serde_json::from_str(r#"{"tool_call_density":"compact-shells"}"#).unwrap();
+        assert_eq!(shells.tool_call_density(), ToolCallDensity::CompactShells);
+        let saved = serde_json::to_value(&shells).unwrap();
+        assert_eq!(saved["tool_call_density"], "compact-shells");
+
+        assert_eq!(
+            UiConfig::default().tool_call_density(),
+            ToolCallDensity::CompactAllGrouped
+        );
+        let junk: UiConfig = serde_json::from_str(r#"{"tool_call_density":"nope"}"#).unwrap();
+        assert!(junk.tool_call_density.is_none());
+        assert_eq!(junk.tool_call_density(), ToolCallDensity::CompactAllGrouped);
 
         assert_eq!(
             serde_json::to_value(TimestampMode::Off).unwrap(),

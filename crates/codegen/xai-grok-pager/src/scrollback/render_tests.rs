@@ -459,6 +459,7 @@ fn windowed_paint_renders_full_verb_group_label_for_offscreen_members() {
     use crate::scrollback::blocks::tool::{ReadToolCallBlock, ToolCallBlock};
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     for i in 0..20 {
@@ -527,6 +528,7 @@ fn windowed_paint_labels_truncation_header_on_last_viewport_row() {
     use crate::scrollback::ScrollbackState;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     let mut appearance = AppearanceConfig::default();
@@ -598,6 +600,7 @@ fn rendered_verb_group_label_spans_hidden_thinking_inside_folded_run() {
     use crate::scrollback::ScrollbackState;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     state.push_block(RenderBlock::read("a.rs", None));
@@ -648,6 +651,7 @@ fn rendered_verb_group_label_stays_tools_only_across_folded_thought() {
     use crate::scrollback::ScrollbackState;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(true);
     let mut state = ScrollbackState::new();
     state.push_block(RenderBlock::read("a.rs", None));
@@ -710,6 +714,7 @@ fn rendered_verb_group_singleton_folds_tool_and_trailing_thoughts() {
     use crate::scrollback::ScrollbackState;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(true);
     let mut state = ScrollbackState::new();
     state.push_block(RenderBlock::list_dir("src"));
@@ -772,6 +777,7 @@ fn rendered_verb_group_folds_subagent_row_and_expansion_keeps_activity() {
     use crate::scrollback::blocks::SubagentBlock;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     state.push_block(RenderBlock::read("a.rs", None));
@@ -914,6 +920,7 @@ fn truncation_header_renders_bucket_label_with_spans_and_plain_count_without() {
     use crate::scrollback::ScrollbackState;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     let mut appearance = AppearanceConfig::default();
@@ -980,6 +987,7 @@ fn expanded_truncation_collapse_header_renders_whole_run_label() {
     use crate::scrollback::ScrollbackState;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     let mut appearance = AppearanceConfig::default();
@@ -1040,6 +1048,7 @@ fn labeled_truncation_header_synthetic_line_copies_label_text() {
     use crate::scrollback::text_selection::reconstruct_selection_text;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     let mut appearance = AppearanceConfig::default();
@@ -1144,6 +1153,7 @@ fn verb_and_truncation_headers_share_one_label_channel() {
     use crate::scrollback::ScrollbackState;
 
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     let mut appearance = AppearanceConfig::default();

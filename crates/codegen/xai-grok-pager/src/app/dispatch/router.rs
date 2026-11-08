@@ -90,7 +90,8 @@ use super::settings::setters::{
     set_prompt_suggestions, set_remember_tool_approvals, set_render_mermaid,
     set_respect_manual_folds, set_screen_mode, set_scroll_lines, set_scroll_mode, set_scroll_speed,
     set_show_thinking_blocks, set_show_tips, set_simple_mode, set_subagent_model_inheritance,
-    set_theme, set_timeline, set_timestamps, set_vim_mode, set_voice_capture_mode,
+    set_theme, set_timeline, set_timestamps, set_tool_call_density, set_vim_mode,
+    set_voice_capture_mode,
     set_voice_keybind_enabled, set_voice_stt_language,
 };
 use super::settings::ui::{
@@ -1171,6 +1172,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::SetRenderMermaid(kind) => set_render_mermaid(app, kind),
         Action::SetCompactMode(v) => set_compact_mode(app, v),
         Action::SetTimestamps(v) => set_timestamps(app, v),
+        Action::SetToolCallDensity(v) => set_tool_call_density(app, v),
         Action::SetTimeline(v) => set_timeline(app, v),
         Action::SetPageFlipOnSend(v) => set_page_flip_on_send(app, v),
         Action::SetDashboardPreview(enabled) => {

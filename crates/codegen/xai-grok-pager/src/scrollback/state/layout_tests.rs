@@ -2283,6 +2283,7 @@ fn compute_paint_window_truncation_header_extends_through_run_end() {
 fn paint_window_extends_through_offscreen_verb_group_members() {
     let _theme = pin_theme();
     crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
     crate::appearance::cache::set_show_thinking_blocks(false);
     let mut state = ScrollbackState::new();
     for i in 0..20 {

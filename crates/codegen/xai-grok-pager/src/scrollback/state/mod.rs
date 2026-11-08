@@ -227,6 +227,10 @@ impl Default for ScrollbackState {
 impl ScrollbackState {
     /// Create a new empty state.
     pub fn new() -> Self {
+        // Fixtures written before `/density` assume reads fold and shells stay separate.
+        // The pin runs only when this thread has not chosen a density yet.
+        #[cfg(test)]
+        crate::appearance::cache::pin_grouped_density_unless_loaded();
         Self {
             entries: IndexMap::new(),
             next_id: 1, // Start at 1 so 0 can be a sentinel
@@ -698,7 +702,7 @@ impl ScrollbackState {
                     .scrollback
                     .blocks
                     .edit
-                    .effective_expanded(crate::appearance::cache::load_collapsed_edit_blocks()),
+                    .effective_expanded(crate::appearance::cache::edits_start_collapsed()),
                 edit,
             );
         }
@@ -1051,7 +1055,7 @@ impl ScrollbackState {
             .scrollback
             .blocks
             .edit
-            .effective_expanded(crate::appearance::cache::load_collapsed_edit_blocks());
+            .effective_expanded(crate::appearance::cache::edits_start_collapsed());
         let Some(entry) = self.entries.get_mut(&entry_id) else {
             return false;
         };
@@ -1290,7 +1294,7 @@ impl ScrollbackState {
             .scrollback
             .blocks
             .edit
-            .effective_expanded(crate::appearance::cache::load_collapsed_edit_blocks());
+            .effective_expanded(crate::appearance::cache::edits_start_collapsed());
         let Some(entry) = self.get_by_id_mut(id) else {
             return;
         };
@@ -1779,6 +1783,10 @@ pub(super) mod test_util {
 
     /// Helper: push N collapsed tool calls and return their IDs.
     pub(super) fn push_tool_calls(state: &mut ScrollbackState, n: usize) -> Vec<EntryId> {
+        // These rows are the dense truncation fixture. They stay out of the verb fold.
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactGrouped,
+        );
         (0..n)
             .map(|i| state.push_block(RenderBlock::tool_call(format!("Tool{i}"), "info", true)))
             .collect()
@@ -1960,6 +1968,10 @@ mod tests {
     fn push_applies_edit_materialize_policy() {
         std::thread::spawn(|| {
             // Seed off on this thread. A machine `[ui]` pin must not collapse `Some(true)`.
+            // Compact-shells keeps edits open so this flag is the only collapse input.
+            crate::appearance::cache::set_tool_call_density(
+                crate::appearance::ToolCallDensity::CompactShells,
+            );
             crate::appearance::cache::set_collapsed_edit_blocks(false);
             let ok = || EditToolCallBlock::new("f.rs", vec![]);
 
@@ -2018,6 +2030,10 @@ mod tests {
     fn replace_tool_block_edit_policy() {
         std::thread::spawn(|| {
             // Seed off on this thread. A machine `[ui]` pin must not collapse `Some(true)`.
+            // Compact-shells keeps edits open so this flag is the only collapse input.
+            crate::appearance::cache::set_tool_call_density(
+                crate::appearance::ToolCallDensity::CompactShells,
+            );
             crate::appearance::cache::set_collapsed_edit_blocks(false);
             let mut state = edit_state(false);
             let id = state.push_block(RenderBlock::tool_call("Other", "pending", true));
@@ -2364,6 +2380,9 @@ mod tests {
     fn push_defaults_follow_collapsed_edit_blocks_flag_when_shape_unset() {
         std::thread::spawn(|| {
             let ok = || EditToolCallBlock::new("f.rs", vec![]);
+            crate::appearance::cache::set_tool_call_density(
+                crate::appearance::ToolCallDensity::CompactShells,
+            );
 
             crate::appearance::cache::set_collapsed_edit_blocks(true);
             let mut state = ScrollbackState::new();
@@ -2393,12 +2412,35 @@ mod tests {
         .unwrap();
     }
 
+    /// Absent density is `compact-all-grouped`, which collapses a fresh edit even when the legacy flag is off.
+    #[test]
+    fn default_density_collapses_a_fresh_edit_when_the_legacy_flag_is_off() {
+        std::thread::spawn(|| {
+            crate::appearance::cache::set_collapsed_edit_blocks(false);
+            crate::appearance::cache::set_tool_call_density(
+                crate::appearance::ToolCallDensity::CompactAllGrouped,
+            );
+            let mut state = ScrollbackState::new();
+            let id = state.push_block(edit_block(EditToolCallBlock::new("f.rs", vec![])));
+            assert_eq!(
+                state.get_by_id(id).unwrap().display_mode,
+                DisplayMode::Collapsed,
+                "compact-all-grouped starts edits collapsed"
+            );
+        })
+        .join()
+        .unwrap();
+    }
+
     /// A live flag flip re-materializes only entries still on their old policy default.
     /// A user gesture away from that default survives. Flag off to on collapses a row open only because
     /// `expanded_by_default` was `Some(true)`. An explicit false stays collapsed across the flip.
     #[test]
     fn collapsed_edit_blocks_flip_rematerializes_only_default_entries() {
         std::thread::spawn(|| {
+            crate::appearance::cache::set_tool_call_density(
+                crate::appearance::ToolCallDensity::CompactShells,
+            );
             crate::appearance::cache::set_collapsed_edit_blocks(false);
             let mut state = ScrollbackState::new();
             let plain = state.push_block(edit_block(EditToolCallBlock::new("a.rs", vec![])));

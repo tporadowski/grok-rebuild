@@ -56,6 +56,14 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-163 — Tool call density
+
+`/density` and the Appearance setting `[ui].tool_call_density` choose how much of each tool call the transcript shows. The values are `detailed`, `compact-shells`, `compact-ungrouped`, `compact-grouped`, and `compact-all-grouped`. An absent value and an unknown string mean `compact-all-grouped`. `GROK_TOOL_CALL_DENSITY` overrides the file when it names one of those modes.
+
+`detailed` leaves shells and edits open, opens an agent shell when it finishes, and folds nothing. `compact-shells` keeps shell rows on their title, leaves edits open, and folds nothing. `compact-ungrouped` starts shells and edits compact and folds nothing. `compact-grouped` folds reads, searches, and lists, and leaves shells and edits separate. `compact-all-grouped` folds every tool call, including shells and edits, and starts edits as a one-line diffstat.
+
+`group_tool_verbs = false` still turns every fold off. `collapsed_edit_blocks = true` still forces edit collapse. The three compact-edit modes collapse edits even when that flag is off. User `!` bash still finishes expanded. Subagent lifecycle rows still fold whenever `group_tool_verbs` is on. Combining the legacy keys with density across config tiers stays `v51-x93` (`compact_all_grouped_folds_shell_and_edit_into_the_read_run`, `default_density_collapses_a_fresh_edit_when_the_legacy_flag_is_off`, `detailed_density_expands_agent_shells_on_finish`, `density_picker_enter_on_grouped_dispatches_that_mode`) (`v51-f04`).
+
 ### D-162 — Continue to run leaves a background subagent's command running
 
 Continue to run cancels the parent turn and does not cancel subagents. Those subagents share the parent's terminal. The foreground kill for that cancel is limited to this session's owner, the same kill a subagent teardown already uses (`owner_scoped_foreground_kill_leaves_another_sessions_command`). Stop still kills every foreground command. A send-now that cannot move a command to the background still kills every foreground command. Background tasks were already left running, because that cancel does not set `kill_background_tasks` (`v50-x24`).
@@ -710,7 +718,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 40 | 0 | 5 | 0 | 0 |
+| W10 | Transcript, density, and copy | 39 | 0 | 6 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -719,9 +727,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 317. Skipped: 8. Done: 210. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 316. Skipped: 8. Done: 211. Already: 38. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: `/density` and the tool-call density setting (`v51-f04`).
+**Next:** W10 transcript, density, and copy. First open row: one-time notice that editors with file access read and write disk (`v51-f18`).
 
 ## Waves
 
@@ -763,7 +771,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 40. Done: 5 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162). Look first: `/density` is not in the slash list. Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 39. Done: 6 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1030,7 +1038,7 @@ id | status | wave | kind | flag | covered | note
 - v50-f10 | done | W10 | Features |  |  | Tables rendered by grok now show copy buttons underneath that export clean TSV, CSV or Markdown suitable for spreadsheets.
 - v50-x04 | done | W10 | Bug Fixes |  |  | **Em-dashes** no longer appear in status messages and subagent rows.
 - v50-x24 | done | W10 | Bug Fixes |  |  | **Continue to run** no longer kills commands running inside background subagents.
-- v51-f04 | pending | W10 | Features |  |  | **New `/density` command** and Tool call density setting let you choose how much detail tool calls show in the transcript.
+- v51-f04 | done | W10 | Features |  |  | **New `/density` command** and Tool call density setting let you choose how much detail tool calls show in the transcript.
 - v51-f18 | pending | W10 | Features |  |  | **Editors offering file access** now receive a one-time transcript notice that the agent reads and writes disk files.
 - v51-x03 | pending | W10 | Bug Fixes |  |  | Mode switch tool calls now appear in the transcript with the target mode name.
 - v51-x28 | pending | W10 | Bug Fixes |  |  | **--disallowed-tools** now accepts the exact names shown to the model (run_terminal_command, spawn_subagent, etc.).

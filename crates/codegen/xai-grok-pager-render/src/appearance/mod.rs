@@ -25,7 +25,7 @@ pub use config::{
     ScrollbarConfig, ToolBullet, ToolConfig, persist_respect_manual_folds,
 };
 pub use xai_grok_shared::keys_config::{VimKeys, resolve_vim_keys, vim_keys_for_bool};
-pub use xai_grok_shared::ui_config::TimestampMode;
+pub use xai_grok_shared::ui_config::{TimestampMode, ToolCallDensity};
 
 pub use follow_up_behavior::FollowUpBehavior;
 pub use render_mermaid::RenderMermaid;

@@ -407,12 +407,19 @@ mod tests {
         ]
     }
 
+    fn pin_grouped_density() {
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactGrouped,
+        );
+    }
+
     fn scan_and_project(
         entries: &IndexMap<EntryId, ScrollbackEntry>,
         layout: &mut [EntryLayoutInfo],
         max_visible: usize,
         expanded: &HashSet<EntryId>,
     ) -> Vec<GroupSpan> {
+        pin_grouped_density();
         let spans = scan(entries, max_visible, expanded, true, true);
         project_to_layout(&spans, entries, layout, true);
         spans
@@ -564,6 +571,7 @@ mod tests {
 
     #[test]
     fn hidden_thinking_flows_through_truncation_without_participating() {
+        pin_grouped_density();
         // 12 executes with a hidden thought interleaved: the run still truncates, the thought neither counts nor gets written
         let mut list: Vec<ScrollbackEntry> = (0..6).map(|_| execute()).collect();
         list.push(thought());
@@ -616,6 +624,7 @@ mod tests {
 
     #[test]
     fn spans_are_sorted_and_disjoint() {
+        pin_grouped_density();
         let mut list = vec![skill_read(), skill_read(), execute()];
         list.extend((0..12).map(|_| execute()));
         list.push(skill_read());

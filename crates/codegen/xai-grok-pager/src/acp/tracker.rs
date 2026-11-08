@@ -865,7 +865,7 @@ impl AcpUpdateTracker {
         scrollback: &mut ScrollbackState,
         is_replay: bool,
     ) {
-        if !crate::appearance::cache::load_collapsed_edit_blocks() {
+        if !crate::appearance::cache::edits_start_collapsed() {
             return;
         }
         if scrollback

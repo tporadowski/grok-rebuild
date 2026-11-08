@@ -1243,7 +1243,7 @@ impl EditToolCallBlock {
         let dim_details = tool_cfg.dim_details;
         // Explicit pager.toml value wins; unset follows the shell-owned flag.
         let show_summary =
-            edit_cfg.effective_line_summary(crate::appearance::cache::load_collapsed_edit_blocks());
+            edit_cfg.effective_line_summary(crate::appearance::cache::edits_start_collapsed());
 
         let cwd = ctx.cwd.as_deref();
         let link_target = self.path_link_target(cwd);
@@ -1472,7 +1472,7 @@ impl BlockContent for EditToolCallBlock {
             .scrollback
             .blocks
             .edit
-            .effective_line_summary(crate::appearance::cache::load_collapsed_edit_blocks());
+            .effective_line_summary(crate::appearance::cache::edits_start_collapsed());
         Some(Text::from(self.header_line(
             &theme,
             false,

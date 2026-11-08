@@ -1022,6 +1022,9 @@ pub(super) fn action_for_enum_commit(key: SettingKey, choice: &'static str) -> O
         "show_timestamps" => {
             crate::appearance::TimestampMode::parse(choice).map(Action::SetTimestamps)
         }
+        "tool_call_density" => {
+            crate::appearance::ToolCallDensity::parse(choice).map(Action::SetToolCallDensity)
+        }
         "default_selected_permission" => {
             Some(Action::SetDefaultSelectedPermission(choice.to_string()))
         }

@@ -777,6 +777,24 @@ impl ToolCallBlock {
         }
     }
 
+    /// Kind used by the layout fold. [`Self::verb_group_kind`] stays the read/search/list decision.
+    /// Density chooses whether those rows fold, and whether shells, edits, and the other action rows fold too.
+    /// `group_tool_verbs = false` turns every fold off.
+    pub fn eager_fold_kind(&self) -> Option<VerbGroupKind> {
+        if !crate::appearance::cache::load_group_tool_verbs() {
+            return None;
+        }
+        let density = crate::appearance::cache::load_tool_call_density();
+        if let Some(kind) = self.verb_group_kind() {
+            return density.groups_reads().then_some(kind);
+        }
+        if density.groups_all() {
+            self.label_kind()
+        } else {
+            None
+        }
+    }
+
     /// The bucket a row falls into for aggregated header LABELS. `None` is returned only for lifecycle rows, which are
     /// never worth labeling. Variants are listed explicitly so a new `ToolCallBlock` variant must decide here too.
     pub fn label_kind(&self) -> Option<VerbGroupKind> {
@@ -903,6 +921,36 @@ mod tests {
             };
             assert_eq!(block.verb_group_kind(), expected, "block: {block:?}");
         }
+    }
+
+    #[test]
+    fn eager_fold_kind_follows_density_and_the_verb_toggle() {
+        use crate::appearance::ToolCallDensity;
+        let read = ToolCallBlock::Read(ReadToolCallBlock::new("src/main.rs"));
+        let execute = ToolCallBlock::Execute(ExecuteToolCallBlock::new("ls"));
+        let edit = ToolCallBlock::Edit(EditToolCallBlock::new("src/main.rs", Vec::new()));
+        crate::appearance::cache::set_group_tool_verbs(true);
+
+        crate::appearance::cache::set_tool_call_density(ToolCallDensity::CompactGrouped);
+        assert_eq!(read.eager_fold_kind(), Some(VerbGroupKind::File));
+        assert_eq!(execute.eager_fold_kind(), None);
+        assert_eq!(edit.eager_fold_kind(), None);
+
+        crate::appearance::cache::set_tool_call_density(ToolCallDensity::CompactAllGrouped);
+        assert_eq!(execute.eager_fold_kind(), Some(VerbGroupKind::Command));
+        assert_eq!(edit.eager_fold_kind(), Some(VerbGroupKind::EditFile));
+
+        crate::appearance::cache::set_tool_call_density(ToolCallDensity::Detailed);
+        assert_eq!(read.eager_fold_kind(), None);
+        assert_eq!(execute.eager_fold_kind(), None);
+
+        crate::appearance::cache::set_group_tool_verbs(false);
+        crate::appearance::cache::set_tool_call_density(ToolCallDensity::CompactAllGrouped);
+        assert_eq!(read.eager_fold_kind(), None);
+        assert_eq!(execute.eager_fold_kind(), None);
+
+        crate::appearance::cache::set_group_tool_verbs(true);
+        crate::appearance::cache::set_tool_call_density(ToolCallDensity::CompactGrouped);
     }
 
     #[test]

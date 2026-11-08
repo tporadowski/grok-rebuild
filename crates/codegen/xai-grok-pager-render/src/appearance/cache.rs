@@ -12,7 +12,7 @@
 use std::cell::Cell;
 
 use xai_grok_shared::keys_config::VimKeys;
-use xai_grok_shared::ui_config::{TimestampMode, UiConfig};
+use xai_grok_shared::ui_config::{TimestampMode, ToolCallDensity, UiConfig};
 
 use super::follow_up_behavior::FollowUpBehavior;
 use super::render_mermaid::RenderMermaid;
@@ -95,6 +95,59 @@ pub fn load_timestamps() -> TimestampMode {
 pub fn set_timestamps(mode: TimestampMode) {
     TIMESTAMPS_CURRENT.with(|c| c.set(mode));
     TIMESTAMPS_LOADED.with(|l| l.set(true));
+}
+
+thread_local! {
+    static DENSITY_CURRENT: Cell<ToolCallDensity> = const { Cell::new(ToolCallDensity::CompactAllGrouped) };
+    static DENSITY_LOADED: Cell<bool> = const { Cell::new(false) };
+}
+
+pub fn load_tool_call_density() -> ToolCallDensity {
+    DENSITY_LOADED.with(|loaded| {
+        if !loaded.get() {
+            DENSITY_CURRENT.with(|c| c.set(load_tool_call_density_from_env_or_config()));
+            loaded.set(true);
+        }
+    });
+    DENSITY_CURRENT.with(|c| c.get())
+}
+
+pub fn set_tool_call_density(mode: ToolCallDensity) {
+    DENSITY_CURRENT.with(|c| c.set(mode));
+    DENSITY_LOADED.with(|l| l.set(true));
+}
+
+/// Layout fixtures written before `/density` assume reads fold and shells, edits, and other
+/// action rows stay separate. The first scrollback on a test thread pins that shape when
+/// nothing has chosen a density yet. A test that sets the density first keeps its choice.
+pub fn pin_grouped_density_unless_loaded() {
+    DENSITY_LOADED.with(|loaded| {
+        if !loaded.get() {
+            DENSITY_CURRENT.with(|c| c.set(ToolCallDensity::CompactGrouped));
+            loaded.set(true);
+        }
+    });
+}
+
+/// `group_tool_verbs = false` still turns every fold off. Density chooses the shape when folding is allowed.
+pub fn edits_start_collapsed() -> bool {
+    load_collapsed_edit_blocks() || load_tool_call_density().compact_edits()
+}
+
+fn load_tool_call_density_from_env_or_config() -> ToolCallDensity {
+    if let Ok(raw) = std::env::var("GROK_TOOL_CALL_DENSITY")
+        && let Some(mode) = ToolCallDensity::parse(&raw)
+    {
+        return mode;
+    }
+    let Ok(root) = xai_grok_config::load_effective_config_disk_only() else {
+        return ToolCallDensity::CompactAllGrouped;
+    };
+    root.get("ui")
+        .and_then(|ui| ui.get("tool_call_density"))
+        .and_then(|value| value.as_str())
+        .and_then(ToolCallDensity::parse)
+        .unwrap_or_default()
 }
 
 /// Absent, or a value this build does not understand, stays on.
@@ -714,6 +767,7 @@ pub fn set_render_mermaid(value: RenderMermaid) {
 pub fn prime(ui: &UiConfig) {
     set(ui.compact_mode);
     set_timestamps(ui.show_timestamps.unwrap_or(TIMESTAMPS_DEFAULT));
+    set_tool_call_density(ui.tool_call_density());
     set_show_timeline(ui.show_timeline_enabled());
     set_page_flip_on_send(ui.page_flip_on_send_enabled());
     set_combine_queued_prompts(

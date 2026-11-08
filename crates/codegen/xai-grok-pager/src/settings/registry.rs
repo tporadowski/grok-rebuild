@@ -567,6 +567,7 @@ pub fn current_value_for(
         // SHARED: UiConfig is the source of truth, the pager keeps a cache
         "compact_mode" => Some(SettingValue::Bool(ui.compact_mode)),
         "show_timestamps" => Some(SettingValue::Enum(ui.timestamp_mode().as_str())),
+        "tool_call_density" => Some(SettingValue::Enum(ui.tool_call_density().as_str())),
         "show_timeline" => Some(SettingValue::Bool(ui.show_timeline_enabled())),
         "dashboard_preview" => Some(SettingValue::Bool(ui.dashboard_preview_enabled())),
         // The cache is the send-path source of truth (same pattern as group_tool_verbs)
@@ -900,6 +901,13 @@ mod tests {
                         *default,
                         ui.timestamp_mode().as_str(),
                         "show_timestamps default drifts from UiConfig::default()"
+                    );
+                }
+                ("tool_call_density", SettingKind::Enum { default, .. }) => {
+                    assert_eq!(
+                        *default,
+                        ui.tool_call_density().as_str(),
+                        "tool_call_density default drifts from UiConfig::default()"
                     );
                 }
                 ("show_timeline", SettingKind::Bool { default }) => {

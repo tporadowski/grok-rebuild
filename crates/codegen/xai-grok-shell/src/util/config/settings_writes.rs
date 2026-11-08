@@ -1,5 +1,5 @@
 use super::persist::update_config;
-use crate::agent::config::{Feature, TimestampMode};
+use crate::agent::config::{Feature, TimestampMode, ToolCallDensity};
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
@@ -85,6 +85,11 @@ pub async fn set_compact_mode(value: bool) -> Result<()> {
 /// Absent means on. `false` is off, `true` is on, and `"minimal"` is the short clock.
 pub async fn set_show_timestamps(value: TimestampMode) -> Result<()> {
     update_config(|cfg| cfg.ui.show_timestamps = Some(value)).await
+}
+
+/// Persist `[ui].tool_call_density` via `update_config`.
+pub async fn set_tool_call_density(value: ToolCallDensity) -> Result<()> {
+    update_config(|cfg| cfg.ui.tool_call_density = Some(value)).await
 }
 
 /// Persist `[ui].show_timeline` via `update_config`.

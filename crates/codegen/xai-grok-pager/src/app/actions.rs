@@ -544,6 +544,8 @@ pub enum Action {
     SetCompactMode(bool),
     /// Set the clock next to messages (`off`, `minimal`, or `on`).
     SetTimestamps(crate::appearance::TimestampMode),
+    /// Set how much of each tool call the transcript shows.
+    SetToolCallDensity(crate::appearance::ToolCallDensity),
     /// Set timeline sidebar visibility (per-turn tick rail).
     SetTimeline(bool),
     /// This action saves `[ui].dashboard_preview`.

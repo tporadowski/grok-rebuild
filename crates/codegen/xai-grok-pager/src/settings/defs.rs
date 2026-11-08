@@ -180,6 +180,34 @@ const TIMESTAMP_MODE_CHOICES: &[EnumChoice] = &[
     },
 ];
 
+const TOOL_CALL_DENSITY_CHOICES: &[EnumChoice] = &[
+    EnumChoice {
+        canonical: "detailed",
+        display: "Detailed",
+        description: "Full shell output and edit diffs. Tool rows stay separate.",
+    },
+    EnumChoice {
+        canonical: "compact-shells",
+        display: "Compact shells",
+        description: "Shell rows stay on their title. Edits stay open. Nothing is folded together.",
+    },
+    EnumChoice {
+        canonical: "compact-ungrouped",
+        display: "Compact",
+        description: "Shells and edits stay compact. Nothing is folded together.",
+    },
+    EnumChoice {
+        canonical: "compact-grouped",
+        display: "Grouped",
+        description: "Compact rows. Reads, searches, and lists fold. Shells and edits stay separate.",
+    },
+    EnumChoice {
+        canonical: "compact-all-grouped",
+        display: "Grouped, including shells",
+        description: "Compact rows. Every tool call folds into a summary, including shells and edits.",
+    },
+];
+
 const FOLLOW_UP_BEHAVIOR_CHOICES: &[EnumChoice] = &[
     EnumChoice {
         canonical: "queue",
@@ -546,6 +574,32 @@ pub fn default_settings() -> Vec<SettingMeta> {
             kind: SettingKind::Enum {
                 default: ui_default.timestamp_mode().as_str(),
                 choices: TIMESTAMP_MODE_CHOICES,
+                supports_preview: false,
+            },
+            restart_required: false,
+            hidden_in_minimal: false,
+        },
+        SettingMeta {
+            key: "tool_call_density",
+            category: SettingCategory::Appearance,
+            owner: SettingOwner::Shared,
+            label: "Tool call density",
+            description: "How much of each tool call shows in the transcript, from full diffs and \
+                          shell output to folded summary rows. Also /density.",
+            keywords: &[
+                "density",
+                "tool",
+                "tools",
+                "fold",
+                "group",
+                "compact",
+                "shell",
+                "diff",
+                "transcript",
+            ],
+            kind: SettingKind::Enum {
+                default: ui_default.tool_call_density().as_str(),
+                choices: TOOL_CALL_DENSITY_CHOICES,
                 supports_preview: false,
             },
             restart_required: false,

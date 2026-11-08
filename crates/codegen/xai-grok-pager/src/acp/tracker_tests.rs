@@ -1355,6 +1355,9 @@ fn edit_tool_upgrade_resets_display_mode_to_default_body() {
         );
         entry.display_mode
     }
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactShells,
+    );
     crate::appearance::cache::set_collapsed_edit_blocks(false);
     let (upgraded, completed) = upgrade_path("toolu_edit_001", false);
     assert_eq!(
@@ -1705,6 +1708,9 @@ fn overlapping_adjacent_edits_stitch_into_single_hunk() {
 #[test]
 fn coalesce_disabled_when_collapsed_edit_blocks_off() {
     std::thread::spawn(|| {
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactShells,
+        );
         crate::appearance::cache::set_collapsed_edit_blocks(false);
         let mut sb = ScrollbackState::new();
         let mut tracker = AcpUpdateTracker::new();
@@ -1721,6 +1727,26 @@ fn coalesce_disabled_when_collapsed_edit_blocks_off() {
     .join()
     .unwrap();
 }
+
+/// `compact-all-grouped` collapses edits, so adjacent edits of one file merge even when the legacy flag is off.
+#[test]
+fn coalesce_follows_compact_all_grouped_when_legacy_flag_is_off() {
+    std::thread::spawn(|| {
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactAllGrouped,
+        );
+        crate::appearance::cache::set_collapsed_edit_blocks(false);
+        let mut sb = ScrollbackState::new();
+        let mut tracker = AcpUpdateTracker::new();
+        run_edit(&mut tracker, &mut sb, "e1", "foo.rs", 5);
+        run_edit(&mut tracker, &mut sb, "e2", "foo.rs", 40);
+        assert_eq!(sb.len(), 1, "compact-all-grouped merges adjacent edits");
+        assert_eq!(edit_block_at(&sb, 0).hunks.len(), 2);
+    })
+    .join()
+    .unwrap();
+}
+
 #[test]
 fn three_sequential_edits_chain_into_one() {
     std::thread::spawn(|| {

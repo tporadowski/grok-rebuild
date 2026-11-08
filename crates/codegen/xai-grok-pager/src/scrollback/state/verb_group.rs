@@ -40,7 +40,7 @@ pub(crate) fn run_step(entry: &ScrollbackEntry, show_thinking: bool) -> RunStep 
     let is_claimable_thinking =
         entry.display_mode == DisplayMode::Collapsed && !entry.is_pending_user_input;
     if let RenderBlock::ToolCall(block) = &entry.block
-        && let Some(kind) = block.verb_group_kind()
+        && let Some(kind) = block.eager_fold_kind()
         && !entry.is_pending_user_input
     {
         if entry.display_mode == DisplayMode::Collapsed {
@@ -527,6 +527,10 @@ mod tests {
 
     #[test]
     fn run_ends_at_separator_and_skips_hidden_thinking() {
+        crate::appearance::cache::set_group_tool_verbs(true);
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactGrouped,
+        );
         let entries = [
             read("a.rs"),
             ScrollbackEntry::new(RenderBlock::thinking("hmm")),
@@ -547,6 +551,10 @@ mod tests {
 
     #[test]
     fn label_stays_tools_only_across_shown_thinking_states() {
+        crate::appearance::cache::set_group_tool_verbs(true);
+        crate::appearance::cache::set_tool_call_density(
+            crate::appearance::ToolCallDensity::CompactGrouped,
+        );
         let mut streaming = ScrollbackEntry::new(RenderBlock::thinking("live"));
         streaming.is_running = true;
         let entries = [

@@ -15,7 +15,8 @@ use super::setters::{
     set_respect_manual_folds_inner, set_screen_mode_inner, set_scroll_lines_inner,
     set_scroll_mode_inner, set_scroll_speed_inner, set_show_thinking_blocks_inner,
     set_show_tips_inner, set_simple_mode_inner, set_theme_inner, set_timeline_inner,
-    set_timestamps, set_timestamps_inner, set_vim_mode_inner, set_voice_capture_mode_inner,
+    set_timestamps, set_timestamps_inner, set_tool_call_density_inner, set_vim_mode_inner,
+    set_voice_capture_mode_inner,
     set_voice_keybind_enabled_inner, set_voice_stt_language_inner,
 };
 use crate::app::actions::{Action, Effect, ModelChoice};
@@ -656,6 +657,9 @@ pub(in crate::app::dispatch) fn action_for_reset(
         ("show_timestamps", SettingValue::Enum(s)) => {
             crate::appearance::TimestampMode::parse(s).map(Action::SetTimestamps)
         }
+        ("tool_call_density", SettingValue::Enum(s)) => {
+            crate::appearance::ToolCallDensity::parse(s).map(Action::SetToolCallDensity)
+        }
         ("show_timeline", SettingValue::Bool(b)) => Some(Action::SetTimeline(*b)),
         ("page_flip_on_send", SettingValue::Bool(b)) => Some(Action::SetPageFlipOnSend(*b)),
         ("dashboard_preview", SettingValue::Bool(enabled)) => {
@@ -842,6 +846,11 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
         ("show_timestamps", SettingValue::Enum(s)) => {
             if let Some(mode) = crate::appearance::TimestampMode::parse(s) {
                 set_timestamps_inner(app, mode);
+            }
+        }
+        ("tool_call_density", SettingValue::Enum(s)) => {
+            if let Some(mode) = crate::appearance::ToolCallDensity::parse(s) {
+                set_tool_call_density_inner(app, mode);
             }
         }
         ("show_timeline", SettingValue::Bool(b)) => set_timeline_inner(app, *b),

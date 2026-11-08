@@ -1892,6 +1892,12 @@ fn move_setting_away_from_default(app: &mut AppView, key: crate::settings::Setti
                 app,
             );
         }
+        "tool_call_density" => {
+            let _ = dispatch(
+                Action::SetToolCallDensity(crate::appearance::ToolCallDensity::Detailed),
+                app,
+            );
+        }
         "show_timeline" => {
             let away = !app.current_ui.show_timeline_enabled();
             let _ = dispatch(Action::SetTimeline(away), app);
@@ -2860,6 +2866,7 @@ fn set_collapsed_edit_blocks_refolds_live_edit_rows() {
     use crate::scrollback::block::RenderBlock;
     use crate::scrollback::blocks::tool::{EditToolCallBlock, ToolCallBlock};
     use crate::scrollback::types::DisplayMode;
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactShells);
     crate::appearance::cache::set_collapsed_edit_blocks(false);
     let mut app = test_app_with_agent();
     let id = {
@@ -2898,6 +2905,7 @@ fn set_collapsed_edit_blocks_refolds_live_edit_rows() {
         "toggle off must restore the expanded default"
     );
     crate::appearance::cache::set_collapsed_edit_blocks(false);
+    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
 }
 #[test]
 fn set_show_thinking_blocks_hides_and_restores_existing_thinking_height() {

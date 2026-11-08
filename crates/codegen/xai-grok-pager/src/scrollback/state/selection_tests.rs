@@ -847,6 +847,10 @@ fn navigation_skips_hidden_entries() {
 fn verb_state() -> ScrollbackState {
     crate::appearance::cache::set_group_tool_verbs(true);
     crate::appearance::cache::set_show_thinking_blocks(false);
+    // Reads fold. Shells and edits stay separate, which is what these fixtures assert.
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactGrouped,
+    );
     ScrollbackState::new()
 }
 
@@ -911,6 +915,29 @@ fn verb_group_separators_break_runs() {
     assert!(cached_height_at(&state, 5) > 0, "edit stays standalone");
     // The singleton fold's shape (count/height) is owned by `verb_group_folds_multi_member_and_singleton_runs`
     assert!(verb_header_at(&state, 6), "run re-anchors after the Edit");
+}
+
+/// `compact-all-grouped` folds a collapsed shell and a collapsed edit into the read run.
+#[test]
+fn compact_all_grouped_folds_shell_and_edit_into_the_read_run() {
+    let mut state = verb_state();
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactAllGrouped,
+    );
+    push_reads(&mut state, 2);
+    state.push_block(RenderBlock::execute("cargo test"));
+    state.push_block(RenderBlock::edit("f.rs", None));
+    state.prepare_layout(80, 40);
+
+    assert!(verb_header_at(&state, 0));
+    assert_eq!(header_count_at(&mut state, 0), 4);
+    assert_eq!(cached_height_at(&state, 0), 1);
+    assert_eq!(cached_height_at(&state, 1), 0);
+    assert_eq!(cached_height_at(&state, 2), 0, "shell folds into the run");
+    assert_eq!(cached_height_at(&state, 3), 0, "edit folds into the run");
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactGrouped,
+    );
 }
 
 /// Push a finished thought: collapsed and not running, the shape `finish_thinking`'s auto-collapse leaves behind.
@@ -1957,6 +1984,9 @@ fn collapse_header_is_independent_selectable_entry() {
 #[test]
 fn expanded_group_with_thinking_first_shows_all_entries() {
     crate::appearance::cache::set_show_thinking_blocks(true);
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactGrouped,
+    );
     let mut state = ScrollbackState::new();
     let mut appearance = AppearanceConfig::default();
     appearance.scrollback.display.group_max_visible = 3;
