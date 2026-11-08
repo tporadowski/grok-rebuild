@@ -851,7 +851,7 @@ pub struct AgentView {
     /// Multiline input mode: swap Enter (insert newline) and Shift+Enter (send).
     /// Toggled by `Ctrl+M` or `/multiline`. Not persisted across sessions.
     pub multiline_mode: bool,
-    /// Vim-mode scrollback keybindings. When `false` (default), bare-letter and Shift+letter scrollback bindings (j/k, h/l, g/G, y/Y, o/O, r, x, e/E, L/H, plus the `i` FocusPrompt alt) are suppressed and the pressed letter forwards to the prompt textarea via `Action::FocusPrompt` + `ActionThenForward`. Arrows / Tab / Esc / Space / PgUp / PgDn and all `Ctrl+letter` bindings remain active regardless of this flag. Pager-owned ephemeral field; reset each session.
+    /// Vim-mode scrollback keybindings. When `false` (default), bare-letter and Shift+letter scrollback bindings (j/k, h/l, g/G, y/Y, o/O, r, x, e/E, L/H, plus the `i` FocusPrompt alt) are suppressed. A typed letter, digit, or symbol then forwards to the prompt textarea via `Action::FocusPrompt` + `ActionThenForward`. `?` still opens the command palette. Arrows / Tab / Esc / Space / PgUp / PgDn and all `Ctrl+letter` bindings remain active regardless of this flag. Pager-owned ephemeral field; reset each session.
     pub vim_mode: bool,
     /// Runtime InputMode synced from the persisted `simple_mode` bool (`false` is Vim).
     /// The pane reconcile runs only in Vim mode with an empty prompt.

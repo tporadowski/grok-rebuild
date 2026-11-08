@@ -2574,6 +2574,80 @@ mod scrollback_paste_focus_forward_tests {
         assert_eq!(agent.prompt.images.len(), 1);
         assert!(agent.prompt.text().contains("[Image #1]"));
     }
+
+    fn key(c: char, mods: crossterm::event::KeyModifiers) -> Event {
+        Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(c),
+            mods,
+        ))
+    }
+
+    /// Focus the prompt the way the event loop does, then deliver the same key into it.
+    fn forward_into_prompt(agent: &mut AgentView, reg: &ActionRegistry, ev: &Event) -> String {
+        assert!(matches!(
+            agent.handle_input(ev, reg),
+            InputOutcome::ActionThenForward(Action::FocusPrompt)
+        ));
+        agent.set_active_pane(AgentPane::Prompt, false);
+        let _ = agent.handle_input(ev, reg);
+        agent.prompt.text().to_string()
+    }
+
+    #[test]
+    fn digit_and_symbol_from_scrollback_type_into_the_prompt() {
+        use crossterm::event::KeyModifiers;
+        let (mut agent, reg) = scrollback_agent();
+        assert_eq!(
+            forward_into_prompt(&mut agent, &reg, &key('7', KeyModifiers::NONE)),
+            "7"
+        );
+        agent.set_active_pane(AgentPane::Scrollback, true);
+        assert_eq!(
+            forward_into_prompt(&mut agent, &reg, &key('$', KeyModifiers::NONE)),
+            "7$"
+        );
+        agent.set_active_pane(AgentPane::Scrollback, true);
+        assert_eq!(
+            forward_into_prompt(&mut agent, &reg, &key('a', KeyModifiers::NONE)),
+            "7$a"
+        );
+    }
+
+    #[test]
+    fn question_mark_from_scrollback_opens_the_palette() {
+        use crossterm::event::KeyModifiers;
+        let (_, reg) = scrollback_agent();
+        for ev in [key('?', KeyModifiers::NONE), key('/', KeyModifiers::SHIFT)] {
+            let (mut agent, _) = scrollback_agent();
+            let out = agent.handle_input(&ev, &reg);
+            assert!(
+                matches!(out, InputOutcome::Changed),
+                "palette key must not type into the prompt, got {out:?}"
+            );
+            assert!(
+                matches!(
+                    agent.active_modal,
+                    Some(crate::views::modal::ActiveModal::CommandPalette { .. })
+                ),
+                "palette key must open the command palette"
+            );
+            assert!(agent.prompt.text().is_empty());
+        }
+    }
+
+    #[test]
+    fn vim_scrollback_digit_does_not_jump_to_the_prompt() {
+        use crossterm::event::KeyModifiers;
+        let (mut agent, reg) = scrollback_agent();
+        agent.vim_mode = true;
+        let out = agent.handle_input(&key('7', KeyModifiers::NONE), &reg);
+        assert!(
+            !matches!(out, InputOutcome::ActionThenForward(Action::FocusPrompt)),
+            "vim mode keeps a digit for counts, got {out:?}"
+        );
+        assert!(agent.prompt.text().is_empty());
+        assert_eq!(agent.active_pane, AgentPane::Scrollback);
+    }
 }
 #[cfg(test)]
 mod subagent_forward_tests {

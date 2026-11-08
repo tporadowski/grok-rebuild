@@ -116,10 +116,14 @@ impl AgentView {
         if let Some(outcome) = resolve_action(action) {
             return outcome;
         }
+        // Vim off: a typed letter, digit, or symbol moves focus to the prompt and is typed there.
+        // `?` and Shift+/ stay with the command palette. Space, arrows, and Ctrl chords do not.
         if !self.vim_mode
             && let KeyCode::Char(c) = key.code
-            && (c.is_ascii_alphabetic() || c == '/')
             && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT)
+            && c != '?'
+            && !(c == '/' && key.modifiers.contains(KeyModifiers::SHIFT))
+            && (c.is_ascii_alphabetic() || c.is_ascii_graphic())
         {
             return InputOutcome::ActionThenForward(Action::FocusPrompt);
         }
