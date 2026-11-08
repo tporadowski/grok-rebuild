@@ -186,25 +186,28 @@ impl UserPromptBlock {
     }
 
     /// The elevated band behind user-prompt rows in the full TUI.
-    /// Minimal / terminal-native keeps bold only — no fill.
+    /// Minimal keeps bold only, with no fill.
     ///
-    /// RGB themes: `bg_light` (matches the fullscreen prompt band).
+    /// RGB themes use `bg_light`. The terminal theme mixes the background and
+    /// foreground the terminal reported.
     ///
     /// Takes `theme` so unit tests can call it without toggling `terminal_native_lock`, which races `Theme::current()`
     /// tests that do not hold the theme test mutex.
     fn prompt_band_color_for(
         theme: &Theme,
-        _is_selected: bool,
-        terminal_native: bool,
+        minimal: bool,
+        terminal_theme: bool,
     ) -> Option<ratatui::style::Color> {
         use ratatui::style::Color;
-        if terminal_native {
-            None
-        } else {
-            match theme.bg_light {
-                Color::Reset => None,
-                c => Some(c),
-            }
+        if minimal {
+            return None;
+        }
+        if terminal_theme {
+            return Some(crate::theme::terminal_prompt_band());
+        }
+        match theme.bg_light {
+            Color::Reset => None,
+            c => Some(c),
         }
     }
 
@@ -284,14 +287,13 @@ impl UserPromptBlock {
         width: u16,
         max_lines: Option<usize>,
         show_prefix: bool,
-        is_selected: bool,
+        _is_selected: bool,
     ) -> Vec<BlockLine> {
         let theme = Theme::current();
         // Minimal mode engages this lock; read it here instead of app state.
         let terminal_native = crate::theme::cache::terminal_native_locked();
-        // The terminal theme (fullscreen) renders prompts bandless: bold
-        // primary text instead of a bright-black band, which can sit too
-        // close to the default fg on some profiles. Minimal keeps its band.
+        // The terminal theme stays bold. Its band is a short step off the
+        // reported terminal background, not a bright-black fill.
         let attribute_emphasis = !terminal_native && crate::theme::cache::terminal_native_active();
         let (mut prefix_style, mut text_style, mut skill_style) =
             Self::prompt_styles(&theme, terminal_native);
@@ -304,9 +306,10 @@ impl UserPromptBlock {
         if terminal_native {
             turn_style = turn_style.add_modifier(Modifier::BOLD);
         }
-        let band = Self::prompt_band_color_for(&theme, is_selected, terminal_native);
+        let terminal_theme = !terminal_native && crate::theme::cache::current_kind().is_terminal_native();
+        let band = Self::prompt_band_color_for(&theme, terminal_native, terminal_theme);
         // Semantic line bg (not a "panel") so it survives minimal's flat_background.
-        // Bandless prompts (terminal theme) carry no extra selected cue: the
+        // The terminal-theme band is the same color selected or not: the
         // rewind picker and the dimmed tail already mark the target.
         let with_band = |line: BlockLine| -> BlockLine {
             match band {
@@ -699,17 +702,21 @@ mod tests {
         assert!(line_text(&line_at(&lines, 0).content).starts_with("$ "));
     }
 
-    /// Terminal theme (fullscreen): prompts render bandless — bold primary
-    /// text instead of a bright-black band — including when selected (the
-    /// rewind picker and dimmed tail carry the selection cue).
+    /// Terminal theme: prompts stay bold and sit on a band mixed from the
+    /// colors the terminal reported. Selection does not add a second fill.
     #[test]
-    fn terminal_theme_prompt_is_bold_and_bandless() {
+    fn terminal_theme_prompt_sits_on_the_reported_color_band() {
         let _guard = crate::theme::cache::pin_theme();
+        let _colors = crate::theme::prompt_band::ReportedColorsGuard::force(
+            Some((0xee, 0xee, 0xee)),
+            Some((0x1a, 0x1b, 0x26)),
+        );
         crate::theme::cache::set(crate::theme::ThemeKind::Terminal);
+        let band = crate::theme::terminal_prompt_band();
 
         let block = UserPromptBlock::new("hello");
         let lines = block.wrap_prompt_lines(80, None, true, false);
-        assert!(line_at(&lines, 0).background.is_none(), "no band");
+        assert_eq!(line_at(&lines, 0).background, Some(band));
         let text_span = line_at(&lines, 0).content.spans.last().unwrap();
         assert!(
             text_span.style.add_modifier.contains(Modifier::BOLD),
@@ -719,10 +726,7 @@ mod tests {
         assert!(!text_span.style.add_modifier.contains(Modifier::REVERSED));
 
         let selected = block.wrap_prompt_lines(80, None, true, true);
-        assert!(
-            line_at(&selected, 0).background.is_none(),
-            "selected: still no band"
-        );
+        assert_eq!(line_at(&selected, 0).background, Some(band));
         assert!(
             line_at(&selected, 0)
                 .content
@@ -731,6 +735,14 @@ mod tests {
                 .all(|s| !s.style.add_modifier.contains(Modifier::REVERSED)),
             "selected prompt carries no reverse video (picker + dim tail cue it)"
         );
+
+        crate::theme::cache::set_terminal_native_lock(true);
+        let minimal = block.wrap_prompt_lines(80, None, true, false);
+        assert!(
+            line_at(&minimal, 0).background.is_none(),
+            "minimal keeps the prompt unfilled"
+        );
+        crate::theme::cache::set_terminal_native_lock(false);
     }
 
     #[test]
@@ -1208,7 +1220,7 @@ mod tests {
     #[test]
     fn user_prompt_bold_only_in_minimal() {
         // Pinned: on the terminal theme fullscreen prompts are bold too
-        // (covered by terminal_theme_prompt_is_bold_and_bandless).
+        // (covered by terminal_theme_prompt_sits_on_the_reported_color_band).
         let _guard = crate::theme::cache::pin_theme();
         let theme = Theme::current();
         let (prefix, body, skill) = UserPromptBlock::prompt_styles(&theme, true);
@@ -1244,7 +1256,7 @@ mod tests {
     fn prompt_band_color_native_vs_rgb() {
         let theme = Theme::groknight();
         assert_eq!(
-            UserPromptBlock::prompt_band_color_for(&theme, false, true),
+            UserPromptBlock::prompt_band_color_for(&theme, true, false),
             None
         );
         assert_eq!(
@@ -1256,14 +1268,14 @@ mod tests {
             UserPromptBlock::prompt_band_color_for(&theme, false, false),
             Some(theme.bg_light)
         );
-        // Terminal-native palette: bg_light is Reset, so there is no RGB band outside native mode; native mode still uses the ANSI elevated slots
+        // A Reset palette is not the terminal theme unless the caller says so.
         let native = Theme::terminal_default();
         assert_eq!(
             UserPromptBlock::prompt_band_color_for(&native, false, false),
             None
         );
         assert_eq!(
-            UserPromptBlock::prompt_band_color_for(&native, false, true),
+            UserPromptBlock::prompt_band_color_for(&native, true, true),
             None
         );
     }

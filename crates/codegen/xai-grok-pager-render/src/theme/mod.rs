@@ -14,6 +14,7 @@ mod grokday;
 mod groknight;
 pub mod md_style;
 pub mod osc11;
+pub mod prompt_band;
 mod oscura;
 mod rosepine;
 pub mod system_appearance;
@@ -21,6 +22,7 @@ mod terminal_default;
 pub mod tokyonight;
 
 pub use color_support::quantize;
+pub use prompt_band::terminal_prompt_band;
 pub use tokyonight::{Theme, pulse_brightness, wave_brightness};
 
 use std::sync::LazyLock;

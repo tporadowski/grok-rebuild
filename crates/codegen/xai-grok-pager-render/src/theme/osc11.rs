@@ -58,6 +58,7 @@ fn query_osc11(query: &[u8], timeout: Duration) -> Option<SystemAppearance> {
     }
     let response = read_osc_response(timeout)?;
     let (r, g, b) = parse_osc11_rgb(&response)?;
+    super::prompt_band::record_reported_background((r, g, b));
     Some(classify_luminance(r, g, b))
 }
 
