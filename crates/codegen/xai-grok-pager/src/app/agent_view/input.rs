@@ -723,7 +723,7 @@ impl AgentView {
                     if key!('q', CONTROL).matches(key) {
                         return InputOutcome::Unchanged;
                     }
-                    self.handle_permission_key(key)
+                    self.handle_permission_key_with_registry(key, Some(registry))
                 }
                 Event::Mouse(mouse) => {
                     self.scrollbar_dragging = false;

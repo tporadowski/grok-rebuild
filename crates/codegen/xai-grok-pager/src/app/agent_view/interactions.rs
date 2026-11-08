@@ -28,6 +28,17 @@ impl AgentView {
     /// Like the question card it has an option-row mode and text modes (a followup message to the agent, and a hand-written always-allow pattern).
     /// `Esc` steps back down through them ([`AgentView::card_esc`]) and `Ctrl+C` is the only cancel.
     pub(super) fn handle_permission_key(&mut self, key: &KeyEvent) -> InputOutcome {
+        self.handle_permission_key_with_registry(key, None)
+    }
+
+    /// `registry` is the live shortcut map. When the pressed key is send-now
+    /// (Ctrl+O on Apple Terminal, where Ctrl+Enter never arrives), it must not
+    /// also flip always-approve.
+    pub(super) fn handle_permission_key_with_registry(
+        &mut self,
+        key: &KeyEvent,
+        registry: Option<&crate::actions::ActionRegistry>,
+    ) -> InputOutcome {
         use crate::views::permission_view::PermissionFocus;
         if key.code == KeyCode::Esc {
             return self.handle_card_esc();
@@ -99,7 +110,11 @@ impl AgentView {
                     }
                     return InputOutcome::Changed;
                 }
-                if key!('o', CONTROL).matches(key) {
+                if key!('o', CONTROL).matches(key)
+                    && !registry.is_some_and(|registry| {
+                        registry.matches_id(crate::actions::ActionId::InterjectPrompt, key)
+                    })
+                {
                     return InputOutcome::Action(Action::SetYoloMode(!self.session.is_yolo()));
                 }
                 let is_right = key.code == KeyCode::Right || key.code == KeyCode::Char('>');
@@ -1522,6 +1537,37 @@ mod permission_mouse_tests {
     }
     fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, modifiers)
+    }
+    /// Apple Terminal's send-now chord is Ctrl+O. That press must not flip
+    /// always-approve while the permission card has the keyboard. Where Ctrl+O
+    /// is only the always-approve chord, it still toggles.
+    #[test]
+    fn send_now_does_not_enable_always_approve_on_a_permission_card() {
+        use crossterm::event::Event;
+        let ctrl_o = key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+        let mut agent = make_agent();
+        setup_permission(&mut agent);
+        let was_yolo = agent.session.is_yolo();
+        let apple = ActionRegistry::apple_terminal_for_test();
+        let outcome = agent.handle_input(&Event::Key(ctrl_o), &apple);
+        assert!(
+            !matches!(outcome, InputOutcome::Action(Action::SetYoloMode(_))),
+            "send-now (Ctrl+O) must not enable always-approve, got {outcome:?}"
+        );
+        assert_eq!(agent.session.is_yolo(), was_yolo);
+        assert!(
+            !agent.permission_queue.is_empty(),
+            "the permission card stays open"
+        );
+
+        let mut agent = make_agent();
+        setup_permission(&mut agent);
+        let plain = ActionRegistry::non_vscode_for_test();
+        let outcome = agent.handle_input(&Event::Key(ctrl_o), &plain);
+        assert!(
+            matches!(outcome, InputOutcome::Action(Action::SetYoloMode(on)) if on),
+            "Ctrl+O that is not send-now still toggles always-approve, got {outcome:?}"
+        );
     }
     /// A bare digit still picks the option. Ctrl+\, Ctrl+1, Alt+1, and Shift+1 do not.
     #[test]
