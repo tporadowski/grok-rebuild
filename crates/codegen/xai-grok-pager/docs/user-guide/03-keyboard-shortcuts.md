@@ -84,6 +84,7 @@ auto-scroll is following the tail stops following so you can read; resume
 with `⇧G`, `j` at the last entry, scrolling past the bottom, or sending a new
 prompt. `⇧E` clears all pins, and `Ctrl+E` clears pins on thinking blocks.
 A double-click folds a thought that has text. A thought with no text stays as it is.
+Dragging across messages selects and copies the text of each message. It does not copy the messages as whole blocks.
 
 ### Block Content
 

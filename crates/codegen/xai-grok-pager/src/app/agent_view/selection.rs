@@ -312,7 +312,7 @@ impl AgentView {
         {
             let head = self
                 .selection_model_for_hit(&drag.anchor)
-                .hit_test_nearest_in_range(drag.anchor, col, row)
+                .hit_test_drag_head(drag.anchor, col, row)
                 .unwrap_or(drag.head);
             let kind = self.resolve_drag_kind(&drag.anchor, &head, drag.kind);
             if let Some(ref mut drag) = self.drag_selection {
@@ -544,7 +544,7 @@ impl AgentView {
         }
         let model = self.drag_model();
         let head = model
-            .hit_test_nearest_in_range(pending.anchor, mouse.column, mouse.row)
+            .hit_test_drag_head(pending.anchor, mouse.column, mouse.row)
             .unwrap_or(pending.anchor);
         tracing::debug!(
             event = "promote_text_drag",
@@ -634,7 +634,7 @@ impl AgentView {
         let is_btw = drag.anchor.entry_idx == BTW_OVERLAY_ENTRY_IDX;
         let head = self
             .selection_model_for_hit(&drag.anchor)
-            .hit_test_nearest_in_range(drag.anchor, mouse.column, mouse.row)
+            .hit_test_drag_head(drag.anchor, mouse.column, mouse.row)
             .unwrap_or(drag.head);
         let kind = self.resolve_drag_kind(&drag.anchor, &head, drag.kind);
         let changed = head != drag.head || kind != drag.kind;
@@ -755,8 +755,8 @@ impl AgentView {
                 col_within_range: sel.anchor.col_within_range,
             },
             head: RangeHit {
-                entry_idx: sel.entry_idx,
-                range_id: sel.range_id,
+                entry_idx: sel.head_entry_idx,
+                range_id: sel.head_range_id,
                 block_line_idx: sel.head.block_line_idx,
                 col_within_range: sel.head.col_within_range,
             },
@@ -840,6 +840,16 @@ impl AgentView {
             return reconstruct_selection_text(&self.last_btw_selection_model, drag)
                 .map(|text| (text, SelectionKind::Linear));
         }
+        if drag.anchor.entry_idx != drag.head.entry_idx
+            || drag.anchor.range_id != drag.head.range_id
+        {
+            return reconstruct_selection_text_with_boundaries(
+                &self.last_scrollback_selection_model,
+                &self.last_scrollback_selection_boundaries,
+                drag,
+            )
+            .map(|text| (text, SelectionKind::Linear));
+        }
         let scrollback = if let Some(ref child_id) = self.active_subagent
             && let Some(child) = self.subagent_views.get(child_id)
         {
@@ -895,6 +905,8 @@ impl AgentView {
         self.persistent_text_selection = Some(PersistentTextSelection {
             entry_idx: drag.anchor.entry_idx,
             range_id: drag.anchor.range_id,
+            head_entry_idx: drag.head.entry_idx,
+            head_range_id: drag.head.range_id,
             anchor: SelectionEndpoint {
                 block_line_idx: drag.anchor.block_line_idx,
                 col_within_range: drag.anchor.col_within_range,
@@ -1338,6 +1350,8 @@ impl AgentView {
         self.persistent_text_selection = Some(PersistentTextSelection {
             entry_idx: hit.entry_idx,
             range_id: hit.range_id,
+            head_entry_idx: hit.entry_idx,
+            head_range_id: hit.range_id,
             anchor: selection.anchor,
             head: selection.head,
             origin: SelectionOrigin::DoubleClick,
@@ -1390,6 +1404,8 @@ impl AgentView {
         self.persistent_text_selection = Some(PersistentTextSelection {
             entry_idx: hit.entry_idx,
             range_id: hit.range_id,
+            head_entry_idx: hit.entry_idx,
+            head_range_id: hit.range_id,
             anchor: SelectionEndpoint {
                 block_line_idx: hit.block_line_idx,
                 col_within_range: 0,
@@ -1504,6 +1520,8 @@ impl AgentView {
         self.persistent_text_selection = Some(PersistentTextSelection {
             entry_idx: hit.entry_idx,
             range_id: hit.range_id,
+            head_entry_idx: hit.entry_idx,
+            head_range_id: hit.range_id,
             anchor: SelectionEndpoint {
                 block_line_idx: first_block_line_idx,
                 col_within_range: 0,
@@ -1551,6 +1569,8 @@ impl AgentView {
         self.persistent_text_selection = Some(PersistentTextSelection {
             entry_idx: hit.entry_idx,
             range_id: hit.range_id,
+            head_entry_idx: hit.entry_idx,
+            head_range_id: hit.range_id,
             anchor: SelectionEndpoint {
                 block_line_idx: lines.start,
                 col_within_range: band.start,
@@ -1600,6 +1620,8 @@ impl AgentView {
         self.persistent_text_selection = Some(PersistentTextSelection {
             entry_idx: hit.entry_idx,
             range_id: hit.range_id,
+            head_entry_idx: hit.entry_idx,
+            head_range_id: hit.range_id,
             anchor: SelectionEndpoint {
                 block_line_idx: first.start,
                 col_within_range: geometry.band(0).start,
@@ -1906,6 +1928,8 @@ mod tests {
             Some(PersistentTextSelection {
                 entry_idx: 0,
                 range_id: 0,
+                head_entry_idx: 0,
+                head_range_id: 0,
                 anchor: SelectionEndpoint {
                     block_line_idx: 0,
                     col_within_range: 0,
@@ -2926,6 +2950,8 @@ mod tests {
         agent.persistent_text_selection = Some(PersistentTextSelection {
             entry_idx: BTW_OVERLAY_ENTRY_IDX,
             range_id: 0,
+            head_entry_idx: BTW_OVERLAY_ENTRY_IDX,
+            head_range_id: 0,
             anchor: SelectionEndpoint {
                 block_line_idx: 0,
                 col_within_range: 0,

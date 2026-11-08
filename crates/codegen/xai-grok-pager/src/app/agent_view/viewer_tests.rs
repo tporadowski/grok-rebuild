@@ -1214,6 +1214,8 @@ fn ctrl_l_in_the_scrollback_quotes_highlighted_text() {
     agent.persistent_text_selection = Some(PersistentTextSelection {
         entry_idx: 0,
         range_id: 0,
+        head_entry_idx: 0,
+        head_range_id: 0,
         anchor: SelectionEndpoint {
             block_line_idx: 0,
             col_within_range: 7,

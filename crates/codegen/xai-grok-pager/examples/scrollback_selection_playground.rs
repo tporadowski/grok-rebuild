@@ -168,6 +168,8 @@ impl App {
         self.persistent_selection = Some(PersistentTextSelection {
             entry_idx: hit.entry_idx,
             range_id: hit.range_id,
+            head_entry_idx: hit.entry_idx,
+            head_range_id: hit.range_id,
             anchor: sel.anchor,
             head: sel.head,
             origin: SelectionOrigin::DoubleClick,
@@ -196,6 +198,8 @@ impl App {
         self.persistent_selection = Some(PersistentTextSelection {
             entry_idx: hit.entry_idx,
             range_id: hit.range_id,
+            head_entry_idx: hit.entry_idx,
+            head_range_id: hit.range_id,
             anchor: SelectionEndpoint {
                 block_line_idx: hit.block_line_idx,
                 col_within_range: 0,

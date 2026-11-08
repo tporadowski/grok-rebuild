@@ -1801,6 +1801,8 @@ mod btw_focus_tests {
         agent.persistent_text_selection = Some(PersistentTextSelection {
             entry_idx: BTW_OVERLAY_ENTRY_IDX,
             range_id: 0,
+            head_entry_idx: BTW_OVERLAY_ENTRY_IDX,
+            head_range_id: 0,
             anchor: SelectionEndpoint {
                 block_line_idx: 0,
                 col_within_range: 0,
