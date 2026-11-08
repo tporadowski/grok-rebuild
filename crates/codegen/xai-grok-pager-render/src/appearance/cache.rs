@@ -241,20 +241,34 @@ thread_local! {
     static VIM_MODE_LOADED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Ephemeral process-wide source of truth; no Effect writes it back. First read seeds from `[ui].vim_mode`.
+/// Ephemeral process-wide source of truth; no Effect writes it back.
+/// First read seeds from `[keys] vim`, then `[ui] vim_mode`.
 pub fn load_vim_mode() -> bool {
     VIM_MODE_LOADED.with(|loaded| {
         if !loaded.get() {
-            VIM_MODE_CURRENT.with(|c| {
-                c.set(load_bool_from_effective_config(
-                    "vim_mode",
-                    VIM_MODE_DEFAULT,
-                ))
-            });
+            VIM_MODE_CURRENT.with(|c| c.set(read_vim_navigates_from_disk()));
             loaded.set(true);
         }
     });
     VIM_MODE_CURRENT.with(|c| c.get())
+}
+
+fn read_vim_navigates_from_disk() -> bool {
+    let Ok(root) = xai_grok_config::load_effective_config_disk_only() else {
+        return VIM_MODE_DEFAULT;
+    };
+    let keys_vim = root
+        .get("keys")
+        .and_then(|keys| keys.get("vim"))
+        .and_then(|value| value.as_str());
+    let legacy = root
+        .get("ui")
+        .and_then(|ui| ui.get("vim_mode"))
+        .and_then(|value| value.as_bool());
+    if keys_vim.is_none() && legacy.is_none() {
+        return VIM_MODE_DEFAULT;
+    }
+    xai_grok_shared::keys_config::resolve_vim_keys(keys_vim, legacy).navigates()
 }
 
 /// Replace cached `vim_mode`.

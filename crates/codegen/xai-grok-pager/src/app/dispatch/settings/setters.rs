@@ -345,7 +345,7 @@ pub(super) fn set_vim_mode_inner(app: &mut AppView, new: bool) {
 }
 
 /// Set vim-mode scrollback keybindings (registry-driven path).
-/// SHELL-OWNED: persisted to `[ui].vim_mode` in config.toml via `Effect::PersistSetting`.
+/// SHELL-OWNED: persisted as `[keys] vim` (`nav` or `off`) and the legacy `[ui].vim_mode` bool.
 /// Propagates to every in-process agent.
 pub(in crate::app::dispatch) fn set_vim_mode(app: &mut AppView, new: bool) -> Vec<Effect> {
     let prev = crate::appearance::cache::load_vim_mode();

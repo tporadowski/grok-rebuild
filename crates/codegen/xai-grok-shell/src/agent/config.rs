@@ -762,6 +762,9 @@ pub struct Config {
     pub hints: Option<toml::Value>,
     #[serde(default)]
     pub ui: UiConfig,
+    /// `[keys]`. `vim` is `off`, `nav`, or `all`. Absent means "use `[ui] vim_mode`".
+    #[serde(default)]
+    pub keys: KeysConfig,
     #[serde(default)]
     pub toolset: ShellToolsetConfig,
     /// Validation only; the value is parsed at spawn by `resolve_shell_env_policy`.
@@ -1057,6 +1060,14 @@ pub use xai_grok_agent::config::AgentDefinition;
 pub use xai_grok_agent::config::Effort;
 pub use xai_grok_agent::config::PermissionMode;
 pub use xai_grok_shared::ui_config::{ContextualHints, UiConfig};
+
+/// `[keys]` table. `vim` stays a string so an unrecognized value does not fail the whole file.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct KeysConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vim: Option<String>,
+}
 /// Set in `config.toml` under `[agent]`: Priority (highest to lowest): ACP session-level `_meta.agentProfile`
 /// CLI `--agent-profile` flag `[agent]` config.toml section (this config) `GROK_AGENT` env var
 /// Default `grok-build` agent
@@ -1140,6 +1151,7 @@ impl Default for Config {
             model_providers: IndexMap::new(),
             hints: None,
             ui: UiConfig::default(),
+            keys: KeysConfig::default(),
             toolset: ShellToolsetConfig::default(),
             shell_environment_policy: ShellEnvironmentPolicyKnownKeys::default(),
             endpoints,

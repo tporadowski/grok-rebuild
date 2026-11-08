@@ -24,6 +24,8 @@ pub use config::{
     RawAltScreenMode, RawAppearanceConfig, RawTerminalConfig, ScrollConfig, ScrollbackConfig,
     ScrollbarConfig, ToolBullet, ToolConfig, persist_respect_manual_folds,
 };
+pub use xai_grok_shared::keys_config::{VimKeys, resolve_vim_keys, vim_keys_for_bool};
+
 pub use follow_up_behavior::FollowUpBehavior;
 pub use render_mermaid::RenderMermaid;
 pub use scroll_mode::ScrollMode;

@@ -89,6 +89,7 @@ pub fn load_config_from_toml(root: &TomlValue) -> Config {
         cli: section(table, "cli"),
         models: section(table, "models"),
         ui: section(table, "ui"),
+        keys: section(table, "keys"),
         harness: {
             let mut harness: crate::agent::config::HarnessConfig = section(table, "harness");
             harness.merge_deprecated_keys();

@@ -456,9 +456,15 @@ pub async fn set_scroll_lines(value: i64) -> Result<()> {
     update_config(|cfg| cfg.ui.scroll_lines = Some(clamped)).await
 }
 
-/// Persist `[ui].vim_mode` via `update_config`.
+/// Persist vim navigation. `[keys] vim` is the setting (`nav` or `off`).
+/// `[ui] vim_mode` is written to the same value so older readers stay aligned.
 pub async fn set_vim_mode(value: bool) -> Result<()> {
-    update_config(|cfg| cfg.ui.vim_mode = Some(value)).await
+    update_config(|cfg| write_vim_mode(cfg, value)).await
+}
+
+pub(crate) fn write_vim_mode(cfg: &mut super::mcp::Config, enabled: bool) {
+    cfg.keys.vim = Some(xai_grok_shared::keys_config::vim_keys_for_bool(enabled).to_owned());
+    cfg.ui.vim_mode = Some(enabled);
 }
 
 /// Persist `[ui].remember_tool_approvals` via `update_config`.
@@ -582,4 +588,21 @@ pub async fn set_show_tips(value: bool) -> Result<()> {
 /// Restart-required: auto-update check fires once on startup.
 pub async fn set_auto_update(value: bool) -> Result<()> {
     update_config(|cfg| cfg.cli.auto_update = Some(value)).await
+}
+
+#[cfg(test)]
+mod vim_keys_write_tests {
+    use super::write_vim_mode;
+
+    #[test]
+    fn write_vim_mode_stores_keys_vim_and_the_legacy_bool() {
+        let mut cfg = super::super::mcp::Config::default();
+        cfg.ui.vim_mode = Some(false);
+        write_vim_mode(&mut cfg, true);
+        assert_eq!(cfg.keys.vim.as_deref(), Some("nav"));
+        assert_eq!(cfg.ui.vim_mode, Some(true));
+        write_vim_mode(&mut cfg, false);
+        assert_eq!(cfg.keys.vim.as_deref(), Some("off"));
+        assert_eq!(cfg.ui.vim_mode, Some(false));
+    }
 }

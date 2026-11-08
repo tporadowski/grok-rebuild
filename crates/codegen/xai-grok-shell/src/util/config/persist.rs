@@ -52,6 +52,7 @@ async fn save_config_locked(
     merge_section(table, "cli", &config.cli);
     merge_section(table, "models", &config.models);
     merge_section(table, "ui", &config.ui);
+    merge_section(table, "keys", &config.keys);
     strip_builtin_fork_secondary_model(table, &config.ui.fork_secondary_model);
     merge_section(table, "harness", &config.harness);
     merge_section(table, "session", &config.session);

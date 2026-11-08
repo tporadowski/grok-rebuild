@@ -4,6 +4,7 @@
 #![deny(clippy::indexing_slicing)]
 
 pub mod clipboard;
+pub mod keys_config;
 pub mod placeholder_images;
 pub mod session;
 pub mod stderr;

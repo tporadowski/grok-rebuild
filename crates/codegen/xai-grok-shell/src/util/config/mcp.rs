@@ -36,6 +36,8 @@ pub struct Config {
     pub cli: crate::agent::config::CliConfig,
     pub models: crate::agent::config::ModelsConfig,
     pub ui: crate::agent::config::UiConfig,
+    /// `[keys]`. Round-tripped so `/vim-mode` can persist `vim = "nav"|"off"`.
+    pub keys: crate::agent::config::KeysConfig,
     pub harness: crate::agent::config::HarnessConfig,
     pub skills: SkillsConfig,
     /// Round-tripped so the pager preserves per-vendor toggles when persisting other settings.
