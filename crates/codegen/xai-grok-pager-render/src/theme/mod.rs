@@ -498,6 +498,11 @@ impl Theme {
             text_primary: high_contrast_fg,
             text_secondary: muted_fg,
             md_text: high_contrast_fg,
+            // Paste chips and tool rows use the same readable gray as secondary text.
+            // Brackets are `paste_dim`. The dim slot is silver on a light canvas, so it disappears on white.
+            paste_fg: muted_fg,
+            paste_dim: muted_fg,
+            accent_tool: muted_fg,
             // Selected user-prompt `>` (drives the user selection accent and the OSC 12 cursor color) takes max-contrast fg
             // The selection pops against the canvas: White on dark, Black on light
             accent_user: high_contrast_fg,
@@ -1096,6 +1101,26 @@ mod tests {
         assert_eq!(t_light.gray_bright, Color::DarkGray);
         assert_eq!(t_light.gray_dim, Color::Gray);
         assert_ne!(t_light.gray, t_light.gray_dim);
+    }
+
+    #[test]
+    fn ansi16_paste_label_and_tool_accent_use_secondary_gray() {
+        use ratatui::style::Color;
+        let t_dark = Theme::groknight().ansi16_chrome_overrides(true);
+        assert_eq!(t_dark.paste_fg, t_dark.text_secondary);
+        assert_eq!(t_dark.paste_dim, t_dark.text_secondary);
+        assert_eq!(t_dark.accent_tool, t_dark.text_secondary);
+        assert_eq!(t_dark.text_secondary, Color::Gray);
+        assert_ne!(t_dark.paste_dim, t_dark.paste_bg);
+
+        let t_light = Theme::grokday().ansi16_chrome_overrides(false);
+        assert_eq!(t_light.paste_fg, t_light.text_secondary);
+        assert_eq!(t_light.paste_dim, t_light.text_secondary);
+        assert_eq!(t_light.accent_tool, t_light.text_secondary);
+        assert_eq!(t_light.text_secondary, Color::DarkGray);
+        assert_ne!(t_light.paste_dim, Color::White);
+        assert_ne!(t_light.paste_dim, Color::Gray);
+        assert_ne!(t_light.paste_dim, t_light.paste_bg);
     }
 
     #[test]
