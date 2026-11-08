@@ -2298,6 +2298,70 @@ fn switch_to_agent_reanchors_stale_global_auto() {
     );
     assert!(!agent_ref(&app, id2).session.is_auto());
 }
+
+/// A cold `/resume` while a dashboard overlay is open follows the overlay onto the loaded agent.
+/// Left and Ctrl+\ still back out. A load from a session that is not the overlay does not attach.
+#[test]
+fn cold_resume_from_the_dashboard_overlay_stays_attached() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+
+    let mut app = test_app_with_agent();
+    let visible = AgentId(1);
+    let session = make_test_agent_session(&app, visible, "cold-resume");
+    app.agents
+        .insert(visible, AgentView::new(session, ScrollbackState::new()));
+    app.dashboard = Some(crate::views::dashboard::DashboardState::new());
+    switch_to_agent(&mut app, visible, SwitchCause::Load);
+    assert!(
+        app.dashboard
+            .as_ref()
+            .is_some_and(|dashboard| dashboard.attached_agent.is_none()),
+        "a load that did not start on the overlay must not attach"
+    );
+
+    app.dashboard.as_mut().unwrap().attached_agent = Some(visible);
+    let resumed = AgentId(2);
+    let session = make_test_agent_session(&app, resumed, "resumed-session");
+    app.agents
+        .insert(resumed, AgentView::new(session, ScrollbackState::new()));
+    switch_to_agent(&mut app, resumed, SwitchCause::Load);
+    assert_eq!(app.active_view, ActiveView::Agent(resumed));
+    assert_eq!(
+        app.dashboard
+            .as_ref()
+            .and_then(|dashboard| dashboard.attached_agent),
+        Some(resumed),
+        "cold resume keeps the overlay on the loaded session"
+    );
+
+    {
+        let agent = app.agents.get_mut(&resumed).unwrap();
+        agent.active_pane = ActivePane::Prompt;
+        assert!(agent.prompt.text().is_empty());
+    }
+    let left = app.handle_input(&Event::Key(KeyEvent::new(
+        KeyCode::Left,
+        KeyModifiers::NONE,
+    )));
+    assert!(
+        matches!(
+            left,
+            crate::app::app_view::InputOutcome::Action(Action::DashboardOverlayExit)
+        ),
+        "Left still backs out of the overlay, got {left:?}"
+    );
+    let backslash = app.handle_input(&Event::Key(KeyEvent::new(
+        KeyCode::Char('\\'),
+        KeyModifiers::CONTROL,
+    )));
+    assert!(
+        matches!(
+            backslash,
+            crate::app::app_view::InputOutcome::Action(Action::DashboardOverlayExit)
+        ),
+        "Ctrl+\\ still backs out of the overlay, got {backslash:?}"
+    );
+}
 #[test]
 fn show_tasks_empty_commits_empty_message() {
     let mut app = test_app_with_agent();

@@ -297,8 +297,12 @@ pub(crate) fn switch_to_agent(app: &mut AppView, target: AgentId, cause: SwitchC
     app.sync_permission_mode_slash_gate();
     surface_yolo_launch_block_notice(app, target);
 
-    if matches!(cause, SwitchCause::New | SwitchCause::Fork)
-        && let Some(previous) = previous_top_level
+    // New, fork, and `/resume` keep a dashboard overlay on the agent now on screen.
+    // Left and Ctrl+\ back out only while `attached_agent` is that agent.
+    if matches!(
+        cause,
+        SwitchCause::New | SwitchCause::Fork | SwitchCause::Load
+    ) && let Some(previous) = previous_top_level
         && let Some(d) = app.dashboard.as_mut()
     {
         d.repoint_attach_if_on(previous, target);
