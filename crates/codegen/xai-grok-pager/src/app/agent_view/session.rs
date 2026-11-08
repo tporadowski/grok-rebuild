@@ -438,6 +438,9 @@ impl AgentView {
             prompt_ack: None,
             cancel_latency: None,
             expect_send_now_cancel: None,
+            send_now_cancel_ids: Vec::new(),
+            send_now_follow_ids: Vec::new(),
+            send_now_armed_ids: Vec::new(),
             front_message_committed: true,
             optimistic_queue_ids: std::collections::HashSet::new(),
             send_now_awaiting_confirm: None,
@@ -773,19 +776,10 @@ impl AgentView {
     /// it. Deliberately NOT used by server-initiated synthetic turns
     /// (auto-wake / actor runs): they never call `start_turn`.
     pub(crate) fn start_turn_boundary(&mut self, starting_prompt_id: Option<&str>) {
-        if self
-            .expect_send_now_cancel
-            .as_deref()
-            .is_some_and(|id| Some(id) != starting_prompt_id)
-        {
-            self.expect_send_now_cancel = None;
-        }
-        if self
-            .follow_without_jump_prompt_id
-            .as_deref()
-            .is_some_and(|id| Some(id) != starting_prompt_id)
-        {
-            self.follow_without_jump_prompt_id = None;
+        // An unrelated prompt drops the whole chain. Adopting one send-now in a
+        // row of them keeps the others, so their stopped turns stay silent.
+        if !starting_prompt_id.is_some_and(|id| self.send_now_chain_contains(id)) {
+            self.clear_send_now_expectation();
         }
         self.front_message_committed = false;
         self.pending_cancel_resend = None;

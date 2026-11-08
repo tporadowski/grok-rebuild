@@ -4364,6 +4364,78 @@ fn send_prompt_now_dispatch_arms_expectation_and_suppresses_marker() {
     );
 }
 
+/// Two Send nows before either stopped turn ends: both stay silent, and a later real cancel still shows its marker.
+#[test]
+fn two_send_nows_in_a_row_do_not_label_the_stopped_turns_cancelled() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    dispatch(Action::SendPrompt("running".into()), &mut app);
+    app.agents.get_mut(&id).unwrap().front_message_committed = true;
+
+    let first = dispatch(
+        Action::SendPromptNow {
+            text: "one".into(),
+            images: vec![],
+            image_notice: None,
+        },
+        &mut app,
+    );
+    let second = dispatch(
+        Action::SendPromptNow {
+            text: "two".into(),
+            images: vec![],
+            image_notice: None,
+        },
+        &mut app,
+    );
+    let first_id = match first.as_slice() {
+        [Effect::SendPromptNow { prompt_id, .. }] => prompt_id.clone(),
+        other => panic!("first send-now, got {other:?}"),
+    };
+    let second_id = match second.as_slice() {
+        [Effect::SendPromptNow { prompt_id, .. }] => prompt_id.clone(),
+        other => panic!("second send-now, got {other:?}"),
+    };
+    assert_ne!(first_id, second_id);
+    assert_eq!(
+        agent_ref(&app, id).send_now_cancel_ids,
+        vec![first_id.clone(), second_id.clone()]
+    );
+
+    let _ = dispatch(cancelled_prompt_response(id, None), &mut app);
+    assert_eq!(count_cancelled_markers(&app, id), 0);
+    assert_eq!(
+        agent_ref(&app, id).expect_send_now_cancel.as_deref(),
+        Some(second_id.as_str()),
+        "the later send-now stays armed after the first stopped turn ends"
+    );
+
+    super::super::queue::apply_turn_start_shim(
+        app.agents.get_mut(&id).unwrap(),
+        first_id,
+        Some("one".into()),
+        "prompt",
+        None,
+    );
+    let _ = dispatch(cancelled_prompt_response(id, None), &mut app);
+    assert_eq!(
+        count_cancelled_markers(&app, id),
+        0,
+        "the second stopped turn is not labelled cancelled"
+    );
+    assert!(agent_ref(&app, id).expect_send_now_cancel.is_none());
+
+    dispatch(Action::SendPrompt("after".into()), &mut app);
+    app.agents.get_mut(&id).unwrap().session.in_flight_prompt = None;
+    let _ = dispatch(Action::CancelTurn, &mut app);
+    let _ = dispatch(cancelled_prompt_response(id, None), &mut app);
+    assert_eq!(
+        count_cancelled_markers(&app, id),
+        1,
+        "a later real cancel still shows its marker"
+    );
+}
+
 /// Older-shell control: a plain `SendPrompt` during a held wait stays unarmed, so a meta-less cancel still renders its marker.
 #[test]
 fn plain_send_during_blocking_wait_does_not_arm_and_meta_less_cancel_is_visible() {

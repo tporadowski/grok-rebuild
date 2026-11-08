@@ -536,7 +536,7 @@ pub(super) fn finalize_turn_from_terminal(
 
     // Wire meta wins; else the client-side expectation (older-shell fallback).
     // Taken at every viewer finalize so it can't go stale.
-    let expected_send_now = agent.expect_send_now_cancel.take();
+    let expected_send_now = agent.take_send_now_cancel_for_turn_end();
     let send_now_cancel = match cancel_trigger {
         Some(trigger) => trigger == "send_now",
         None => expected_send_now.is_some(),
@@ -639,7 +639,7 @@ pub(super) fn finalize_child_view_turn(
     let expected_send_now = if other_prompt {
         None
     } else {
-        child.expect_send_now_cancel.take()
+        child.take_send_now_cancel_for_turn_end()
     };
     let send_now_cancel = match cancel_trigger {
         Some(trigger) => trigger == "send_now",

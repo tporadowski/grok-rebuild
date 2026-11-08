@@ -877,10 +877,8 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             if let Some(agent) = app.agents.get_mut(&agent_id) {
                 agent.shared_queue.retain(|e| e.id != prompt_id);
                 agent.note_queue_echo_retired(&prompt_id);
-                if agent.expect_send_now_cancel.as_deref() == Some(prompt_id.as_str())
-                    || agent.follow_without_jump_prompt_id.as_deref() == Some(prompt_id.as_str())
-                {
-                    agent.clear_send_now_expectation();
+                if agent.send_now_chain_contains(&prompt_id) {
+                    agent.forget_send_now_id(&prompt_id);
                 }
                 agent.retire_send_now_painted_block(&prompt_id);
                 let text = blocks

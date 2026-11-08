@@ -909,16 +909,16 @@ pub(crate) fn apply_turn_start_shim(
     let adopted_from_other_client = !agent.is_self_originated_prompt(&prompt_id);
     // Sticky pin and still-armed send-now expect (not cleared on adopt; the cancel rail may still need it)
     // Either covers adopt-before-cancel
-    let skip_entry_top = agent
-        .follow_without_jump_prompt_id
-        .as_ref()
-        .is_some_and(|id| id == &prompt_id)
-        || agent
-            .expect_send_now_cancel
-            .as_ref()
-            .is_some_and(|id| id == &prompt_id);
-    // Always drop pin (hit or miss) so a stale queue-row id cannot skip later.
-    agent.follow_without_jump_prompt_id = None;
+    let skip_entry_top = agent.send_now_chain_contains(&prompt_id);
+    // Drop this id's jump pin. A later send-now in the same row keeps its own.
+    if skip_entry_top {
+        agent.send_now_follow_ids.retain(|id| id != &prompt_id);
+        if agent.follow_without_jump_prompt_id.as_deref() == Some(prompt_id.as_str()) {
+            agent.follow_without_jump_prompt_id = agent.send_now_follow_ids.last().cloned();
+        }
+    } else {
+        agent.clear_send_now_expectation();
+    }
     tracing::debug!(
         target: "qtrace",
         pid = std::process::id(),
@@ -2704,6 +2704,65 @@ mod tests {
             bottom_m,
             "mismatched arm must still scroll_to_entry_top"
         );
+    }
+
+    /// Two Send nows armed before either is adopted: each adoption follows in place.
+    #[test]
+    fn two_send_nows_in_a_row_do_not_jump_the_transcript() {
+        crate::appearance::cache::set_page_flip_on_send(true);
+        fn seed_tall_scrollback(agent: &mut crate::app::agent_view::AgentView) -> usize {
+            for i in 0..40 {
+                agent
+                    .scrollback
+                    .push_block(RenderBlock::agent_message(format!(
+                        "seeded assistant line {i}: filler so entry-top and bottom offsets diverge"
+                    )));
+            }
+            agent.scrollback.prepare_layout(80, 8);
+            agent.scrollback.goto_bottom();
+            agent.scrollback.scroll_offset()
+        }
+
+        let mut app_jump = test_app_with_agent();
+        let agent_j = app_jump.agents.get_mut(&AgentId(0)).unwrap();
+        let bottom_j = seed_tall_scrollback(agent_j);
+        agent_j.note_self_originated_prompt("p-jump");
+        apply_turn_start_shim(
+            agent_j,
+            "p-jump".into(),
+            Some("jump".into()),
+            "prompt",
+            None,
+        );
+        let jumped = agent_j.scrollback.scroll_offset();
+        assert_ne!(jumped, bottom_j);
+
+        let mut app = test_app_with_agent();
+        let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+        let bottom = seed_tall_scrollback(agent);
+        agent.note_self_originated_prompt("p-a");
+        agent.note_self_originated_prompt("p-b");
+        agent.arm_send_now_expectation("p-a".into());
+        agent.arm_send_now_expectation("p-b".into());
+        apply_turn_start_shim(agent, "p-a".into(), Some("first".into()), "prompt", None);
+        assert_eq!(
+            agent.scrollback.scroll_offset(),
+            bottom,
+            "the first send-now stays where the transcript was"
+        );
+        assert_eq!(
+            agent.follow_without_jump_prompt_id.as_deref(),
+            Some("p-b"),
+            "the second send-now keeps its pin"
+        );
+        apply_turn_start_shim(agent, "p-b".into(), Some("second".into()), "prompt", None);
+        assert_eq!(
+            agent.scrollback.scroll_offset(),
+            bottom,
+            "the second send-now does not jump either"
+        );
+        assert!(agent.follow_without_jump_prompt_id.is_none());
+        assert_ne!(agent.scrollback.scroll_offset(), jumped);
     }
 
     /// Shell user-echo can paint the prompt before the deferred turn-start shim runs.

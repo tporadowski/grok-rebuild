@@ -1559,7 +1559,7 @@ pub(super) fn handle_prompt_response(
             );
         // Send-now cancel: suppress the "Turn cancelled by user" marker (the new prompt follows right under the partial)
         // Wire `cancelTrigger` wins, else the client-side expectation; consumed at every turn end (no stale flag)
-        let expected_send_now = agent.expect_send_now_cancel.take();
+        let expected_send_now = agent.take_send_now_cancel_for_turn_end();
         let wire_cancel_trigger = result.as_ref().ok().and_then(|pr| {
             pr.meta
                 .as_ref()?

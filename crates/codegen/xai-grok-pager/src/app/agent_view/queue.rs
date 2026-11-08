@@ -9,6 +9,12 @@ use crate::app::app_view::InputOutcome;
 use crate::views::queue_mutation::ServerRowCapabilities;
 use crossterm::event::KeyEvent;
 
+fn push_unique(ids: &mut Vec<String>, id: &str) {
+    if !ids.iter().any(|existing| existing == id) {
+        ids.push(id.to_string());
+    }
+}
+
 impl AgentView {
     /// Remove a local queue row: fix selection, drop the entry, hide the pane if the merged view emptied.
     /// Returns the removed prompt, if any.
@@ -123,9 +129,49 @@ impl AgentView {
     }
 
     /// Set both send-now expectations: the cancel marker and the follow-without-jump pin. Gate with [`Self::expects_send_now_cancel`].
+    /// A second send-now joins the chain. It does not replace the first.
     pub(crate) fn arm_send_now_expectation(&mut self, prompt_id: String) {
+        push_unique(&mut self.send_now_follow_ids, &prompt_id);
+        push_unique(&mut self.send_now_cancel_ids, &prompt_id);
+        push_unique(&mut self.send_now_armed_ids, &prompt_id);
         self.follow_without_jump_prompt_id = Some(prompt_id.clone());
         self.expect_send_now_cancel = Some(prompt_id);
+    }
+
+    /// Whether `prompt_id` is one of the send-nows still in flight.
+    pub(crate) fn send_now_chain_contains(&self, prompt_id: &str) -> bool {
+        self.expect_send_now_cancel.as_deref() == Some(prompt_id)
+            || self.follow_without_jump_prompt_id.as_deref() == Some(prompt_id)
+            || self.send_now_cancel_ids.iter().any(|id| id == prompt_id)
+            || self.send_now_follow_ids.iter().any(|id| id == prompt_id)
+            || self.send_now_armed_ids.iter().any(|id| id == prompt_id)
+    }
+
+    /// Drop one send-now from the chain (its dispatch failed). The others stay.
+    pub(crate) fn forget_send_now_id(&mut self, prompt_id: &str) {
+        self.send_now_cancel_ids.retain(|id| id != prompt_id);
+        self.send_now_follow_ids.retain(|id| id != prompt_id);
+        self.send_now_armed_ids.retain(|id| id != prompt_id);
+        if self.expect_send_now_cancel.as_deref() == Some(prompt_id) {
+            self.expect_send_now_cancel = self.send_now_cancel_ids.last().cloned();
+        }
+        if self.follow_without_jump_prompt_id.as_deref() == Some(prompt_id) {
+            self.follow_without_jump_prompt_id = self.send_now_follow_ids.last().cloned();
+        }
+    }
+
+    /// Consume one send-now cancel token. Oldest first, so each stopped turn in a row stays silent.
+    pub(crate) fn take_send_now_cancel_for_turn_end(&mut self) -> Option<String> {
+        let from_chain = if self.send_now_cancel_ids.is_empty() {
+            None
+        } else {
+            Some(self.send_now_cancel_ids.remove(0))
+        };
+        let from_slot = self.expect_send_now_cancel.take();
+        if let Some(latest) = self.send_now_cancel_ids.last().cloned() {
+            self.expect_send_now_cancel = Some(latest);
+        }
+        from_chain.or(from_slot)
     }
 
     pub(crate) fn send_now_awaiting_current(&self) -> bool {
@@ -138,6 +184,9 @@ impl AgentView {
     pub(crate) fn clear_send_now_expectation(&mut self) {
         self.expect_send_now_cancel = None;
         self.follow_without_jump_prompt_id = None;
+        self.send_now_cancel_ids.clear();
+        self.send_now_follow_ids.clear();
+        self.send_now_armed_ids.clear();
     }
 
     /// This is the active-goal Send Now flow: painted optimistically without arming a cancel expectation.

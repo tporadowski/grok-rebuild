@@ -1497,13 +1497,19 @@ pub struct AgentView {
     /// and aborts the turn if the shell never acknowledges.
     pub(crate) prompt_ack: Option<crate::app::prompt_ack::PromptAckWatch>,
     pub(crate) cancel_latency: Option<CancelLatency>,
-    /// Send-now cancel expectation: the client-minted id of an explicit cancel-and-send this client dispatched into a running turn (send-now chord / `SendPromptNow`, or queue-row "Send now"). The running turn's imminent cancel is the silent half of cancel-and-send, so the turn-end rails suppress the "Turn cancelled by user …" marker.
-    /// Compat fallback only: a wire `_meta.cancelTrigger` on the turn end is trusted over this flag (`"send_now"` suppresses, anything else renders). Consumed at every driver turn end. Kept across the matching send-now prompt's turn start (so the outgoing turn's cancel
-    /// PromptResponse can still suppress the marker when it races behind the adopt), but cleared on a non-matching turn start / interactive cancel / replay-window entry, so a stale expectation can never eat a later real
+    /// Latest send-now id. The chain below keeps every send-now that has not yet consumed a stopped turn, so a second press does not drop the first.
+    /// Compat fallback only: a wire `_meta.cancelTrigger` on the turn end is trusted over this flag (`"send_now"` suppresses, anything else renders). One id is consumed at every driver turn end. Kept across a matching send-now's turn start (so the outgoing turn's cancel
+    /// PromptResponse can still suppress the marker when it races behind the adopt), but cleared on a non-matching turn start / interactive cancel / replay-window entry, so a stale expectation can never eat a later real cancel.
     pub(crate) expect_send_now_cancel: Option<String>,
+    /// Send-now ids whose stopped turn has not ended yet, oldest first.
+    pub(crate) send_now_cancel_ids: Vec<String>,
+    /// Send-now ids still waiting to be adopted without an entry-top jump.
+    pub(crate) send_now_follow_ids: Vec<String>,
+    /// Every send-now id armed since the last unrelated turn start. Adoption of one does not drop the others.
+    pub(crate) send_now_armed_ids: Vec<String>,
     /// Cleared at turn start; set on the first live non-echo update. Defaults true.
     pub(crate) front_message_committed: bool,
-    /// Send-now promote: skip `scroll_to_entry_top` on next matching adoption.
+    /// Latest send-now whose adoption should follow in place. The chain is [`Self::send_now_follow_ids`].
     /// Survives cancel-rail `take()` of [`Self::expect_send_now_cancel`].
     pub(crate) follow_without_jump_prompt_id: Option<String>,
     /// Ids of THIS client's server-queue rows that are still optimistic echoes: the `session/prompt` RPC is in flight and no `x.ai/queue/changed` broadcast has confirmed the row yet. Inserted by the echo push, drained when a broadcast lists the id (queued or running) or the RPC resolves without the row landing.

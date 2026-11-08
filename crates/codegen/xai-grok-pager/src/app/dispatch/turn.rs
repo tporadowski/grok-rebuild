@@ -625,7 +625,7 @@ pub(crate) fn reconcile_overdue_turn_ends(app: &mut AppView) -> Option<Vec<Effec
             || pending.stop_reason.as_deref() == Some("cancelled");
         // Send-now cancel: suppress the marker (wire `cancelTrigger` wins, else the armed expectation)
         // Consumed every reconcile (no stale flag)
-        let expected_send_now = agent.expect_send_now_cancel.take();
+        let expected_send_now = agent.take_send_now_cancel_for_turn_end();
         let send_now_cancel = was_cancelling
             && match pending.cancel_trigger.as_deref() {
                 Some(trigger) => trigger == "send_now",
