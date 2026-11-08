@@ -459,6 +459,12 @@ impl TerminalContext {
             || self.kitty_multiplexer_skip_reason().is_some()
     }
 
+    /// Ctrl+Enter is delivered as a plain Enter. tmux does this unless `extended-keys` is on.
+    /// The send-now footer then names the two-press gesture instead of a chord that never arrives.
+    pub fn ctrl_enter_arrives_as_plain_enter(&self) -> bool {
+        self.kitty_skip_reason().is_some()
+    }
+
     /// Without KKP, Ctrl+. is not a C0 control and collapses to `.`. Follows [`Self::kitty_skip_reason`] so mux skips stay aligned.
     /// VS Code still swallows Ctrl+. for its own palette after Kitty keyboard protocol is on for Shift+Enter.
     pub fn ctrl_dot_unreliable(&self) -> bool {

@@ -8,7 +8,7 @@
 //!
 //! The drawing itself happens in [`AgentView::draw()`](crate::app::agent_view::AgentView::draw).
 //! It renders the shared widgets (StatusBar, ScrollbackPane, PromptWidget, ShortcutsBar) and uses these helpers for the agent-specific glue.
-use crate::actions::{ActionId, ActionRegistry, When};
+use crate::actions::{ActionDef, ActionId, ActionRegistry, When};
 use crate::app::agent_view::ViewSurface;
 use crate::appearance::{LayoutConfig, ScrollbarConfig};
 use crate::render::SafeBuf;
@@ -708,6 +708,7 @@ pub(crate) fn build_hints(
     selected_is_agent_message: bool,
     prefer_alt_enter_newline: bool,
     scrollback_search: Option<&ScrollbackSearchState>,
+    ctrl_enter_is_plain_enter: bool,
 ) -> Vec<HintItem> {
     let mut hints = match active_pane {
         ActivePane::Todo => {
@@ -747,7 +748,7 @@ pub(crate) fn build_hints(
                     HintItem::new(crate::key!('y'), "copy"),
                 ];
                 if is_turn_running && let Some(def) = registry.find(ActionId::InterjectPrompt) {
-                    hints.push(def.hint());
+                    hints.push(send_now_footer_hint(def, ctrl_enter_is_plain_enter));
                 }
                 hints
             }
@@ -1000,7 +1001,7 @@ pub(crate) fn build_hints(
         && ActionRegistry::interjection_possible(is_turn_running, has_composer_payload)
         && let Some(def) = registry.find(ActionId::InterjectPrompt)
     {
-        hints.push(def.hint());
+        hints.push(send_now_footer_hint(def, ctrl_enter_is_plain_enter));
     }
     if can_demote
         && surface == ViewSurface::Root
@@ -1013,6 +1014,21 @@ pub(crate) fn build_hints(
     }
     hints
 }
+
+/// Footer label for send-now. Where Ctrl+Enter arrives as plain Enter, the bar shows `Enter Enter`.
+fn send_now_footer_hint(def: &ActionDef, ctrl_enter_is_plain_enter: bool) -> HintItem {
+    let mut hint = def.hint();
+    if ctrl_enter_is_plain_enter
+        && hint
+            .keys
+            .first()
+            .is_some_and(|key| key == &crate::key!(Enter, CONTROL))
+    {
+        hint.custom_display = Some("Enter Enter");
+    }
+    hint
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1073,6 +1089,7 @@ mod tests {
             selected_is_agent_message,
             false,
             None,
+            false,
         )
     }
     fn first_two_labels(hints: &[HintItem]) -> Vec<&str> {
@@ -1107,6 +1124,7 @@ mod tests {
             false,
             false,
             None,
+            false,
         );
         let hint = hints
             .iter()
@@ -1142,6 +1160,7 @@ mod tests {
             false,
             false,
             None,
+            false,
         )
         .iter()
         .map(|h| h.label.to_string())
@@ -1209,6 +1228,7 @@ mod tests {
             false,
             false,
             None,
+            false,
         )
     }
     /// The child surface adds `q/Esc back` and drops the demote chip and the `BackTab mode` hint; the root keeps all three.
@@ -1272,6 +1292,7 @@ mod tests {
             false,
             false,
             None,
+            false,
         );
         let labels: Vec<&str> = hints.iter().map(|h| h.label.as_ref()).collect();
         assert!(
@@ -1441,6 +1462,7 @@ mod tests {
             false,
             false,
             Some(&search),
+            false,
         )
     }
     #[test]
@@ -1546,6 +1568,7 @@ mod tests {
             false,
             false,
             None,
+            false,
         );
         assert!(
             !hints.iter().any(|h| h.label == "home"),
@@ -1593,6 +1616,7 @@ mod tests {
             false,
             prefer_alt_enter_newline,
             None,
+            false,
         )
     }
     #[test]
@@ -1620,6 +1644,103 @@ mod tests {
             labels.contains(&"send now"),
             "mid-turn with composer text must advertise the send-now (interject) chord; got {labels:?}"
         );
+    }
+
+    fn running_prompt_hints(
+        registry: &ActionRegistry,
+        ctrl_enter_is_plain_enter: bool,
+    ) -> Vec<HintItem> {
+        let mut prompt = PromptWidget::default();
+        prompt.textarea.insert_str("hello");
+        build_hints(
+            ActivePane::Prompt,
+            prompt_focus_hint(),
+            &prompt,
+            registry,
+            false,
+            None,
+            None,
+            "prompt",
+            "expand thinking",
+            false,
+            false,
+            None,
+            false,
+            false,
+            false,
+            false,
+            true,
+            ViewSurface::Root,
+            true,
+            false,
+            QueueMutation::PerRowKind,
+            false,
+            false,
+            false,
+            None,
+            ctrl_enter_is_plain_enter,
+        )
+    }
+
+    fn painted_hint(hint: &HintItem) -> String {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+        use ratatui::widgets::Widget;
+        let area = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(area);
+        crate::views::shortcuts_bar::ShortcutsBar::new(std::slice::from_ref(hint))
+            .render(area, &mut buf);
+        (0..area.width)
+            .map(|x| buf.cell((x, 0)).map(|cell| cell.symbol()).unwrap_or(" "))
+            .collect()
+    }
+
+    /// Where Ctrl+Enter arrives as plain Enter, the footer names send-now as Enter Enter.
+    /// A terminal that delivers the chord, and a binding that is not Ctrl+Enter, keep their key.
+    #[test]
+    fn send_now_footer_shows_enter_enter_when_ctrl_enter_arrives_as_plain_enter() {
+        let collapsed = running_prompt_hints(&ActionRegistry::non_vscode_for_test(), true);
+        let send_now = collapsed
+            .iter()
+            .find(|hint| hint.label == "send now")
+            .expect("send now");
+        let painted = painted_hint(send_now);
+        assert!(
+            painted.contains("Enter Enter"),
+            "collapsed Ctrl+Enter must be advertised as Enter Enter:\n{painted}"
+        );
+        assert!(
+            !painted.contains("Ctrl+"),
+            "the footer must not keep advertising Ctrl+Enter:\n{painted}"
+        );
+
+        let delivered = running_prompt_hints(&ActionRegistry::non_vscode_for_test(), false);
+        let send_now = delivered
+            .iter()
+            .find(|hint| hint.label == "send now")
+            .expect("send now");
+        let painted = painted_hint(send_now);
+        assert!(
+            painted.contains("Ctrl+Enter"),
+            "a delivered Ctrl+Enter stays on the footer:\n{painted}"
+        );
+        assert!(!painted.contains("Enter Enter"), "{painted}");
+
+        for registry in [
+            ActionRegistry::apple_terminal_for_test(),
+            ActionRegistry::vscode_family_for_test(),
+        ] {
+            let hints = running_prompt_hints(&registry, true);
+            let send_now = hints
+                .iter()
+                .find(|hint| hint.label == "send now")
+                .expect("send now");
+            let painted = painted_hint(send_now);
+            assert!(
+                !painted.contains("Enter Enter"),
+                "a chord other than Ctrl+Enter stays itself:\n{painted}"
+            );
+        }
     }
     /// Empty composer with a mid-turn queue: bare Enter is send-now in both normal and multiline modes.
     /// Multiline only inserts a newline when there is text.
@@ -1654,6 +1775,7 @@ mod tests {
                 false,
                 false,
                 None,
+                false,
             );
             let labels: Vec<&str> = hints.iter().map(|h| h.label.as_ref()).collect();
             assert!(
@@ -1699,6 +1821,7 @@ mod tests {
                 false,
                 false,
                 None,
+                false,
             );
             let cancel = hints
                 .iter()
@@ -1750,6 +1873,7 @@ mod tests {
             false,
             false,
             Some(&search),
+            false,
         );
         let esc_cancels: Vec<&HintItem> = hints
             .iter()
@@ -1801,6 +1925,7 @@ mod tests {
             false,
             false,
             None,
+            false,
         );
         let esc_rows: Vec<&HintItem> = hints
             .iter()

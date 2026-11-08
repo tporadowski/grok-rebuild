@@ -1925,6 +1925,29 @@ fn extended_keys_ctx(version: &str, extended_keys: Option<&str>) -> TerminalCont
 }
 
 #[test]
+fn ctrl_enter_arrives_as_plain_enter_for_tmux_defaults() {
+    assert!(
+        extended_keys_ctx("tmux 3.2", None).ctrl_enter_arrives_as_plain_enter(),
+        "old tmux collapses Ctrl+Enter"
+    );
+    assert!(
+        extended_keys_ctx("tmux 3.4", Some("off")).ctrl_enter_arrives_as_plain_enter(),
+        "extended-keys off is the collapse, including tmux's long-standing default"
+    );
+    assert!(
+        !extended_keys_ctx("tmux 3.4", Some("on")).ctrl_enter_arrives_as_plain_enter(),
+        "extended-keys on delivers Ctrl+Enter"
+    );
+    assert!(!extended_keys_ctx("tmux 3.4", Some("always")).ctrl_enter_arrives_as_plain_enter());
+    let ghostty = TerminalContext {
+        brand: TerminalName::Ghostty,
+        env_brand: TerminalName::Ghostty,
+        ..Default::default()
+    };
+    assert!(!ghostty.ctrl_enter_arrives_as_plain_enter());
+}
+
+#[test]
 fn kitty_skip_modern_tmux_extended_keys_off() {
     assert_eq!(
         extended_keys_ctx("tmux 3.4", Some("off")).kitty_skip_reason(),

@@ -495,6 +495,7 @@ impl AgentView {
             selected_is_agent_message,
             crate::terminal::terminal_context().prefer_alt_enter_newline(),
             self.scrollback_search.as_ref(),
+            crate::terminal::terminal_context().ctrl_enter_arrives_as_plain_enter(),
         );
         if (self.queue.is_visible() || !self.visible_queue_is_empty())
             && self.active_pane != ActivePane::Queue
