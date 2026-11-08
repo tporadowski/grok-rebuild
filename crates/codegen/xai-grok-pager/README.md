@@ -40,7 +40,7 @@ src/
 | Key | Context | Action |
 |-----|---------|--------|
 | `Ctrl+P` or `?` | Agent screen | Open command palette |
-| `Ctrl+L` | Any (non–VS Code family) | Open plugins/hooks modal; on VS Code / Cursor / Windsurf / Zed use `/plugins` or `/hooks` (`Ctrl+L` is mid-turn interject) |
+| `Ctrl+L` | Scrollback | Quote the selected message, or the highlighted text, into the prompt. Open extensions with `/plugins` or `/hooks`. On VS Code / Cursor / Windsurf / Zed, `Ctrl+L` in the prompt is mid-turn interject. On the dashboard, `Ctrl+L` changes location. |
 | `Tab` | Prompt | Switch to scrollback |
 | `Esc` | Turn running | Esc never cancels a turn. Mid-turn it shows a reminder to use `Ctrl+C`. |
 | `Esc` `Esc` | Idle, non-empty prompt | Clear prompt (within 800ms; first press shows hint) |

@@ -68,7 +68,7 @@ impl AgentView {
 
     /// Prompt-focused key handling.
     /// Test-only wrapper around the private `handle_prompt_key` using a **non-VS Code** pinned registry.
-    /// That way host `TERM_PROGRAM` cannot change InterjectPrompt / OpenExtensions chords under test.
+    /// That way host `TERM_PROGRAM` cannot change the InterjectPrompt chord under test.
     #[cfg(test)]
     pub(crate) fn handle_prompt_key_for_test(&mut self, key: &KeyEvent) -> InputOutcome {
         let registry = ActionRegistry::non_vscode_for_test();

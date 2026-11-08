@@ -714,6 +714,60 @@ impl AgentView {
         }
     }
 
+    /// Text of the highlight that stays on screen after a drag or multi-click.
+    /// `None` when nothing is highlighted or the highlight no longer resolves to text.
+    pub(super) fn highlighted_selection_text(&self) -> Option<String> {
+        let sel = self.persistent_text_selection?;
+        let drag = ActiveTextDrag {
+            anchor: RangeHit {
+                entry_idx: sel.entry_idx,
+                range_id: sel.range_id,
+                block_line_idx: sel.anchor.block_line_idx,
+                col_within_range: sel.anchor.col_within_range,
+            },
+            head: RangeHit {
+                entry_idx: sel.entry_idx,
+                range_id: sel.range_id,
+                block_line_idx: sel.head.block_line_idx,
+                col_within_range: sel.head.col_within_range,
+            },
+            kind: sel.kind,
+            anchor_content_width: self
+                .last_scrollback_selection_model
+                .visible_block_content_width(sel.entry_idx),
+        };
+        // A finished table highlight keeps its geometry on `table_selection_geometry`.
+        // `reconstruct_drag_copy` only sees geometry that is still on the in-progress drag.
+        if sel.kind != SelectionKind::Linear
+            && let Some(geom) = self
+                .table_selection_geometry
+                .as_ref()
+                .and_then(|g| g.for_selection(sel.entry_idx, sel.range_id))
+            && let Some(text) = self
+                .with_entry_table_copy_source(
+                    sel.entry_idx,
+                    sel.range_id,
+                    drag.anchor_content_width,
+                    geom,
+                    |src, meta| {
+                        if TableGeometry::detect(src, sel.anchor.block_line_idx).as_ref()
+                            != Some(geom)
+                        {
+                            return None;
+                        }
+                        reconstruct_table_selection_text_with_meta(geom, &drag, src, meta)
+                    },
+                )
+                .flatten()
+                .filter(|text| !text.is_empty())
+        {
+            return Some(text);
+        }
+        self.reconstruct_drag_copy(&drag)
+            .map(|(text, _)| text)
+            .filter(|text| !text.is_empty())
+    }
+
     /// Clipboard text for a finished drag, tagged with the kind that produced it (`Linear` when a table copy fell through).
     /// The persisted highlight then mirrors what reached the clipboard.
     fn reconstruct_drag_copy(&self, drag: &ActiveTextDrag) -> Option<(String, SelectionKind)> {

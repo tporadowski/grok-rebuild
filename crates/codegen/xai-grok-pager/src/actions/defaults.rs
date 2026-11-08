@@ -638,12 +638,8 @@ pub(super) fn default_actions(
             id: ActionId::OpenExtensions,
             label: "extensions",
             description: "Open extensions",
-            // VS Code family: Ctrl+L is interject; plugins via /plugins (no chord here).
-            default_key: if in_vscode_family {
-                key!(Null)
-            } else {
-                key!('l', CONTROL)
-            },
+            // No chord. Ctrl+L in the scrollback quotes the selection. `/plugins` and `/hooks` open this modal.
+            default_key: key!(Null),
             alt_keys: vec![],
             category: Category::Panels,
             context: When::AgentScreen,
@@ -651,7 +647,7 @@ pub(super) fn default_actions(
             hint_key_display: None,
             requires_confirmation: false,
             long_help: Some(
-                "Opens the extensions manager for MCP servers and plugins: see what's connected and the tools they add.\nUse it to confirm an integration loaded or browse available tools.\nDistinct from settings, which holds general app options.",
+                "Opens the extensions manager for MCP servers and plugins: see what's connected and the tools they add.\nUse it to confirm an integration loaded or browse available tools.\nThere is no default key. Run /plugins or /hooks. Ctrl+L in the scrollback quotes the selected message or highlighted text into the prompt instead.\nDistinct from settings, which holds general app options.",
             ),
         },
         ActionDef {
@@ -682,7 +678,7 @@ pub(super) fn default_actions(
                 key!(Enter, CONTROL)
             },
             // Windows: Ctrl+Enter may drop Ctrl, so Ctrl+I is an alt
-            // VS Code family: no alts (Ctrl+L sole chord; OpenExtensions unbound so it does not steal)
+            // VS Code family: no alts. Ctrl+L is the only send-now chord. Extensions stay on /plugins.
             alt_keys: if in_apple_terminal {
                 vec![key!(Enter, CONTROL), key!('i', CONTROL)]
             } else if in_vscode_family {
@@ -1139,7 +1135,7 @@ pub(super) fn default_actions(
             ),
         },
         // Open the location picker, a floating modal to change the working directory new dashboard sessions spawn in
-        // Ctrl+L ("location") is free under `DashboardFocused` (it only binds OpenExtensions under `AgentScreen`, a different context)
+        // Ctrl+L ("location") is free under `DashboardFocused`. Scrollback Ctrl+L quotes a message; this context is separate.
         ActionDef {
             id: ActionId::DashboardOpenLocationPicker,
             label: "location",

@@ -6,7 +6,6 @@ Grok Build supports **hooks** (event-driven shell commands) and **plugins** (bun
 
 | Method | Opens on tab |
 |--------|-------------|
-| `Ctrl+L` | Plugins (any pane; **non–VS Code family** — on VS Code / Cursor / Windsurf / Zed use `/plugins`) |
 | `/plugins` | Plugins (any terminal) |
 | `/hooks` | Hooks |
 

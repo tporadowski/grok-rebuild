@@ -1147,3 +1147,112 @@ fn comment_screen_row(agent: &AgentView) -> u16 {
         .find(|&row| viewer.comment_id_at_screen_row(row, area) == Some(0))
         .expect("comment row is visible")
 }
+
+fn ctrl_l() -> Event {
+    Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL))
+}
+
+fn agent_quoting_message(text: &str) -> AgentView {
+    use crate::app::agent_view::AgentPane;
+    use crate::scrollback::block::RenderBlock;
+
+    let mut agent = make_agent();
+    agent.scrollback.push_block(RenderBlock::user_prompt(text));
+    agent.scrollback.set_selected(Some(0));
+    agent.set_active_pane(AgentPane::Scrollback, true);
+    agent.prompt.set_text("draft");
+    agent.prompt.set_cursor(agent.prompt.text().len());
+    agent
+}
+
+#[test]
+fn ctrl_l_in_the_scrollback_quotes_the_selected_message() {
+    use crate::actions::{ActionId, When};
+    use crate::app::actions::Action;
+    use crate::app::agent_view::AgentPane;
+    use crate::app::app_view::InputOutcome;
+
+    let mut agent = agent_quoting_message("please quote this");
+    let registry = ActionRegistry::non_vscode_for_test();
+    let key = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL);
+    assert_ne!(
+        registry.lookup(&key, When::AgentScreen),
+        Some(ActionId::OpenExtensions)
+    );
+    let outcome = agent.handle_input(&ctrl_l(), &registry);
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert!(!matches!(
+        outcome,
+        InputOutcome::Action(Action::OpenExtensionsModal { .. })
+    ));
+    assert_eq!(agent.prompt.text(), "draft\n> please quote this\n\n");
+    assert_eq!(agent.active_pane, AgentPane::Prompt);
+}
+
+#[test]
+fn ctrl_l_in_the_scrollback_quotes_highlighted_text() {
+    use crate::app::app_view::InputOutcome;
+    use crate::scrollback::text_selection::{
+        PersistentTextSelection, ResolvedSelectableLine, ResolvedSelectionModel, SelectionEndpoint,
+        SelectionKind, SelectionOrigin,
+    };
+
+    let mut agent = agent_quoting_message("please quote this");
+    let mut model = ResolvedSelectionModel::default();
+    model.push_line(ResolvedSelectableLine {
+        entry_idx: 0,
+        range_id: 0,
+        block_line_idx: 0,
+        screen_y: 0,
+        screen_x: 0,
+        selectable_cols: 0..17,
+        text: "please quote this".to_string(),
+        painted_region: None,
+        joiner_to_previous: None,
+    });
+    agent.update_scrollback_selection_state(model, Default::default());
+    agent.persistent_text_selection = Some(PersistentTextSelection {
+        entry_idx: 0,
+        range_id: 0,
+        anchor: SelectionEndpoint {
+            block_line_idx: 0,
+            col_within_range: 7,
+        },
+        head: SelectionEndpoint {
+            block_line_idx: 0,
+            col_within_range: 11,
+        },
+        origin: SelectionOrigin::Drag,
+        kind: SelectionKind::Linear,
+    });
+    let registry = ActionRegistry::non_vscode_for_test();
+    let outcome = agent.handle_input(&ctrl_l(), &registry);
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert_eq!(agent.prompt.text(), "draft\n> quote\n\n");
+    assert!(agent.persistent_text_selection.is_none());
+}
+
+#[test]
+fn ctrl_l_on_the_prompt_does_not_quote_or_open_extensions() {
+    use crate::actions::{ActionId, When};
+    use crate::app::actions::Action;
+    use crate::app::agent_view::AgentPane;
+    use crate::app::app_view::InputOutcome;
+
+    let mut agent = agent_quoting_message("please quote this");
+    agent.prompt.set_text("");
+    agent.set_active_pane(AgentPane::Prompt, true);
+    let registry = ActionRegistry::non_vscode_for_test();
+    let key = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL);
+    let outcome = agent.handle_input(&ctrl_l(), &registry);
+    assert!(agent.prompt.text().is_empty());
+    assert!(!matches!(
+        outcome,
+        InputOutcome::Action(Action::OpenExtensionsModal { .. })
+    ));
+    assert_ne!(
+        registry.lookup(&key, When::AgentScreen),
+        Some(ActionId::OpenExtensions)
+    );
+    assert_eq!(agent.scrollback.selected(), Some(0));
+}

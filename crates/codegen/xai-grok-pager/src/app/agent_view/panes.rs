@@ -5,6 +5,7 @@ use crate::app::actions::Action;
 use crate::app::app_view::InputOutcome;
 use crate::key;
 use crate::scrollback::ScrollbackSearchState;
+use crate::views::block_viewer::format_blockquote;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 /// Kill target behind a dock Watchers row.
 pub(crate) enum DockWatcherId {
@@ -24,6 +25,11 @@ impl AgentView {
     ) -> InputOutcome {
         if let Some(outcome) = self.handle_scrollback_search_key(key) {
             return outcome;
+        }
+        // Ctrl+L quotes the highlight, or the selected message, into the prompt.
+        // Extensions open with `/plugins`. A scrollback with nothing to quote leaves the key alone.
+        if key!('l', CONTROL).matches(key) && self.quote_focused_scrollback_into_prompt() {
+            return InputOutcome::Changed;
         }
         let viewer_has_input = self
             .block_viewer
@@ -119,6 +125,58 @@ impl AgentView {
         }
         InputOutcome::Unchanged
     }
+
+    /// Quote the scrollback highlight, or else the selected message, into the prompt.
+    /// Returns false when there is nothing to quote, so a later Ctrl+L redraw can take the key.
+    fn quote_focused_scrollback_into_prompt(&mut self) -> bool {
+        let Some(quoted) = self.scrollback_quote_body() else {
+            return false;
+        };
+        self.persistent_text_selection = None;
+        self.table_selection_geometry = None;
+        self.selection_created_at = None;
+        self.scrollback_search = None;
+        self.insert_quoted_reply(&quoted);
+        true
+    }
+
+    /// Blockquoted highlight, or the selected message when no highlight resolves.
+    fn scrollback_quote_body(&self) -> Option<String> {
+        if let Some(text) = self.highlighted_selection_text() {
+            let quoted = format_blockquote(&text);
+            if !quoted.is_empty() {
+                return Some(quoted);
+            }
+        }
+        let text = self.selected_message_text()?;
+        let quoted = format_blockquote(&text);
+        (!quoted.is_empty()).then_some(quoted)
+    }
+
+    /// Body of the selected scrollback row, the same text copy puts on the clipboard.
+    fn selected_message_text(&self) -> Option<String> {
+        let idx = self.scrollback.selected()?;
+        if self.scrollback.is_selected_group_header()
+            || self.scrollback.entry_content_hidden_by_group(idx)
+        {
+            return None;
+        }
+        let entry = self.scrollback.entry(idx)?;
+        let text = if let crate::scrollback::block::RenderBlock::BgTask(block) = &entry.block {
+            self.session
+                .bg_tasks
+                .get(&block.task_id)
+                .map(|task| task.stdout.clone())
+                .filter(|stdout| !stdout.is_empty())
+        } else {
+            entry
+                .block
+                .copy_text(entry.raw)
+                .filter(|text| !text.is_empty())
+        }?;
+        Some(text)
+    }
+
     /// Focus the scrollback pane and open an incremental search over it.
     /// Opens only if the pane switch succeeds: a dirty queued-prompt edit blocks the switch, and the search bar only works with scrollback focused.
     /// `initial_query` (the `/find <word>` argument) is fed through the keystroke path, so a pre-filled search behaves like typing into the bar.

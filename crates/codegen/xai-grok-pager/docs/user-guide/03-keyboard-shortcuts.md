@@ -92,6 +92,7 @@ prompt. `⇧E` clears all pins, and `Ctrl+E` clears pins on thinking blocks.
 | `⇧Y` | Copy block metadata (e.g., the shell command) to clipboard |
 | `Enter` | Open block content in fullscreen viewer |
 | `Ctrl+F` | Open block content in fullscreen viewer (alt binding) |
+| `Ctrl+L` | Quote the selected message, or the highlighted text, into the prompt. Extensions open with `/plugins` or `/hooks` |
 
 `Ctrl+Shift+Y` (alt: `F6`) copies the **markdown source** of an assistant message: headings, `**bold**`, code fences, and links as written, not the rendered plain text `y` copies. It works while the prompt or the scrollback is focused. If an assistant message is selected, or open in the viewer, that message is copied; otherwise the latest assistant message is copied. `/copy` does the same for the latest message.
 
@@ -278,7 +279,7 @@ Actions that affect the agent session, available from the agent screen.
 | `Ctrl+T` | Agent screen | Toggle the todos pane |
 | `Ctrl+G` | Agent screen (full TUI) | Toggle the tasks pane |
 | `Ctrl+G` | Ordinary composer (minimal mode) | Edit the current draft in an external editor without sending it. If the terminal reserves this chord, choose **Edit Prompt in External Editor** from the command palette. |
-| `Ctrl+L` | Agent screen | Open the extensions modal (**non–VS Code family only**; on VS Code / Cursor / Windsurf / Zed, `Ctrl+L` is mid-turn **interject** and extensions open via `/plugins` / `/hooks`) |
+| `Ctrl+L` | Scrollback focused | Quote the selected message, or the highlighted text, into the prompt. Extensions open with `/plugins` or `/hooks`. On VS Code / Cursor / Windsurf / Zed, `Ctrl+L` in the prompt is mid-turn **interject**. On the dashboard, `Ctrl+L` changes location. |
 | `↑` | Prompt focused (empty prompt, normal input mode) | With prompts queued, move focus into the queue pane with the last row highlighted (`e` edits it, `Enter` sends it now). Otherwise open the history panel with your last prompt filled in; `↑`/`↓` step through entries (each lands in the input), `↓` at the newest closes the panel, and typing edits the recalled prompt in place. Recalled `!` shell commands re-enter shell mode. `↓` never opens history. |
 | `Ctrl+S` (alt: `Alt+S`) | Prompt focused | Stash / pop the draft, `git stash`-style. With text or images in the composer: stash it and start fresh. On an empty composer: restore the newest stash (images and `!` shell mode included). After restore, the cursor is at the end of the restored draft. `Ctrl+Z` pressed right after the stash restores it too (any other key you type into the prompt disarms that). A chord-stashed draft also **restores automatically after you send your next prompt** (a double-Esc-cleared draft stays stashed, since that gesture is a discard). One draft at a time: a new stash replaces the old one. |
 | `!` | Prompt focused | Enter shell mode (type `!` on an empty prompt) |
