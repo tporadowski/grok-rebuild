@@ -1,16 +1,15 @@
-name: mid-text-btw-sends-side-question
+name: mid-text-btw-stays-on-the-main-turn
 description: >
-  A mid-message `/btw` token sends the whole message (minus the token) as one
-  side question: the overlay opens with the rewritten `/btw ...` title, the
-  composer clears, and no user turn is echoed. 100 columns keep the overlay
-  title from truncating before the asserted prefix.
+  A mid-message `/btw` token is one prompt on the main turn. The typed text
+  is echoed, and the side-question title is not opened. 100 columns keep the
+  echoed line from wrapping through the asserted prefix.
 terminal:
   rows: 40
   cols: 100
 environment:
   args: ["--trust"]
 mock:
-  response: "BTW_SIDE_ANSWER_DONE side answer after the hoisted mid-text /btw."
+  response: "BTW_MAIN_TURN_DONE assistant reply after the typed mid-text /btw."
 steps:
   - action: wait_for_text
     text: Quit
@@ -29,21 +28,19 @@ steps:
     timeout_ms: 10000
   - action: keys
     keys: "<Enter>"
-  # Overlay title carries the hoisted form; a verbatim echo could never contain it.
   - action: wait_for_text
-    text: "/btw explain the controller."
+    text: "controller. /btw what"
     timeout_ms: 15000
   - action: wait_for_text
-    text: BTW_SIDE_ANSWER_DONE
+    text: BTW_MAIN_TURN_DONE
     timeout_ms: 30000
-  # No verbatim user echo: nothing went to the main turn.
   - action: assert_not_contains
-    text: "controller. /btw what"
+    text: "/btw explain the controller."
   - action: assert_request_contains
     text: WBC_SIDE_Q
   - action: assert_not_contains
     text: panicked
   - action: assert_running
   - action: screenshot
-    name: side-question-overlay
-    note: "Side-question overlay titled with the hoisted /btw line; composer empty."
+    name: main-turn-echo
+    note: "The typed /btw stays in the main-turn echo. No side-question title."

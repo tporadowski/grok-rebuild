@@ -1,7 +1,8 @@
 //! Rewrites a plain submission carrying an opted-in `/command` token into a leading
 //! `/command <message-without-token>` line. The caller decides what counts as a plain submission
 //! (raw text not starting with `/`); `text` is chip-stripped, so a `/` at index 0 here is an
-//! ordinary token after a leading image chip (`[Image #1] /btw q` arrives as ` /btw q`).
+//! ordinary token after a leading image chip (`[Image #1] /cmd q` arrives as ` /cmd q`).
+//! `/btw` does not opt in: it runs only when the typed message starts with it.
 
 use crate::slash::command::SlashCommand;
 use crate::slash::registry::CommandRegistry;
@@ -10,7 +11,7 @@ use crate::slash::{InlineSlashToken, scan_inline_slash_tokens};
 pub(crate) const MID_TEXT_GOAL_NOTICE: &str =
     "Slash commands only work at the start of the message — put `/goal …` first.";
 
-/// Skills and plugin skills are mentions; `/btw` hoists. Other builtins do not run mid-text.
+/// Skills and plugin skills are mentions. Builtins, including `/btw`, do not run mid-text.
 #[must_use]
 pub(crate) fn command_works_mid_text(command: &dyn SlashCommand) -> bool {
     command.can_hoist_from_mid_text() || command.is_skill()

@@ -440,10 +440,10 @@ async fn scripted_mid_text_skill_token_echo() {
     run_scenario("mid_text_skill_token_echo.yaml").await;
 }
 
-/// A mid-message `/btw` token sends the whole message (minus the token) as one side question; no user turn is echoed.
+/// A mid-message `/btw` token is echoed on the main turn. It does not open a side question.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "scripted scenario; run with cargo test -- --ignored"]
-async fn scripted_mid_text_btw_sends_side_question() {
+async fn scripted_mid_text_btw_stays_on_the_main_turn() {
     run_scenario("mid_text_btw_sends_side_question.yaml").await;
 }
 

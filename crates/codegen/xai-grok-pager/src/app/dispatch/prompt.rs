@@ -781,8 +781,9 @@ pub(super) fn dispatch_send_prompt_submission(
         || agent.prompt.submitted_text_without_image_chips(&text),
         |submission| submission.text_without_image_chips(),
     );
-    // Raw text decides command-ness so a chip-stripped ` /btw q` still hoists.
-    // `/goal` is checked on that typed line first; `/btw` hoist would bury it.
+    // Raw text decides command-ness. A chip-stripped ` /btw q` is not a leading
+    // command: `/btw` runs only when the typed message starts with it.
+    // `/goal` mid-text toasts before any opted-in hoist.
     let is_plain_submission = !literal && !text.trim().starts_with('/');
     if is_plain_submission
         && crate::slash::mid_text_hoist::contains_goal_command_token(

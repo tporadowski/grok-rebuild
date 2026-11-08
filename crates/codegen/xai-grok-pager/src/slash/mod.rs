@@ -3142,8 +3142,11 @@ mod tests {
             snapshot.inline_ghost.is_none(),
             "fully recognized command should not show ghost"
         );
-        assert_eq!(snapshot.recognized_tokens.len(), 1);
-        assert_eq!(snapshot.recognized_tokens.first(), Some(&(3..7)));
+        assert!(
+            snapshot.recognized_tokens.is_empty(),
+            "a /btw later in the text is not a command: {:?}",
+            snapshot.recognized_tokens
+        );
     }
 
     #[test]
@@ -3186,7 +3189,11 @@ mod tests {
 
         ctrl.refresh(&state, "run /btw and /model please", 0, &models);
         let snapshot = state.snapshot();
-        assert_eq!(snapshot.recognized_tokens, vec![4..8]);
+        assert!(
+            snapshot.recognized_tokens.is_empty(),
+            "/btw and /model later in the text stay plain: {:?}",
+            snapshot.recognized_tokens
+        );
     }
 
     #[test]
@@ -3202,13 +3209,16 @@ mod tests {
 
         let helper = ctrl.recognized_token_ranges(text, &models);
         assert_eq!(helper, composer);
-        assert_eq!(helper, vec![4..8]);
+        assert!(
+            helper.is_empty(),
+            "/btw later in the text stays plain: {helper:?}"
+        );
     }
 
     #[test]
     fn recognized_token_ranges_parity_in_mid_text_state_with_session_scope_hidden() {
         // Dashboard-style surface (session-scoped commands suppressed), cursor in a mid-text token's args
-        // /compact is session-scoped; /btw is session-scoped and hoist-armed — both stay unhighlighted here
+        // /compact and /btw are session-scoped builtins. Neither runs mid-text, so both stay unhighlighted here.
         let mut ctrl = SlashController::with_builtins(std::path::PathBuf::from("."));
         ctrl.set_hide_session_scoped(true);
         let state = SlashState::default();
@@ -3241,10 +3251,9 @@ mod tests {
         let ctrl = SlashController::with_builtins(std::path::PathBuf::from("."));
         let models = ModelState::default();
         let text = "do /compact then /btw now";
-        assert_eq!(
-            ctrl.recognized_token_ranges(text, &models),
-            vec![17..21],
-            "unarmed builtins stay plain; /btw hoists so it stays teal"
+        assert!(
+            ctrl.recognized_token_ranges(text, &models).is_empty(),
+            "/compact and /btw stay plain when they do not begin the message"
         );
     }
 
@@ -3358,7 +3367,7 @@ mod tests {
     }
 
     #[test]
-    fn armed_mid_text_partial_btw_ghost_highlights() {
+    fn mid_text_partial_btw_ghost_stays_plain() {
         let mut ctrl = SlashController::with_builtins(std::path::PathBuf::from("."));
         let state = SlashState::default();
         let models = ModelState::default();
@@ -3367,7 +3376,10 @@ mod tests {
         let snap = state.snapshot();
         let ghost = snap.inline_ghost.as_ref().expect("ghost for /bt → /btw");
         assert_eq!(ghost.full_name, "btw");
-        assert!(ghost.highlight, "hoist completion must teal mid-text");
+        assert!(
+            !ghost.highlight,
+            "a mid-text /btw completion does not run, so it stays plain"
+        );
     }
 
     #[test]

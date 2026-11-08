@@ -32,40 +32,23 @@ fn first_token(text: &str) -> crate::slash::InlineSlashToken {
         .expect("expected a slash token")
 }
 
+/// `/btw` does not opt into hoist. A token that already starts the line is still
+/// `None` here; the submit path runs that as a slash command without this rewrite.
 #[test]
-fn hoists_first_btw_token_and_collapses_gap() {
-    assert_eq!(
-        Some("/btw explain the controller. what is a WBC".to_owned()),
-        hoist("explain the controller. /btw what is a WBC")
-    );
-    assert_eq!(Some("/btw prose. q".to_owned()), hoist("prose. /btw   q"));
-}
-
-#[test]
-fn token_at_end_trims_trailing_space() {
-    assert_eq!(Some("/btw prose".to_owned()), hoist("prose /btw"));
-    assert_eq!(Some("/btw prose".to_owned()), hoist("prose /btw   "));
-}
-
-#[test]
-fn preserves_newline_before_token() {
-    assert_eq!(
-        Some("/btw line1\nq\nline2".to_owned()),
-        hoist("line1\n/btw q\nline2")
-    );
-}
-
-#[test]
-fn second_token_stays_verbatim() {
-    assert_eq!(Some("/btw a b /btw c".to_owned()), hoist("a /btw b /btw c"));
-}
-
-/// The caller keeps real leading invocations out; `[Image #1] /btw q` arrives here as ` /btw q`.
-#[test]
-fn leading_token_after_stripped_chip_hoists_in_place() {
-    assert_eq!(Some("/btw q".to_owned()), hoist(" /btw q"));
-    assert_eq!(Some("/btw q".to_owned()), hoist("/btw q"));
-    assert_eq!(Some("/btw /nope hi q".to_owned()), hoist("/nope hi /btw q"));
+fn mid_text_btw_is_not_rewritten() {
+    for text in [
+        "explain the controller. /btw what is a WBC",
+        "prose. /btw   q",
+        "prose /btw",
+        "prose /btw   ",
+        "line1\n/btw q\nline2",
+        "a /btw b /btw c",
+        " /btw q",
+        "/btw q",
+        "/nope hi /btw q",
+    ] {
+        assert_eq!(None, hoist(text), "{text:?}");
+    }
 }
 
 #[test]
@@ -143,13 +126,22 @@ fn mid_text_goal_is_unarmed_leading_goal_is_armed() {
 }
 
 #[test]
-fn mid_text_btw_is_armed_and_compact_is_not() {
+fn btw_is_armed_only_when_it_begins_the_message() {
     let registry = builtins();
-    let btw = "please /btw q";
+    let cmd = registry.get_for_dispatch("btw").expect("btw");
+    let mid = "please /btw q";
+    assert!(!token_is_armed_inline(mid, &first_token(mid), cmd.as_ref()));
+    let leading = "/btw q";
     assert!(token_is_armed_inline(
-        btw,
-        &first_token(btw),
-        registry.get_for_dispatch("btw").expect("btw").as_ref()
+        leading,
+        &first_token(leading),
+        cmd.as_ref()
+    ));
+    let indented = "  /btw q";
+    assert!(token_is_armed_inline(
+        indented,
+        &first_token(indented),
+        cmd.as_ref()
     ));
     let compact = "great /compact go";
     assert!(!token_is_armed_inline(
