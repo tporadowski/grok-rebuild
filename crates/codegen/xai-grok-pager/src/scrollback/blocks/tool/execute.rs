@@ -172,7 +172,7 @@ impl ExecuteToolCallBlock {
         Line::from(spans)
     }
 
-    /// Prefix spans for a soft-wrapped command header (`$ ` or `Run [(user) ]`).
+    /// Prefix spans for a soft-wrapped command header (`$ ` or `Running`/`Ran [(user) ]`).
     ///
     /// Returns `(prefix_spans, hang_width)`; hang is the display width of the first-row prefix so continuations indent under the command body.
     fn command_header_prefix(
@@ -180,6 +180,7 @@ impl ExecuteToolCallBlock {
         theme: &Theme,
         header_style: ExecuteHeaderStyle,
         muted_command: bool,
+        running: bool,
     ) -> (Vec<Span<'static>>, usize) {
         use unicode_width::UnicodeWidthStr;
         match header_style {
@@ -196,8 +197,9 @@ impl ExecuteToolCallBlock {
                 } else {
                     theme.primary().add_modifier(Modifier::BOLD)
                 };
-                let mut spans = vec![Span::styled("Run ".to_string(), label_style)];
-                let mut hang = UnicodeWidthStr::width("Run ");
+                let verb = run_verb(running);
+                let mut spans = vec![Span::styled(verb.to_string(), label_style)];
+                let mut hang = UnicodeWidthStr::width(verb);
                 if self.bash_mode {
                     spans.push(Span::styled("(user) ".to_string(), theme.muted()));
                     hang += UnicodeWidthStr::width("(user) ");
@@ -218,6 +220,7 @@ impl ExecuteToolCallBlock {
         muted_command: bool,
         width: usize,
         extra_indent: usize,
+        running: bool,
     ) {
         let command = self.command_display();
         let command = if command.trim().is_empty() {
@@ -226,7 +229,7 @@ impl ExecuteToolCallBlock {
             command
         };
         let (prefix_spans, prefix_w) =
-            self.command_header_prefix(theme, header_style, muted_command);
+            self.command_header_prefix(theme, header_style, muted_command, running);
         let prefix_span_count = prefix_spans.len();
         let hang = extra_indent.saturating_add(prefix_w);
         let cmd_width = width.saturating_sub(hang).max(1);
@@ -281,22 +284,23 @@ impl ExecuteToolCallBlock {
         }
     }
 
-    /// Primary title line for Label style: `Run [(user) ]<description|command>`.
+    /// Primary title line for Label style: `Running` or `Ran [(user) ]<description|command>`.
     ///
-    /// When `title` is empty (eager placeholder before `raw_input.command` arrives), renders `Run …` so we never flash an internal tool id.
+    /// When `title` is empty (eager placeholder before `raw_input.command` arrives), renders `Running …` or `Ran …` so we never flash an internal tool id.
     fn label_title_line(
         &self,
         theme: &Theme,
         muted_command: bool,
         title: &str,
         highlight_as_command: bool,
+        running: bool,
     ) -> Line<'static> {
         let label_style = if muted_command {
             theme.muted().add_modifier(Modifier::BOLD)
         } else {
             theme.primary().add_modifier(Modifier::BOLD)
         };
-        let mut spans = vec![Span::styled("Run ", label_style)];
+        let mut spans = vec![Span::styled(run_verb(running).to_string(), label_style)];
         if self.bash_mode {
             // Same style as session event messages (e.g. "Worked for 2.3s")
             spans.push(Span::styled("(user) ", theme.muted()));
@@ -330,6 +334,7 @@ impl ExecuteToolCallBlock {
         header_style: ExecuteHeaderStyle,
         muted_command: bool,
         include_command: bool,
+        running: bool,
     ) -> Vec<(Line<'static>, usize)> {
         let strip_run = matches!(header_style, ExecuteHeaderStyle::Label);
         match self.description_display(strip_run) {
@@ -338,7 +343,7 @@ impl ExecuteToolCallBlock {
                     ExecuteHeaderStyle::Label => {
                         let prefix_spans = if self.bash_mode { 2 } else { 1 };
                         (
-                            self.label_title_line(theme, muted_command, &desc, false),
+                            self.label_title_line(theme, muted_command, &desc, false, running),
                             prefix_spans,
                         )
                     }
@@ -366,7 +371,7 @@ impl ExecuteToolCallBlock {
                     ExecuteHeaderStyle::Shell => self.shell_command_line(theme, muted_command),
                     ExecuteHeaderStyle::Label => {
                         let flat = self.command_display().replace('\n', " ");
-                        self.label_title_line(theme, muted_command, &flat, true)
+                        self.label_title_line(theme, muted_command, &flat, true, running)
                     }
                 };
                 let prefix_spans = match header_style {
@@ -398,6 +403,7 @@ impl ExecuteToolCallBlock {
         extra_indent: usize,
         truncate_to_width: bool,
         include_command: bool,
+        running: bool,
     ) {
         let strip_run = matches!(header_style, ExecuteHeaderStyle::Label);
         // Expanded/truncated: command-as-title soft-wrap (Shell and Label)
@@ -409,12 +415,13 @@ impl ExecuteToolCallBlock {
                 muted_command,
                 width,
                 extra_indent,
+                running,
             );
             return;
         }
         // Description title (word-wrap) then soft-wrapped `$ command` (both styles).
         if !truncate_to_width && include_command && self.description_display(strip_run).is_some() {
-            let headers = self.header_lines(theme, header_style, muted_command, false);
+            let headers = self.header_lines(theme, header_style, muted_command, false, running);
             for (line, prefix_spans) in headers {
                 let wrapped =
                     crate::render::wrapping::wrap_header_hanging(line, width, extra_indent);
@@ -438,11 +445,13 @@ impl ExecuteToolCallBlock {
                 muted_command,
                 width,
                 extra_indent,
+                running,
             );
             return;
         }
 
-        let headers = self.header_lines(theme, header_style, muted_command, include_command);
+        let headers =
+            self.header_lines(theme, header_style, muted_command, include_command, running);
         for (line, prefix_spans) in headers {
             if truncate_to_width {
                 let line = crate::render::line_utils::truncate_line(line, width);
@@ -484,6 +493,7 @@ impl ExecuteToolCallBlock {
         header_style: ExecuteHeaderStyle,
         extra_indent: usize,
         result_pad: usize,
+        running: bool,
     ) -> BlockOutput {
         let mut lines: Vec<BlockLine> = Vec::new();
         self.push_header_lines(
@@ -495,6 +505,7 @@ impl ExecuteToolCallBlock {
             extra_indent,
             false,
             true, // include $ command when expanded/truncated
+            running,
         );
 
         if self.output.is_none()
@@ -606,10 +617,17 @@ impl ExecuteToolCallBlock {
     }
 }
 
-/// Drop a leading `Run` / `Running` word (case-insensitive) plus following whitespace so Label headers do not read `Run Run the tests`.
+/// Label verb for a shell command: present while it runs, past when it has finished.
+fn run_verb(running: bool) -> &'static str {
+    if running { "Running " } else { "Ran " }
+}
+
+/// Drop a leading `Run` / `Running` / `Ran` word (case-insensitive) plus following whitespace so Label headers do not read `Ran Ran the tests`.
 fn strip_leading_run_word(s: &str) -> String {
     let lower = s.to_ascii_lowercase();
     let rest = if let Some(rest) = lower.strip_prefix("running") {
+        rest
+    } else if let Some(rest) = lower.strip_prefix("ran") {
         rest
     } else if let Some(rest) = lower.strip_prefix("run") {
         rest
@@ -659,6 +677,7 @@ impl BlockContent for ExecuteToolCallBlock {
                     0,
                     true,
                     false, // hide command when description is the title
+                    ctx.is_running,
                 );
                 BlockOutput { lines }
             }
@@ -669,6 +688,7 @@ impl BlockContent for ExecuteToolCallBlock {
                 header_style,
                 0,
                 result_pad,
+                ctx.is_running,
             ),
             DisplayMode::Expanded => self.render_with_truncation(
                 &theme,
@@ -677,6 +697,7 @@ impl BlockContent for ExecuteToolCallBlock {
                 header_style,
                 0,
                 result_pad,
+                ctx.is_running,
             ),
         }
     }
@@ -767,6 +788,7 @@ impl BlockContent for ExecuteToolCallBlock {
             /*extra_indent*/ 0,
             /*truncate_to_width*/ false,
             /*include_command*/ true,
+            ctx.is_running,
         );
         let mut lines: Vec<Line<'static>> =
             header_rows.into_iter().map(|row| row.content).collect();
@@ -808,7 +830,7 @@ mod tests {
         block.header_display = Some("echo hi".into());
         assert_eq!(block.command, "cd /proj && echo hi");
         let theme = Theme::current();
-        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, true);
+        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, true, false);
         assert_eq!(headers.len(), 1);
         let text = line_text(&nth(&headers, 0).0);
         assert!(text.contains("echo hi"), "header={text:?}");
@@ -823,12 +845,12 @@ mod tests {
         let block = ExecuteToolCallBlock::new("cargo test --lib")
             .with_description("Run the unit test suite");
         let theme = Theme::current();
-        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, true);
+        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, true, false);
         assert_eq!(headers.len(), 2);
         let title = line_text(&nth(&headers, 0).0);
         let cmd = line_text(&nth(&headers, 1).0);
         // Leading "Run " on the description is stripped (Label already has it).
-        assert_eq!(title, "Run the unit test suite");
+        assert_eq!(title, "Ran the unit test suite");
         assert!(cmd.starts_with("$ "), "cmd={cmd:?}");
         assert!(cmd.contains("cargo test --lib"), "cmd={cmd:?}");
         // Prefix span counts: "Run " only on title; "$ " on command.
@@ -841,14 +863,15 @@ mod tests {
         let block = ExecuteToolCallBlock::new("cargo test --lib")
             .with_description("Run the unit test suite");
         let theme = Theme::current();
-        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, true, false);
+        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, true, false, false);
         assert_eq!(headers.len(), 1);
-        assert_eq!(line_text(&nth(&headers, 0).0), "Run the unit test suite");
+        assert_eq!(line_text(&nth(&headers, 0).0), "Ran the unit test suite");
     }
 
     #[test]
     fn strip_leading_run_word_handles_run_and_running() {
         assert_eq!(strip_leading_run_word("Run the tests"), "the tests");
+        assert_eq!(strip_leading_run_word("Ran the tests"), "the tests");
         assert_eq!(strip_leading_run_word("running checks"), "checks");
         assert_eq!(strip_leading_run_word("runtime config"), "runtime config");
         assert_eq!(strip_leading_run_word("Check status"), "Check status");
@@ -859,7 +882,7 @@ mod tests {
         let block =
             ExecuteToolCallBlock::new("git status -sb").with_description("Check git status");
         let theme = Theme::current();
-        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Shell, false, true);
+        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Shell, false, true, false);
         assert_eq!(headers.len(), 2);
         assert_eq!(line_text(&nth(&headers, 0).0), "Check git status");
         assert_eq!(nth(&headers, 0).1, 0);
@@ -869,13 +892,31 @@ mod tests {
     }
 
     #[test]
+    fn label_header_says_running_while_the_command_executes_and_ran_when_it_finishes() {
+        let block = ExecuteToolCallBlock::new("echo hi");
+        let theme = Theme::current();
+        let running = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, false, true);
+        let finished = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, false, false);
+        assert_eq!(line_text(&nth(&running, 0).0), "Running echo hi");
+        assert_eq!(line_text(&nth(&finished, 0).0), "Ran echo hi");
+
+        let empty = ExecuteToolCallBlock::new("   ");
+        let running_empty =
+            empty.header_lines(&theme, ExecuteHeaderStyle::Label, false, false, true);
+        let finished_empty =
+            empty.header_lines(&theme, ExecuteHeaderStyle::Label, false, false, false);
+        assert_eq!(line_text(&nth(&running_empty, 0).0), "Running …");
+        assert_eq!(line_text(&nth(&finished_empty, 0).0), "Ran …");
+    }
+
+    #[test]
     fn label_header_without_description_is_single_run_command_line() {
         let block = ExecuteToolCallBlock::new("echo hi");
         let theme = Theme::current();
-        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, false);
+        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, false, false);
         assert_eq!(headers.len(), 1);
         let text = line_text(&nth(&headers, 0).0);
-        assert!(text.starts_with("Run "), "header={text:?}");
+        assert!(text.starts_with("Ran "), "header={text:?}");
         assert!(text.contains("echo hi"), "header={text:?}");
     }
 
@@ -884,7 +925,7 @@ mod tests {
         // Single-line header path must never embed raw `\n` (ratatui drops them).
         let block = ExecuteToolCallBlock::new("cargo test \\\n  --all");
         let theme = Theme::current();
-        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, true);
+        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, true, false);
         assert_eq!(headers.len(), 1);
         let text = line_text(&nth(&headers, 0).0);
         assert!(
@@ -911,6 +952,7 @@ mod tests {
             0,
             false, // expanded: soft-wrap
             true,
+            false,
         );
         assert!(
             lines.len() >= 2,
@@ -919,8 +961,8 @@ mod tests {
         );
         let first = line_text(&nth(&lines, 0).content);
         assert!(
-            first.starts_with("Run "),
-            "Label soft-wrap first row needs Run prefix: {first:?}"
+            first.starts_with("Ran "),
+            "Label soft-wrap first row needs Ran prefix: {first:?}"
         );
         assert!(
             first.contains("&&"),
@@ -962,6 +1004,7 @@ mod tests {
             0,
             false,
             true,
+            false,
         );
         assert!(lines.len() >= 2, "command should wrap, got {}", lines.len());
         assert!(
@@ -981,6 +1024,7 @@ mod tests {
             0,
             false,
             true,
+            false,
         );
         assert_eq!(copy_header(&lines), "echo a\necho b");
     }
@@ -1012,7 +1056,7 @@ mod tests {
     fn empty_description_treated_as_absent() {
         let block = ExecuteToolCallBlock::new("echo hi").with_description("   \n  ");
         let theme = Theme::current();
-        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, false);
+        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, false, false);
         assert_eq!(headers.len(), 1);
         assert!(line_text(&nth(&headers, 0).0).contains("echo hi"));
     }
@@ -1022,10 +1066,10 @@ mod tests {
         let mut block = ExecuteToolCallBlock::new("ls -la").with_description("List files");
         block.bash_mode = true;
         let theme = Theme::current();
-        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, true);
+        let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, false, true, false);
         assert_eq!(headers.len(), 2);
         let title = line_text(&nth(&headers, 0).0);
-        assert_eq!(title, "Run (user) List files");
+        assert_eq!(title, "Ran (user) List files");
         assert_eq!(nth(&headers, 0).1, 2); // "Run " and "(user) "
     }
 

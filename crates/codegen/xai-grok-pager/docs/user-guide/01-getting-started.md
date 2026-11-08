@@ -174,6 +174,8 @@ Grok has built-in tools for:
 
 Stopping one running shell tool call stops that command. Shell commands started by the other calls in the same parallel batch keep running. Cancelling the turn still stops every foreground command of that turn.
 
+A shell command's label says Running while it executes and Ran when it finishes.
+
 Tools can be extended with [MCP servers](05-configuration.md#mcp-servers) for integrations like GitHub, databases, and more.
 
 ### Slash Commands
