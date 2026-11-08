@@ -433,9 +433,10 @@ fn minimal_btw_requests_stay_independent_across_two_agents() {
     ));
 }
 #[test]
-fn fullscreen_btw_response_after_dismiss_keeps_existing_behavior() {
+fn fullscreen_esc_cancels_an_unanswered_btw_question() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);
+    app.agents.get_mut(&id).unwrap().active_pane = ActivePane::Prompt;
     let effects = dispatch(
         Action::SendBtw {
             question: "side question".into(),
@@ -450,22 +451,68 @@ fn fullscreen_btw_response_after_dismiss_keeps_existing_behavior() {
             ..
         }]
     ));
-    app.agents.get_mut(&id).unwrap().btw_state = None;
+    assert!(matches!(
+        agent_ref(&app, id).btw_state,
+        Some(crate::views::btw_overlay::BtwOverlayState::Loading { ref question })
+            if question == "side question"
+    ));
+    let _ = app.handle_input(&esc());
+    assert!(
+        agent_ref(&app, id).btw_state.is_none(),
+        "Esc dismisses the unanswered panel"
+    );
     dispatch(
         Action::TaskComplete(TaskResult::BtwResponse {
             image_notice: None,
-            skipped_image_numbers: Vec::new(),
+            skipped_image_numbers: vec![2],
             agent_id: id,
             result: Ok("late".into()),
             minimal_request_id: None,
         }),
         &mut app,
     );
-    assert!(matches!(
-        agent_ref(&app, id).btw_state,
-        Some(crate::views::btw_overlay::BtwOverlayState::Done { ref question, .. })
-            if question.is_empty()
-    ));
+    assert!(
+        agent_ref(&app, id).btw_state.is_none(),
+        "a late answer must not reopen the panel"
+    );
+    assert!(
+        !has_skipped_image_notice(&app, id),
+        "a cancelled side question must not report its images either"
+    );
+    assert!(
+        !agent_ref(&app, id).scrollback.iter_entries().any(|(_, entry)| {
+            matches!(entry.block, RenderBlock::Btw(_))
+        }),
+        "a cancelled question is not written into the transcript"
+    );
+
+    // A question that is still running still shows its answer.
+    dispatch(
+        Action::SendBtw {
+            question: "still running".into(),
+            images: Vec::new(),
+        },
+        &mut app,
+    );
+    dispatch(
+        Action::TaskComplete(TaskResult::BtwResponse {
+            image_notice: None,
+            skipped_image_numbers: Vec::new(),
+            agent_id: id,
+            result: Ok("arrived".into()),
+            minimal_request_id: None,
+        }),
+        &mut app,
+    );
+    match &agent_ref(&app, id).btw_state {
+        Some(crate::views::btw_overlay::BtwOverlayState::Done {
+            question, content, ..
+        }) => {
+            assert_eq!(question, "still running");
+            assert_eq!(content.text(), "arrived");
+        }
+        other => panic!("expected the running question's answer, got {other:?}"),
+    }
 }
 /// Attachments the side question dropped over the cap and attachments it could not load arrive as one
 /// visible notice when the answer lands; neither replaces the other.

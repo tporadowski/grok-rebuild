@@ -1171,14 +1171,20 @@ pub(super) fn handle_btw_response(
             }
             return vec![];
         }
+        // Esc while the question is still running clears the loading panel.
+        // A late answer must not reopen it or report that request's images.
+        // Any other panel (a finished answer the user is still reading) stays put.
+        let question = match agent.btw_state.take() {
+            Some(BtwOverlayState::Loading { question }) => question,
+            kept => {
+                agent.btw_state = kept;
+                return vec![];
+            }
+        };
         // Cap drops and read failures are disjoint sets; the flush shows them as one message.
         app.pending_image_notices.extend(image_notice);
         app.pending_image_notices
             .extend(agent.skipped_image_send_notice(skipped_image_numbers));
-        let question = match &agent.btw_state {
-            Some(BtwOverlayState::Loading { question }) => question.clone(),
-            _ => String::new(),
-        };
         match result {
             Ok(response) => {
                 // Answer arrived: show it (until Esc) and focus the panel so Up/Down scroll it until the user returns to the prompt
