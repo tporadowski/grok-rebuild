@@ -387,9 +387,62 @@ mod tests {
 
         assert_eq!(result.stats.files_copied, 3);
         assert!(dest.path().join("file1.txt").exists());
+        assert!(result.stats.issues.is_empty(), "{:?}", result.stats.issues);
         assert!(dest.path().join("file2.txt").exists());
         assert!(dest.path().join("subdir/file3.txt").exists());
         assert_eq!(result.copied_paths.len(), 4); // 3 files + 1 dir
+    }
+
+    #[test]
+    fn copy_parallel_lists_a_file_it_could_not_copy() {
+        let src = TempDir::new().unwrap();
+        let dest = TempDir::new().unwrap();
+        std::fs::write(src.path().join("kept.txt"), "ok").unwrap();
+        std::fs::write(src.path().join("blocked.txt"), "no").unwrap();
+        // A directory where the file should land: the bytes cannot replace it.
+        std::fs::create_dir(dest.path().join("blocked.txt")).unwrap();
+
+        let config = ParallelCopyConfig {
+            num_workers: 1,
+            channel_buffer: 64,
+            respect_gitignore: false,
+            ..Default::default()
+        };
+        let result =
+            copy_parallel(src.path(), dest.path(), config, CancellationToken::new()).unwrap();
+        let listed = result.stats.issues.join("\n");
+        assert!(listed.contains("could not copy blocked.txt"), "{listed}");
+        assert!(!listed.contains("could not copy kept.txt"), "{listed}");
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("kept.txt")).unwrap(),
+            "ok"
+        );
+    }
+
+    /// A filesystem that refuses chmod (here `/proc`) is the mode-loss line create and fork list.
+    #[cfg(unix)]
+    #[test]
+    fn mode_change_lost_quotes_the_chmod_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let src = TempDir::new().unwrap();
+        let file = src.path().join("script.sh");
+        std::fs::write(&file, "#!/bin/sh\n").unwrap();
+        let mut perms = std::fs::metadata(&file).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&file, perms).unwrap();
+        let err =
+            super::super::cow::apply_source_mode(&file, std::path::Path::new("/proc/self/status"))
+                .unwrap_err();
+        let listed =
+            super::super::worker::mode_change_lost(std::path::Path::new("script.sh"), &err);
+        assert!(
+            listed.starts_with("mode change lost for script.sh:"),
+            "{listed}"
+        );
+        assert!(
+            listed.contains("Operation not permitted") || listed.contains("os error 1"),
+            "{listed}"
+        );
     }
 
     #[test]

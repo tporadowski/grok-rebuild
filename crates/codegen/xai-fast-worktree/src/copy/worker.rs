@@ -69,7 +69,7 @@ fn process_entry(
         issues
             .lock()
             .unwrap()
-            .push(format!("mkdir {}: {}", parent.display(), e));
+            .push(could_not_copy(&entry.rel_path, &e));
         return false;
     }
 
@@ -84,7 +84,7 @@ fn process_entry(
                 issues
                     .lock()
                     .unwrap()
-                    .push(format!("mkdir {}: {}", entry.rel_path.display(), e));
+                    .push(could_not_copy(&entry.rel_path, &e));
                 false
             }
         },
@@ -95,41 +95,57 @@ fn process_entry(
                     true
                 }
                 Err(e) => {
-                    issues.lock().unwrap().push(format!(
-                        "symlink {}: {}",
-                        entry.rel_path.display(),
-                        e
-                    ));
+                    issues
+                        .lock()
+                        .unwrap()
+                        .push(could_not_copy(&entry.rel_path, &e));
                     false
                 }
             },
             Err(e) => {
-                issues.lock().unwrap().push(format!(
-                    "read_link {}: {}",
-                    entry.rel_path.display(),
-                    e
-                ));
+                issues
+                    .lock()
+                    .unwrap()
+                    .push(could_not_copy(&entry.rel_path, &e));
                 false
             }
         },
-        CopyEntryKind::File => match cow::clone_file(src, dst) {
-            Ok(()) => {
+        CopyEntryKind::File => match cow::clone_worktree_file(src, dst) {
+            Ok(cow::WorktreeFileCopy::Copied) => {
                 files_copied.fetch_add(1, Ordering::Relaxed);
-
-                // Collect file metadata for index updates
-                if let Ok(metadata) = std::fs::metadata(dst) {
-                    file_metadata.insert(entry.rel_path.clone(), metadata);
-                }
-
+                remember_metadata(entry, dst, file_metadata);
+                true
+            }
+            Ok(cow::WorktreeFileCopy::ModeLost(err)) => {
+                files_copied.fetch_add(1, Ordering::Relaxed);
+                remember_metadata(entry, dst, file_metadata);
+                issues
+                    .lock()
+                    .unwrap()
+                    .push(mode_change_lost(&entry.rel_path, &err));
                 true
             }
             Err(e) => {
                 issues
                     .lock()
                     .unwrap()
-                    .push(format!("copy {}: {}", entry.rel_path.display(), e));
+                    .push(could_not_copy(&entry.rel_path, &e));
                 false
             }
         },
     }
+}
+
+fn remember_metadata(entry: &CopyEntry, dst: &Path, file_metadata: &DashMap<PathBuf, Metadata>) {
+    if let Ok(metadata) = std::fs::metadata(dst) {
+        file_metadata.insert(entry.rel_path.clone(), metadata);
+    }
+}
+
+pub(crate) fn could_not_copy(path: &Path, err: &impl std::fmt::Display) -> String {
+    format!("could not copy {}: {err}", path.display())
+}
+
+pub(crate) fn mode_change_lost(path: &Path, err: &impl std::fmt::Display) -> String {
+    format!("mode change lost for {}: {err}", path.display())
 }

@@ -197,6 +197,7 @@ pub(crate) fn parse_create_response(
             None => note,
         });
     }
+    let strategy_summary = with_copy_notes(strategy_summary, &result);
     Ok(CreatedWorktree {
         worktree_root,
         session_cwd,
@@ -228,7 +229,42 @@ pub(crate) fn parse_resume_response(
         code_restored,
         restore_summary,
         restore_degree,
-        strategy_summary: parse_worktree_strategy_summary(&result),
+        strategy_summary: with_copy_notes(parse_worktree_strategy_summary(&result), &result),
+    })
+}
+
+/// Files that could not be copied, and modes that could not be kept, from either wire shape.
+fn copy_warning_lines(result: &serde_json::Value) -> Vec<String> {
+    let mut lines = Vec::new();
+    let push_array = |lines: &mut Vec<String>, value: Option<&serde_json::Value>| {
+        let Some(items) = value.and_then(serde_json::Value::as_array) else {
+            return;
+        };
+        for item in items {
+            if let Some(text) = item.as_str().filter(|text| !text.is_empty()) {
+                lines.push(text.to_owned());
+            }
+        }
+    };
+    push_array(&mut lines, result.get("copyWarnings"));
+    push_array(
+        &mut lines,
+        result
+            .get("copiedChanges")
+            .and_then(|copied| copied.get("warnings")),
+    );
+    lines
+}
+
+fn with_copy_notes(summary: Option<String>, result: &serde_json::Value) -> Option<String> {
+    let notes = copy_warning_lines(result);
+    if notes.is_empty() {
+        return summary;
+    }
+    let listed = notes.join("\n");
+    Some(match summary {
+        Some(summary) => format!("{summary}\n{listed}"),
+        None => listed,
     })
 }
 
@@ -392,6 +428,22 @@ mod tests {
         assert_eq!(created.session_cwd, wt.join("crates").join("pager"));
         assert!(created.strategy_summary.is_none());
 
+        let listed = format!(
+            r#"{{"result":{{"worktreePath":"{}","sourceGitRoot":"{}","copiedChanges":{{"stagedCopied":1,"modifiedCopied":0,"untrackedCopied":0,"deletionsApplied":0,"warnings":["could not copy secret.env: Permission denied","mode change lost for script.sh: Operation not permitted"]}}}}}}"#,
+            wt.display(),
+            repo.display()
+        );
+        let created = parse_create_response(&listed, &launch).unwrap();
+        let note = created.strategy_summary.expect("copy issues are listed");
+        assert!(
+            note.contains("could not copy secret.env: Permission denied"),
+            "{note}"
+        );
+        assert!(
+            note.contains("mode change lost for script.sh: Operation not permitted"),
+            "{note}"
+        );
+
         let bare = r#"{"worktreePath":"/wt/y"}"#;
         let created = parse_create_response(bare, Path::new("/repo")).unwrap();
         assert_eq!(created.session_cwd, PathBuf::from("/wt/y"));
@@ -419,6 +471,23 @@ mod tests {
             note.contains("not in the new worktree"),
             "note should name the missing folder, got {note}"
         );
+    }
+
+    #[test]
+    fn resume_response_lists_copy_warnings_for_a_fork() {
+        let raw = r#"{"result":{"sessionId":"forked","worktreePath":"/wt","effectiveCwd":"/wt","codeRestored":false,"copyWarnings":["could not copy secret.env: Permission denied","mode change lost for script.sh: Operation not permitted"]}}"#;
+        let resumed = parse_resume_response(raw, "asked").unwrap();
+        assert_eq!(resumed.session_id, "forked");
+        let note = resumed.strategy_summary.expect("fork lists copy issues");
+        assert!(note.contains("could not copy secret.env"), "{note}");
+        assert!(note.contains("mode change lost for script.sh"), "{note}");
+    }
+
+    #[test]
+    fn resume_response_keeps_an_empty_copy_list_off_the_note() {
+        let raw = r#"{"result":{"sessionId":"forked","worktreePath":"/wt","effectiveCwd":"/wt","codeRestored":false,"copyWarnings":[]}}"#;
+        let resumed = parse_resume_response(raw, "asked").unwrap();
+        assert!(resumed.strategy_summary.is_none());
     }
 
     #[cfg(unix)]

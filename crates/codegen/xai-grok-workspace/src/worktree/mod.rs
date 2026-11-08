@@ -3184,6 +3184,9 @@ pub struct ResumeSessionInWorktreeResponse {
     pub restore_degree: Option<crate::session::git::RestoreDegree>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy: Option<StrategyReport>,
+    /// Files the worktree copy could not write, and modes it could not keep.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub copy_warnings: Vec<String>,
 }
 
 /// Request to rehydrate a session in a worktree, preserving the original session identity.

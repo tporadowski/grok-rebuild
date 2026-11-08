@@ -263,6 +263,7 @@ async fn restore_remote_session_into_worktree(
         .to_string_lossy()
         .to_string();
     let restore_summary = None;
+    let copy_warnings = copy_warnings_from(&wt_resp);
     let restore_degree = if codebase_ok {
         Some(xai_grok_workspace::session::git::RestoreDegree::Full)
     } else {
@@ -284,7 +285,16 @@ async fn restore_remote_session_into_worktree(
         restore_summary,
         restore_degree,
         strategy: wt_resp.strategy,
+        copy_warnings,
     })
+}
+
+fn copy_warnings_from(wt_resp: &CreateWorktreeFromWorktreeResponse) -> Vec<String> {
+    wt_resp
+        .copied_changes
+        .as_ref()
+        .map(|copied| copied.warnings.clone())
+        .unwrap_or_default()
 }
 /// Local-session resume: create worktree from source, fork session into it.
 async fn resume_local_session_in_worktree(
@@ -386,6 +396,7 @@ async fn resume_local_session_in_worktree(
         restore_summary,
         restore_degree,
     } = decision;
+    let copy_warnings = copy_warnings_from(&wt_resp);
     let worktree_root = std::path::Path::new(&wt_resp.worktree_path);
     let source_path = std::path::Path::new(resolved_source_cwd);
     let source_git_root = wt_resp.source_git_root.as_deref().map(std::path::Path::new);
@@ -419,6 +430,7 @@ async fn resume_local_session_in_worktree(
         restore_summary,
         restore_degree,
         strategy: wt_resp.strategy,
+        copy_warnings,
     })
 }
 /// Run session rehydration: recreate the git worktree at the exact path and restore all session state using the original session ID.
@@ -595,6 +607,7 @@ mod tests {
             ),
             restore_degree: Some(xai_grok_workspace::session::git::RestoreDegree::Full),
             strategy: None,
+            copy_warnings: vec!["could not copy secret.env: Permission denied".into()],
         };
         let json = serde_json::to_string(&resp).unwrap();
         let deser: ResumeSessionInWorktreeResponse = serde_json::from_str(&json).unwrap();
@@ -613,6 +626,12 @@ mod tests {
             deser.restore_degree,
             Some(xai_grok_workspace::session::git::RestoreDegree::Full)
         );
+        assert_eq!(
+            deser.copy_warnings,
+            vec!["could not copy secret.env: Permission denied".to_string()]
+        );
+        assert!(json.contains("copyWarnings"));
+        assert!(json.contains("could not copy secret.env"));
     }
     fn ck_outcome(
         checked_out: bool,
@@ -664,6 +683,7 @@ mod tests {
             restore_summary: Some("checked out abc".into()),
             restore_degree: Some(xai_grok_workspace::session::git::RestoreDegree::HeadOnly),
             strategy: None,
+            copy_warnings: Vec::new(),
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"restoreDegree\":\"head_only\""));
@@ -705,6 +725,7 @@ mod tests {
             restore_summary: None,
             restore_degree: None,
             strategy: None,
+            copy_warnings: Vec::new(),
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("sessionId"));
