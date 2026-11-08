@@ -42,6 +42,9 @@ pub struct ScrollbackPane {
     /// Used to resolve the short relative paths the model prints (`images/1.jpg`) into clickable `file://` links.
     /// Empty disables relative-path resolution.
     pub media_paths: Vec<std::path::PathBuf>,
+    /// Subagent and background-task ids this transcript may mention.
+    /// A painted occurrence becomes a link to that view or that task's output.
+    pub id_mentions: Vec<crate::render::osc8::IdMention>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -85,6 +88,7 @@ impl ScrollbackPane {
             hovered_entry: None,
             search_highlight: None,
             media_paths: Vec::new(),
+            id_mentions: Vec::new(),
         }
     }
 
@@ -118,6 +122,12 @@ impl ScrollbackPane {
     /// Set the transcript's generated-media paths used to resolve relative file-path link targets (`images/1.jpg`) into clickable `file://` links.
     pub fn with_media_paths(mut self, media_paths: Vec<std::path::PathBuf>) -> Self {
         self.media_paths = media_paths;
+        self
+    }
+
+    /// Ids the renderer may turn into transcript links. Empty leaves every id as plain text.
+    pub fn with_id_mentions(mut self, id_mentions: Vec<crate::render::osc8::IdMention>) -> Self {
+        self.id_mentions = id_mentions;
         self
     }
 }
@@ -935,6 +945,7 @@ impl ScrollbackPane {
             &self.media_paths,
             Some((state.group_spans(), paint_range.start)),
             state.cwd(),
+            &self.id_mentions,
         );
         let result = rendered.result;
         let selection_boundaries = rendered.selection_boundaries;

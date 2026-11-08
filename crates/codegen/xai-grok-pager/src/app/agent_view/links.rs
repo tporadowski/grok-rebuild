@@ -276,6 +276,79 @@ impl AgentView {
         }
     }
 }
+
+impl AgentView {
+    /// Ids this session can open from text painted in the transcript.
+    /// A subagent contributes its id and, when different, its child session id. Background tasks contribute their id.
+    /// Tokens shorter than [`crate::render::osc8::MIN_TRANSCRIPT_ID_LEN`] stay plain text.
+    pub(crate) fn transcript_id_mentions(&self) -> Vec<crate::render::osc8::IdMention> {
+        use crate::render::osc8::{IdMention, LinkTarget, MIN_TRANSCRIPT_ID_LEN};
+        let mut mentions = Vec::new();
+        let mut push = |id: std::sync::Arc<str>, target: LinkTarget| {
+            if id.len() < MIN_TRANSCRIPT_ID_LEN {
+                return;
+            }
+            if mentions.iter().any(|mention: &IdMention| mention.id == id) {
+                return;
+            }
+            mentions.push(IdMention { id, target });
+        };
+        for info in self.subagent_sessions.values() {
+            push(
+                std::sync::Arc::clone(&info.subagent_id),
+                LinkTarget::Subagent(std::sync::Arc::clone(&info.subagent_id)),
+            );
+            if info.child_session_id != info.subagent_id {
+                push(
+                    std::sync::Arc::clone(&info.child_session_id),
+                    LinkTarget::Subagent(std::sync::Arc::clone(&info.child_session_id)),
+                );
+            }
+        }
+        for id in self.session.bg_tasks.keys() {
+            push(
+                std::sync::Arc::from(id.as_str()),
+                LinkTarget::BgTask(std::sync::Arc::from(id.as_str())),
+            );
+        }
+        mentions
+    }
+
+    /// Open the subagent view or task output a transcript link names.
+    /// `false` when this session has no such id, or the subagent view was never created.
+    pub(crate) fn open_transcript_mention(
+        &mut self,
+        target: &crate::render::osc8::LinkTarget,
+    ) -> bool {
+        use crate::render::osc8::LinkTarget;
+        match target {
+            LinkTarget::Subagent(id) => self.open_mentioned_subagent(id),
+            LinkTarget::BgTask(id) => self.show_bg_task_viewer(id),
+            LinkTarget::Url(_) | LinkTarget::File(_) => false,
+        }
+    }
+
+    fn open_mentioned_subagent(&mut self, id: &str) -> bool {
+        let Some(child_sid) = self
+            .subagent_sessions
+            .iter()
+            .find(|(key, info)| {
+                key.as_str() == id
+                    || info.subagent_id.as_ref() == id
+                    || info.child_session_id.as_ref() == id
+            })
+            .map(|(key, _)| key.clone())
+        else {
+            return false;
+        };
+        if !self.subagent_views.contains_key(&child_sid) {
+            return false;
+        }
+        self.open_subagent_fullscreen(child_sid);
+        true
+    }
+}
+
 #[cfg(test)]
 mod link_click_tests {
     use super::test_fixtures::make_agent;
@@ -287,6 +360,153 @@ mod link_click_tests {
     use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     use ratatui::layout::Rect;
     use std::sync::Arc;
+
+    fn bg_task(task_id: &str, stdout: &str) -> crate::app::agent::BgTaskState {
+        let mut task = crate::app::agent::BgTaskState {
+            task_id: task_id.into(),
+            tool_call_id: format!("call-{task_id}"),
+            command: "echo hello".into(),
+            description: None,
+            cwd: "/tmp".into(),
+            output_file: "/tmp/out".into(),
+            status: crate::app::agent::BgTaskStatus::Done,
+            start_time: std::time::SystemTime::now(),
+            end_time: None,
+            exit_code: Some(0),
+            signal: None,
+            stdout: String::new(),
+            stdout_line_count: 0,
+            truncated: false,
+            pending_kill: false,
+            kill_requested_at: None,
+            scrollback_entry_id: None,
+            is_monitor: false,
+            restored_from_replay: false,
+        };
+        task.set_stdout(stdout.to_string());
+        task
+    }
+
+    fn buffer_plain(buf: &ratatui::buffer::Buffer) -> String {
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                if let Some(cell) = buf.cell((x, y)) {
+                    out.push_str(cell.symbol());
+                }
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn mentioned_ids_in_the_transcript_open_their_view() {
+        use crate::render::osc8::LinkTarget;
+        use crate::scrollback::block::RenderBlock;
+        use crate::scrollback::render::ScratchBuffer;
+        use crate::scrollback::scrollback_pane::ScrollbackPane;
+        use crate::scrollback::VisibleLinkMap;
+        use ratatui::buffer::Buffer;
+
+        const TASK: &str = "019f972a-7c1b-7d92-a896-4f08f91b6864";
+        const SUB: &str = "019f972a-7c1b-7abc-a896-4f08f91b9999";
+        const UNKNOWN: &str = "019f972a-7c1b-7fff-a896-4f08f91b0000";
+        const CHILD: &str = "child1";
+
+        let mut agent = make_agent();
+        let mut info = super::test_fixtures::running_subagent_info(CHILD);
+        info.subagent_id = Arc::from(SUB);
+        agent.subagent_sessions.insert(CHILD.into(), info);
+        agent.insert_test_child(CHILD.into(), Box::new(make_agent()));
+        agent
+            .session
+            .bg_tasks
+            .insert(TASK.into(), bg_task(TASK, "hello from the task\n"));
+        agent
+            .session
+            .bg_tasks
+            .insert("t1".into(), bg_task("t1", "short\n"));
+
+        // Blank lines keep each id in its own paragraph so a timestamp cannot split it.
+        let text = format!("task {TASK}\n\nsubagent {SUB}\n\nskip {UNKNOWN} x{TASK}y t1\n");
+        agent
+            .scrollback
+            .push_block(RenderBlock::agent_message(text));
+
+        let mentions = agent.transcript_id_mentions();
+        assert!(
+            mentions
+                .iter()
+                .any(|mention| matches!(&mention.target, LinkTarget::BgTask(id) if id.as_ref() == TASK)),
+            "{mentions:?}"
+        );
+        assert!(
+            mentions.iter().any(
+                |mention| matches!(&mention.target, LinkTarget::Subagent(id) if id.as_ref() == SUB)
+            ),
+            "{mentions:?}"
+        );
+        assert!(!mentions.iter().any(|mention| mention.id.as_ref() == "t1"));
+        assert!(!mentions.iter().any(|mention| mention.id.as_ref() == CHILD));
+
+        let area = Rect::new(0, 0, 160, 30);
+        agent.scrollback.prepare_layout(area.width, area.height);
+        let mut buf = Buffer::empty(area);
+        let mut scratch = ScratchBuffer::new();
+        let rendered = ScrollbackPane::new()
+            .with_id_mentions(mentions)
+            .render_with_scratch_and_selection_boundaries(
+                area,
+                &mut buf,
+                &agent.scrollback,
+                &mut scratch,
+            );
+        let painted = buffer_plain(&buf);
+        assert!(painted.contains(TASK), "{painted}");
+        assert!(painted.contains(SUB), "{painted}");
+
+        let mut map = VisibleLinkMap::default();
+        map.rebuild(1, &rendered.output.link_overlay, Vec::new());
+        let task_link = map
+            .links()
+            .iter()
+            .find(|link| matches!(&link.target, LinkTarget::BgTask(id) if id.as_ref() == TASK))
+            .expect("task id link");
+        let task_width: u16 = task_link.rects.iter().map(|rect| rect.width).sum();
+        assert_eq!(task_width as usize, TASK.len());
+        assert!(
+            map.links()
+                .iter()
+                .any(|link| matches!(&link.target, LinkTarget::Subagent(id) if id.as_ref() == SUB)),
+            "{:?}",
+            map.links()
+        );
+        let mention_links = map
+            .links()
+            .iter()
+            .filter(|link| {
+                matches!(link.target, LinkTarget::BgTask(_) | LinkTarget::Subagent(_))
+            })
+            .count();
+        assert_eq!(mention_links, 2, "{:?}", map.links());
+
+        assert!(agent.open_transcript_mention(&LinkTarget::BgTask(Arc::from(TASK))));
+        assert_eq!(
+            agent
+                .block_viewer
+                .as_ref()
+                .and_then(|viewer| viewer.bg_task_id.as_deref()),
+            Some(TASK)
+        );
+        agent.dismiss_block_viewer();
+        assert!(agent.open_transcript_mention(&LinkTarget::Subagent(Arc::from(SUB))));
+        assert_eq!(agent.active_subagent.as_deref(), Some(CHILD));
+        assert!(!agent.open_transcript_mention(&LinkTarget::BgTask(Arc::from(UNKNOWN))));
+        assert!(!agent.open_transcript_mention(&LinkTarget::Subagent(Arc::from(UNKNOWN))));
+        assert_eq!(agent.active_subagent.as_deref(), Some(CHILD));
+    }
+
     /// Set up the agent so clicks at (col, row) land in the scrollback pane.
     fn setup_scrollback_area(agent: &mut AgentView, area: Rect) {
         agent.pane_areas.scrollback = area;

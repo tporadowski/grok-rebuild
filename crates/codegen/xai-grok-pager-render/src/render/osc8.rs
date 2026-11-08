@@ -16,6 +16,21 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub enum LinkTarget {
     Url(Arc<str>),
     File(Arc<Path>),
+    /// Subagent id painted in the transcript. The app opens that subagent's view.
+    Subagent(Arc<str>),
+    /// Background task id painted in the transcript. The app opens that task's output.
+    BgTask(Arc<str>),
+}
+
+/// Shortest id the transcript will turn into a link.
+/// Session ids are UUIDs or `ag1.` handles. A shorter token is left as plain text so a tiny id cannot link every copy of a common word.
+pub const MIN_TRANSCRIPT_ID_LEN: usize = 8;
+
+/// One id this session can open from the transcript.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdMention {
+    pub id: Arc<str>,
+    pub target: LinkTarget,
 }
 
 /// Whether the painted text can independently identify its semantic target.
@@ -74,6 +89,15 @@ pub fn resolve_link_target_for_context(
         LinkTarget::File(path) => Some(ResolvedLinkTarget {
             osc8_url: file_path_to_url(path),
             open_target: Some(LinkTarget::File(Arc::clone(path))),
+        }),
+        // The app opens these. They are not browser URLs, so the terminal gets no OSC 8 destination.
+        LinkTarget::Subagent(id) => Some(ResolvedLinkTarget {
+            osc8_url: None,
+            open_target: Some(LinkTarget::Subagent(Arc::clone(id))),
+        }),
+        LinkTarget::BgTask(id) => Some(ResolvedLinkTarget {
+            osc8_url: None,
+            open_target: Some(LinkTarget::BgTask(Arc::clone(id))),
         }),
     }
 }
@@ -450,6 +474,117 @@ pub fn scan_lines_for_url_overlays_indented<'a>(
         });
     }
     scan_logical_line(&group_text, &group_rows, content_x, media_paths, overlay);
+}
+
+/// Link known subagent and background-task ids in the same joined rows as [`scan_lines_for_url_overlays_indented`].
+/// A match has to be the whole token: letters, digits, `_`, and `-` on either side keep it plain.
+/// Existing overlay cells win, so a URL that already covers the id stays a URL.
+pub fn scan_lines_for_id_mentions<'a>(
+    lines: impl Iterator<Item = (u16, &'a Line<'static>, Option<&'a str>, usize)>,
+    content_x: u16,
+    mentions: &[IdMention],
+    overlay: &mut LinkOverlay,
+) {
+    let mut ordered: Vec<&IdMention> = mentions
+        .iter()
+        .filter(|mention| mention.id.len() >= MIN_TRANSCRIPT_ID_LEN)
+        .collect();
+    if ordered.is_empty() {
+        return;
+    }
+    ordered.sort_by_key(|mention| std::cmp::Reverse(mention.id.len()));
+
+    let mut group_text = String::new();
+    let mut group_rows: Vec<RowSegment> = Vec::new();
+    for (screen_row, line, joiner, indent_cols) in lines {
+        let col_bias = match joiner {
+            Some(joiner) if !group_rows.is_empty() => {
+                group_text.push_str(joiner);
+                indent_cols
+            }
+            _ => {
+                scan_logical_line_for_mentions(
+                    &group_text,
+                    &group_rows,
+                    content_x,
+                    &ordered,
+                    overlay,
+                );
+                group_text.clear();
+                group_rows.clear();
+                0
+            }
+        };
+        let start = group_text.len();
+        append_line_skipping_cols(&mut group_text, line, col_bias);
+        group_rows.push(RowSegment {
+            screen_row,
+            start,
+            end: group_text.len(),
+            col_bias,
+        });
+    }
+    scan_logical_line_for_mentions(&group_text, &group_rows, content_x, &ordered, overlay);
+}
+
+fn id_token_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'
+}
+
+fn id_is_whole_token(text: &str, at: usize, end: usize) -> bool {
+    let before_ok = at == 0
+        || text[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|ch| !id_token_char(ch));
+    let after_ok = end >= text.len()
+        || text[end..]
+            .chars()
+            .next()
+            .is_some_and(|ch| !id_token_char(ch));
+    before_ok && after_ok
+}
+
+fn scan_logical_line_for_mentions(
+    text: &str,
+    rows: &[RowSegment],
+    content_x: u16,
+    mentions: &[&IdMention],
+    overlay: &mut LinkOverlay,
+) {
+    if text.is_empty() || rows.is_empty() || mentions.is_empty() {
+        return;
+    }
+    let mut consumed = vec![false; text.len()];
+    for mention in mentions {
+        let needle = mention.id.as_ref();
+        let mut from = 0;
+        while from < text.len() {
+            let Some(rel) = text[from..].find(needle) else {
+                break;
+            };
+            let at = from + rel;
+            let end = at + needle.len();
+            let free =
+                id_is_whole_token(text, at, end) && consumed[at..end].iter().all(|bit| !*bit);
+            if free {
+                consumed[at..end].fill(true);
+                push_link_segments(
+                    text,
+                    rows,
+                    content_x,
+                    at..end,
+                    &mention.target,
+                    LinkPresentation::Opaque,
+                    overlay,
+                );
+                from = end;
+            } else {
+                // The needle is ASCII, so the next byte is still a char boundary.
+                from = at + 1;
+            }
+        }
+    }
 }
 
 /// Append `line`, dropping the first `skip_cols` display columns.
@@ -2101,5 +2236,65 @@ mod tests {
         assert!(to_overlay_col(u16::MAX - 5, 10).is_none());
         assert_eq!(to_overlay_col(10, 5), Some(15));
         assert_eq!(to_overlay_col(0, 0), Some(0));
+    }
+
+    #[test]
+    fn wrapped_id_mention_links_the_known_id_across_rows() {
+        let id = "019f972a-7c1b-7d92-a896-4f08f91b6864";
+        let (head, tail) = id.split_at(20);
+        let first = make_line(&format!("see {head}"));
+        let second = make_line(tail);
+        let rows = [
+            (0u16, &first, None, 0usize),
+            (1u16, &second, Some(""), 0usize),
+        ];
+        let mention = IdMention {
+            id: Arc::from(id),
+            target: LinkTarget::BgTask(Arc::from(id)),
+        };
+        let mut overlay = LinkOverlay::new();
+        scan_lines_for_id_mentions(
+            rows.into_iter(),
+            0,
+            std::slice::from_ref(&mention),
+            &mut overlay,
+        );
+        assert_eq!(overlay.links().len(), 2, "the wrapped id occupies both rows");
+        assert!(
+            overlay
+                .links()
+                .iter()
+                .all(|link| link.target == LinkTarget::BgTask(Arc::from(id)))
+        );
+        let resolved = resolve_link_target(&mention.target).expect("app target");
+        assert!(resolved.osc8_url.is_none());
+        assert_eq!(resolved.open_target.as_ref(), Some(&mention.target));
+
+        let glued = make_line(&format!("x{id}y {id}."));
+        let mut plain = LinkOverlay::new();
+        scan_lines_for_id_mentions(
+            std::iter::once((0, &glued, None, 0)),
+            0,
+            std::slice::from_ref(&mention),
+            &mut plain,
+        );
+        assert_eq!(
+            plain.links().len(),
+            1,
+            "a glued token stays plain and a trailing period still links"
+        );
+        let short = IdMention {
+            id: Arc::from("t1"),
+            target: LinkTarget::BgTask(Arc::from("t1")),
+        };
+        let short_line = make_line("t1");
+        let mut skipped = LinkOverlay::new();
+        scan_lines_for_id_mentions(
+            std::iter::once((0, &short_line, None, 0)),
+            0,
+            std::slice::from_ref(&short),
+            &mut skipped,
+        );
+        assert!(skipped.links().is_empty());
     }
 }

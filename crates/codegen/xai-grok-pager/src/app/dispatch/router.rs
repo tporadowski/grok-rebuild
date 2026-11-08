@@ -1240,6 +1240,16 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::OpenLink(target) => {
             use crate::render::osc8::LinkTarget;
             match crate::render::osc8::resolve_link_open_target(&target) {
+                Some(LinkTarget::Subagent(id)) => {
+                    with_active_agent(app, |agent| {
+                        agent.open_transcript_mention(&LinkTarget::Subagent(id));
+                    });
+                }
+                Some(LinkTarget::BgTask(id)) => {
+                    with_active_agent(app, |agent| {
+                        agent.open_transcript_mention(&LinkTarget::BgTask(id));
+                    });
+                }
                 Some(LinkTarget::File(path)) => {
                     let opened = crate::app::link_opener::open_path(&path);
                     app.show_toast(if opened {

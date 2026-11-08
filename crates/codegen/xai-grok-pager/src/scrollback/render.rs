@@ -25,7 +25,7 @@ use super::types::{
 use super::wrappers::{EntryRenderer, group_header_chrome_prefix_width};
 use crate::appearance::AppearanceConfig;
 use crate::render::Renderable;
-use crate::render::osc8::{LinkOverlay, OverlayLink};
+use crate::render::osc8::{IdMention, LinkOverlay, OverlayLink};
 use crate::theme::Theme;
 
 /// Synthetic header `range_id`, reserved above block `selection_range` ids (which count up from 0).
@@ -219,6 +219,7 @@ pub fn render_scrolled_entries_with_scratch(
         media_paths,
         group_spans,
         cwd,
+        &[],
     )
     .result
 }
@@ -242,6 +243,7 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
     media_paths: &[std::path::PathBuf],
     group_spans: Option<(&[GroupSpan], usize)>,
     cwd: Option<&std::path::Path>,
+    id_mentions: &[IdMention],
 ) -> ScrollRenderResultWithBoundaries {
     if entries.is_empty() || viewport.width == 0 || viewport.height == 0 {
         return ScrollRenderResultWithBoundaries::default();
@@ -641,7 +643,7 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
             // Scan post-wrap lines for plain-text URLs and file paths.
             // For markdown blocks, markdown hyperlinks are already in the overlay (mapped above); explicit tool-link rows are authoritative
             {
-                let visible_lines = sticky_edit
+                let visible_lines: Vec<_> = sticky_edit
                     .visible_lines(cached_output.lines.len(), visible_rows)
                     .filter_map(|(idx, row_offset)| {
                         let bl = &cached_output.lines[idx];
@@ -656,14 +658,23 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
                             bl.indent_width,
                         ))
                     })
-                    .take_while(|(screen_row, _, _, _)| *screen_row < max_y);
+                    .take_while(|(screen_row, _, _, _)| *screen_row < max_y)
+                    .collect();
 
                 crate::render::osc8::scan_lines_for_url_overlays_indented(
-                    visible_lines,
+                    visible_lines.iter().copied(),
                     entry_row_layout.content.x,
                     media_paths,
                     &mut result.link_overlay,
                 );
+                if !id_mentions.is_empty() {
+                    crate::render::osc8::scan_lines_for_id_mentions(
+                        visible_lines.iter().copied(),
+                        entry_row_layout.content.x,
+                        id_mentions,
+                        &mut result.link_overlay,
+                    );
+                }
             }
         }
 
