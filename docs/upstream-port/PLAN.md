@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-103 — A peek number pick stays on the row it was made on
+
+A 1–9 pick is cleared when the peeked row changes, including ask questions that have no request id to compare. A refresh of the same row keeps the pick (`apply_fields_drops_a_number_pick_when_the_row_changes`, `peek_number_pick_stays_on_the_row_it_was_made_on`) (`v51-x54`).
+
 ### D-102 — Saved pins survive a layout write and an identity change
 
 A grouping change keeps pins for sessions that are not open. A workspace row that becomes a live agent, or the reverse, keeps its pin and that pin still saves under the session id (`v1_grouping_toggle_keeps_pins_for_sessions_that_are_not_open`, `workspace_identity_rebind_keeps_a_pin_in_the_saved_list`, `saved_pins_for_unloaded_sessions_survive_a_layout_write`) (`v51-x49`).
@@ -464,7 +468,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 21 | 0 | 22 | 0 | 0 |
+| W8 | Sessions, resume, and dashboard | 20 | 0 | 23 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -475,9 +479,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 379. Skipped: 8. Done: 153. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 378. Skipped: 8. Done: 154. Already: 33. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: number-key picks in the dashboard peek stay on the selected row (`v51-x54`).
+**Next:** W8 sessions, resume, and dashboard. First open row: the dashboard slash menu shows skills from the home session even when opened early (`v51-x97`).
 
 ## Waves
 
@@ -511,7 +515,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 21. Done: 22 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 20. Done: 23 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -709,7 +713,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x24 | done | W8 | Bug Fixes |  |  | **Session picker footer** no longer lists the same shortcut twice.
 - v51-x36 | done | W8 | Bug Fixes |  |  | **Resumed sessions** now correctly show aborted subagent tasks as cancelled instead of failed.
 - v51-x49 | done | W8 | Bug Fixes |  |  | Pinned dashboard sessions now survive restarts and layout changes instead of disappearing from the saved list.
-- v51-x54 | pending | W8 | Bug Fixes |  |  | **Number-key picks in the dashboard peek** no longer leak to the wrong agent after Up/Down navigation.
+- v51-x54 | done | W8 | Bug Fixes |  |  | **Number-key picks in the dashboard peek** no longer leak to the wrong agent after Up/Down navigation.
 - v51-x97 | pending | W8 | Bug Fixes |  |  | The dashboard slash menu now shows skills from the home session even when opened early.
 - v51-x108 | pending | W8 | Bug Fixes |  |  | Closing a session in the dashboard no longer leaves it listed under Inactive.
 - v52-x31 | done | W8 | Bug Fixes |  |  | The in-session resume picker now matches the ungrouped layout shown on the welcome screen when configured.

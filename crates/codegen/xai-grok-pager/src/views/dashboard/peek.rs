@@ -136,6 +136,8 @@ impl PeekPanelState {
         let row_changed = row != self.row;
         if row_changed {
             self.row = row;
+            // A 1–9 pick belongs to the row it was made on. Up/Down must not carry it onto the next agent.
+            self.selected_option = None;
             // Vim: drop reply focus on row change so continued j/k isn't typed into the reply.
             if crate::appearance::cache::load_vim_mode() {
                 self.focused = false;
@@ -1205,6 +1207,44 @@ mod tests {
         let changed = state.apply_fields(DashboardRowId::TopLevel(AgentId(1)), fields("Idle"));
         assert!(changed, "row change must be reported");
         assert_eq!(state.row, DashboardRowId::TopLevel(AgentId(1)));
+    }
+
+    /// Ask questions have no `request_id`, so two agents compare equal on that field.
+    /// The number pick still has to drop when Up/Down moves the peek to the other agent.
+    #[test]
+    fn apply_fields_drops_a_number_pick_when_the_row_changes() {
+        let mut current = fields("Idle");
+        current.question = Some("Allow read?".into());
+        current.options = vec![("a".into(), "Alpha".into()), ("b".into(), "Beta".into())];
+        let mut state = PeekPanelState::new(DashboardRowId::TopLevel(AgentId(0)), current.clone());
+        state.selected_option = Some(1);
+
+        let mut next = current;
+        next.question = Some("Allow write?".into());
+        let changed = state.apply_fields(DashboardRowId::TopLevel(AgentId(1)), next);
+
+        assert!(changed);
+        assert_eq!(state.row, DashboardRowId::TopLevel(AgentId(1)));
+        assert_eq!(
+            state.selected_option, None,
+            "the number pick must not follow the cursor to the next agent"
+        );
+
+        state.selected_option = Some(0);
+        let kept = state.apply_fields(DashboardRowId::TopLevel(AgentId(1)), fields_with_question());
+        assert!(!kept);
+        assert_eq!(
+            state.selected_option,
+            Some(0),
+            "a same-row refresh keeps the pick"
+        );
+    }
+
+    fn fields_with_question() -> PeekFields {
+        let mut fields = fields("Idle");
+        fields.question = Some("Allow write?".into());
+        fields.options = vec![("a".into(), "Alpha".into()), ("b".into(), "Beta".into())];
+        fields
     }
 
     /// `render_peek_panel` paints a single rounded box (no title bar, no inline hint strip).

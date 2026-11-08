@@ -1504,6 +1504,81 @@ fn peek_ctrl_c_d_bubble_to_global_quit() {
     assert!(state.peek_reply.text().is_empty());
 }
 
+/// A 1–9 pick is cleared when the preview refreshes onto the next row, including ask questions
+/// that have no permission `request_id` to compare.
+#[test]
+fn peek_number_pick_stays_on_the_row_it_was_made_on() {
+    use crate::views::prompt_widget::StashedPrompt;
+    use crate::views::question_view::QuestionViewState;
+    use indexmap::IndexMap;
+    use ratatui::layout::Rect;
+    use xai_grok_tools::implementations::grok_build::ask_user_question::{
+        Question, QuestionOption,
+    };
+
+    let question = |prompt: &str| Question {
+        question: prompt.into(),
+        options: ["Alpha", "Beta"]
+            .into_iter()
+            .map(|label| QuestionOption {
+                label: label.into(),
+                description: String::new(),
+                preview: None,
+                id: None,
+            })
+            .collect(),
+        multi_select: Some(false),
+        id: None,
+    };
+    let mut agents: IndexMap<_, _> = (0..2)
+        .map(|id| {
+            let mut agent = crate::app::agent_view::test_fixtures::make_agent();
+            agent.display_name = Some(format!("Session {id}"));
+            agent.question_view = Some(QuestionViewState::new(
+                format!("card-{id}"),
+                vec![question(if id == 0 {
+                    "Allow read?"
+                } else {
+                    "Allow write?"
+                })],
+                StashedPrompt::default(),
+            ));
+            (AgentId(id), agent)
+        })
+        .collect();
+    let mut state = DashboardState::new();
+    let area = Rect::new(0, 0, 100, 40);
+    state.focus_row(DashboardRowId::TopLevel(AgentId(0)));
+    state.layout_with_preview(area, &mut agents);
+    let registry = crate::actions::ActionRegistry::defaults();
+    let two = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
+    assert!(matches!(
+        state.handle_key(&two, &registry),
+        InputOutcome::Changed
+    ));
+    assert_eq!(
+        state.peek.as_ref().map(|peek| peek.selected_option),
+        Some(Some(1))
+    );
+
+    state.focus_row(DashboardRowId::TopLevel(AgentId(1)));
+    state.layout_with_preview(area, &mut agents);
+    let peek = state.peek.as_ref().expect("peek stays open");
+    assert_eq!(peek.row, DashboardRowId::TopLevel(AgentId(1)));
+    assert_eq!(
+        peek.selected_option, None,
+        "Up/Down must not carry the number pick onto the next agent"
+    );
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    assert!(
+        !matches!(
+            state.handle_key(&enter, &registry),
+            InputOutcome::Action(Action::DashboardQuestionAnswer { .. })
+        ),
+        "Enter on the next agent must not submit the previous number pick"
+    );
+}
+
 /// Question picker flow: no option is selected by default (arrows switch agents, Enter opens). A
 /// number key selects (and toggles) an option; then `↑`/`↓` move within the options (spilling to
 /// the prev/next agent at the edges) and `Enter` answers the selected option.
