@@ -991,6 +991,94 @@
     }
 
     #[test]
+    fn resumed_foreground_subagent_shows_its_activity() {
+        with_replay_disk_home(|_| {
+            let child_sid = "child-resume-activity";
+            let background_sid = "child-resume-activity-bg";
+            let mut app = make_app_with_agent("sess-parent");
+            app.agents
+                .get_mut(&AgentId(0))
+                .unwrap()
+                .session
+                .loading_replay = true;
+            spawn_subagent_with_optional_updates(
+                &mut app,
+                child_sid,
+                Some(&(child_tool_line(child_sid) + "\n")),
+            );
+            spawn_subagent_with_optional_updates(
+                &mut app,
+                background_sid,
+                Some(&(child_tool_line(background_sid) + "\n")),
+            );
+            app.agents
+                .get_mut(&AgentId(0))
+                .unwrap()
+                .subagent_sessions
+                .get_mut(background_sid)
+                .unwrap()
+                .attempt
+                .is_background = true;
+
+            let agent = app.agents.get(&AgentId(0)).unwrap();
+            assert!(
+                agent
+                    .subagent_sessions
+                    .get(child_sid)
+                    .unwrap()
+                    .attempt
+                    .activity_label
+                    .is_none(),
+                "resume must not stamp activity before the load finishes"
+            );
+            assert_eq!(child_scrollback_tool_call_count(agent, child_sid), 0);
+
+            let _ = crate::app::dispatch::dispatch(
+                crate::app::actions::Action::TaskComplete(
+                    crate::app::actions::TaskResult::SessionLoaded {
+                        agent_id: AgentId(0),
+                        session_id: acp::SessionId::new("sess-parent"),
+                        models: None,
+                        modes: None,
+                        code_restored: false,
+                        restore_summary: None,
+                        restore_degree: None,
+                        running_prompt_id: None,
+                    },
+                ),
+                &mut app,
+            );
+
+            let agent = app.agents.get(&AgentId(0)).unwrap();
+            let info = agent.subagent_sessions.get(child_sid).unwrap();
+            assert_eq!(
+                info.attempt.activity_label.as_deref(),
+                Some("Running: Read foo")
+            );
+            let entry_id = info.attempt.scrollback_entry_id.unwrap();
+            let entry = agent.scrollback.get_by_id(entry_id).unwrap();
+            let crate::scrollback::block::RenderBlock::Subagent(block) = &entry.block else {
+                panic!("expected the parent subagent row");
+            };
+            assert_eq!(block.activity_label.as_deref(), Some("Running: Read foo"));
+            assert_eq!(
+                child_scrollback_tool_call_count(agent, background_sid),
+                0,
+                "a background child stays unread after resume"
+            );
+            assert!(
+                agent
+                    .subagent_sessions
+                    .get(background_sid)
+                    .unwrap()
+                    .attempt
+                    .activity_label
+                    .is_none()
+            );
+        });
+    }
+
+    #[test]
     fn subagent_spawned_during_resume_defers_child_replay_until_open() {
         with_replay_disk_home(|_| {
             let child_sid = "child-resume-defer";

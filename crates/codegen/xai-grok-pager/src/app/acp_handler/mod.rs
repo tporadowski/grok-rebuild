@@ -115,6 +115,7 @@ use settings::{
     handle_settings_update,
 };
 pub(crate) use subagent_activity::finalize_killed_subagent;
+pub(crate) use subagent_activity::stamp_resumed_foreground_activity;
 #[cfg(test)]
 #[allow(unused_imports)]
 use subagent_activity::*;

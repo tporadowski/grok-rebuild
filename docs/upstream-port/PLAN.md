@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-098 — A resumed foreground subagent shows its activity
+
+When a session load finishes, each still-running foreground subagent reads its on-disk transcript and the parent row shows that activity, such as `Running: Read foo`. A background subagent stays unread until it is opened (`v51-x10`, `resumed_foreground_subagent_shows_its_activity`).
+
 ### D-097 — `/exit` in dashboard details closes that session
 
 `/exit`, `/quit`, and the bare exit aliases typed in a dashboard details view close that session and return to the dashboard. The same text on the dashboard list, or in a normal agent, still quits Grok (`v51-f17`, `dashboard_details_exit_closes_only_that_session`).
@@ -444,7 +448,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 26 | 0 | 17 | 0 | 0 |
+| W8 | Sessions, resume, and dashboard | 25 | 0 | 18 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -455,9 +459,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 384. Skipped: 8. Done: 148. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 383. Skipped: 8. Done: 149. Already: 33. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: foreground subagent activity appears after resume (`v51-x10`).
+**Next:** W8 sessions, resume, and dashboard. First open row: the dashboard cursor tracks the active grouping (`v51-x22`).
 
 ## Waves
 
@@ -491,7 +495,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 26. Done: 17 (`v51-f11`, D-096; `v51-f17`, D-097). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 25. Done: 18 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -684,7 +688,7 @@ id | status | wave | kind | flag | covered | note
 - v75-x01 | done | W7 | Bug Fixes |  |  | **Notes above a queued prompt**, such as a model switch result or a ready worktree, stay on screen when the prompt starts instead of scrolling out of view.
 - v51-f11 | done | W8 | Features |  |  | **Pinned sessions** on the dashboard now stay in the order you pinned or reordered them.
 - v51-f17 | done | W8 | Features |  |  | **/exit** (and aliases) in a dashboard details view now closes only that session instead of quitting Grok.
-- v51-x10 | pending | W8 | Bug Fixes |  |  | Foreground subagent activity now appears correctly after resume.
+- v51-x10 | done | W8 | Bug Fixes |  |  | Foreground subagent activity now appears correctly after resume.
 - v51-x22 | pending | W8 | Bug Fixes |  |  | **Dashboard cursor and overlay counter** now correctly track the active grouping view.
 - v51-x24 | pending | W8 | Bug Fixes |  |  | **Session picker footer** no longer lists the same shortcut twice.
 - v51-x36 | pending | W8 | Bug Fixes |  |  | **Resumed sessions** now correctly show aborted subagent tasks as cancelled instead of failed.

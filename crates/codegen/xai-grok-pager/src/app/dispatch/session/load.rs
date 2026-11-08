@@ -1301,6 +1301,7 @@ pub(in crate::app::dispatch) fn handle_session_loaded(
                 child.scrollback.finish_all_running();
             }
         }
+        crate::app::acp_handler::stamp_resumed_foreground_activity(agent);
         let mut effects = Vec::new();
         if let Some(directive) = agent.pending_first_prompt.take() {
             agent.session.enqueue_prompt_front(directive);

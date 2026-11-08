@@ -40,6 +40,35 @@ pub(super) fn sync_subagent_activity(
     info.attempt.activity_label = activity_label;
 }
 
+/// After a resume, a still-running foreground subagent has its transcript on disk and no live label.
+/// Read that transcript and stamp the activity on the parent row. Background children stay deferred.
+pub(crate) fn stamp_resumed_foreground_activity(parent: &mut AgentView) {
+    let ids: Vec<String> = parent
+        .subagent_sessions
+        .iter()
+        .filter(|(_, info)| {
+            info.is_running()
+                && !info.attempt.is_background
+                && info.attempt.workflow_run_id.is_none()
+        })
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in ids {
+        if parent
+            .subagent_sessions
+            .get(&id)
+            .is_some_and(|info| info.transcript.needs_replay())
+        {
+            let _ = crate::app::subagent::ensure_subagent_child_replayed(parent, &id);
+        }
+        let label = parent
+            .subagent_views
+            .get(&id)
+            .and_then(|view| subagent_activity_label(view));
+        sync_subagent_activity(parent, &id, label);
+    }
+}
+
 /// Resolve a subagent child view's live activity into the display label [`sync_subagent_activity`] stamps.
 /// A child that is busy between activities shows "Waiting".
 pub(super) fn subagent_activity_label(child_view: &AgentView) -> Option<String> {
