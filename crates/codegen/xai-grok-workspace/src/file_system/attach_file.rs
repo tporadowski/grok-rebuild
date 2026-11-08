@@ -29,13 +29,22 @@ pub struct FileReference {
     pub end_line: Option<usize>,
 }
 impl FileReference {
-    /// Parse a file reference string in the format `@{file_path}` or `@{file_path}:L?{start_line}-L?{end_line}`.
+    /// Parse `@{file}`, `@{file}:N`, `@{file}:N-M`, and the same forms with a leading `!`.
+    ///
+    /// `:N` is that one line. `:N-M` is the inclusive range. A leading `!` (`@!.env`) is the hidden-file
+    /// marker and is not part of the path. `L` before a number is optional (`:L10`, `:L10-L12`).
     pub fn parse(input: &str) -> Option<Self> {
-        let re = Regex::new(r"^@?([^@].*?)(?::L?(\d+)-L?(\d+))?$").ok()?;
+        let re = Regex::new(r"^@?!?([^@!].*?)(?::L?(\d+)(?:-L?(\d+))?)?$").ok()?;
         let caps = re.captures(input)?;
         let path = PathBuf::from(caps.get(1)?.as_str());
+        if path.as_os_str().is_empty() {
+            return None;
+        }
         let start_line: Option<usize> = caps.get(2).and_then(|m| m.as_str().parse().ok());
-        let end_line: Option<usize> = caps.get(3).and_then(|m| m.as_str().parse().ok());
+        let end_line: Option<usize> = caps
+            .get(3)
+            .and_then(|m| m.as_str().parse().ok())
+            .or(start_line);
         Some(Self {
             path,
             start_line,
@@ -308,6 +317,63 @@ mod tests {
             resolve_typed_at_path(&missing_home.path, &cwd, None),
             cwd.join("~/notes.txt")
         );
+    }
+    #[tokio::test]
+    async fn at_mention_colon_n_and_bang_hidden_file() {
+        let single = FileReference::parse("@src/lib.rs:10").expect("single line");
+        assert_eq!(single.path, PathBuf::from("src/lib.rs"));
+        assert_eq!(single.start_line, Some(10));
+        assert_eq!(single.end_line, Some(10));
+        let l_form = FileReference::parse("@src/lib.rs:L7").expect("L form");
+        assert_eq!((l_form.start_line, l_form.end_line), (Some(7), Some(7)));
+
+        let hidden = FileReference::parse("@!.env").expect("hidden marker");
+        assert_eq!(hidden.path, PathBuf::from(".env"));
+        assert_eq!(hidden.start_line, None);
+        let hidden_range = FileReference::parse("@!.env:2-4").expect("hidden range");
+        assert_eq!(hidden_range.path, PathBuf::from(".env"));
+        assert_eq!(
+            (hidden_range.start_line, hidden_range.end_line),
+            (Some(2), Some(4))
+        );
+
+        let home = PathBuf::from("/home/ada");
+        let cwd = PathBuf::from("/work/repo");
+        let tilde = FileReference::parse("@!~/notes.txt:3").expect("hidden home line");
+        assert_eq!((tilde.start_line, tilde.end_line), (Some(3), Some(3)));
+        assert_eq!(
+            resolve_typed_at_path(&tilde.path, &cwd, Some(&home)),
+            home.join("notes.txt")
+        );
+
+        let dir = std::env::temp_dir().join(format!("grok-at-mention-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let notes = dir.join("notes.txt");
+        std::fs::write(&notes, "one\ntwo\nthree\n").expect("notes");
+        let secret = dir.join(".secret");
+        std::fs::write(&secret, "hidden-line\n").expect("secret");
+
+        let parsed = FileReference::parse(&format!("{}:2", notes.display())).expect("abs :N");
+        assert_eq!(parsed.path, notes);
+        assert_eq!((parsed.start_line, parsed.end_line), (Some(2), Some(2)));
+        let rendered = render_file_reference(parsed, false)
+            .await
+            .expect("render the one line");
+        assert!(rendered.contains("2→two"), "{rendered}");
+        assert!(!rendered.contains("1→one"), "{rendered}");
+        assert!(!rendered.contains("three"), "{rendered}");
+
+        let mut bang = FileReference::parse("@!.secret").expect("bang name");
+        bang.path = resolve_typed_at_path(&bang.path, &dir, None);
+        assert_eq!(bang.path, secret);
+        let rendered = render_file_reference(bang, false)
+            .await
+            .expect("render the hidden file");
+        assert!(rendered.contains("hidden-line"), "{rendered}");
+        assert!(rendered.contains(".secret"), "{rendered}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
     fn test_file_url_regex() {

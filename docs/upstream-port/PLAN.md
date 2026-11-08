@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-157 — @ mentions take :N and a leading ! for hidden files
+
+`:N` attaches that one line. `:N-M` stays an inclusive range. A leading `!` (`@!.env`) is the hidden-file marker and is not part of the path (`at_mention_colon_n_and_bang_hidden_file`). The `@` picker already restarts its walk to include hidden and gitignored files when the query starts with `!` (`hidden_mode`). Listing other outside-workspace roots stays `v74-f09` (`v78-f03`).
+
 ### D-156 — Typed @~/ paths resolve to the home folder
 
 Editing a picked `@` chip in place is already the Backspace and arrow behavior from `v74-f10` (`backspace_at_file_ref_end_reopens_the_picker`, `arrows_enter_a_picked_file_path`). A typed `@~/...` or `@~` mention resolves under the home directory when the prompt attaches the file and when the line viewer opens that chip (`typed_at_tilde_slash_resolves_to_the_home_folder`). `@~other` stays relative to the working directory. Listing `/`, `~/`, and `../` from the picker, and the `[ui] at_picker_outside_workspace` switch, stay `v74-f09` (`v78-f01`).
@@ -681,7 +685,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 1 | 0 | 32 | 3 | 0 |
+| W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -691,9 +695,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 323. Skipped: 8. Done: 204. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 322. Skipped: 8. Done: 205. Already: 38. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: @ mentions with :N suffixes and @!hidden files (`v78-f03`).
+**Next:** W10 transcript, density, and copy. First open row: compact mode collapses recaps (`v50-f01`).
 
 ## Waves
 
@@ -731,7 +735,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 1. Done: 32 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153; `v77-f01`, D-154; `v77-x03`, D-155; `v78-f01`, D-156). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153; `v77-f01`, D-154; `v77-x03`, D-155; `v78-f01`, D-156; `v78-f03`, D-157). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -996,7 +1000,7 @@ id | status | wave | kind | flag | covered | note
 - v77-f01 | done | W9 | Features |  |  | **New [ui] kitty_keyboard = "query"** setting lets Shift+Enter insert newlines in unidentified terminals.
 - v77-x03 | done | W9 | Bug Fixes |  |  | **Ctrl+L** now works on more screens and copy hints match what actually copies to the clipboard.
 - v78-f01 | done | W9 | Features |  |  | **@ file chips** can now be edited in place; typed @~/ paths resolve to the home folder.
-- v78-f03 | pending | W9 | Features |  |  | **@ mentions** now support :N line suffixes and @!hidden files.
+- v78-f03 | done | W9 | Features |  |  | **@ mentions** now support :N line suffixes and @!hidden files.
 - v50-f01 | pending | W10 | Features |  |  | **Compact mode** now collapses recaps and keeps inner spacing on tall terminals.
 - v50-f06 | pending | W10 | Features |  |  | New **timestamps** setting offers off, minimal, and on modes in Settings and `/timestamps`.
 - v50-f10 | pending | W10 | Features |  |  | Tables rendered by grok now show copy buttons underneath that export clean TSV, CSV or Markdown suitable for spreadsheets.
