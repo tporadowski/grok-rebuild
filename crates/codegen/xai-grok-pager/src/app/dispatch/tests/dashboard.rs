@@ -3127,6 +3127,35 @@ fn seed_model(app: &mut AppView, id: &str, name: &str) {
         acp::ModelInfo::new(model_id, name.to_string()),
     );
 }
+/// Bare `/loop` has no prompt. The dashboard has not advertised `scheduler_create` yet,
+/// so the command is hidden; it must still show usage instead of starting a session.
+#[test]
+fn dashboard_loop_without_a_prompt_shows_usage() {
+    let mut app = test_app();
+    open_dashboard(&mut app);
+    let before = app.agents.len();
+    let effects = dispatch_dashboard_dispatch_slash(&mut app, "/loop".into());
+    assert!(
+        effects.is_empty(),
+        "bare /loop must not spawn a session, got {effects:?}"
+    );
+    assert_eq!(app.agents.len(), before);
+    let toast = app
+        .dashboard
+        .as_ref()
+        .and_then(|dashboard| dashboard.error_toast.as_deref())
+        .unwrap_or("");
+    assert!(
+        toast.contains("Usage: /loop"),
+        "expected /loop usage, got {toast:?}"
+    );
+    assert!(matches!(app.active_view, ActiveView::AgentDashboard));
+
+    let effects = dispatch_dashboard_dispatch_slash(&mut app, "/loop check deploy status".into());
+    assert!(!effects.is_empty(), "a /loop prompt still starts a session");
+    assert!(app.agents.len() > before);
+}
+
 /// `/model <name>` on the dashboard stages the model for the next
 /// spawned agent instead of dispatching a (session-scoped) switch.
 #[serial_test::serial(GROK_AGENT_DASHBOARD)]

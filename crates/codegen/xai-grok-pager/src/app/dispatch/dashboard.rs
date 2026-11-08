@@ -1193,6 +1193,18 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
             return vec![];
         }
         let Some(command) = reg.get(invocation.token).cloned() else {
+            // `/loop` is hidden until `scheduler_create` is advertised. A bare `/loop` on the
+            // dashboard must show usage instead of dispatching that text as a new session.
+            if invocation.token.eq_ignore_ascii_case("loop") && invocation.args.trim().is_empty() {
+                if let Some(d) = app.dashboard.as_mut() {
+                    d.dispatch.set_text("");
+                    d.error_toast = Some(
+                        xai_grok_tools::implementations::grok_build::loop_usage_message()
+                            .to_string(),
+                    );
+                }
+                return vec![];
+            }
             return dispatch_dashboard_dispatch(app, text, false);
         };
         if !dashboard
