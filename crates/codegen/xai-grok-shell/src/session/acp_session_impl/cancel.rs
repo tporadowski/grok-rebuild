@@ -475,7 +475,10 @@ impl SessionActor {
         // Send-now skips this and backgrounds them after the abort.
         // A narrow race exists: the running task could spawn a new terminal between this call and the abort() below In practice this is negligible; abort() drops the future and any child handle it owns.
         if !send_now {
-            self.kill_foreground_commands_for_cancel().await;
+            // Continue to run keeps background subagents. Their shell commands share this
+            // terminal, so a parent kill must not take those commands with the turn.
+            self.kill_foreground_commands_for_cancel(cancel_subagents)
+                .await;
         }
 
         if kill_background_tasks {
@@ -1000,7 +1003,8 @@ impl SessionActor {
         // Empty can mean nothing was running, or that this backend cannot background at all. Kill, so the command does not outlive its turn.
         // A kill does not report which commands it stopped, so `repair_dangling_tool_calls` answers the tool call before the next request.
         if backgrounded.is_empty() {
-            self.kill_foreground_commands_for_cancel().await;
+            // This backend cannot background. Kill every foreground command, as before.
+            self.kill_foreground_commands_for_cancel(true).await;
         }
 
         for bg in backgrounded {
@@ -1016,10 +1020,11 @@ impl SessionActor {
         }
     }
 
-    /// Kill the foreground commands this cancel owns. A subagent kills only its own, never the parent's or a sibling's on the shared backend.
+    /// Kill the foreground commands this cancel owns.
+    /// A subagent kills only its own. A parent Continue-to-run (`cancel_subagents == false`) does the same, so a background subagent's command survives. Stop still kills every foreground command on the shared terminal.
     #[tracing::instrument(name = "cancel.kill_foreground", skip_all)]
-    async fn kill_foreground_commands_for_cancel(&self) {
-        if self.startup_hints.is_subagent {
+    async fn kill_foreground_commands_for_cancel(&self, cancel_subagents: bool) {
+        if self.startup_hints.is_subagent || !cancel_subagents {
             self.agent
                 .borrow()
                 .tool_bridge()

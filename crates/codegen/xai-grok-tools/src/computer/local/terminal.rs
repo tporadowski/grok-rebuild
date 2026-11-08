@@ -4591,6 +4591,71 @@ mod tests {
         );
     }
 
+    /// Continue to run kills the parent session's foreground command and leaves a
+    /// background subagent's command, which shares the terminal under its own owner.
+    #[tokio::test]
+    async fn owner_scoped_foreground_kill_leaves_another_sessions_command() {
+        let backend = std::sync::Arc::new(LocalTerminalBackend::new());
+        let parent = tokio::spawn({
+            let backend = backend.clone();
+            async move {
+                let mut req = make_request("sleep 30");
+                req.tool_call_id = "parent-cmd".into();
+                req.owner_session_id = Some("parent-session".into());
+                backend.run(req).await
+            }
+        });
+        let child = tokio::spawn({
+            let backend = backend.clone();
+            async move {
+                let mut req = make_request("sleep 30");
+                req.tool_call_id = "child-cmd".into();
+                req.owner_session_id = Some("child-session".into());
+                backend.run(req).await
+            }
+        });
+
+        let started = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let tasks = backend.list_tasks().await;
+                let parent_up = tasks.iter().any(|task| {
+                    task.owner_session_id.as_deref() == Some("parent-session") && !task.completed
+                });
+                let child_up = tasks.iter().any(|task| {
+                    task.owner_session_id.as_deref() == Some("child-session") && !task.completed
+                });
+                if parent_up && child_up {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(started.is_ok(), "both foreground commands should be running");
+
+        backend
+            .kill_foreground_commands_by_owner("parent-session")
+            .await;
+
+        let parent_result = tokio::time::timeout(Duration::from_secs(8), parent)
+            .await
+            .expect("the parent command should finish once it is killed")
+            .expect("parent task joins")
+            .expect("parent run returns");
+        assert_eq!(parent_result.signal.as_deref(), Some("cancelled"));
+
+        let tasks = backend.list_tasks().await;
+        assert!(
+            tasks.iter().any(|task| {
+                task.owner_session_id.as_deref() == Some("child-session") && !task.completed
+            }),
+            "the other session's command is still running: {tasks:?}"
+        );
+
+        backend.kill_foreground_commands().await;
+        let _ = tokio::time::timeout(Duration::from_secs(8), child).await;
+    }
+
     #[test]
     fn new_local_runs_on_current_thread_runtime() {
         let rt = tokio::runtime::Builder::new_current_thread()
