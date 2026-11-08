@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-146 — Shift+Enter is a newline in xterm.js terminals
+
+VS Code, Cursor, Windsurf, and Grok Desktop negotiate the Kitty keyboard protocol, so Shift+Enter arrives as Enter with Shift and the prompt inserts a newline. Zed's terminal is not xterm.js and still skips the protocol. VS Code still swallows Ctrl+. for its own palette. Unidentified terminals stay on `v77-f01` (`kitty_protocol_on_for_xtermjs_shift_enter`, `shift_enter_inserts_newline`) (`v74-f02`).
+
 ### D-145 — Windows symbol and AZERTY digit chords ignore an extra Shift
 
 A Ctrl, Alt, or Super chord on a non-letter still matches when the event also has Shift. Windows reports that bit for a symbol that needs Shift, and AZERTY reports it for a digit. A bare slash stays different from Shift+slash, a letter chord still requires its own Shift, and Shift+1 still does not pick a permission or cancel option (D-127). The matcher is shared. This run did not execute it on Windows (`windows_shift_symbol_and_azerty_digit_match_the_shortcut`) (`v73-x05`).
@@ -637,7 +641,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 14 | 0 | 19 | 3 | 0 |
+| W9 | Prompt, mentions, and keyboard | 13 | 0 | 20 | 3 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -647,9 +651,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 336. Skipped: 8. Done: 191. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 335. Skipped: 8. Done: 192. Already: 38. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: Shift+Enter newline in VS Code and xterm.js (`v74-f02`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: shell approval cards explain an Auto-review block (`v74-f05`).
 
 ## Waves
 
@@ -687,7 +691,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 14. Done: 19 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 13. Done: 20 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -939,7 +943,7 @@ id | status | wave | kind | flag | covered | note
 - v71-f10 | done | W9 | Features |  |  | **Prompt vim cursor** is a block in Normal mode and a bar in Insert mode; `ui.cursor_blink` sets whether they blink.
 - v71-f11 | done | W9 | Features |  |  | **Minimal mode** starts its info row with the prompt's vim mode (`NORMAL` or `INSERT`), and `NORMAL` is shown in bold.
 - v73-x05 | done | W9 | Bug Fixes |  |  | **Windows**: shortcuts typed with `Shift`-held symbols or AZERTY digit keys work.
-- v74-f02 | pending | W9 | Features |  |  | **Shift+Enter** inserts a newline in VS Code and other xterm.js-based terminals that use the Kitty keyboard protocol.
+- v74-f02 | done | W9 | Features |  |  | **Shift+Enter** inserts a newline in VS Code and other xterm.js-based terminals that use the Kitty keyboard protocol.
 - v74-f05 | pending | W9 | Features |  |  | **Shell approval cards** say when Auto-review blocked a command or couldn't review it, and `Ctrl+F` shows the reviewer's explanation.
 - v74-x02 | pending | W9 | Bug Fixes |  |  | **Ctrl+Y** on a question card no longer closes it without an answer; while you type an answer, it pastes back text cut with `Ctrl+K`.
 - v74-x27 | pending | W9 | Bug Fixes |  |  | **Dialog tab labels, shortcuts and settings rows** that don't fit end in `…` instead of being cut off.

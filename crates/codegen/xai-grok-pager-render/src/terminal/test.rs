@@ -1312,30 +1312,33 @@ fn graphics_protocol_skip_reason_plain_kitty() {
 // =====================================================================
 
 #[test]
-fn kitty_skip_vscode() {
-    let ctx = TerminalContext {
-        brand: TerminalName::VsCode,
-        ..Default::default()
-    };
-    assert_eq!(ctx.kitty_skip_reason(), Some("vscode"));
-}
-
-#[test]
-fn kitty_skip_cursor() {
-    let ctx = TerminalContext {
-        brand: TerminalName::Cursor,
-        ..Default::default()
-    };
-    assert_eq!(ctx.kitty_skip_reason(), Some("vscode"));
-}
-
-#[test]
-fn kitty_skip_windsurf() {
-    let ctx = TerminalContext {
-        brand: TerminalName::Windsurf,
-        ..Default::default()
-    };
-    assert_eq!(ctx.kitty_skip_reason(), Some("vscode"));
+fn kitty_protocol_on_for_xtermjs_shift_enter() {
+    for brand in [
+        TerminalName::VsCode,
+        TerminalName::Cursor,
+        TerminalName::Windsurf,
+        TerminalName::GrokDesktop,
+    ] {
+        let ctx = TerminalContext {
+            brand,
+            env_brand: brand,
+            ..Default::default()
+        };
+        assert_eq!(ctx.kitty_skip_reason(), None, "{brand:?}");
+        assert!(
+            !negotiated_kitty_flags(ctx.kitty_skip_reason().as_deref(), None).is_empty(),
+            "{brand:?} pushes Kitty keyboard flags"
+        );
+        assert!(!ctx.shift_enter_unavailable(), "{brand:?}");
+        assert!(
+            !ctx.prefer_alt_enter_newline(),
+            "{brand:?} advertises Shift+Enter"
+        );
+        assert!(crate::input::is_mod_enter(&crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::SHIFT,
+        )));
+    }
 }
 
 #[test]
@@ -1502,14 +1505,14 @@ fn kitty_skip_windows_terminal() {
 
 #[test]
 fn kitty_skip_vscode_over_tmux() {
-    // When both brand and multiplexer would skip, brand wins.
+    // xterm.js itself negotiates KKP. An old tmux in front of it still drops extended Enter.
     let ctx = TerminalContext {
         brand: TerminalName::VsCode,
         multiplexer: MultiplexerKind::Tmux,
         tmux_version: Some("tmux 3.0".to_owned()),
         ..Default::default()
     };
-    assert_eq!(ctx.kitty_skip_reason(), Some("vscode"));
+    assert_eq!(ctx.kitty_skip_reason(), Some("tmux_old"));
 }
 
 #[test]
@@ -1619,24 +1622,14 @@ fn shift_enter_available_kkp_terminals() {
 }
 
 #[test]
-fn shift_enter_unavailable_vscode_family() {
-    // VS Code's xterm.js (and VS Code-family / xterm.js IDE forks) never negotiate KKP, so Shift+Enter arrives as a bare CR identical to Enter
-    // The UI must advertise Alt+Enter instead
-    for brand in [
-        TerminalName::VsCode,
-        TerminalName::Cursor,
-        TerminalName::Windsurf,
-        TerminalName::Zed,
-    ] {
-        let ctx = TerminalContext {
-            brand,
-            ..Default::default()
-        };
-        assert!(
-            ctx.shift_enter_unavailable(),
-            "{brand:?} (xterm.js) must report shift_enter_unavailable"
-        );
-    }
+fn shift_enter_unavailable_zed_not_xtermjs() {
+    // Zed's terminal is Alacritty, not xterm.js, and still skips KKP.
+    let ctx = TerminalContext {
+        brand: TerminalName::Zed,
+        ..Default::default()
+    };
+    assert_eq!(ctx.kitty_skip_reason(), Some("vscode"));
+    assert!(ctx.shift_enter_unavailable());
 }
 
 #[test]
@@ -1864,9 +1857,8 @@ fn ctrl_dot_unreliable_on_windows_terminal() {
 
 #[test]
 fn ctrl_dot_unreliable_on_vscode_forks() {
-    // VS Code's integrated terminal swallows `Ctrl+.` for its own command palette
-    // VS Code-family forks and other xterm.js IDE embeds inherit the same behavior (forks share the keymap; others mirror it)
-    // Preference is keyed off `kitty_skip_reason` ("vscode").
+    // VS Code's integrated terminal swallows `Ctrl+.` for its own command palette.
+    // Kitty keyboard protocol is on for Shift+Enter; this chord stays unreliable.
     for brand in [
         TerminalName::VsCode,
         TerminalName::Cursor,

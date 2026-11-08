@@ -353,13 +353,10 @@ impl TerminalContext {
     ///
     /// Terminal-emulator reasons take precedence over multiplexer reasons so the user is pointed at the deeper cause.
     pub fn kitty_skip_reason(&self) -> Option<&'static str> {
-        if matches!(
-            self.brand,
-            TerminalName::VsCode
-                | TerminalName::Cursor
-                | TerminalName::Windsurf
-                | TerminalName::Zed
-        ) {
+        // VS Code and other xterm.js embeds negotiate Kitty keyboard protocol, so
+        // Shift+Enter arrives as Enter+Shift and inserts a newline. Zed's terminal
+        // is Alacritty, not xterm.js, and stays on the older skip.
+        if self.brand == TerminalName::Zed {
             return Some("vscode");
         }
         if self.brand == TerminalName::AppleTerminal {
@@ -437,14 +434,9 @@ impl TerminalContext {
             };
         }
 
-        // VS Code / xterm.js and its forks: KKP is never negotiated, so Shift+Enter arrives as a bare CR indistinguishable from Enter
-        if matches!(
-            self.brand,
-            TerminalName::VsCode
-                | TerminalName::Cursor
-                | TerminalName::Windsurf
-                | TerminalName::Zed
-        ) {
+        // Zed does not negotiate KKP (see `kitty_skip_reason`). xterm.js embeds do,
+        // so Shift+Enter is a real modified Enter there.
+        if self.brand == TerminalName::Zed {
             return true;
         }
 
@@ -468,8 +460,9 @@ impl TerminalContext {
     }
 
     /// Without KKP, Ctrl+. is not a C0 control and collapses to `.`. Follows [`Self::kitty_skip_reason`] so mux skips stay aligned.
+    /// VS Code still swallows Ctrl+. for its own palette after Kitty keyboard protocol is on for Shift+Enter.
     pub fn ctrl_dot_unreliable(&self) -> bool {
-        self.kitty_skip_reason().is_some()
+        self.brand.is_vscode_family() || self.kitty_skip_reason().is_some()
     }
 
     /// Returns the reason to skip hyperlink (OSC 8) emission, or `None` if the environment is compatible.
