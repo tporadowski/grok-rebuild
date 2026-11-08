@@ -53,7 +53,34 @@ pub(super) fn compaction_context_refresh(update: &XaiSessionUpdate) -> Option<u6
 /// Refresh the bar and record `used` as the confirmed count for a pending compaction message; call only from the `meta.totalTokens` path.
 pub(super) fn confirm_context_used(view: &mut AgentView, used: u64) {
     refresh_context_used(view, used);
-    view.session.note_context_used(used);
+    if let Some(id) = view.session.note_context_used(used) {
+        revise_compaction_tokens(&mut view.scrollback, id, used);
+    }
+}
+
+fn revise_compaction_tokens(
+    scrollback: &mut crate::scrollback::state::ScrollbackState,
+    id: crate::scrollback::entry::EntryId,
+    tokens_after: u64,
+) {
+    let Some(entry) = scrollback.get_by_id_mut(id) else {
+        return;
+    };
+    let crate::scrollback::block::RenderBlock::SessionEvent(block) = &mut entry.block else {
+        return;
+    };
+    let crate::scrollback::blocks::SessionEvent::CompactionCompleted {
+        tokens_after: slot,
+        ..
+    } = &mut block.event
+    else {
+        return;
+    };
+    if *slot == tokens_after {
+        return;
+    }
+    *slot = tokens_after;
+    entry.invalidate_cache();
 }
 /// Replay gate shared by the ACP and xAI session-update paths. Returns `true` when the update must be dropped.
 /// Replay is only expected while a `session/load` is in flight for this agent (fresh-view load or reconnect reload window).
@@ -1739,7 +1766,15 @@ pub(super) fn apply_session_event(
                     },
                 ));
             } else if !manual_compact_in_flight(session) {
-                session.defer_compaction(*tokens_before, *tokens_after, *elapsed_ms);
+                let shown = session.defer_compaction(*tokens_before, *tokens_after, *elapsed_ms);
+                let id = scrollback.push_block(RenderBlock::session_event(
+                    SessionEvent::CompactionCompleted {
+                        tokens_before: *tokens_before,
+                        tokens_after: shown,
+                        elapsed_ms: *elapsed_ms,
+                    },
+                ));
+                session.bind_compaction_line(id);
             }
             true
         }

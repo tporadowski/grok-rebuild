@@ -28,7 +28,7 @@ Not `/config-agents` (alias `/agents`), which manages agent *definitions* and pe
 
 Compress conversation history to reclaim context-window space.
 
-Grok also auto-compacts once the context window hits 85% (tune it with `[session] auto_compact_threshold_percent`).
+Grok also auto-compacts once the context window hits 85% (tune it with `[session] auto_compact_threshold_percent`). The transcript shows the token count on the compacted line as soon as compaction finishes. A later confirmed count updates that line; tokens the turn uses after that do not.
 
 ### `/context`
 

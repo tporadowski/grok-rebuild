@@ -874,7 +874,7 @@
     }
 
     #[test]
-    fn apply_compaction_completed_defers_message_until_turn_end() {
+    fn apply_compaction_completed_shows_the_count_immediately() {
         let mut session = make_session(Some("s1"));
         let mut scrollback = ScrollbackState::new();
         session.set_compaction_activity(Some(TurnActivity::AutoCompacting));
@@ -885,16 +885,17 @@
             summary_preview: None,
         };
         assert!(apply_session_event(&update, &mut session, &mut scrollback, false));
-        assert_eq!(
-            scrollback.len(),
-            0,
-            "live compaction completion must be deferred, not pushed immediately"
-        );
+        match last_session_event(&scrollback) {
+            Some(SessionEvent::CompactionCompleted { tokens_after, .. }) => {
+                assert_eq!(tokens_after, 66_000, "the estimate is on screen at once");
+            }
+            other => panic!("expected an immediate CompactionCompleted, got {other:?}"),
+        }
 
         session.note_context_used(43_000);
 
-        session.finish_turn(&mut scrollback,
-        );
+        session.finish_turn(&mut scrollback);
+        assert_eq!(scrollback.len(), 1, "turn end must not add a second line");
         match last_session_event(&scrollback) {
             Some(SessionEvent::CompactionCompleted {
                 tokens_before,
@@ -904,10 +905,10 @@
                 assert_eq!(tokens_before, Some(858_000));
                 assert_eq!(
                     tokens_after, 43_000,
-                    "must flush the model-confirmed count, not the 66k estimate"
+                    "turn end keeps the confirmed count, not the 66k estimate"
                 );
             }
-            other => panic!("expected deferred CompactionCompleted, got {other:?}"),
+            other => panic!("expected the updated CompactionCompleted, got {other:?}"),
         }
     }
 
@@ -922,8 +923,14 @@
             summary_preview: None,
         };
         assert!(apply_session_event(&update, &mut session, &mut scrollback, false));
-        session.finish_turn(&mut scrollback,
-        );
+        match last_session_event(&scrollback) {
+            Some(SessionEvent::CompactionCompleted { tokens_after, .. }) => {
+                assert_eq!(tokens_after, 20_000, "unconfirmed compaction shows the estimate now");
+            }
+            other => panic!("expected an immediate CompactionCompleted, got {other:?}"),
+        }
+        session.finish_turn(&mut scrollback);
+        assert_eq!(scrollback.len(), 1);
         match last_session_event(&scrollback) {
             Some(SessionEvent::CompactionCompleted { tokens_after, .. }) => {
                 assert_eq!(
@@ -974,13 +981,30 @@
         assert!(apply_session_event(
             &update,
             &mut agent.session,
-            &mut agent.scrollback, false));
+            &mut agent.scrollback,
+            false
+        ));
+        match last_session_event(&agent.scrollback) {
+            Some(SessionEvent::CompactionCompleted { tokens_after, .. }) => {
+                assert_eq!(tokens_after, 66_000);
+            }
+            other => panic!("expected the estimate immediately, got {other:?}"),
+        }
 
         refresh_context_used(&mut agent, 66_000);
         confirm_context_used(&mut agent, 43_000);
+        confirm_context_used(&mut agent, 80_000);
+        match last_session_event(&agent.scrollback) {
+            Some(SessionEvent::CompactionCompleted { tokens_after, .. }) => {
+                assert_eq!(
+                    tokens_after, 43_000,
+                    "the first confirmed count stays; later turn usage does not replace it"
+                );
+            }
+            other => panic!("expected the confirmed line, got {other:?}"),
+        }
 
-        agent.session.finish_turn(&mut agent.scrollback,
-        );
+        agent.session.finish_turn(&mut agent.scrollback);
         match last_session_event(&agent.scrollback) {
             Some(SessionEvent::CompactionCompleted {
                 tokens_before,

@@ -916,12 +916,15 @@ impl AgentSession {
         tokens_before: Option<u64>,
         estimate_after: u64,
         elapsed_ms: Option<i64>,
-    ) {
+    ) -> u64 {
         self.tracker
-            .defer_compaction(tokens_before, estimate_after, elapsed_ms);
+            .defer_compaction(tokens_before, estimate_after, elapsed_ms)
     }
-    pub fn note_context_used(&mut self, used: u64) {
-        self.tracker.note_context_used(used);
+    pub fn bind_compaction_line(&mut self, id: crate::scrollback::entry::EntryId) {
+        self.tracker.bind_compaction_line(id);
+    }
+    pub fn note_context_used(&mut self, used: u64) -> Option<crate::scrollback::entry::EntryId> {
+        self.tracker.note_context_used(used)
     }
     /// Set a retry-related activity override on the tracker.
     /// Called from ACP handler when `RetryState::Retrying` arrives.

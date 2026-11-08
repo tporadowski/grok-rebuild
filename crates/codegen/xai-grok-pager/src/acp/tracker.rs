@@ -335,7 +335,10 @@ pub struct PendingCompaction {
     pub tokens_before: Option<u64>,
     pub estimate_after: u64,
     pub elapsed_ms: Option<i64>,
+    /// First confirmed context count after compaction. Later turn usage does not replace it.
     pub last_used: Option<u64>,
+    /// Scrollback row already showing the compacted line, when one was painted.
+    pub entry_id: Option<EntryId>,
 }
 /// Names one batch on both `HookRunStarted` and `HookExecution`; an outcome ends the phase only for the batch that armed it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,6 +415,8 @@ pub struct AcpUpdateTracker {
     /// Set by `set_compaction_activity()` from ExtNotification events, cleared by `finish_turn()`.
     compaction_activity: Option<TurnActivity>,
     pending_compaction: Option<PendingCompaction>,
+    /// A confirmed context count that arrived before the compaction line was armed.
+    staged_context_confirm: Option<u64>,
     /// Retry-related activity override.
     /// Set by `set_retry_activity()` from ExtNotification `RetryState::Retrying`.
     /// Auto-cleared when normal streaming data resumes (in `handle_update` and `note_tool_call_arguments_delta`) and on `finish_turn()`.
@@ -624,23 +629,41 @@ impl AcpUpdateTracker {
     pub fn set_compaction_activity(&mut self, activity: Option<TurnActivity>) {
         self.compaction_activity = activity;
     }
+    /// Arm the compacted line and return the count to paint now.
+    /// A confirm that arrived first wins over the completion estimate.
     pub fn defer_compaction(
         &mut self,
         tokens_before: Option<u64>,
         estimate_after: u64,
         elapsed_ms: Option<i64>,
-    ) {
+    ) -> u64 {
+        let staged = self.staged_context_confirm.take();
+        let shown = staged.unwrap_or(estimate_after);
         self.pending_compaction = Some(PendingCompaction {
             tokens_before,
             estimate_after,
             elapsed_ms,
-            last_used: None,
+            last_used: staged,
+            entry_id: None,
         });
+        shown
     }
-    pub fn note_context_used(&mut self, used: u64) {
+    pub fn bind_compaction_line(&mut self, id: EntryId) {
         if let Some(pending) = self.pending_compaction.as_mut() {
-            pending.last_used = Some(used);
+            pending.entry_id = Some(id);
         }
+    }
+    /// Latch the first confirmed count. Returns the painted row when that count should replace the estimate.
+    pub fn note_context_used(&mut self, used: u64) -> Option<EntryId> {
+        let Some(pending) = self.pending_compaction.as_mut() else {
+            self.staged_context_confirm = Some(used);
+            return None;
+        };
+        if pending.last_used.is_some() {
+            return None;
+        }
+        pending.last_used = Some(used);
+        pending.entry_id
     }
     /// Set a retry-related activity override.
     /// Called by the ACP handler when `ExtNotification` `RetryState::Retrying` arrives.
@@ -1073,6 +1096,7 @@ impl AcpUpdateTracker {
         }
         changed
     }
+
     /// Called when PromptResponse is received (turn complete).
     pub fn finish_turn(&mut self, scrollback: &mut ScrollbackState) {
         self.epoch_at_last_finish = self.agent_output_epoch;
@@ -1087,13 +1111,18 @@ impl AcpUpdateTracker {
             }
         }
         if let Some(pending) = self.pending_compaction.take() {
-            scrollback.push_block(RenderBlock::session_event(
-                SessionEvent::CompactionCompleted {
-                    tokens_before: pending.tokens_before,
-                    tokens_after: pending.last_used.unwrap_or(pending.estimate_after),
-                    elapsed_ms: pending.elapsed_ms,
-                },
-            ));
+            let tokens_after = pending.last_used.unwrap_or(pending.estimate_after);
+            if let Some(id) = pending.entry_id {
+                write_compaction_tokens(scrollback, id, tokens_after);
+            } else {
+                scrollback.push_block(RenderBlock::session_event(
+                    SessionEvent::CompactionCompleted {
+                        tokens_before: pending.tokens_before,
+                        tokens_after,
+                        elapsed_ms: pending.elapsed_ms,
+                    },
+                ));
+            }
         }
         self.last_thinking_elapsed_ms = None;
         self.last_stream_start_ms = None;
@@ -1107,6 +1136,30 @@ impl AcpUpdateTracker {
         self.orphan_updates.clear();
         self.skip_next_skill_body = false;
     }
+}
+
+fn write_compaction_tokens(scrollback: &mut ScrollbackState, id: EntryId, tokens_after: u64) {
+    let Some(entry) = scrollback.get_by_id_mut(id) else {
+        return;
+    };
+    let RenderBlock::SessionEvent(block) = &mut entry.block else {
+        return;
+    };
+    let SessionEvent::CompactionCompleted {
+        tokens_after: slot,
+        ..
+    } = &mut block.event
+    else {
+        return;
+    };
+    if *slot == tokens_after {
+        return;
+    }
+    *slot = tokens_after;
+    entry.invalidate_cache();
+}
+
+impl AcpUpdateTracker {
     /// Finish the current thinking block, passing elapsed time to the entry.
     /// Empty thinking blocks (pre-created but never received content) are removed from scrollback; they'd show a misleading "Thought for 0.0s".
     /// Only blocks that received actual thinking tokens are kept.
