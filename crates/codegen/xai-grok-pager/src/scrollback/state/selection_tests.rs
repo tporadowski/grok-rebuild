@@ -2447,3 +2447,26 @@ fn review_tool_open_member_body_steps_to_the_next_member() {
         "stepping between open bodies leaves the rest of the group open"
     );
 }
+
+#[test]
+fn selection_stays_on_the_same_row_when_a_row_above_is_removed() {
+    let mut state = ScrollbackState::new();
+    let above = state.push_block(RenderBlock::agent_message("above"));
+    let kept = state.push_block(RenderBlock::agent_message("kept"));
+    let below = state.push_block(RenderBlock::agent_message("below"));
+    state.set_selected(Some(1));
+
+    assert!(state.remove_entry(above));
+
+    assert_eq!(state.index_of_id(kept), Some(0));
+    assert_eq!(
+        state.selected(),
+        state.index_of_id(kept),
+        "the highlight must stay on the row that was selected"
+    );
+    assert_eq!(state.index_of_id(below), Some(1));
+
+    // A removal below the highlight does not move it.
+    assert!(state.remove_entry(below));
+    assert_eq!(state.selected(), state.index_of_id(kept));
+}

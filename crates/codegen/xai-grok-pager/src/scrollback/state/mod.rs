@@ -764,10 +764,14 @@ impl ScrollbackState {
         self.committed.remove(&id);
         self.permission_opened.remove(&id);
         self.expanded_groups.remove(&id);
-        if let Some(sel) = self.selected
-            && sel >= self.entries.len()
-        {
-            self.selected = self.entries.len().checked_sub(1);
+        // A row above the selection shifted every later index down. Follow the same entry.
+        // Removing the selected row itself leaves the index on whatever slid into its place, then clamps.
+        if let Some(sel) = self.selected {
+            if sel > removed_index {
+                self.selected = Some(sel - 1);
+            } else if sel >= self.entries.len() {
+                self.selected = self.entries.len().checked_sub(1);
+            }
         }
         // Clamping alone is not enough here; see the cursor's contract
         if removed_index < self.commit_scan_cursor {

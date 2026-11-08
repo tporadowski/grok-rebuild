@@ -806,7 +806,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 13 | 0 | 30 | 2 | 0 |
+| W10 | Transcript, density, and copy | 12 | 0 | 31 | 2 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -815,9 +815,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 290. Skipped: 8. Done: 235. Already: 40. Deferred: 10.
+Catalog rows: 583. Pending: 289. Skipped: 8. Done: 236. Already: 40. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: Transcript selection stays on the same row when a row above it is removed (`v73-x11`).
+**Next:** W10 transcript, density, and copy. First open row: Messages between subagents appear as left-aligned rows under the bullet that name the sender and recipient, replacing the centered rows (`v74-f01`).
 
 ## Waves
 
@@ -859,7 +859,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 13. Done: 30 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`). Already: 2 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 12. Done: 31 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`). Already: 2 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1153,7 +1153,7 @@ id | status | wave | kind | flag | covered | note
 - v73-x03 | done | W10 | Bug Fixes |  |  | **Several Send nows in a row** no longer label the turns they stop "Turn cancelled by user" or jump the transcript view.
 - v73-x07 | done | W10 | Bug Fixes |  |  | **Typing while the transcript has focus** moves any character, including non-ASCII text, to the prompt, and leaves a pending card or plan approval as it is.
 - v73-x10 | done | W10 | Bug Fixes |  |  | **Lines with `|` that are not a Markdown table** wrap like other text instead of being cut off at the terminal edge.
-- v73-x11 | pending | W10 | Bug Fixes |  |  | **Transcript selection** stays on the same row when a row above it is removed.
+- v73-x11 | done | W10 | Bug Fixes |  |  | **Transcript selection** stays on the same row when a row above it is removed.
 - v74-f01 | pending | W10 | Features |  |  | **Messages between subagents** appear as left-aligned rows under the bullet that name the sender and recipient, replacing the centered rows.
 - v74-f04 | pending | W10 | Features |  |  | **`[Copy]` button** in a finished `/btw` panel and its folded transcript row copies the whole answer, even when only part of it is visible.
 - v74-f07 | pending | W10 | Features |  |  | **Quotes in replies** get a `[Copy]` button that copies the whole quote as Markdown without its `>` markers.
