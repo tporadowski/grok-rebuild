@@ -193,6 +193,7 @@ impl FeedbackModalState {
             compact_bottom_bar: false,
             search_only_on_slash: false,
             vim_normal_first: false,
+            session_fold_keys: false,
         }
     }
 

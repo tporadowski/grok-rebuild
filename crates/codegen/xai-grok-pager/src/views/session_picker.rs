@@ -981,6 +981,124 @@ pub(crate) fn format_time_ago(dt: chrono::DateTime<chrono::Utc>) -> String {
     };
     format!("{:>8}", raw)
 }
+
+/// How a `/resume` row should fold. Matches an in-session transcript row:
+/// Left / `h` collapse, Right / `l` expand, `e` toggles one row, `E` toggles every row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResumeFold {
+    Expand,
+    Collapse,
+    Toggle,
+    ToggleAll,
+}
+
+#[derive(Debug)]
+pub(crate) enum ResumeFoldResult {
+    Unchanged,
+    /// Every collapsible row was expanded or collapsed in `state.expanded`.
+    Changed,
+    /// One row. [`crate::app::dispatch`] toggles that card, and loads detail on the expand side.
+    Card {
+        source: String,
+        session_id: String,
+    },
+}
+
+/// Apply one resume-list fold. Foreign rows are not collapsible.
+pub(crate) fn apply_resume_list_fold(
+    fold: ResumeFold,
+    visual_index: Option<usize>,
+    state: &mut PickerState,
+    entry_map: &[Option<PickerItem>],
+    entries: Option<&[SessionPickerEntry]>,
+    hits: Option<&[xai_grok_shell::extensions::session_search::SearchSessionHit]>,
+) -> ResumeFoldResult {
+    let collapsible_key = |item: &PickerItem| -> Option<usize> {
+        match item {
+            PickerItem::Fuzzy { original_index } => {
+                let entry = entries?.get(*original_index)?;
+                if crate::app::is_foreign_picker_source(&entry.source) {
+                    return None;
+                }
+                Some(*original_index)
+            }
+            PickerItem::Content { hit_index } => Some(CONTENT_EXPAND_OFFSET + *hit_index),
+        }
+    };
+    if fold == ResumeFold::ToggleAll {
+        let keys: Vec<usize> = entry_map
+            .iter()
+            .flatten()
+            .filter_map(collapsible_key)
+            .collect();
+        if keys.is_empty() {
+            return ResumeFoldResult::Unchanged;
+        }
+        let any_collapsed = keys.iter().any(|key| !state.expanded.contains(key));
+        if any_collapsed {
+            for key in keys {
+                state.expanded.insert(key);
+            }
+        } else {
+            for key in &keys {
+                state.expanded.remove(key);
+            }
+        }
+        return ResumeFoldResult::Changed;
+    }
+    let Some(visual) = visual_index else {
+        return ResumeFoldResult::Unchanged;
+    };
+    let Some(item) = entry_map.get(visual).and_then(|item| item.as_ref()) else {
+        return ResumeFoldResult::Unchanged;
+    };
+    let Some(key) = collapsible_key(item) else {
+        return ResumeFoldResult::Unchanged;
+    };
+    let open = state.expanded.contains(&key);
+    let act = match fold {
+        ResumeFold::Expand => !open,
+        ResumeFold::Collapse => open,
+        ResumeFold::Toggle => true,
+        ResumeFold::ToggleAll => false,
+    };
+    if !act {
+        return ResumeFoldResult::Unchanged;
+    }
+    let Some(card) = (match item {
+        PickerItem::Fuzzy { original_index } => entries
+            .and_then(|rows| rows.get(*original_index))
+            .map(|entry| (entry.source.clone(), entry.id.clone())),
+        PickerItem::Content { hit_index } => hits
+            .and_then(|rows| rows.get(*hit_index))
+            .map(|hit| ("local".to_string(), hit.session_id.clone())),
+    }) else {
+        return ResumeFoldResult::Unchanged;
+    };
+    ResumeFoldResult::Card {
+        source: card.0,
+        session_id: card.1,
+    }
+}
+
+pub(crate) fn resume_fold_outcome(
+    fold: ResumeFold,
+    visual_index: Option<usize>,
+    state: &mut PickerState,
+    entry_map: &[Option<PickerItem>],
+    entries: Option<&[SessionPickerEntry]>,
+    hits: Option<&[xai_grok_shell::extensions::session_search::SearchSessionHit]>,
+) -> crate::app::app_view::InputOutcome {
+    use crate::app::actions::Action;
+    use crate::app::app_view::InputOutcome;
+    match apply_resume_list_fold(fold, visual_index, state, entry_map, entries, hits) {
+        ResumeFoldResult::Card { source, session_id } => {
+            InputOutcome::Action(Action::ExpandSessionCard { source, session_id })
+        }
+        ResumeFoldResult::Changed | ResumeFoldResult::Unchanged => InputOutcome::Changed,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1374,6 +1492,86 @@ mod tests {
             at(&map, 3),
             Some(PickerItem::Content { hit_index: 0 })
         ));
+    }
+    #[test]
+    fn resume_list_folds_like_a_session_row() {
+        let mut first = make_entry("one", "repo");
+        first.source = "local".into();
+        let mut second = make_entry("two", "repo");
+        second.source = "local".into();
+        let entries = vec![first, second];
+        let map = vec![
+            Some(PickerItem::Fuzzy { original_index: 0 }),
+            Some(PickerItem::Fuzzy { original_index: 1 }),
+        ];
+        let mut state = PickerState::default();
+        let card = |result: ResumeFoldResult| match result {
+            ResumeFoldResult::Card { source, session_id } => (source, session_id),
+            other => panic!("expected a card toggle, got {other:?}"),
+        };
+        assert!(matches!(
+            apply_resume_list_fold(
+                ResumeFold::Expand,
+                Some(0),
+                &mut state,
+                &map,
+                Some(&entries),
+                None,
+            ),
+            ResumeFoldResult::Card { .. }
+        ));
+        state.expanded.insert(0);
+        assert!(matches!(
+            apply_resume_list_fold(
+                ResumeFold::Expand,
+                Some(0),
+                &mut state,
+                &map,
+                Some(&entries),
+                None,
+            ),
+            ResumeFoldResult::Unchanged
+        ));
+        assert_eq!(
+            card(apply_resume_list_fold(
+                ResumeFold::Collapse,
+                Some(0),
+                &mut state,
+                &map,
+                Some(&entries),
+                None,
+            )),
+            ("local".into(), "one".into())
+        );
+        assert_eq!(
+            card(apply_resume_list_fold(
+                ResumeFold::Toggle,
+                Some(1),
+                &mut state,
+                &map,
+                Some(&entries),
+                None,
+            )),
+            ("local".into(), "two".into())
+        );
+        apply_resume_list_fold(
+            ResumeFold::ToggleAll,
+            None,
+            &mut state,
+            &map,
+            Some(&entries),
+            None,
+        );
+        assert_eq!(state.expanded, HashSet::from([0, 1]));
+        apply_resume_list_fold(
+            ResumeFold::ToggleAll,
+            None,
+            &mut state,
+            &map,
+            Some(&entries),
+            None,
+        );
+        assert!(state.expanded.is_empty(), "E collapses every row once all are open");
     }
     #[test]
     fn expand_all_mapped_session_items_uses_backing_indices() {

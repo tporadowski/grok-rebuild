@@ -2593,6 +2593,7 @@ pub(crate) fn render_session_picker_body(
         compact_bottom_bar: false,
         search_only_on_slash: false,
         vim_normal_first: crate::appearance::cache::load_vim_mode(),
+        session_fold_keys: true,
     };
 
     picker::render_picker(
@@ -3489,6 +3490,7 @@ mod tests {
             compact_bottom_bar: false,
             search_only_on_slash: false,
             vim_normal_first: false,
+            session_fold_keys: true,
         }
     }
 
@@ -3501,7 +3503,47 @@ mod tests {
         let config = resume_picker_config();
         let ev = Event::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
         let outcome = handle_picker_input(&ev, &mut state, 3, &config);
-        assert!(matches!(outcome, PickerOutcome::Expand(0)));
+        assert!(matches!(outcome, PickerOutcome::Toggle(0)));
+    }
+
+    #[test]
+    fn resume_rows_fold_with_the_session_keys() {
+        use crate::views::picker::{PickerOutcome, handle_picker_input};
+        use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+
+        let config = resume_picker_config();
+        let press = |code| Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
+        let mut state = PickerState::default();
+        assert!(matches!(
+            handle_picker_input(&press(KeyCode::Char('h')), &mut state, 3, &config),
+            PickerOutcome::Collapse(0)
+        ));
+        assert!(state.query().is_empty(), "h collapses, it does not search");
+        assert!(matches!(
+            handle_picker_input(&press(KeyCode::Char('l')), &mut state, 3, &config),
+            PickerOutcome::Expand(0)
+        ));
+        assert!(matches!(
+            handle_picker_input(&press(KeyCode::Left), &mut state, 3, &config),
+            PickerOutcome::Collapse(0)
+        ));
+        assert!(matches!(
+            handle_picker_input(&press(KeyCode::Right), &mut state, 3, &config),
+            PickerOutcome::Expand(0)
+        ));
+        assert!(matches!(
+            handle_picker_input(&press(KeyCode::Char('e')), &mut state, 3, &config),
+            PickerOutcome::Toggle(0)
+        ));
+        assert!(matches!(
+            handle_picker_input(
+                &Event::Key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::SHIFT)),
+                &mut state,
+                3,
+                &config,
+            ),
+            PickerOutcome::ToggleAll
+        ));
     }
 
     #[test]

@@ -1679,6 +1679,9 @@ pub struct PickerConfig<'a> {
     /// navigate and printable chars don't type. `i`/`/` enter search, unless search is disabled or the
     /// char is bound as an action key on the picker (which takes precedence).
     pub vim_normal_first: bool,
+    /// `/resume` rows use the in-session fold keys: `h`/Left collapse, `l`/Right expand,
+    /// `e` toggles the selected row, and `E` toggles every row.
+    pub session_fold_keys: bool,
 }
 
 /// Standard picker shortcuts: navigate, select, close.
@@ -1709,8 +1712,12 @@ pub enum PickerOutcome {
     Closed,
     /// User wants to expand/toggle entry at this index (if config.expandable).
     Expand(usize),
-    /// User wants to collapse entry at this index (Shift-E).
+    /// User wants to collapse entry at this index (Shift-E, or Left / `h`).
     Collapse(usize),
+    /// `/resume`: `e` toggles the selected row, the same as a session transcript row.
+    Toggle(usize),
+    /// `/resume`: `E` expands every row if any is collapsed, otherwise collapses every row.
+    ToggleAll,
     /// User wants to copy entry at this index (if config.expandable).
     Copy(usize),
     /// User pressed Enter with a non-empty query but no matching entries.
@@ -2931,14 +2938,32 @@ pub fn handle_picker_input(
         }
 
         // Expandable actions (y: copy, e/→: expand, E/←: collapse, space: toggle).
+        // `/resume` uses the session transcript keys instead: h/Left collapse, l/Right expand, e toggles, E toggles all.
         if config.expandable && entry_count > 0 && !state.search_active && !state.tabs_focused {
+            if config.session_fold_keys {
+                if key.code == KeyCode::Char('h') && key.modifiers.is_empty() {
+                    return PickerOutcome::Collapse(state.selected);
+                }
+                if key.code == KeyCode::Char('l') && key.modifiers.is_empty() {
+                    return PickerOutcome::Expand(state.selected);
+                }
+                if key.code == KeyCode::Char('e') && key.modifiers.is_empty() {
+                    return PickerOutcome::Toggle(state.selected);
+                }
+                if key.code == KeyCode::Char('E') {
+                    return PickerOutcome::ToggleAll;
+                }
+            }
             if key.code == KeyCode::Char('y') && key.modifiers.is_empty() {
                 return PickerOutcome::Copy(state.selected);
             }
-            if key.code == KeyCode::Char('e') && key.modifiers.is_empty() {
+            if !config.session_fold_keys
+                && key.code == KeyCode::Char('e')
+                && key.modifiers.is_empty()
+            {
                 return PickerOutcome::Expand(state.selected);
             }
-            if key.code == KeyCode::Char('E') {
+            if !config.session_fold_keys && key.code == KeyCode::Char('E') {
                 return PickerOutcome::Collapse(state.selected);
             }
             // Outside search, arrows always act on the selected row; the retained query only filters which rows are visible
@@ -3099,6 +3124,7 @@ mod tests {
             compact_bottom_bar: false,
             search_only_on_slash: false,
             vim_normal_first,
+            session_fold_keys: false,
         }
     }
 

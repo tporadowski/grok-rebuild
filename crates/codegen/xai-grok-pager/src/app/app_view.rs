@@ -3079,8 +3079,8 @@ impl AppView {
 }
 pub(crate) use crate::views::session_picker::filter_session_entries;
 use crate::views::session_picker::{
-    CONTENT_EXPAND_OFFSET, PickerItem, SessionPickerWorktreeSelection, build_entry_map,
-    session_picker_worktree_selection, sync_session_picker_query_expansion,
+    PickerItem, SessionPickerWorktreeSelection, build_entry_map, session_picker_worktree_selection,
+    sync_session_picker_query_expansion,
 };
 /// Context for welcome-view input handling.
 struct WelcomeInputCtx<'a> {
@@ -3485,6 +3485,7 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
             compact_bottom_bar: false,
             search_only_on_slash: false,
             vim_normal_first: crate::appearance::cache::load_vim_mode(),
+            session_fold_keys: true,
         };
         match crate::views::session_picker::handle_pending_delete_key(ctx.sp_pending_delete, ev) {
             crate::views::session_picker::PendingDeleteKey::Confirm(pd) => {
@@ -3577,62 +3578,44 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                 return InputOutcome::Action(Action::SessionPickerClosed);
             }
             PickerOutcome::Expand(i) => {
-                match entry_map.get(i).and_then(|e| e.as_ref()) {
-                    Some(PickerItem::Fuzzy { original_index }) => {
-                        if let Some(ents) = ctx.sp_entries.as_ref()
-                            && let Some(entry) = ents.get(*original_index)
-                            && !crate::app::foreign_sessions::is_foreign_picker_source(
-                                &entry.source,
-                            )
-                        {
-                            return InputOutcome::Action(Action::ExpandSessionCard {
-                                source: entry.source.clone(),
-                                session_id: entry.id.clone(),
-                            });
-                        }
-                    }
-                    Some(PickerItem::Content { hit_index }) => {
-                        if let Some(hits) = ctx.sp_content_results.as_ref()
-                            && let Some(hit) = hits.get(*hit_index)
-                        {
-                            return InputOutcome::Action(Action::ExpandSessionCard {
-                                source: "local".into(),
-                                session_id: hit.session_id.clone(),
-                            });
-                        }
-                    }
-                    None => {}
-                }
-                return InputOutcome::Changed;
+                return crate::views::session_picker::resume_fold_outcome(
+                    crate::views::session_picker::ResumeFold::Expand,
+                    Some(i),
+                    ctx.sp_state,
+                    &entry_map,
+                    ctx.sp_entries.as_deref(),
+                    ctx.sp_content_results.as_deref(),
+                );
             }
             PickerOutcome::Collapse(i) => {
-                match entry_map.get(i).and_then(|e| e.as_ref()) {
-                    Some(PickerItem::Fuzzy { original_index }) => {
-                        if ctx.sp_state.expanded.contains(original_index)
-                            && let Some(ents) = ctx.sp_entries.as_ref()
-                            && let Some(entry) = ents.get(*original_index)
-                        {
-                            return InputOutcome::Action(Action::ExpandSessionCard {
-                                source: entry.source.clone(),
-                                session_id: entry.id.clone(),
-                            });
-                        }
-                    }
-                    Some(PickerItem::Content { hit_index }) => {
-                        let key = CONTENT_EXPAND_OFFSET + hit_index;
-                        if ctx.sp_state.expanded.contains(&key)
-                            && let Some(hits) = ctx.sp_content_results.as_ref()
-                            && let Some(hit) = hits.get(*hit_index)
-                        {
-                            return InputOutcome::Action(Action::ExpandSessionCard {
-                                source: "local".into(),
-                                session_id: hit.session_id.clone(),
-                            });
-                        }
-                    }
-                    None => {}
-                }
-                return InputOutcome::Changed;
+                return crate::views::session_picker::resume_fold_outcome(
+                    crate::views::session_picker::ResumeFold::Collapse,
+                    Some(i),
+                    ctx.sp_state,
+                    &entry_map,
+                    ctx.sp_entries.as_deref(),
+                    ctx.sp_content_results.as_deref(),
+                );
+            }
+            PickerOutcome::Toggle(i) => {
+                return crate::views::session_picker::resume_fold_outcome(
+                    crate::views::session_picker::ResumeFold::Toggle,
+                    Some(i),
+                    ctx.sp_state,
+                    &entry_map,
+                    ctx.sp_entries.as_deref(),
+                    ctx.sp_content_results.as_deref(),
+                );
+            }
+            PickerOutcome::ToggleAll => {
+                return crate::views::session_picker::resume_fold_outcome(
+                    crate::views::session_picker::ResumeFold::ToggleAll,
+                    None,
+                    ctx.sp_state,
+                    &entry_map,
+                    ctx.sp_entries.as_deref(),
+                    ctx.sp_content_results.as_deref(),
+                );
             }
             PickerOutcome::Copy(i) => {
                 if let Some(Some(PickerItem::Fuzzy { original_index })) = entry_map.get(i) {

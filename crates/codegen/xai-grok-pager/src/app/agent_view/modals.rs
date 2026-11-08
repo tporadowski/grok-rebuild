@@ -951,6 +951,7 @@ impl AgentView {
             search_only_on_slash: state.active_tab
                 == crate::views::extensions_modal::ExtensionsTab::Skills,
             vim_normal_first: crate::appearance::cache::load_vim_mode(),
+            session_fold_keys: false,
         };
 
         let ev = crossterm::event::Event::Key(*key);
@@ -1048,6 +1049,8 @@ impl AgentView {
             crate::views::picker::PickerOutcome::Changed
             | crate::views::picker::PickerOutcome::QueryChanged => InputOutcome::Changed,
             crate::views::picker::PickerOutcome::Unchanged => InputOutcome::Unchanged,
+            crate::views::picker::PickerOutcome::Toggle(_)
+            | crate::views::picker::PickerOutcome::ToggleAll => InputOutcome::Changed,
         }
     }
 
@@ -1334,6 +1337,7 @@ impl AgentView {
             search_only_on_slash: state.active_tab
                 == crate::views::extensions_modal::ExtensionsTab::Skills,
             vim_normal_first: crate::appearance::cache::load_vim_mode(),
+            session_fold_keys: false,
         };
 
         let ev = crossterm::event::Event::Mouse(*mouse);

@@ -1021,6 +1021,7 @@ fn location_picker_config<'a>() -> crate::views::picker::PickerConfig<'a> {
         compact_bottom_bar: false,
         search_only_on_slash: false,
         vim_normal_first: crate::appearance::cache::load_vim_mode(),
+        session_fold_keys: false,
     }
 }
 
