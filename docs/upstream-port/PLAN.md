@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-118 — Start in multiline is a saved default for new composers
+
+`[ui] multiline_default` is the `/settings` row Start in multiline. It is off unless set. A new session and each opening of the dashboard start in that mode, so Enter inserts a newline there. The live Multiline toggle still changes only the composer that is open (`multiline_default_starts_session_and_dashboard_where_enter_inserts_newline`, `set_multiline_default_persists_and_rolls_back`) (`v73-f06`).
+
 ### D-117 — A folder pick updates the dispatch border before the process directory moves
 
 `Ctrl+L` (Enter or a candidate click) and `/cd <path>` both dispatch `DashboardChangeLocation`. `dispatch_dashboard_change_location` assigns `dashboard.cwd` in the same step as `app.cwd`, then returns `Effect::SetWorkingDir`. The dispatch top border paints `location_parts(&state.cwd)` on the next frame, so the new folder is visible even when `set_current_dir` has not run (`dashboard_change_location_valid_updates_cwd_and_closes_modal`, `dispatch_top_border_shows_branch_and_folder`) (`v72-x04`).
@@ -524,7 +528,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 6 | 0 | 35 | 2 | 0 |
+| W8 | Sessions, resume, and dashboard | 5 | 0 | 36 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -535,9 +539,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 364. Skipped: 8. Done: 166. Already: 35. Deferred: 10.
+Catalog rows: 583. Pending: 363. Skipped: 8. Done: 167. Already: 35. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: Start in multiline (`[ui] multiline_default`) starts new sessions and the dashboard in multiline mode (`v73-f06`).
+**Next:** W8 sessions, resume, and dashboard. First open row: a resumed session shows a background command's completion in the turn that ran it (`v74-x04`).
 
 ## Waves
 
@@ -571,7 +575,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 6. Done: 35 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116). Already: 2 (`v68-x02`, D-114; `v72-x04`, D-117). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 5. Done: 36 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118). Already: 2 (`v68-x02`, D-114; `v72-x04`, D-117). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -796,7 +800,7 @@ id | status | wave | kind | flag | covered | note
 - v69-f02 | done | W8 | Features |  |  | **Dashboard location** (branch and folder) now sits on the dispatch box's top border instead of its own header row.
 - v69-f03 | done | W8 | Features |  |  | **`/resume` on the dashboard** now lists sessions from every folder, with the current folder and its checkouts first.
 - v72-x04 | already | W8 | Bug Fixes |  |  | **Dashboard** shows the new folder on the dispatch box's top border right after a `Ctrl+L` or `/cd` pick.
-- v73-f06 | pending | W8 | Features |  |  | **Start in multiline** in `/settings` (`[ui] multiline_default`) starts new sessions and the dashboard in multiline mode, where `Enter` inserts a newline.
+- v73-f06 | done | W8 | Features |  |  | **Start in multiline** in `/settings` (`[ui] multiline_default`) starts new sessions and the dashboard in multiline mode, where `Enter` inserts a newline.
 - v74-x04 | pending | W8 | Bug Fixes |  |  | **Resumed sessions** show a background command's completion in the turn that ran it, with its real run time instead of about 0.0s.
 - v74-x22 | pending | W8 | Bug Fixes |  |  | **`grok -p --resume`** shows why a session couldn't load instead of always "Session does not exist", and with `--output-format json` a resume, continue or fork that fails before the session opens prints one JSON error.
 - v74-x23 | pending | W8 | Bug Fixes |  |  | **Sessions with an unrecognized reasoning effort or unreadable bytes in their history** resume instead of failing: the session runs at the model's default effort and says so once, and the unreadable lines are left out of the transcript.

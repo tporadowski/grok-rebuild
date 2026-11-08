@@ -1225,7 +1225,7 @@ impl DashboardState {
             pending_worktree_attach: false,
             voice_listening: false,
             voice_interim: None,
-            multiline_mode: false,
+            multiline_mode: crate::appearance::cache::load_multiline_default(),
             preview_enabled: xai_grok_shell::agent::config::UiConfig::default()
                 .dashboard_preview_enabled(),
             usage_modal: None,

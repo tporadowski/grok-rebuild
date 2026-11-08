@@ -152,6 +152,10 @@ pub struct UiConfig {
     /// Written by the pager's settings modal; the `GROK_PROMPT_SUGGESTIONS` env var overrides at runtime.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_suggestions: Option<bool>,
+    /// Start new sessions and the dashboard composer in multiline mode.
+    /// `None` means off. Written by the settings modal as `[ui].multiline_default`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multiline_default: Option<bool>,
     /// Startup cursor style: `None` (default) inherits the terminal's own style.
     /// `Some(true)` forces the legacy blinking block, `Some(false)` a steady block.
     /// Config-file-only knob (no /settings row).
@@ -297,6 +301,7 @@ impl Default for UiConfig {
             group_tool_verbs: None,
             collapsed_edit_blocks: None,
             prompt_suggestions: None,
+            multiline_default: None,
             cursor_blink: None,
             screen_mode: None,
             double_click_action: None,
@@ -318,6 +323,15 @@ impl UiConfig {
     /// (show_timestamps, simple_mode, show_thinking_blocks, …) to the same const and resolver pattern. They currently
     /// duplicate their default literal across cache.rs / config.rs / defs.rs / setters.rs / registry.rs.
     pub const SHOW_TIMELINE_DEFAULT: bool = false;
+
+    /// Default for [`Self::multiline_default`] when unset. New composers start single-line.
+    pub const MULTILINE_DEFAULT_DEFAULT: bool = false;
+
+    /// Whether new sessions and the dashboard start in multiline mode.
+    pub fn multiline_default_enabled(&self) -> bool {
+        self.multiline_default
+            .unwrap_or(Self::MULTILINE_DEFAULT_DEFAULT)
+    }
 
     /// Resolved timeline-sidebar setting: the configured value, or [`Self::SHOW_TIMELINE_DEFAULT`] when unset.
     /// The one place the default is applied: every layer (cache, appearance config, settings modal) reads through here so they cannot drift.

@@ -612,6 +612,9 @@ pub fn current_value_for(
         )),
         // PAGER: read from the snapshot
         "multiline_mode" => Some(SettingValue::Bool(pager.multiline_mode)),
+        "multiline_default" => Some(SettingValue::Bool(
+            crate::appearance::cache::load_multiline_default(),
+        )),
         // PAGER: read from the process-wide cache (the snapshot mirror keeps the modal in sync with the live cache value)
         "vim_mode" => Some(SettingValue::Bool(pager.vim_mode)),
         "scroll_speed" => Some(SettingValue::Int(pager.scroll_speed as i64)),
@@ -1109,6 +1112,14 @@ mod tests {
                         ui.prompt_suggestions.unwrap_or(true),
                         "prompt_suggestions default drifts from UiConfig::default()"
                     );
+                }
+                ("multiline_default", SettingKind::Bool { default }) => {
+                    assert_eq!(
+                        *default,
+                        ui.multiline_default_enabled(),
+                        "multiline_default default drifts from UiConfig::default()"
+                    );
+                    assert!(!*default, "multiline_default must default OFF");
                 }
                 ("keep_text_selection", SettingKind::Enum { default, .. }) => {
                     // The compile-time default is flash

@@ -706,6 +706,8 @@ fn rows_contain_categories_and_settings_through_pr_14() {
             "confirm_before_rewind",
             // PAGER-owned multiline (Editor category).
             "multiline_mode",
+            // SHELL-owned start-in-multiline default (Editor, immediately after the live toggle).
+            "multiline_default",
             // SHELL-owned prompt_suggestions (Editor; tab autocomplete ghost text, live cache)
             "prompt_suggestions",
             // voice_keybind_enabled, voice_capture_mode, and voice_stt_language hidden when the voice gate is off

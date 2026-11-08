@@ -508,6 +508,9 @@ pub enum Action {
     /// Set whether the predicted-next-prompt ghost text (tab autocomplete) is offered after each turn.
     /// SHELL-owned: updates the process-wide cache mirror and persists to `[ui].prompt_suggestions` via `Effect::PersistSetting`.
     SetPromptSuggestions(bool),
+    /// Start new sessions and the dashboard in multiline mode.
+    /// SHELL-owned: cache mirror and `[ui].multiline_default` via `Effect::PersistSetting`.
+    SetMultilineDefault(bool),
     /// Set `[scrollback.scroll].respect_manual_folds`.
     /// PAGER-owned: live-applied via `AppView::set_appearance` and persisted to pager.toml via `Effect::PersistSetting`.
     SetRespectManualFolds(bool),

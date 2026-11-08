@@ -35,6 +35,8 @@ const GROUP_TOOL_VERBS_DEFAULT: bool = true;
 const COLLAPSED_EDIT_BLOCKS_DEFAULT: bool = false;
 /// "Prompt suggestions" is the ghost text Tab autocompletes.
 const PROMPT_SUGGESTIONS_DEFAULT: bool = true;
+/// `[ui].multiline_default`: new sessions and the dashboard start single-line.
+const MULTILINE_DEFAULT_DEFAULT: bool = UiConfig::MULTILINE_DEFAULT_DEFAULT;
 const KEEP_TEXT_SELECTION_DEFAULT: TextSelection = TextSelection::Flash;
 /// This matches the legacy `[ui].scroll_speed` default.
 const SCROLL_SPEED_DEFAULT: u8 = 50;
@@ -377,6 +379,33 @@ pub fn set_prompt_suggestions(enabled: bool) {
 }
 
 thread_local! {
+    static MULTILINE_DEFAULT_CURRENT: Cell<bool> = const { Cell::new(MULTILINE_DEFAULT_DEFAULT) };
+    static MULTILINE_DEFAULT_LOADED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Read cached `[ui].multiline_default`, seeding from disk on the first call.
+pub fn load_multiline_default() -> bool {
+    MULTILINE_DEFAULT_LOADED.with(|loaded| {
+        if !loaded.get() {
+            MULTILINE_DEFAULT_CURRENT.with(|c| {
+                c.set(load_bool_from_effective_config(
+                    "multiline_default",
+                    MULTILINE_DEFAULT_DEFAULT,
+                ))
+            });
+            loaded.set(true);
+        }
+    });
+    MULTILINE_DEFAULT_CURRENT.with(|c| c.get())
+}
+
+/// Replace cached `[ui].multiline_default`.
+pub fn set_multiline_default(enabled: bool) {
+    MULTILINE_DEFAULT_CURRENT.with(|c| c.set(enabled));
+    MULTILINE_DEFAULT_LOADED.with(|l| l.set(true));
+}
+
+thread_local! {
     static KEEP_TEXT_SELECTION_CURRENT: Cell<TextSelection> =
         const { Cell::new(KEEP_TEXT_SELECTION_DEFAULT) };
     static KEEP_TEXT_SELECTION_LOADED: Cell<bool> = const { Cell::new(false) };
@@ -611,6 +640,7 @@ pub fn prime(ui: &UiConfig) {
     let _ = load_group_tool_verbs();
     let _ = load_collapsed_edit_blocks();
     let _ = load_prompt_suggestions();
+    let _ = load_multiline_default();
     // `default_selected_permission` owns its own cache in `permission_cursor`.
     crate::appearance::permission_cursor::prime();
 }
@@ -733,6 +763,7 @@ mod tests {
             PROMPT_SUGGESTIONS_DEFAULT,
             ui.prompt_suggestions.unwrap_or(PROMPT_SUGGESTIONS_DEFAULT)
         );
+        assert_eq!(MULTILINE_DEFAULT_DEFAULT, ui.multiline_default_enabled());
         assert_eq!(KEEP_TEXT_SELECTION_DEFAULT, text_selection_from_ui(&ui));
         assert_eq!(
             SCROLL_MODE_DEFAULT,

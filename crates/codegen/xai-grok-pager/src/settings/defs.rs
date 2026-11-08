@@ -842,6 +842,21 @@ pub fn default_settings() -> Vec<SettingMeta> {
             restart_required: false,
             hidden_in_minimal: false,
         },
+        // SHELL-owned `[ui].multiline_default`. Seeds new sessions and each dashboard open.
+        SettingMeta {
+            key: "multiline_default",
+            category: SettingCategory::Editor,
+            owner: SettingOwner::Shell,
+            label: "Start in multiline",
+            description: "New sessions and the dashboard start in multiline mode, where Enter \
+                          inserts a newline and Shift+Enter sends.",
+            keywords: &["multiline", "newline", "enter", "default", "start"],
+            kind: SettingKind::Bool {
+                default: ui_default.multiline_default_enabled(),
+            },
+            restart_required: false,
+            hidden_in_minimal: false,
+        },
         // SHELL-owned. It reads from `pager.current_model_name` (not `cfg.models.default`) so the modal reflects `/model` switches.
         // The empty-string default means "no opinion": the shell's resolution applies
         SettingMeta {

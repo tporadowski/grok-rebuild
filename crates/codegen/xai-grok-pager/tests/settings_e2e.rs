@@ -41,6 +41,7 @@ const ALL_SETTINGS_EXERCISED: &[&str] = &[
     "auto_light_theme",
     "render_mermaid",
     "multiline_mode",
+    "multiline_default",
     "permission_mode",
     "default_model",
     "max_thoughts_width",
@@ -228,6 +229,12 @@ fn assert_set_bool_action(outcome: SettingsKeyOutcome, key: &str, expected: bool
         }
         ("multiline_mode", Action::SetMultilineMode(b)) => {
             assert_eq!(b, expected, "SetMultilineMode value differs from expected")
+        }
+        ("multiline_default", Action::SetMultilineDefault(b)) => {
+            assert_eq!(
+                b, expected,
+                "SetMultilineDefault value differs from expected"
+            )
         }
         ("vim_mode", Action::SetVimMode(b)) => {
             assert_eq!(b, expected, "SetVimMode value differs from expected")
@@ -1860,6 +1867,7 @@ fn registry_kind_membership_through_pr_14() {
             "invert_scroll",
             "display_refresh_auto_cadence",
             "multiline_mode",
+            "multiline_default",
             "prompt_suggestions",
             "respect_manual_folds",
             "show_thinking_blocks",
@@ -2038,6 +2046,7 @@ fn defaults_round_trip_through_registry() {
             "auto_light_theme" => SettingValue::Enum("grokday"),
             "render_mermaid" => SettingValue::Enum("auto"),
             "multiline_mode" => SettingValue::Bool(false),
+            "multiline_default" => SettingValue::Bool(false),
             "permission_mode" => SettingValue::Enum("ask"),
             "default_model" => SettingValue::String(String::new()),
             "max_thoughts_width" => SettingValue::Int(120),
@@ -2135,6 +2144,7 @@ fn settings_value_payload_matches_kind() {
             | SettingsKeyOutcome::Action(Action::SetCombineQueuedPrompts(_))
             | SettingsKeyOutcome::Action(Action::SetSimpleMode(_))
             | SettingsKeyOutcome::Action(Action::SetMultilineMode(_))
+            | SettingsKeyOutcome::Action(Action::SetMultilineDefault(_))
             | SettingsKeyOutcome::Action(Action::SetVimMode(_))
             | SettingsKeyOutcome::Action(Action::SetRememberToolApprovals(_))
             | SettingsKeyOutcome::Action(Action::SetAskUserQuestionTimeoutEnabled(_))
@@ -7067,6 +7077,67 @@ fn show_thinking_blocks_renders_under_appearance_category_shell_owned() {
 }
 
 #[test]
+fn multiline_default_space_dispatches_typed_setter() {
+    xai_grok_pager::appearance::cache::set_multiline_default(false);
+    let mut s = make_state();
+    navigate_to(&mut s, "multiline_default");
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Char(' ')));
+    assert_set_bool_action(outcome, "multiline_default", true);
+    xai_grok_pager::appearance::cache::set_multiline_default(false);
+}
+
+#[test]
+fn multiline_default_enter_dispatches_typed_setter() {
+    xai_grok_pager::appearance::cache::set_multiline_default(false);
+    let mut s = make_state();
+    navigate_to(&mut s, "multiline_default");
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    assert_set_bool_action(outcome, "multiline_default", true);
+    xai_grok_pager::appearance::cache::set_multiline_default(false);
+}
+
+#[test]
+fn multiline_default_mouse_click_two_stage_toggles() {
+    xai_grok_pager::appearance::cache::set_multiline_default(false);
+    let mut s = make_state();
+    synth_rects(&mut s);
+    let row_y = row_idx_for(&s, "multiline_default") as u16;
+    let outcome = handle_settings_mouse(
+        &mut s,
+        MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        10,
+        row_y,
+    );
+    assert!(
+        matches!(outcome, SettingsKeyOutcome::Changed),
+        "first click on a different row body should only select, got: {outcome:?}"
+    );
+    let outcome = handle_settings_mouse(
+        &mut s,
+        MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        10,
+        row_y,
+    );
+    assert_set_bool_action(outcome, "multiline_default", true);
+    xai_grok_pager::appearance::cache::set_multiline_default(false);
+}
+
+#[test]
+fn multiline_default_renders_under_editor_category_shell_owned() {
+    let reg = SettingsRegistry::defaults();
+    let meta = reg
+        .find("multiline_default")
+        .expect("multiline_default must be registered");
+    assert_eq!(meta.category, SettingCategory::Editor);
+    assert_eq!(meta.owner, SettingOwner::Shell);
+    assert_eq!(meta.label, "Start in multiline");
+    match &meta.kind {
+        SettingKind::Bool { default } => assert!(!*default, "default must be off"),
+        other => panic!("expected Bool kind for multiline_default, got {other:?}"),
+    }
+}
+
+#[test]
 fn prompt_suggestions_space_dispatches_typed_setter() {
     // Pin off so space toggles to true.
     xai_grok_pager::appearance::cache::set_prompt_suggestions(false);
@@ -7145,7 +7216,7 @@ fn prompt_suggestions_renders_under_editor_category_shell_owned() {
         SettingKind::Bool { default } => assert!(*default, "default must be true"),
         other => panic!("expected Bool kind for prompt_suggestions, got {other:?}"),
     }
-    // Must sit immediately below multiline_mode in the registry order.
+    // Start-in-multiline sits between the live toggle and prompt suggestions.
     let keys: Vec<&str> = reg
         .all()
         .iter()
@@ -7156,14 +7227,24 @@ fn prompt_suggestions_renders_under_editor_category_shell_owned() {
         .iter()
         .position(|k| *k == "multiline_mode")
         .expect("multiline_mode in Editor");
+    let default_idx = keys
+        .iter()
+        .position(|k| *k == "multiline_default")
+        .expect("multiline_default in Editor");
     let prompt_idx = keys
         .iter()
         .position(|k| *k == "prompt_suggestions")
         .expect("prompt_suggestions in Editor");
     assert_eq!(
         multiline_idx + 1,
+        default_idx,
+        "multiline_default must be immediately below multiline_mode; \
+         Editor order: {keys:?}"
+    );
+    assert_eq!(
+        default_idx + 1,
         prompt_idx,
-        "prompt_suggestions must be immediately below multiline_mode; \
+        "prompt_suggestions must be immediately below multiline_default; \
          Editor order: {keys:?}"
     );
 }

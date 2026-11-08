@@ -1828,6 +1828,10 @@ fn move_setting_away_from_default(app: &mut AppView, key: crate::settings::Setti
         "prompt_suggestions" => {
             let _ = dispatch(Action::SetPromptSuggestions(false), app);
         }
+        "multiline_default" => {
+            crate::appearance::cache::set_multiline_default(false);
+            let _ = dispatch(Action::SetMultilineDefault(true), app);
+        }
         "respect_manual_folds" => {
             let _ = dispatch(
                 Action::SetRespectManualFolds(
@@ -2494,6 +2498,102 @@ fn set_group_tool_verbs_flip_resets_stale_group_expansion() {
     }
     crate::appearance::cache::set_group_tool_verbs(true);
 }
+/// `[ui].multiline_default` starts a new session and the dashboard in multiline mode.
+/// Bare Enter then inserts a newline. Opening the dashboard applies the setting
+/// even when that dashboard was created while the setting was off.
+#[test]
+fn multiline_default_starts_session_and_dashboard_where_enter_inserts_newline() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+
+    crate::appearance::cache::set_multiline_default(true);
+    let mut app = test_app_with_agent();
+    {
+        let agent = app.agents.get_mut(&AgentId(0)).expect("agent");
+        assert!(
+            agent.multiline_mode,
+            "a new session must start in multiline when the setting is on"
+        );
+        agent.prompt.set_text("line one");
+        let outcome =
+            agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            matches!(outcome, crate::app::app_view::InputOutcome::Changed),
+            "bare Enter in a session started from the setting must insert a newline, got {outcome:?}"
+        );
+        assert!(
+            agent.prompt.text().contains('\n'),
+            "got {:?}",
+            agent.prompt.text()
+        );
+    }
+
+    let mut dashboard = crate::views::dashboard::DashboardState::new();
+    assert!(
+        dashboard.multiline_mode,
+        "a new dashboard must start in multiline when the setting is on"
+    );
+    dashboard.dispatch.set_text("line one");
+    let outcome = dashboard.handle_input(
+        &Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        &crate::actions::ActionRegistry::defaults(),
+    );
+    assert!(
+        matches!(outcome, crate::app::app_view::InputOutcome::Changed),
+        "bare Enter on the dashboard must insert a newline, got {outcome:?}"
+    );
+    assert!(
+        dashboard.dispatch.text().contains('\n'),
+        "got {:?}",
+        dashboard.dispatch.text()
+    );
+
+    crate::appearance::cache::set_multiline_default(false);
+    let mut stale = test_app_with_agent();
+    assert!(
+        !stale.agents.get(&AgentId(0)).unwrap().multiline_mode,
+        "a new session stays single-line when the setting is off"
+    );
+    stale.dashboard = Some(crate::views::dashboard::DashboardState::new());
+    assert!(!stale.dashboard.as_ref().unwrap().multiline_mode);
+    crate::appearance::cache::set_multiline_default(true);
+    let _ = dispatch(Action::OpenDashboard, &mut stale);
+    assert_eq!(stale.active_view, ActiveView::AgentDashboard);
+    assert!(
+        stale.dashboard.as_ref().unwrap().multiline_mode,
+        "opening the dashboard must start it in multiline from the setting"
+    );
+    crate::appearance::cache::set_multiline_default(false);
+}
+
+#[test]
+fn set_multiline_default_persists_and_rolls_back() {
+    crate::appearance::cache::set_multiline_default(false);
+    let mut app = test_app_with_agent();
+    let effects = dispatch(Action::SetMultilineDefault(true), &mut app);
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::PersistSetting {
+                key: "multiline_default",
+                value: crate::settings::SettingValue::Bool(true),
+                rollback_value: crate::settings::SettingValue::Bool(false),
+            }]
+        ),
+        "expected exactly one PersistSetting effect, got {effects:?}",
+    );
+    assert!(crate::appearance::cache::load_multiline_default());
+    assert_eq!(app.current_ui.multiline_default, Some(true));
+    let effects = dispatch(Action::SetMultilineDefault(true), &mut app);
+    assert!(effects.is_empty(), "redundant set must be a no-op");
+    let _ = apply_setting_rollback(
+        &mut app,
+        "multiline_default",
+        &crate::settings::SettingValue::Bool(false),
+    );
+    assert!(!crate::appearance::cache::load_multiline_default());
+    crate::appearance::cache::set_multiline_default(false);
+}
+
 #[test]
 fn set_collapsed_edit_blocks_applies_persists_and_rolls_back() {
     crate::appearance::cache::set_collapsed_edit_blocks(false);

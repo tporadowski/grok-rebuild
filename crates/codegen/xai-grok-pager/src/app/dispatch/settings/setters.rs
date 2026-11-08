@@ -684,6 +684,35 @@ pub(in crate::app::dispatch) fn set_collapsed_edit_blocks(
     }]
 }
 
+pub(super) fn set_multiline_default_inner(app: &mut AppView, new: bool) {
+    crate::appearance::cache::set_multiline_default(new);
+    app.current_ui.multiline_default = Some(new);
+}
+
+/// Set whether new sessions and the dashboard start in multiline mode.
+/// SHELL-OWNED: cache mirror and `[ui].multiline_default` via `Effect::PersistSetting`.
+/// Already-open composers keep their toggle until the next session or dashboard open.
+pub(in crate::app::dispatch) fn set_multiline_default(app: &mut AppView, new: bool) -> Vec<Effect> {
+    let prev = crate::appearance::cache::load_multiline_default();
+    if prev == new {
+        return vec![];
+    }
+    set_multiline_default_inner(app, new);
+    refresh_open_settings_modals(app);
+    tracing::info!(
+        target: "settings",
+        key = "multiline_default",
+        value = new,
+        "setting changed",
+    );
+    app.show_toast(&save_success_toast("Start in multiline", new));
+    vec![Effect::PersistSetting {
+        key: "multiline_default",
+        value: crate::settings::SettingValue::Bool(new),
+        rollback_value: crate::settings::SettingValue::Bool(prev),
+    }]
+}
+
 pub(super) fn set_prompt_suggestions_inner(app: &mut AppView, new: bool) {
     crate::appearance::cache::set_prompt_suggestions(new);
     app.current_ui.prompt_suggestions = Some(new);

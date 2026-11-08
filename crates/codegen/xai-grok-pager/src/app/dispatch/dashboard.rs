@@ -159,6 +159,7 @@ fn configure_dashboard_state(app: &mut AppView) {
         d.usage_modal = None;
         d.cwd = cwd.clone();
         d.cwd_has_git_ancestor = cwd_has_git_ancestor;
+        d.multiline_mode = crate::appearance::cache::load_multiline_default();
         d.dispatch_worktree = false;
         d.worktree_dialog = None;
         d.pending_worktree_prompt = None;
