@@ -378,6 +378,9 @@ pub enum InputOutcome {
     },
     /// Something changed visually (prompt text, scroll). Redraw needed.
     Changed,
+    /// Repaint every cell on the next frame without clearing the screen first.
+    /// A clear would blank the terminal before the frame and flash.
+    RedrawInPlace,
     /// Nothing happened. Skip redraw to preserve cursor blink.
     Unchanged,
 }

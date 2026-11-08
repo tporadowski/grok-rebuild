@@ -2446,7 +2446,16 @@ pub(crate) async fn run(
                 let tip_shown = app.poll_clipboard_focus_tip();
                 schedule_tick(&mut animation_tick_at, &app, tick_interval);
                 if result.needs_draw || tip_shown {
-                    if result.force_repaint {
+                    if result.redraw_in_place && !result.force_repaint {
+                        // Paint every cell over the current frame. A screen clear would flash blank.
+                        terminal.prepare_in_place_redraw();
+                        crate::terminal::overlay::reset_owner();
+                        for agent in app.agents.values_mut() {
+                            agent.forget_transmitted_inline_media();
+                        }
+                        resize_debounce_at = None;
+                        presenter.request(false);
+                    } else if result.force_repaint {
                         // Refocus heal wins over the resize debounce
                         // A coalesced same-size resize wouldn't autoresize-clear, so clear and fully repaint now
                         resize_debounce_at = None;
@@ -3158,6 +3167,8 @@ struct DrainResult {
     /// Whether the next draw must be preceded by a full clear and repaint.
     /// Set on refocus in editor/multiplexer contexts to heal out-of-band stranded rows.
     force_repaint: bool,
+    /// Ctrl+L asked for a full repaint that must not clear the screen first.
+    redraw_in_place: bool,
     /// Count of coalesced events processed in this drain batch, summed into the stall window's `events_handled`.
     handled: u32,
 }
@@ -3222,6 +3233,7 @@ async fn drain_and_process(
     let mut had_resize = false;
     let mut had_non_resize_change = false;
     let mut force_repaint = false;
+    let mut redraw_in_place = false;
     let mut raw_events = vec![first];
     drain_immediate(&mut raw_events, input_rx);
     let live_start = raw_events.partition_point(|event| event.arrived_at < live_input_started_at);
@@ -3415,6 +3427,11 @@ async fn drain_and_process(
                 needs_draw = true;
                 had_non_resize_change = true;
             }
+            InputOutcome::RedrawInPlace => {
+                needs_draw = true;
+                had_non_resize_change = true;
+                redraw_in_place = true;
+            }
             InputOutcome::Unchanged => {}
         }
         suspend_armed_after_event.set(tty_suspend_armed(app));
@@ -3428,6 +3445,7 @@ async fn drain_and_process(
                 should_quit: true,
                 resize_only: false,
                 force_repaint: false,
+                redraw_in_place: false,
                 handled,
             };
         }
@@ -3440,6 +3458,7 @@ async fn drain_and_process(
         should_quit: false,
         resize_only: had_resize && !had_non_resize_change,
         force_repaint,
+        redraw_in_place,
         handled,
     }
 }

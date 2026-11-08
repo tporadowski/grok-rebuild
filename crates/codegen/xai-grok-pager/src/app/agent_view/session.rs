@@ -1342,7 +1342,9 @@ impl AgentView {
             ActivePane::Dock => ActivePaneSnapshot::Other,
         };
         let outcome_snap = match outcome {
-            InputOutcome::Changed | InputOutcome::ArmPending { .. } => OutcomeSnapshot::Changed,
+            InputOutcome::Changed
+            | InputOutcome::RedrawInPlace
+            | InputOutcome::ArmPending { .. } => OutcomeSnapshot::Changed,
             InputOutcome::Unchanged => OutcomeSnapshot::Unchanged,
             InputOutcome::Action(_)
             | InputOutcome::ActionThenForward(_)

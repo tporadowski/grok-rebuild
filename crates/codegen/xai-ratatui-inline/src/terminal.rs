@@ -622,6 +622,12 @@ where
             .clear();
     }
 
+    /// Make the next draw repaint every cell without clearing the screen.
+    /// `clear` blanks the display before that frame and flashes.
+    pub fn prepare_in_place_redraw(&mut self) {
+        self.reset_back_buffer();
+    }
+
     /// Resets the back buffer without clearing the screen
     /// This is useful when you want to queue clear commands yourself
     pub fn reset_back_buffer(&mut self) {
@@ -1640,5 +1646,133 @@ mod inline_resize_tests {
         terminal.autoresize().unwrap();
 
         assert_eq!(terminal.viewport_area(), Rect::new(0, 0, 80, 40));
+    }
+}
+
+#[cfg(test)]
+mod in_place_redraw_tests {
+    use std::io;
+
+    use ratatui::backend::{Backend, ClearType, TestBackend, WindowSize};
+    use ratatui::buffer::Cell;
+    use ratatui::layout::{Position, Size};
+    use ratatui::style::Style;
+
+    use super::Terminal;
+
+    struct CountClears {
+        inner: TestBackend,
+        clears: u32,
+        last_draw_cells: u32,
+    }
+
+    impl Backend for CountClears {
+        fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
+        where
+            I: Iterator<Item = (u16, u16, &'a Cell)>,
+        {
+            let cells: Vec<_> = content.collect();
+            self.last_draw_cells = u32::try_from(cells.len()).unwrap_or(u32::MAX);
+            self.inner.draw(cells.into_iter())
+        }
+
+        fn hide_cursor(&mut self) -> io::Result<()> {
+            self.inner.hide_cursor()
+        }
+
+        fn show_cursor(&mut self) -> io::Result<()> {
+            self.inner.show_cursor()
+        }
+
+        fn get_cursor_position(&mut self) -> io::Result<Position> {
+            self.inner.get_cursor_position()
+        }
+
+        fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+            self.inner.set_cursor_position(position)
+        }
+
+        fn clear(&mut self) -> io::Result<()> {
+            self.clears = self.clears.saturating_add(1);
+            self.inner.clear()
+        }
+
+        fn clear_region(&mut self, clear_type: ClearType) -> io::Result<()> {
+            self.clears = self.clears.saturating_add(1);
+            self.inner.clear_region(clear_type)
+        }
+
+        fn append_lines(&mut self, n: u16) -> io::Result<()> {
+            self.inner.append_lines(n)
+        }
+
+        fn size(&self) -> io::Result<Size> {
+            self.inner.size()
+        }
+
+        fn window_size(&mut self) -> io::Result<WindowSize> {
+            self.inner.window_size()
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    #[test]
+    fn prepare_in_place_redraw_repaints_without_a_screen_clear() {
+        let backend = CountClears {
+            inner: TestBackend::new(8, 2),
+            clears: 0,
+            last_draw_cells: 0,
+        };
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                frame
+                    .buffer_mut()
+                    .set_string(0, 0, "HELLO", Style::default());
+            })
+            .unwrap();
+        assert!(terminal.backend().last_draw_cells > 0);
+        terminal
+            .draw(|frame| {
+                frame
+                    .buffer_mut()
+                    .set_string(0, 0, "HELLO", Style::default());
+            })
+            .unwrap();
+        assert_eq!(
+            terminal.backend().last_draw_cells,
+            0,
+            "an unchanged frame must not repaint"
+        );
+        terminal.prepare_in_place_redraw();
+        terminal
+            .draw(|frame| {
+                frame
+                    .buffer_mut()
+                    .set_string(0, 0, "HELLO", Style::default());
+            })
+            .unwrap();
+        assert!(
+            terminal.backend().last_draw_cells > 0,
+            "in-place redraw must paint the frame again"
+        );
+        assert_eq!(
+            terminal.backend().clears,
+            0,
+            "in-place redraw must not clear the screen"
+        );
+        let text: String = (0..5)
+            .map(|x| terminal.backend().inner.buffer()[(x, 0)].symbol())
+            .collect();
+        assert_eq!(text, "HELLO");
+
+        terminal.clear().unwrap();
+        assert!(
+            terminal.backend().clears >= 1,
+            "clear() is the path that blanks the screen"
+        );
     }
 }

@@ -83,7 +83,7 @@ pub(crate) fn filter_child_outcome(outcome: InputOutcome) -> InputOutcome {
             gate_child_action(first) == ChildActionGate::Deny
                 || gate_child_action(second) == ChildActionGate::Deny
         }
-        InputOutcome::Changed | InputOutcome::Unchanged => false,
+        InputOutcome::Changed | InputOutcome::Unchanged | InputOutcome::RedrawInPlace => false,
     };
     if denied {
         InputOutcome::Changed

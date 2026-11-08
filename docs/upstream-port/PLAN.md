@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-153 — Unclaimed Ctrl+L redraws in place
+
+When nothing else claims Ctrl+L, the agent screen repaints every cell without clearing first. A screen clear would flash blank before the frame (`prepare_in_place_redraw_repaints_without_a_screen_clear`, `ctrl_l_redraws_in_place_when_the_scrollback_has_nothing_to_quote`). A scrollback selection still quotes (`ctrl_l_with_a_selected_message_quotes_instead_of_redrawing`). VS Code prompt Ctrl+L stays send-now. Dashboard Ctrl+L stays the location picker. Screens that do not go through the agent key handler are left for `v77-x03` (`v76-f01`).
+
 ### D-152 — Scrollback Ctrl+L quotes; Extensions stay on /plugins
 
 Ctrl+L in the scrollback quotes into the prompt. A text highlight is quoted when one is showing. Otherwise the selected message is quoted. The quote uses the same blockquote insert as the block viewer (`ctrl_l_in_the_scrollback_quotes_the_selected_message`, `ctrl_l_in_the_scrollback_quotes_highlighted_text`). Extensions no longer use Ctrl+L. `/plugins` and `/hooks` open that modal. The key is left alone when the scrollback has nothing to quote, so a later redraw (`v76-f01`, `v77-x03`) can take that case. VS Code-family prompt Ctrl+L stays send-now. Dashboard Ctrl+L stays the location picker. Copy markdown stays Ctrl+Shift+Y / F6 (D-015) (`v75-f09`).
@@ -665,7 +669,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 5 | 0 | 28 | 3 | 0 |
+| W9 | Prompt, mentions, and keyboard | 4 | 0 | 29 | 3 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -675,9 +679,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 327. Skipped: 8. Done: 200. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 326. Skipped: 8. Done: 201. Already: 38. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: Ctrl+L redraws after a terminal clear (`v76-f01`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: `[ui] kitty_keyboard = "query"` (`v77-f01`).
 
 ## Waves
 
@@ -715,7 +719,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 5. Done: 28 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 4. Done: 29 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -976,7 +980,7 @@ id | status | wave | kind | flag | covered | note
 - v75-f09 | done | W9 | Features |  |  | **`Ctrl+L`** in the scrollback adds the selected message or highlighted text to the prompt as a quote; open Extensions with `/plugins` instead.
 - v75-x10 | done | W9 | Bug Fixes |  |  | **16-color terminals** show the paste label and tool accents in the muted gray other secondary text uses, and the paste label's brackets no longer vanish on the light theme.
 - v75-x14 | done | W9 | Bug Fixes |  |  | **Typing a digit or symbol** while the scrollback has focus, with vim keys off, moves focus to the prompt and types it there, as letters already do; `?` still opens the command palette.
-- v76-f01 | pending | W9 | Features |  |  | **Ctrl+L** redraws the screen after a terminal clear without flashing.
+- v76-f01 | done | W9 | Features |  |  | **Ctrl+L** redraws the screen after a terminal clear without flashing.
 - v77-f01 | pending | W9 | Features |  |  | **New [ui] kitty_keyboard = "query"** setting lets Shift+Enter insert newlines in unidentified terminals.
 - v77-x03 | pending | W9 | Bug Fixes |  |  | **Ctrl+L** now works on more screens and copy hints match what actually copies to the clipboard.
 - v78-f01 | pending | W9 | Features |  |  | **@ file chips** can now be edited in place; typed @~/ paths resolve to the home folder.

@@ -1168,6 +1168,14 @@ impl AgentView {
         {
             return outcome;
         }
+        // Nothing else claimed Ctrl+L (a scrollback quote, send-now, or the dashboard location picker).
+        // Repaint in place so a terminal clear does not leave a blank frame.
+        if let Event::Key(key) = ev
+            && key.kind != KeyEventKind::Release
+            && key!('l', CONTROL).matches(key)
+        {
+            return InputOutcome::RedrawInPlace;
+        }
         InputOutcome::Unchanged
     }
     /// Handle an agent-level action using the compatibility fullscreen registry.
@@ -2633,6 +2641,42 @@ mod scrollback_paste_focus_forward_tests {
             );
             assert!(agent.prompt.text().is_empty());
         }
+    }
+
+    #[test]
+    fn ctrl_l_redraws_in_place_when_the_scrollback_has_nothing_to_quote() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut agent, reg) = scrollback_agent();
+        let out = agent.handle_input(
+            &Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            &reg,
+        );
+        assert!(
+            matches!(out, InputOutcome::RedrawInPlace),
+            "unclaimed Ctrl+L must redraw in place, got {out:?}"
+        );
+        assert!(agent.prompt.text().is_empty());
+        assert!(agent.active_modal.is_none());
+    }
+
+    #[test]
+    fn ctrl_l_with_a_selected_message_quotes_instead_of_redrawing() {
+        use crate::scrollback::block::RenderBlock;
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let (mut agent, reg) = scrollback_agent();
+        agent
+            .scrollback
+            .push_block(RenderBlock::user_prompt("keep this"));
+        agent.scrollback.set_selected(Some(0));
+        let out = agent.handle_input(
+            &Event::Key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            &reg,
+        );
+        assert!(
+            !matches!(out, InputOutcome::RedrawInPlace),
+            "a selected message is quoted, not redrawn"
+        );
+        assert_eq!(agent.prompt.text(), "> keep this\n\n");
     }
 
     #[test]

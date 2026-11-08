@@ -90,7 +90,7 @@ fn actions_of(outcome: &InputOutcome) -> Vec<&Action> {
         | InputOutcome::ActionThenForward(a)
         | InputOutcome::ArmPending { action: a, .. } => vec![a],
         InputOutcome::ActionPair(a, b) => vec![a, b],
-        InputOutcome::Changed | InputOutcome::Unchanged => vec![],
+        InputOutcome::Changed | InputOutcome::Unchanged | InputOutcome::RedrawInPlace => vec![],
     }
 }
 
