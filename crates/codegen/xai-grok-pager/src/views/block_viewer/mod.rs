@@ -160,6 +160,8 @@ pub struct BlockViewerPane {
     pub copy_meta_pending: bool,
     /// Set by handle_key when 'y' is pressed on edit blocks. Caller should copy patch.
     pub copy_content_pending: bool,
+    /// Set by handle_key when Shift+Y is pressed in the markdown viewer. Caller copies the code block under the cursor.
+    pub copy_code_block_pending: bool,
     /// Per-item diff metadata for edit viewer (parallel to `items`).
     /// `None` entries are separator lines between hunks.
     diff_meta: Vec<Option<DiffLineMeta>>,
@@ -228,6 +230,7 @@ impl BlockViewerPane {
             raw_toggle_pending: false,
             copy_meta_pending: false,
             copy_content_pending: false,
+            copy_code_block_pending: false,
             diff_meta: Vec::new(),
             last_generation: generation,
             was_running: entry.is_running,
@@ -286,6 +289,7 @@ impl BlockViewerPane {
             raw_toggle_pending: false,
             copy_meta_pending: false,
             copy_content_pending: false,
+            copy_code_block_pending: false,
             diff_meta: Vec::new(),
             last_generation: last_output_len as u64, // reuse generation field for output length
             was_running: entry.is_running,
@@ -343,6 +347,7 @@ impl BlockViewerPane {
             raw_toggle_pending: false,
             copy_meta_pending: false,
             copy_content_pending: false,
+            copy_code_block_pending: false,
             diff_meta: Vec::new(),
             last_generation: 0,
             was_running: false,
@@ -676,6 +681,7 @@ impl BlockViewerPane {
             raw_toggle_pending: false,
             copy_meta_pending: false,
             copy_content_pending: false,
+            copy_code_block_pending: false,
             diff_meta: Vec::new(),
             last_generation: stdout.len() as u64,
             was_running: is_running,
@@ -749,6 +755,7 @@ impl BlockViewerPane {
             raw_toggle_pending: false,
             copy_meta_pending: false,
             copy_content_pending: false,
+            copy_code_block_pending: false,
             diff_meta: Vec::new(),
             last_generation: 0,
             was_running: false,
@@ -852,6 +859,7 @@ impl BlockViewerPane {
             raw_toggle_pending: false,
             copy_meta_pending: false,
             copy_content_pending: false,
+            copy_code_block_pending: false,
             diff_meta,
             last_generation: 0,
             was_running: false,
@@ -1050,6 +1058,7 @@ impl BlockViewerPane {
         match self.kind {
             ViewerKind::Markdown => {
                 hints.push(HintItem::new(crate::key!('r'), "raw"));
+                hints.push(HintItem::new(crate::key!('Y'), "copy code"));
             }
             ViewerKind::Execute => {
                 hints.push(HintItem::new(crate::key!('Y'), "copy cmd"));
@@ -1200,6 +1209,16 @@ impl BlockViewerPane {
             return true;
         }
 
+        // Shift+Y: copy the fenced code block under the cursor. Lowercase y still copies the line.
+        if self.kind == ViewerKind::Markdown
+            && crate::key!('Y').matches(key)
+            && self.list_state.input_mode().is_none()
+        {
+            self.clear_text_drag();
+            self.copy_code_block_pending = true;
+            return true;
+        }
+
         self.rebuild_unified_cache();
         let consumed = self.list_state.handle_key_event(key, &self.cached_unified);
         if consumed {
@@ -1278,10 +1297,34 @@ impl BlockViewerPane {
         Some(out)
     }
 
+    /// The fence body whose rendered lines contain `line`, for a thinking or agent message.
+    fn markdown_code_block_at(block: &RenderBlock, line: usize) -> Option<String> {
+        let spans = match block {
+            RenderBlock::AgentMessage(message) => message.content().code_blocks(),
+            RenderBlock::Thinking(thinking) => thinking.content().code_blocks(),
+            _ => return None,
+        };
+        spans.into_iter().find_map(|span| {
+            span.output_line_range
+                .contains(&line)
+                .then_some(span.body)
+        })
+    }
+
     /// Process pending actions (copy meta, copy content) and return text to copy. Call after
     /// `handle_key` or `handle_mouse`. The caller is responsible for clipboard operations and toast
     /// display. Returns `None` if no copy pending.
     pub fn process_pending_copy(&mut self, entry: &ScrollbackEntry) -> Option<String> {
+        if self.copy_code_block_pending {
+            self.copy_code_block_pending = false;
+            let line = self
+                .list_state
+                .selected_id()
+                .and_then(|id| usize::try_from(id).ok())?;
+            return Self::markdown_code_block_at(&entry.block, line)
+                .filter(|body| !body.is_empty());
+        }
+
         // Y: copy command (execute blocks)
         if self.copy_meta_pending {
             self.copy_meta_pending = false;

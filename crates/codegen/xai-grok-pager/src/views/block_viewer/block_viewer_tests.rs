@@ -478,3 +478,76 @@ fn edit_copy_hint_names_the_patch_that_copy_text_returns() {
     let meta = pane.process_pending_copy(&entry).expect("Y copies");
     assert_eq!(meta, path);
 }
+
+#[test]
+fn shift_y_in_the_markdown_viewer_copies_the_code_block_under_the_cursor() {
+    let md = concat!(
+        "intro\n\n",
+        "```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n\n",
+        "between\n\n",
+        "```python\nprint('x')\n```\n",
+    );
+    for block in [RenderBlock::agent_message(md), RenderBlock::thinking(md)] {
+        let entry = ScrollbackEntry::new(block);
+        let mut pane = BlockViewerPane::for_markdown(entry.id, &entry).expect("markdown");
+        pane.prepare_for_test(Rect::new(0, 0, 80, 40));
+        assert!(
+            pane.shortcuts_hints()
+                .iter()
+                .any(|hint| hint.label == "copy code"),
+            "the markdown viewer names Shift+Y"
+        );
+
+        let close = pane
+            .items
+            .iter()
+            .position(|item| item.plain_text.trim() == "}")
+            .expect("last line of the rust block");
+        pane.select_body_line_for_test(close);
+        assert!(pane.handle_key(&KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT)));
+        let copied = pane
+            .process_pending_copy(&entry)
+            .expect("Shift+Y copies the block");
+        assert!(
+            copied.contains("fn main()") && copied.contains("println!(\"hi\")"),
+            "the cursor's line copies the whole fence, got {copied:?}"
+        );
+        assert!(
+            !copied.contains("```") && !copied.contains("print('x')"),
+            "the copy is the fence body, got {copied:?}"
+        );
+
+        pane.select_body_line_for_test(close);
+        assert!(pane.handle_key(&KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::SHIFT
+        )));
+        let again = pane.process_pending_copy(&entry).expect("y+shift");
+        assert!(again.contains("fn main()"));
+
+        let prose = pane
+            .items
+            .iter()
+            .position(|item| item.plain_text.contains("between"))
+            .expect("prose between the fences");
+        pane.select_body_line_for_test(prose);
+        assert!(pane.handle_key(&KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT)));
+        assert!(
+            pane.process_pending_copy(&entry).is_none(),
+            "prose has no code block to copy"
+        );
+
+        let python = pane
+            .items
+            .iter()
+            .position(|item| item.plain_text.contains("'x'"))
+            .expect("python line");
+        pane.select_body_line_for_test(python);
+        assert!(pane.handle_key(&KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT)));
+        let copied = pane.process_pending_copy(&entry).expect("python block");
+        assert!(
+            copied.contains("print('x')") && !copied.contains("fn main"),
+            "the second fence copies on its own, got {copied:?}"
+        );
+    }
+}
