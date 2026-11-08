@@ -58,7 +58,7 @@ fn view_applies_layout_without_mutating_committed_snapshot() {
     let [a, b, c] = view.members.as_slice() else {
         panic!("expected 3 members: {:?}", view.members);
     };
-    assert_eq!(a.pin_rank, Some(RANK_GAP));
+    assert_eq!(a.pin_rank, Some(7 + RANK_GAP));
     assert_eq!(a.order_rank, Some(2 * RANK_GAP));
     assert_eq!(b.order_rank, Some(RANK_GAP));
     assert_eq!(c.order_rank, None);

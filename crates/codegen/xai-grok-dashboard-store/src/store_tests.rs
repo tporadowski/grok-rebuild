@@ -584,6 +584,38 @@ fn rank_batch_is_atomic_and_grouping_persists() {
 }
 
 #[test]
+fn later_pin_keeps_the_earlier_pin_ahead() {
+    let (_tmp, mut store) = temp_store();
+    let first = new_member("z-first", MemberKind::Build, MemberOrigin::Local, 1);
+    let second = new_member("a-second", MemberKind::Build, MemberOrigin::Local, 2);
+    store.insert_member(first.clone()).unwrap();
+    store.insert_member(second.clone()).unwrap();
+
+    let LayoutApplyOutcome::Committed(_) = store.apply_layout_patch(&LayoutPatch {
+        pin_assignments: vec![pin("z-first", MemberKind::Build, true)],
+        manual_order: None,
+        grouping: None,
+    }) else {
+        panic!("first pin should commit");
+    };
+    let LayoutApplyOutcome::Committed(snapshot) = store.apply_layout_patch(&LayoutPatch {
+        pin_assignments: vec![pin("a-second", MemberKind::Build, true)],
+        manual_order: None,
+        grouping: None,
+    }) else {
+        panic!("second pin should commit");
+    };
+
+    assert_eq!(
+        snapshot.members,
+        vec![
+            expected_member(&second, Some(2 * RANK_GAP), None),
+            expected_member(&first, Some(RANK_GAP), None),
+        ]
+    );
+}
+
+#[test]
 fn layout_patch_commits_one_snapshot_and_rewrites_complete_order_subset() {
     let (_tmp, mut store) = temp_store();
     let a = new_member("a", MemberKind::Build, MemberOrigin::Local, 1);

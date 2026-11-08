@@ -237,6 +237,12 @@ impl LayoutOverlay {
                 .map(|(index, key)| (key, rank_for_index(index)))
                 .collect::<HashMap<_, _>>()
         });
+        let mut next_pin_rank = snapshot
+            .members
+            .iter()
+            .filter_map(|member| member.pin_rank)
+            .max()
+            .unwrap_or(0);
         let members = snapshot
             .members
             .iter()
@@ -245,7 +251,16 @@ impl LayoutOverlay {
             .map(|mut member| {
                 let key = member_key(&member);
                 if let Some(pinned) = self.pin_overrides.get(&key) {
-                    member.pin_rank = pinned.then_some(RANK_GAP);
+                    member.pin_rank = if *pinned {
+                        if member.pin_rank.is_none() {
+                            next_pin_rank = next_pin_rank.saturating_add(RANK_GAP);
+                            Some(next_pin_rank)
+                        } else {
+                            member.pin_rank
+                        }
+                    } else {
+                        None
+                    };
                 }
                 if matches!(member.kind, MemberKind::Build)
                     && let Some(manual_ranks) = &manual_ranks

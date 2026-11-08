@@ -357,22 +357,42 @@ impl WorkspaceStore {
 
         let started = Instant::now();
         let result = self.with_write_attempt("apply_layout_patch", |tx| {
-            let mut pin_stmt = tx.prepare(
-                "UPDATE members SET pin_rank = ?1
-                 WHERE session_id = ?2 AND kind = ?3",
-            )?;
             for assignment in &patch.pin_assignments {
-                let rank = assignment.pinned.then_some(RANK_GAP);
-                let changed = pin_stmt.execute(params![
-                    rank,
-                    assignment.key.session_id.as_ref(),
-                    assignment.key.kind.as_str(),
-                ])?;
+                let current = match tx.query_row(
+                    "SELECT pin_rank FROM members WHERE session_id = ?1 AND kind = ?2",
+                    params![
+                        assignment.key.session_id.as_ref(),
+                        assignment.key.kind.as_str()
+                    ],
+                    |row| row.get::<_, Option<i64>>(0),
+                ) {
+                    Ok(rank) => rank,
+                    Err(rusqlite::Error::QueryReturnedNoRows) => {
+                        return Err(member_not_found(&assignment.key));
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                // A new pin appends after every pin already stored. An existing pin keeps its rank.
+                let rank = if assignment.pinned {
+                    match current {
+                        Some(existing) => Some(existing),
+                        None => Some(next_appended_pin_rank(tx)?),
+                    }
+                } else {
+                    None
+                };
+                let changed = tx.execute(
+                    "UPDATE members SET pin_rank = ?1 WHERE session_id = ?2 AND kind = ?3",
+                    params![
+                        rank,
+                        assignment.key.session_id.as_ref(),
+                        assignment.key.kind.as_str()
+                    ],
+                )?;
                 if changed == 0 {
                     return Err(member_not_found(&assignment.key));
                 }
             }
-            drop(pin_stmt);
 
             if let Some(manual_order) = &patch.manual_order {
                 tx.execute(
@@ -760,6 +780,17 @@ fn upsert_member(
         ],
     )?;
     Ok(())
+}
+
+fn next_appended_pin_rank(tx: &rusqlite::Transaction<'_>) -> Result<i64> {
+    let max = tx.query_row("SELECT MAX(pin_rank) FROM members", [], |row| {
+        row.get::<_, Option<i64>>(0)
+    })?;
+    max.unwrap_or(0)
+        .checked_add(RANK_GAP)
+        .ok_or(StoreError::InvalidLayoutPatch {
+            reason: "pin rank overflow",
+        })
 }
 
 fn member_not_found(key: &MemberKey) -> StoreError {

@@ -7,7 +7,7 @@ use crate::views::dashboard::row_activity::{
     has_live_parent_activity, live_work_badges, top_level_activity, top_level_secondary_line,
 };
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime};
 /// Title prefix for a session that has no name / generated title / prompt yet.
@@ -100,6 +100,36 @@ pub fn build_rows_with_roster(
 pub(crate) fn workspace_member_is_pinned(member: &xai_grok_dashboard_store::Member) -> bool {
     member.pin_rank.is_some()
 }
+/// Manual `order_rank` first, then pins that have no manual slot, oldest `pin_rank` first.
+/// Reorder wins. A pin that was not moved stays in the order it was pinned, not session-id order.
+fn workspace_row_order(
+    workspace: &crate::app::workspace_layout::WorkspaceView,
+) -> Vec<xai_grok_dashboard_store::MemberKey> {
+    let manual = workspace.manual_order();
+    let manual_keys: HashSet<_> = manual.iter().cloned().collect();
+    let mut pin_only = workspace
+        .members
+        .iter()
+        .filter(|member| {
+            matches!(member.kind, xai_grok_dashboard_store::MemberKind::Build)
+                && member.pin_rank.is_some()
+                && !manual_keys.contains(&crate::app::workspace_layout::member_key(member))
+        })
+        .collect::<Vec<_>>();
+    pin_only.sort_by(|left, right| {
+        left.pin_rank
+            .cmp(&right.pin_rank)
+            .then_with(|| left.session_id.as_ref().cmp(right.session_id.as_ref()))
+    });
+    manual
+        .into_iter()
+        .chain(
+            pin_only
+                .into_iter()
+                .map(crate::app::workspace_layout::member_key),
+        )
+        .collect()
+}
 #[derive(Clone, Copy, Default)]
 pub(crate) struct WorkspaceRowInputs<'a> {
     /// `None` until the store snapshot has loaded, or when the store failed to open.
@@ -132,7 +162,7 @@ pub(crate) fn build_rows_with_workspace(
         .collect();
     let reorder = inputs
         .workspace
-        .map(|workspace| workspace.manual_order())
+        .map(workspace_row_order)
         .unwrap_or_default()
         .into_iter()
         .map(|key| {
@@ -1147,6 +1177,58 @@ mod tests {
         assert_eq!(idle_order, vec![i1, i2], "reorder must order within Idle");
     }
     #[test]
+    fn pinned_rows_keep_the_order_they_were_pinned_in() {
+        let mut state = super::super::state::DashboardState::new();
+        let first = DashboardRowId::TopLevel(AgentId(2));
+        let second = DashboardRowId::TopLevel(AgentId(1));
+        state.selected = Some(first.clone());
+        state.toggle_pin_selected();
+        state.selected = Some(second.clone());
+        state.toggle_pin_selected();
+        assert_eq!(state.reorder, vec![first.clone(), second.clone()]);
+
+        let mut rows = vec![
+            DashboardRow {
+                pinned: true,
+                session_id: Some("a".to_owned()),
+                cwd_display: "/a".to_owned(),
+                last_change_at: UNIX_EPOCH + Duration::from_secs(60),
+                state: RowState::Working,
+                ..make_row_with_id(second.clone(), RowState::Working)
+            },
+            DashboardRow {
+                pinned: true,
+                session_id: Some("z".to_owned()),
+                cwd_display: "/z".to_owned(),
+                last_change_at: UNIX_EPOCH,
+                state: RowState::Idle,
+                ..make_row_with_id(first.clone(), RowState::Idle)
+            },
+        ];
+        for grouping in [
+            super::super::state::Grouping::State,
+            super::super::state::Grouping::Directory,
+        ] {
+            for state_now in [RowState::Idle, RowState::Working, RowState::NeedsInput] {
+                let row = rows.first_mut().expect("second pinned row");
+                row.state = state_now;
+                row.last_change_at += Duration::from_secs(60);
+                sort_rows(&mut rows, grouping, &state.reorder);
+                assert_eq!(
+                    vec![first.clone(), second.clone()],
+                    rows.iter().map(|row| row.id.clone()).collect::<Vec<_>>(),
+                    "{grouping:?} {state_now:?}"
+                );
+            }
+        }
+
+        state.selected = Some(first.clone());
+        state.toggle_pin_selected();
+        assert!(!state.pinned.contains(&first));
+        assert!(!state.reorder.contains(&first));
+        assert!(state.reorder.contains(&second));
+    }
+    #[test]
     fn pinned_manual_order_survives_activity_changes() {
         for grouping in [
             super::super::state::Grouping::State,
@@ -1253,6 +1335,42 @@ mod tests {
                 assert_eq!(
                     vec![roster_id.clone(), local_id.clone()],
                     rows.into_iter().map(|row| row.id).collect::<Vec<_>>(),
+                );
+            }
+        }
+    }
+    #[test]
+    fn workspace_pin_rank_order_survives_activity_changes() {
+        for grouping in [
+            xai_grok_dashboard_store::Grouping::State,
+            xai_grok_dashboard_store::Grouping::Directory,
+        ] {
+            let mut older = workspace_member("z-older", "Older", None);
+            let mut newer = workspace_member("a-newer", "Newer", None);
+            older.pin_rank = Some(xai_grok_dashboard_store::RANK_GAP);
+            newer.pin_rank = Some(2 * xai_grok_dashboard_store::RANK_GAP);
+            older.cwd = Some("/z".to_owned());
+            newer.cwd = Some("/a".to_owned());
+            let mut snapshot = workspace_snapshot(vec![newer, older]);
+            snapshot.grouping = grouping.clone();
+            let mut agents = IndexMap::new();
+            for loaded in [false, true] {
+                if loaded {
+                    let mut agent = crate::app::agent_view::test_fixtures::make_agent();
+                    agent.session.session_id = Some(acp::SessionId::new("a-newer"));
+                    agent.session.cwd = PathBuf::from("/a");
+                    agent.session.enqueue_prompt("work".to_owned());
+                    agents.insert(AgentId(1), agent);
+                } else {
+                    agents.clear();
+                }
+                let rows = workspace_rows(&agents, &snapshot);
+                assert_eq!(
+                    vec!["z-older", "a-newer"],
+                    rows.iter()
+                        .map(|row| row.session_id.as_deref().expect("saved session"))
+                        .collect::<Vec<_>>(),
+                    "{grouping:?} loaded={loaded}"
                 );
             }
         }

@@ -1785,11 +1785,17 @@ impl DashboardState {
     }
 
     /// Toggle pin on the selected row.
+    /// A new pin is appended to `reorder`, which is the pinned block's order. Unpin drops that slot so the row returns to normal group ordering.
     /// Returns the toggled id, or `None` if no row is selected.
     pub fn toggle_pin_selected(&mut self) -> Option<DashboardRowId> {
         let id = self.selected.clone()?;
-        if !self.pinned.remove(&id) {
+        if self.pinned.remove(&id) {
+            self.reorder.retain(|row| row != &id);
+        } else {
             self.pinned.insert(id.clone());
+            if !self.reorder.iter().any(|row| row == &id) {
+                self.reorder.push(id.clone());
+            }
         }
         Some(id)
     }
