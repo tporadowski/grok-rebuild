@@ -1237,7 +1237,7 @@ impl AgentView {
         }
         if let Some(ref mut btw) = self.btw_state
             && matches!(btw, crate::views::btw_overlay::BtwOverlayState::Done { .. })
-            && self.last_btw_area.area() > 0
+            && crate::minimal_api::minimal_btw_geometry_is_paintable(self.last_btw_area)
             && self.last_btw_area.contains((col, row).into())
         {
             // The painted body is this panel minus its frame. A short terminal

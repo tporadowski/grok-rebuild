@@ -547,8 +547,11 @@ impl AgentView {
         {
             return InputOutcome::Changed;
         }
+        // A rect below the paint floor is not a panel. Arrows and Page Up/Down
+        // stay with the prompt and the transcript (`render_btw_panel` draws nothing).
         let btw_scroll_max = if self.active_pane == AgentPane::Prompt
             && self.btw_focused
+            && crate::minimal_api::minimal_btw_geometry_is_paintable(self.last_btw_area)
             && let Some(btw) = self.btw_state.as_ref()
             && matches!(btw, crate::views::btw_overlay::BtwOverlayState::Done { .. })
         {
@@ -2112,6 +2115,81 @@ mod btw_focus_tests {
             agent.btw_state.is_none(),
             "a second Esc dismisses the /btw panel"
         );
+    }
+    /// A rect below the paint floor still has area, but `render_btw_panel` draws nothing.
+    /// Arrows, Page Up/Down, the wheel, and a click inside it must reach the prompt and transcript.
+    #[test]
+    fn unpaintable_btw_panel_lets_arrows_page_keys_and_clicks_through() {
+        let mut agent = prompt_focused_agent();
+        let reg = ActionRegistry::defaults();
+        agent.prompt.set_text("line one\nline two");
+        let end = agent.prompt.text().len();
+        agent.prompt.set_cursor(end);
+        agent.btw_state = Some(BtwOverlayState::done("q".into(), long_btw_answer()));
+        agent.btw_focused = true;
+        // Height 2 is under the 3-row floor. Width 80 keeps a positive area, which
+        // used to count as a panel and swallow the keys.
+        agent.last_btw_area = Rect::new(0, 2, 80, 2);
+        agent.pane_areas.scrollback = Rect::new(0, 0, 80, 6);
+        agent.pane_areas.prompt = Rect::new(0, 8, 80, 3);
+
+        let up = agent.handle_input(&key(KeyCode::Up), &reg);
+        assert!(matches!(up, InputOutcome::Changed));
+        assert!(
+            agent.prompt.cursor() < end,
+            "Up must move the prompt cursor"
+        );
+        assert_eq!(done_scroll_offset(&agent), 0);
+        assert!(!agent.btw_focused);
+
+        agent.btw_focused = true;
+        let down = agent.handle_input(&key(KeyCode::Down), &reg);
+        assert!(matches!(down, InputOutcome::Changed));
+        assert_eq!(done_scroll_offset(&agent), 0);
+        assert!(!agent.btw_focused);
+
+        agent.btw_focused = true;
+        let page_down = agent.handle_input_with_prompt_paging(&key(KeyCode::PageDown), &reg);
+        assert!(
+            matches!(
+                page_down,
+                InputOutcome::Action(crate::app::actions::Action::PageDown)
+            ),
+            "PageDown must page the transcript, not the undrawn panel: {page_down:?}"
+        );
+        assert_eq!(done_scroll_offset(&agent), 0);
+
+        agent.btw_focused = true;
+        let page_up = agent.handle_input_with_prompt_paging(&key(KeyCode::PageUp), &reg);
+        assert!(
+            matches!(
+                page_up,
+                InputOutcome::Action(crate::app::actions::Action::PageUp)
+            ),
+            "PageUp must page the transcript, not the undrawn panel: {page_up:?}"
+        );
+        assert_eq!(done_scroll_offset(&agent), 0);
+
+        agent.handle_scroll(3, 4, 3);
+        assert_eq!(
+            done_scroll_offset(&agent),
+            0,
+            "the wheel must not scroll a panel that was not drawn"
+        );
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        };
+        agent.handle_mouse(&click);
+        assert!(
+            !agent.btw_focused,
+            "a click in the undrawn strip must not focus /btw"
+        );
+        assert_eq!(agent.active_pane, AgentPane::Scrollback);
+        assert_eq!(done_scroll_offset(&agent), 0);
     }
     #[test]
     fn clicking_panel_refocuses_it() {

@@ -395,7 +395,7 @@ impl AgentView {
                 if self.hit_sb_view.contains(mouse.column, mouse.row) {
                     return InputOutcome::Action(Action::OpenBlockViewer);
                 }
-                if self.last_btw_area.area() > 0
+                if crate::minimal_api::minimal_btw_geometry_is_paintable(self.last_btw_area)
                     && self
                         .last_btw_area
                         .contains((mouse.column, mouse.row).into())

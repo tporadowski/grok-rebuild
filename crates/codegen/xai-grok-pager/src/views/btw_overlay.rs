@@ -226,8 +226,13 @@ pub fn render_btw_panel(
     // Hit area for `[Copy]` on a finished answer. `None` still paints the button.
     hit_copy: Option<&mut crate::app::agent_view::HitArea>,
 ) {
-    if area.width < 12 || area.height < 3 {
+    // Same floor as `minimal_btw_geometry_is_paintable`: a narrower or shorter
+    // rect is not a panel, so it must not keep `[Copy]` / `[Esc]` hit targets.
+    if !crate::minimal_api::minimal_btw_geometry_is_paintable(area) {
         if let Some(hit) = hit_copy {
+            hit.clear();
+        }
+        if let Some(hit) = hit_close {
             hit.clear();
         }
         return;

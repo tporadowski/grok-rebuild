@@ -1166,6 +1166,15 @@ impl AgentView {
                 prompt_height.min(AgentViewLayout::rows_available_for_prompt(layout_params));
         }
         let mut layout = AgentViewLayout::compute(layout_params);
+        // The scrollback floor outranks this row, so a very short terminal can
+        // leave a strip `render_btw_panel` will not draw. Drop it. Otherwise the
+        // blank rows sit between the transcript and the prompt and take clicks.
+        if layout_params.btw_height > 0
+            && !crate::minimal_api::minimal_btw_geometry_is_paintable(layout.btw)
+        {
+            layout_params.btw_height = 0;
+            layout = AgentViewLayout::compute(layout_params);
+        }
         let search_active =
             self.scrollback_search.is_some() && self.active_pane == AgentPane::Scrollback;
         let search_reserved_rows =
@@ -1926,7 +1935,7 @@ impl AgentView {
         }
         self.last_btw_selection_model = ResolvedSelectionModel::default();
         self.last_btw_area = Rect::default();
-        if btw_height > 0
+        if crate::minimal_api::minimal_btw_geometry_is_paintable(layout.btw)
             && let Some(ref btw) = self.btw_state
         {
             let tick = self.scrollback.animation_tick();
@@ -4793,6 +4802,96 @@ mod overlay_post_flush_tests {
     }
     fn png() -> [u8; 8] {
         [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']
+    }
+    #[test]
+    fn unpaintable_btw_panel_is_not_reserved_on_a_short_terminal() {
+        let mut agent = make_agent();
+        agent.set_active_pane(super::super::AgentPane::Prompt, true);
+        agent.btw_state = Some(crate::views::btw_overlay::BtwOverlayState::done(
+            "zz-btw-marker".into(),
+            (0..40)
+                .map(|i| format!("line{i:02}"))
+                .collect::<Vec<_>>()
+                .join("  \n"),
+        ));
+        agent.btw_focused = true;
+        agent.hit_btw_close.set(Some(Rect::new(1, 1, 4, 1)));
+        agent.hit_btw_copy.set(Some(Rect::new(6, 1, 4, 1)));
+        let area = Rect::new(0, 0, 80, 8);
+        let mut buf = Buffer::empty(area);
+        let mut scratch = ScratchBuffer::new();
+        agent.draw(
+            area,
+            &mut buf,
+            &ActionRegistry::defaults(),
+            &mut scratch,
+            None,
+            false,
+            crate::app::agent_view::BannerSlotParams::none(),
+            false,
+            &mut Vec::new(),
+            super::AppRenderParams::default(),
+        );
+        assert!(
+            !crate::minimal_api::minimal_btw_geometry_is_paintable(agent.last_btw_area),
+            "an 8-row terminal must not keep a paintable /btw rect: {:?}",
+            agent.last_btw_area
+        );
+        let painted = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .filter_map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !painted.contains("zz-btw-marker"),
+            "the undrawable panel must not paint its question:\n{painted}"
+        );
+        assert!(!agent.hit_btw_close.contains(1, 1));
+        assert!(!agent.hit_btw_copy.contains(6, 1));
+    }
+    #[test]
+    fn paintable_btw_panel_stays_on_a_tall_terminal() {
+        let mut agent = make_agent();
+        agent.set_active_pane(super::AgentPane::Prompt, true);
+        agent.btw_state = Some(crate::views::btw_overlay::BtwOverlayState::done(
+            "zz-btw-marker".into(),
+            "short answer".into(),
+        ));
+        let area = Rect::new(0, 0, 80, 40);
+        let mut buf = Buffer::empty(area);
+        let mut scratch = ScratchBuffer::new();
+        agent.draw(
+            area,
+            &mut buf,
+            &ActionRegistry::defaults(),
+            &mut scratch,
+            None,
+            false,
+            crate::app::agent_view::BannerSlotParams::none(),
+            false,
+            &mut Vec::new(),
+            super::AppRenderParams::default(),
+        );
+        assert!(
+            crate::minimal_api::minimal_btw_geometry_is_paintable(agent.last_btw_area),
+            "a 40-row terminal must keep the /btw panel: {:?}",
+            agent.last_btw_area
+        );
+        let painted = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .filter_map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            painted.contains("zz-btw-marker"),
+            "the panel must paint its question:\n{painted}"
+        );
     }
     #[test]
     fn fullscreen_subagent_propagates_child_clear_to_emitter() {
