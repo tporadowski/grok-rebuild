@@ -1,7 +1,7 @@
 //! Turn cancellation, task and subagent kills, and overdue turn reconciliation.
 
 use super::ctx::{active_subagent_view_mut, get_active_agent_mut};
-use super::permissions::drain_permission_queue;
+use super::permissions::{drain_ended_turn_permissions, drain_permission_queue};
 use super::queue::{apply_turn_start_shim, maybe_drain_queue, note_peek_page_flip};
 use crate::app::acp_handler::task_view_by_session_id;
 use crate::app::actions::Effect;
@@ -280,7 +280,11 @@ fn cancel_agent_turn(
         agent.cancel_and_arm(CancellationScope::Compaction, origin);
         agent.cancel_turn_view = None;
         agent.cancel_turn_buttons.clear();
-        drain_permission_queue(agent);
+        if cancel_subagents {
+            drain_permission_queue(agent);
+        } else {
+            drain_ended_turn_permissions(agent);
+        }
         let Some(session_id) = agent.session.session_id.clone() else {
             return vec![];
         };
@@ -342,7 +346,11 @@ fn cancel_agent_turn(
     }
     agent.cancel_turn_view = None;
     agent.cancel_turn_buttons.clear();
-    drain_permission_queue(agent);
+    if cancel_subagents {
+        drain_permission_queue(agent);
+    } else {
+        drain_ended_turn_permissions(agent);
+    }
     agent.dismiss_in_turn_plan_review();
 
     let Some(session_id) = agent.session.session_id.clone() else {
@@ -363,13 +371,14 @@ fn cancel_agent_turn(
     )]
 }
 
-/// Turn-end view teardown shared by every path that ends a turn: timing marker, stale permission
-/// prompts (each gets Cancelled), the cancel panel, and the bash-mode focus reset.
+/// Turn-end view teardown shared by every path that ends a turn: timing marker, permission
+/// prompts that belonged to this turn (each gets Cancelled), the cancel panel, and the bash-mode focus reset.
+/// A card for a background subagent that is still running stays.
 pub(super) fn finish_turn_view(agent: &mut AgentView, end: TurnEnd) {
     agent.mark_turn_finished(end);
     agent.activity_started_at = None;
     agent.last_activity = None;
-    drain_permission_queue(agent);
+    drain_ended_turn_permissions(agent);
     agent.cancel_turn_view = None;
     agent.cancel_turn_buttons.clear();
     // After a bash-mode turn, scroll to bottom so the user sees the command output

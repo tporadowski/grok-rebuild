@@ -181,6 +181,209 @@ fn drain_permission_queue_clears_double_click_tracker() {
     );
 }
 
+fn push_permission(
+    agent: &mut crate::app::agent_view::AgentView,
+    session_id: &str,
+    id: usize,
+) -> tokio::sync::oneshot::Receiver<acp::Result<acp::RequestPermissionResponse>> {
+    use crate::views::permission_view::{PermissionFocus, PermissionViewState};
+    use std::sync::Arc;
+    let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+    let request = acp::RequestPermissionRequest::new(
+        acp::SessionId::new(Arc::from(session_id)),
+        acp::ToolCallUpdate::new(
+            acp::ToolCallId::new(Arc::from(format!("tc-{id}"))),
+            acp::ToolCallUpdateFields::default(),
+        ),
+        vec![acp::PermissionOption::new(
+            acp::PermissionOptionId::new(Arc::from("opt-allow-once")),
+            "Allow once",
+            acp::PermissionOptionKind::AllowOnce,
+        )],
+    );
+    let options = request.options.clone();
+    agent.permission_queue.push_back(PermissionViewState {
+        request: xai_acp_lib::AcpArgs {
+            request,
+            response_tx,
+        },
+        id,
+        focus: PermissionFocus::Options,
+        options,
+        active_idx: 0,
+        bash_highlights: None,
+        bash_selection_count: 0,
+        bash_deny_selection_count: 0,
+        bash_command_raw: None,
+        mcp_scope: None,
+        title: session_id.to_string(),
+        description: vec![],
+        args_expanded: false,
+        desc_scroll: 0,
+        subagent_label: None,
+        options_area_height: 0,
+        options_scroll_offset: 0,
+        auto_review: None,
+        auto_review_explanation_open: false,
+    });
+    response_rx
+}
+
+fn assert_cancelled(
+    rx: &mut tokio::sync::oneshot::Receiver<acp::Result<acp::RequestPermissionResponse>>,
+) {
+    match rx.try_recv() {
+        Ok(Ok(acp::RequestPermissionResponse {
+            outcome: acp::RequestPermissionOutcome::Cancelled,
+            ..
+        })) => {}
+        other => panic!("expected Cancelled, got {other:?}"),
+    }
+}
+
+fn assert_still_waiting(
+    rx: &mut tokio::sync::oneshot::Receiver<acp::Result<acp::RequestPermissionResponse>>,
+) {
+    match rx.try_recv() {
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+        other => panic!("approval must stay unanswered, got {other:?}"),
+    }
+}
+
+fn queue_sessions(agent: &crate::app::agent_view::AgentView) -> Vec<&str> {
+    agent
+        .permission_queue
+        .iter()
+        .map(|perm| perm.request.request.session_id.0.as_ref())
+        .collect()
+}
+
+/// Parent, foreground, and finished-background cards close with the turn.
+/// A running background subagent's card stays, and the draft under it stays stashed.
+#[test]
+fn background_subagent_approval_stays_when_the_parent_turn_ends() {
+    use crate::views::permission_view::PermissionFocus;
+    let mut app = test_app_with_agent();
+    let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+    let mut foreground = super::make_test_subagent("fg-child", "sa-fg");
+    foreground.attempt.is_background = false;
+    let mut background = super::make_test_subagent("bg-child", "sa-bg");
+    background.attempt.is_background = true;
+    let mut finished = super::make_test_subagent("done-child", "sa-done");
+    finished.attempt.is_background = true;
+    finished.set_finished_for_test(true);
+    agent
+        .subagent_sessions
+        .insert("fg-child".into(), foreground);
+    agent
+        .subagent_sessions
+        .insert("bg-child".into(), background);
+    agent
+        .subagent_sessions
+        .insert("done-child".into(), finished);
+    let mut parent_rx = push_permission(agent, "test-session", 1);
+    let mut foreground_rx = push_permission(agent, "fg-child", 2);
+    let mut background_rx = push_permission(agent, "bg-child", 3);
+    agent
+        .permission_queue
+        .back_mut()
+        .unwrap()
+        .focus = PermissionFocus::FollowupInput;
+    let mut finished_rx = push_permission(agent, "done-child", 4);
+    agent.prompt.set_text("saved draft");
+    agent.permission_stashed_prompt = Some(agent.prompt.stash());
+    agent.prompt.set_text("typed followup");
+    agent.permission_stashed_pane = Some(ActivePane::Scrollback);
+    agent.last_permission_click = Some((Instant::now(), 1));
+
+    finish_turn_view(agent, crate::app::cancel_latency::TurnEnd::Completed);
+
+    assert_eq!(queue_sessions(agent), vec!["bg-child"]);
+    assert_eq!(
+        agent.permission_queue.front().unwrap().focus,
+        PermissionFocus::Options
+    );
+    assert_cancelled(&mut parent_rx);
+    assert_cancelled(&mut foreground_rx);
+    assert_cancelled(&mut finished_rx);
+    assert_still_waiting(&mut background_rx);
+    assert_eq!(
+        agent
+            .permission_stashed_prompt
+            .as_ref()
+            .map(|stashed| stashed.text.as_str()),
+        Some("saved draft")
+    );
+    assert_eq!(agent.prompt.text(), "");
+    assert_eq!(
+        agent.permission_stashed_pane,
+        Some(ActivePane::Scrollback)
+    );
+    assert!(agent.last_permission_click.is_none());
+}
+
+#[test]
+fn continue_to_run_keeps_a_background_subagent_approval() {
+    use crate::views::modal::CancelTurnChoice;
+    let mut app = test_app_with_agent();
+    let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+    agent.session.state = AgentState::TurnRunning;
+    let mut background = super::make_test_subagent("bg-child", "sa-bg");
+    background.attempt.is_background = true;
+    agent
+        .subagent_sessions
+        .insert("bg-child".into(), background);
+    let mut parent_rx = push_permission(agent, "test-session", 1);
+    let mut background_rx = push_permission(agent, "bg-child", 2);
+
+    let effects = dispatch(
+        Action::CancelTurnChoice(CancelTurnChoice::ContinueToRun),
+        &mut app,
+    );
+
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::CancelTurn {
+            cancel_subagents: false,
+            ..
+        }]
+    ));
+    let agent = agent_ref(&app, AgentId(0));
+    assert_eq!(queue_sessions(agent), vec!["bg-child"]);
+    assert_cancelled(&mut parent_rx);
+    assert_still_waiting(&mut background_rx);
+}
+
+#[test]
+fn stop_running_cancels_a_background_subagent_approval() {
+    use crate::views::modal::CancelTurnChoice;
+    let mut app = test_app_with_agent();
+    let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+    agent.session.state = AgentState::TurnRunning;
+    let mut background = super::make_test_subagent("bg-child", "sa-bg");
+    background.attempt.is_background = true;
+    agent
+        .subagent_sessions
+        .insert("bg-child".into(), background);
+    let mut background_rx = push_permission(agent, "bg-child", 1);
+
+    let effects = dispatch(
+        Action::CancelTurnChoice(CancelTurnChoice::StopRunning),
+        &mut app,
+    );
+
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::CancelTurn {
+            cancel_subagents: true,
+            ..
+        }]
+    ));
+    let agent = agent_ref(&app, AgentId(0));
+    assert!(agent.permission_queue.is_empty());
+    assert_cancelled(&mut background_rx);
+}
+
 #[test]
 fn set_permission_mode_always_approve_blocked_by_policy_pin() {
     use crate::app::actions::PermissionModeKind;

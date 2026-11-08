@@ -257,22 +257,75 @@ pub(super) fn dispatch_permission_cancel(app: &mut AppView) -> Vec<Effect> {
 }
 
 /// Drain all queued permission requests, sending `Cancelled` to each.
-/// Called on turn-end and turn-cancel; after draining, restores the stashed prompt/pane.
-/// Distinct from `dispatch_permission_cancel` (front only).
+/// Used when the turn cancel also stops subagents. After the queue is empty, restores the stashed prompt/pane.
+/// Distinct from `dispatch_permission_cancel` (front only) and from [`drain_ended_turn_permissions`].
 pub(super) fn drain_permission_queue(agent: &mut AgentView) {
-    agent.last_permission_click = None;
+    settle_permission_queue(agent, true);
+}
+
+/// Cancel approval cards that belonged to the turn that just ended.
+/// A card for a background subagent that is still running stays on screen, and its request is not answered.
+pub(super) fn drain_ended_turn_permissions(agent: &mut AgentView) {
+    settle_permission_queue(agent, false);
+}
+
+/// A still-running background subagent outlives the parent turn, so its approval card does too.
+fn permission_outlives_parent_turn(agent: &AgentView, perm: &PermissionViewState) -> bool {
+    let sid = perm.request.request.session_id.0.as_ref();
+    if agent
+        .session
+        .session_id
+        .as_ref()
+        .is_some_and(|root| root.0.as_ref() == sid)
+    {
+        return false;
+    }
+    agent
+        .subagent_sessions
+        .get(sid)
+        .is_some_and(|info| info.is_running() && info.attempt.is_background)
+}
+
+fn settle_permission_queue(agent: &mut AgentView, cancel_background: bool) {
     if agent.permission_queue.is_empty() {
+        agent.last_permission_click = None;
         return;
     }
-    for perm in agent.permission_queue.drain(..) {
-        perm.request
-            .response_tx
-            .send(Ok(acp::RequestPermissionResponse::new(
-                acp::RequestPermissionOutcome::Cancelled,
-            )))
-            .ok();
+    let front_id = agent.permission_queue.front().map(|perm| perm.id);
+    let queued = std::mem::take(&mut agent.permission_queue);
+    let mut kept = std::collections::VecDeque::new();
+    let mut cancelled = false;
+    for perm in queued {
+        if cancel_background || !permission_outlives_parent_turn(agent, &perm) {
+            cancelled = true;
+            perm.request
+                .response_tx
+                .send(Ok(acp::RequestPermissionResponse::new(
+                    acp::RequestPermissionOutcome::Cancelled,
+                )))
+                .ok();
+        } else {
+            kept.push_back(perm);
+        }
     }
-    restore_permission_stashes(agent);
+    agent.permission_queue = kept;
+    if !cancelled {
+        return;
+    }
+    let front_changed = agent.permission_queue.front().map(|perm| perm.id) != front_id;
+    if front_changed {
+        agent.last_permission_click = None;
+        agent.permission_pattern_edit = None;
+    }
+    if agent.permission_queue.is_empty() {
+        restore_permission_stashes(agent);
+    } else if front_changed {
+        // The followup belonged to the card that just closed.
+        agent.prompt.set_text("");
+        if let Some(next) = agent.permission_queue.front_mut() {
+            next.focus = PermissionFocus::Options;
+        }
+    }
 }
 
 /// Handle queue transition after resolving (select/followup/cancel) the front permission request.

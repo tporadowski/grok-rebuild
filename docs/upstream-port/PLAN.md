@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-172 — Background subagent approval cards outlive the parent turn
+
+Ending the parent turn cancels approval cards for that turn: the parent session, a foreground subagent, and a background subagent that has already finished. A card whose session is a background subagent that is still running stays on screen, and its request is not cancelled. Continue to run uses that same split. Stopping the subagents still cancels those cards (`background_subagent_approval_stays_when_the_parent_turn_ends`, `continue_to_run_keeps_a_background_subagent_approval`, `stop_running_cancels_a_background_subagent_approval`) (`v52-x05`).
+
 ### D-171 — Scroll time does not run backwards under load
 
 A scroll sample can be handled after a later tick or wheel event has already moved the scroll clock. The state machine lifts that sample to the latest instant it has used. Gap, redraw, and acceleration intervals saturate at zero instead of wrapping backwards. The scroll log's `ts_ms` stays in order (`late_scroll_sample_keeps_log_and_accel_time_moving_forward`) (`v51-x104`).
@@ -750,7 +754,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 31 | 0 | 12 | 2 | 0 |
+| W10 | Transcript, density, and copy | 30 | 0 | 13 | 2 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -759,9 +763,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 308. Skipped: 8. Done: 217. Already: 40. Deferred: 10.
+Catalog rows: 583. Pending: 307. Skipped: 8. Done: 218. Already: 40. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: approval cards for background subagents stay up when the parent turn ends (`v52-x05`).
+**Next:** W10 transcript, density, and copy. First open row: wrapped URLs in prompts and quotes link to the complete address (`v52-x14`).
 
 ## Waves
 
@@ -803,7 +807,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 31. Done: 12 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171). Already: 2 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 30. Done: 13 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172). Already: 2 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1079,7 +1083,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x81 | already | W10 | Bug Fixes |  |  | **Background subagents** now respect saved approvals and --always-approve after the parent turn finishes.
 - v51-x93 | done | W10 | Bug Fixes |  |  | Legacy UI density settings now combine correctly across config tiers and produce expected folding.
 - v51-x104 | done | W10 | Bug Fixes |  |  | Scroll logging and acceleration calculations no longer produce backwards timestamps under load.
-- v52-x05 | pending | W10 | Bug Fixes |  |  | Approval cards for background subagents no longer disappear when the parent turn ends.
+- v52-x05 | done | W10 | Bug Fixes |  |  | Approval cards for background subagents no longer disappear when the parent turn ends.
 - v52-x14 | pending | W10 | Bug Fixes |  |  | **Wrapped URLs** in prompts and quotes now link to the complete address instead of being cut at the wrap.
 - v53-f01 | pending | W10 | Features |  |  | **Wrapped shell commands** in tool and background-task rows copy back as one line.
 - v59-f03 | pending | W10 | Features |  |  | **`[Copy]` buttons** appear under code blocks in finished replies, labeled with the code's language or file name.
