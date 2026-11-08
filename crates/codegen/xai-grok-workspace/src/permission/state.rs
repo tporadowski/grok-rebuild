@@ -159,6 +159,7 @@ fn legacy_state_dir_in(
 
 /// Both store locations for `cwd`, resolved once on the blocking pool (discovery walks the filesystem; persist `ensure` creates and chmods).
 /// Falls back to exact-cwd keying if the blocking task dies.
+#[derive(Clone)]
 struct StoreDirs {
     dir: std::path::PathBuf,
     legacy_dir: Option<std::path::PathBuf>,
@@ -350,8 +351,18 @@ pub(crate) async fn load_state_from_disk(
     cwd: &AbsPathBuf,
     client_identifier: Option<&str>,
 ) -> PermissionState {
-    let dirs = resolve_store_dirs(cwd, false).await;
-    load_state_with_fallback(&dirs.dir, dirs.legacy_dir.as_deref(), client_identifier).await
+    let home = xai_grok_config::grok_home();
+    let dirs = resolve_store_dirs_in(home.clone(), cwd, false).await;
+    let state =
+        load_state_with_fallback(&dirs.dir, dirs.legacy_dir.as_deref(), client_identifier).await;
+    let main = main_checkout_dirs(&home, cwd).await;
+    overlay_loaded_state(
+        &StateFileAccess::Plain,
+        main.as_ref(),
+        client_identifier,
+        state,
+    )
+    .await
 }
 
 /// Lets the permission actor pick up a concurrent session's grants.
@@ -359,6 +370,8 @@ pub(crate) async fn load_state_from_disk(
 pub(crate) struct CachedStateStore {
     dir: std::path::PathBuf,
     legacy_dir: Option<std::path::PathBuf>,
+    /// The main checkout's store when `cwd` is a linked worktree. Reads overlay its grants; writes do not copy them back.
+    main_dirs: Option<StoreDirs>,
     client_identifier: Option<String>,
     access: StateFileAccess,
     /// `(mtime, len)` at the last read; size pairs with mtime to catch a same-tick write that coarse-granularity filesystems would hide.
@@ -372,8 +385,10 @@ impl CachedStateStore {
         cwd: &AbsPathBuf,
         client_identifier: Option<&str>,
     ) -> (Self, PermissionState) {
-        let dirs = resolve_store_dirs(cwd, false).await;
-        Self::open(dirs, client_identifier, StateFileAccess::Plain).await
+        let home = xai_grok_config::grok_home();
+        let dirs = resolve_store_dirs_in(home.clone(), cwd, false).await;
+        let main = main_checkout_dirs(&home, cwd).await;
+        Self::open(dirs, client_identifier, StateFileAccess::Plain, main).await
     }
 
     /// [`resolve_and_load`](Self::resolve_and_load) with `access`: under an injected grok home
@@ -387,18 +402,21 @@ impl CachedStateStore {
             StateFileAccess::Plain => xai_grok_config::grok_home(),
             StateFileAccess::DaemonOwned { grok_home } => grok_home.clone(),
         };
-        let dirs = resolve_store_dirs_in(grok_home, cwd, false).await;
-        Self::open(dirs, client_identifier, access).await
+        let dirs = resolve_store_dirs_in(grok_home.clone(), cwd, false).await;
+        let main = main_checkout_dirs(&grok_home, cwd).await;
+        Self::open(dirs, client_identifier, access, main).await
     }
 
     async fn open(
         dirs: StoreDirs,
         client_identifier: Option<&str>,
         access: StateFileAccess,
+        main_dirs: Option<StoreDirs>,
     ) -> (Self, PermissionState) {
         let mut store = CachedStateStore {
             dir: dirs.dir,
             legacy_dir: dirs.legacy_dir,
+            main_dirs,
             client_identifier: client_identifier.map(str::to_owned),
             access,
             last_sig: None,
@@ -422,8 +440,8 @@ impl CachedStateStore {
         Some((meta.modified().ok()?, meta.len()))
     }
 
-    async fn read(&self) -> PermissionState {
-        match &self.access {
+    pub(crate) async fn read(&self) -> PermissionState {
+        let state = match &self.access {
             StateFileAccess::Plain => {
                 load_state_with_fallback(
                     &self.dir,
@@ -438,7 +456,14 @@ impl CachedStateStore {
                     .await
                     .unwrap_or_default()
             }
-        }
+        };
+        overlay_loaded_state(
+            &self.access,
+            self.main_dirs.as_ref(),
+            self.client_identifier.as_deref(),
+            state,
+        )
+        .await
     }
 
     /// Write `state` back as this store reads it: merged with what is on disk for the CLI's
@@ -451,7 +476,14 @@ impl CachedStateStore {
             return persist_state(cwd, state, self.client_identifier.as_deref()).await;
         };
         let path = state_file_path(&self.dir, None);
-        let mut merged = state.clone();
+        let local = StoreDirs {
+            dir: self.dir.clone(),
+            legacy_dir: self.legacy_dir.clone(),
+        };
+        let stripped =
+            strip_inherited_grants(&local, self.main_dirs.as_ref(), state, None, &self.access)
+                .await;
+        let mut merged = stripped;
         if let Some(on_disk) = try_load_daemon_owned_state(grok_home, &path).await {
             merged.merge_grants_from(on_disk);
         }
@@ -535,8 +567,18 @@ pub(crate) async fn persist_state(
     state: &PermissionState,
     client_identifier: Option<&str>,
 ) {
-    let dirs = resolve_store_dirs(cwd, true).await;
-    persist_state_merging_to_dir(&dirs.dir, state, client_identifier).await
+    let home = xai_grok_config::grok_home();
+    let dirs = resolve_store_dirs_in(home.clone(), cwd, true).await;
+    let main = main_checkout_dirs(&home, cwd).await;
+    let state = strip_inherited_grants(
+        &dirs,
+        main.as_ref(),
+        state,
+        client_identifier,
+        &StateFileAccess::Plain,
+    )
+    .await;
+    persist_state_merging_to_dir(&dirs.dir, &state, client_identifier).await
 }
 
 /// Replace the on-disk state without merging: this is the reset path, where the whole point is discarding grants.
@@ -547,8 +589,282 @@ pub(crate) async fn replace_state_on_disk(
     state: &PermissionState,
     client_identifier: Option<&str>,
 ) {
-    let dirs = resolve_store_dirs(cwd, true).await;
-    persist_state_to_dir(&dirs.dir, state, client_identifier).await;
+    let home = xai_grok_config::grok_home();
+    let dirs = resolve_store_dirs_in(home.clone(), cwd, true).await;
+    let main = main_checkout_dirs(&home, cwd).await;
+    let state = strip_inherited_grants(
+        &dirs,
+        main.as_ref(),
+        state,
+        client_identifier,
+        &StateFileAccess::Plain,
+    )
+    .await;
+    persist_state_to_dir(&dirs.dir, &state, client_identifier).await;
+}
+
+/// The main checkout when `cwd` is a linked worktree of it, else `None`.
+/// A subdirectory of the main checkout, a submodule, and a separate git dir stay `None`: their scope root is already that checkout.
+async fn main_checkout_dirs(grok_home: &std::path::Path, cwd: &AbsPathBuf) -> Option<StoreDirs> {
+    let cwd = cwd.clone();
+    let main = tokio::task::spawn_blocking(move || locate_main_checkout(&cwd))
+        .await
+        .ok()
+        .flatten()?;
+    Some(resolve_store_dirs_in(grok_home.to_path_buf(), &main, false).await)
+}
+
+fn locate_main_checkout(cwd: &AbsPathBuf) -> Option<AbsPathBuf> {
+    let scope = permission_scope_root(cwd);
+    let main = crate::session::git::find_main_repo_root_from_path(cwd.as_path()).ok()?;
+    let main = dunce::canonicalize(&main).unwrap_or(main);
+    let main = AbsPathBuf::new(main).ok()?;
+    let main_scope = permission_scope_root(&main);
+    if same_path(&scope, &main_scope) {
+        None
+    } else {
+        Some(main)
+    }
+}
+
+fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    match (dunce::canonicalize(left), dunce::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
+}
+
+/// A value written where a boolean was meant (`"false"`, `yes`, `1`).
+/// Matches the config loader: those fail closed, and a later release's typed value is ignored.
+fn feature_value_is_mistyped_bool(value: &toml::Value) -> bool {
+    if value.is_bool() {
+        return false;
+    }
+    match value {
+        toml::Value::String(text) => matches!(
+            text.trim().to_ascii_lowercase().as_str(),
+            "true" | "false" | "yes" | "no" | "on" | "off" | "1" | "0"
+        ),
+        toml::Value::Integer(number) => matches!(*number, 0 | 1),
+        _ => false,
+    }
+}
+
+fn document_mistypes_feature(document: &toml::Value, key: &str) -> bool {
+    document
+        .get("features")
+        .and_then(|features| features.get(key))
+        .is_some_and(feature_value_is_mistyped_bool)
+}
+
+/// Default on. `[features] worktree_inherits_main_approvals = false` turns allow inheritance off.
+/// A boolean-shaped non-boolean fails closed. Never-allow inheritance does not consult this flag.
+fn inherits_main_approvals_sync() -> bool {
+    use xai_grok_config_types::{Feature, FeatureSources};
+    let feature = Feature::WorktreeInheritsMainApprovals;
+    let Ok(layers) = xai_grok_config::ConfigLayers::load() else {
+        return feature
+            .resolve(FeatureSources::from_process_env(feature))
+            .value;
+    };
+    let documents = [&layers.system_managed, &layers.managed, &layers.user];
+    let extras = [
+        layers.user_requirements.as_ref(),
+        layers.system_requirements.as_ref(),
+        layers.mdm_requirements.as_ref(),
+        layers.env_overlay.as_ref(),
+    ];
+    let campaign_mistyped = layers
+        .campaigns
+        .requirements
+        .iter()
+        .chain(&layers.campaigns.user)
+        .chain(&layers.campaigns.managed)
+        .chain(&layers.campaigns.system_managed)
+        .any(|entry| {
+            entry
+                .patch
+                .get("features")
+                .and_then(|features| features.get(feature.key()))
+                .is_some_and(feature_value_is_mistyped_bool)
+        });
+    if documents
+        .iter()
+        .any(|document| document_mistypes_feature(document, feature.key()))
+        || extras
+            .into_iter()
+            .flatten()
+            .any(|document| document_mistypes_feature(document, feature.key()))
+        || campaign_mistyped
+    {
+        tracing::warn!(
+            "features.worktree_inherits_main_approvals is not a boolean; worktree allow inheritance is off"
+        );
+        return false;
+    }
+    let base = layers.effective_config_base();
+    let active =
+        layers.resolve_campaigns(&base, &[], &xai_grok_config::load_dismissed_ids_from_home());
+    let split = feature.config_layers(&layers, &active);
+    feature
+        .resolve(FeatureSources {
+            pin: split.pin,
+            config: split.merged(),
+            ..FeatureSources::from_process_env(feature)
+        })
+        .value
+}
+
+async fn inherits_main_approvals() -> bool {
+    tokio::task::spawn_blocking(inherits_main_approvals_sync)
+        .await
+        .unwrap_or(false)
+}
+
+async fn load_store_state(
+    access: &StateFileAccess,
+    dirs: &StoreDirs,
+    client_identifier: Option<&str>,
+) -> PermissionState {
+    match access {
+        StateFileAccess::Plain => {
+            load_state_with_fallback(&dirs.dir, dirs.legacy_dir.as_deref(), client_identifier).await
+        }
+        StateFileAccess::DaemonOwned { grok_home } => {
+            try_load_daemon_owned_state(grok_home, &state_file_path(&dirs.dir, None))
+                .await
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// Always-allow sets from the main checkout, unless the feature flag is off. Never-allow sets either way.
+/// `edit_policy` stays the worktree's own value.
+fn overlay_main_grants(local: &mut PermissionState, main: PermissionState, inherit_allows: bool) {
+    let PermissionState {
+        edit_policy: _,
+        allow_bash_execute,
+        allowed_bash_commands,
+        disallowed_bash_commands,
+        allowed_bash_globs,
+        allowed_web_fetch_domains,
+        allowed_mcp_tools,
+        allowed_mcp_servers,
+        disallowed_mcp_tools,
+        disallowed_web_fetch_domains,
+        validated_mcp_server_grants_version: _,
+    } = main;
+    if inherit_allows {
+        local.allow_bash_execute |= allow_bash_execute;
+        local.allowed_bash_commands.extend(allowed_bash_commands);
+        local.allowed_bash_globs.extend(allowed_bash_globs);
+        local
+            .allowed_web_fetch_domains
+            .extend(allowed_web_fetch_domains);
+        local.allowed_mcp_tools.extend(allowed_mcp_tools);
+        local.allowed_mcp_servers.extend(allowed_mcp_servers);
+    }
+    local
+        .disallowed_bash_commands
+        .extend(disallowed_bash_commands);
+    local.disallowed_mcp_tools.extend(disallowed_mcp_tools);
+    local
+        .disallowed_web_fetch_domains
+        .extend(disallowed_web_fetch_domains);
+}
+
+async fn overlay_loaded_state(
+    access: &StateFileAccess,
+    main: Option<&StoreDirs>,
+    client_identifier: Option<&str>,
+    mut state: PermissionState,
+) -> PermissionState {
+    let Some(main) = main else {
+        return state;
+    };
+    let main_state = load_store_state(access, main, client_identifier).await;
+    overlay_main_grants(&mut state, main_state, inherits_main_approvals().await);
+    state
+}
+
+fn drop_main_only(
+    dest: &mut std::collections::HashSet<String>,
+    local_disk: &std::collections::HashSet<String>,
+    main: &std::collections::HashSet<String>,
+) {
+    dest.retain(|item| local_disk.contains(item) || !main.contains(item));
+}
+
+/// Drop grants that were only overlaid from the main checkout, so a save does not copy them into the worktree file.
+fn without_inherited_only(
+    effective: &PermissionState,
+    local_disk: &PermissionState,
+    main: &PermissionState,
+    inherit_allows: bool,
+) -> PermissionState {
+    let mut out = effective.clone();
+    if inherit_allows {
+        if main.allow_bash_execute && !local_disk.allow_bash_execute {
+            out.allow_bash_execute = false;
+        }
+        drop_main_only(
+            &mut out.allowed_bash_commands,
+            &local_disk.allowed_bash_commands,
+            &main.allowed_bash_commands,
+        );
+        drop_main_only(
+            &mut out.allowed_bash_globs,
+            &local_disk.allowed_bash_globs,
+            &main.allowed_bash_globs,
+        );
+        drop_main_only(
+            &mut out.allowed_web_fetch_domains,
+            &local_disk.allowed_web_fetch_domains,
+            &main.allowed_web_fetch_domains,
+        );
+        drop_main_only(
+            &mut out.allowed_mcp_tools,
+            &local_disk.allowed_mcp_tools,
+            &main.allowed_mcp_tools,
+        );
+        drop_main_only(
+            &mut out.allowed_mcp_servers,
+            &local_disk.allowed_mcp_servers,
+            &main.allowed_mcp_servers,
+        );
+    }
+    drop_main_only(
+        &mut out.disallowed_bash_commands,
+        &local_disk.disallowed_bash_commands,
+        &main.disallowed_bash_commands,
+    );
+    drop_main_only(
+        &mut out.disallowed_mcp_tools,
+        &local_disk.disallowed_mcp_tools,
+        &main.disallowed_mcp_tools,
+    );
+    drop_main_only(
+        &mut out.disallowed_web_fetch_domains,
+        &local_disk.disallowed_web_fetch_domains,
+        &main.disallowed_web_fetch_domains,
+    );
+    out
+}
+
+async fn strip_inherited_grants(
+    local: &StoreDirs,
+    main: Option<&StoreDirs>,
+    state: &PermissionState,
+    client_identifier: Option<&str>,
+    access: &StateFileAccess,
+) -> PermissionState {
+    let Some(main) = main else {
+        return state.clone();
+    };
+    let inherit_allows = inherits_main_approvals().await;
+    let main_state = load_store_state(access, main, client_identifier).await;
+    let local_disk = load_store_state(access, local, client_identifier).await;
+    without_inherited_only(state, &local_disk, &main_state, inherit_allows)
 }
 
 pub async fn cleanup_stale_permission_state(max_age: std::time::Duration) {
@@ -1151,7 +1467,8 @@ allowed_mcp_servers = ["a"]
         let cwd = AbsPathBuf::new(dir.clone()).unwrap();
         let domains = |state: &PermissionState| state.allowed_web_fetch_domains.clone();
 
-        let (store, state) = CachedStateStore::open(dirs(), Some("client"), daemon_owned()).await;
+        let (store, state) =
+            CachedStateStore::open(dirs(), Some("client"), daemon_owned(), None).await;
         assert_eq!(domains(&own), domains(&state), "its own regular file reads");
         let mut granted = state.clone();
         granted
@@ -1171,9 +1488,9 @@ allowed_mcp_servers = ["a"]
             state_file_path(&dir, None),
         )
         .unwrap();
-        let (_, state) = CachedStateStore::open(dirs(), None, daemon_owned()).await;
+        let (_, state) = CachedStateStore::open(dirs(), None, daemon_owned(), None).await;
         assert!(domains(&state).is_empty(), "a linked file reads as empty");
-        let (_, state) = CachedStateStore::open(dirs(), None, StateFileAccess::Plain).await;
+        let (_, state) = CachedStateStore::open(dirs(), None, StateFileAccess::Plain, None).await;
         assert_eq!(
             domains(&planted),
             domains(&state),
@@ -1183,7 +1500,7 @@ allowed_mcp_servers = ["a"]
         std::fs::remove_file(state_file_path(&dir, None)).unwrap();
         std::fs::remove_dir(&dir).unwrap();
         std::os::unix::fs::symlink(&elsewhere, &dir).unwrap();
-        let (store, state) = CachedStateStore::open(dirs(), None, daemon_owned()).await;
+        let (store, state) = CachedStateStore::open(dirs(), None, daemon_owned(), None).await;
         assert!(
             domains(&state).is_empty(),
             "a linked session directory reads as empty, not from the legacy location either"
@@ -1195,7 +1512,7 @@ allowed_mcp_servers = ["a"]
             "nothing was written through the link"
         );
         std::fs::remove_file(&dir).unwrap();
-        let (store, _) = CachedStateStore::open(dirs(), None, daemon_owned()).await;
+        let (store, _) = CachedStateStore::open(dirs(), None, daemon_owned(), None).await;
         store.persist(&cwd, &granted).await;
         assert_eq!(
             domains(&granted),
@@ -1440,7 +1757,8 @@ allowed_mcp_servers = ["a"]
     }
 
     /// Linked worktrees must not share a grant store.
-    /// Discovery resolves each worktree to its own `workdir`, so a grant accepted in one never auto-allows in another.
+    /// Discovery resolves each worktree to its own `workdir`. A grant saved in one worktree does not auto-allow in another.
+    /// The main checkout's answers are overlaid at read time (`worktree_inherits_main_checkout_always_allow`), not by sharing this directory.
     #[test]
     fn scope_root_is_per_worktree() {
         let main = tempfile::tempdir().unwrap();
@@ -1530,6 +1848,192 @@ allowed_mcp_servers = ["a"]
                 )
                 .is_none()
             );
+        }
+    }
+
+    /// A worktree session uses the main checkout's saved always-allow answers, and its never-allow answers either way.
+    /// The worktree keeps its own file: a save does not copy the inherited grants into it.
+    #[tokio::test]
+    async fn worktree_inherits_main_checkout_always_allow() {
+        use crate::permission::grants::{SegmentEvaluation, evaluate_bash_segments};
+
+        const MAIN_ALLOW: &str = "my-tool --deploy prod";
+        const MAIN_DENY: &str = "my-tool --destroy prod";
+        const LOCAL_ALLOW: &str = "my-tool --ship prod";
+        const SIBLING_ALLOW: &str = "my-tool --sibling prod";
+
+        fn granted(cmd: &str, state: &PermissionState) -> bool {
+            matches!(
+                evaluate_bash_segments(cmd, state),
+                SegmentEvaluation::AutoAllow {
+                    via_session_grant: true
+                }
+            )
+        }
+        fn denied(cmd: &str, state: &PermissionState) -> bool {
+            matches!(
+                evaluate_bash_segments(cmd, state),
+                SegmentEvaluation::Reject(_)
+            )
+        }
+        fn asks(cmd: &str, state: &PermissionState) -> bool {
+            matches!(
+                evaluate_bash_segments(cmd, state),
+                SegmentEvaluation::NeedsPrompts { .. }
+            )
+        }
+
+        // Pin the process grok home before the override, so this test does not cache a temp directory.
+        let _pinned_home = xai_grok_config::grok_home();
+        let home = tempfile::tempdir().unwrap();
+        let _env = crate::LockedTestEnv::lock().set("GROK_HOME", home.path());
+
+        let main = tempfile::tempdir().unwrap();
+        let main_root = dunce::canonicalize(main.path()).unwrap();
+        let repo = git2::Repository::init(&main_root).unwrap();
+        {
+            let tree_id = repo.index().unwrap().write_tree().unwrap();
+            let tree = repo.find_tree(tree_id).unwrap();
+            let sig = git2::Signature::now("t", "t@example.com").unwrap();
+            repo.commit(Some("HEAD"), &sig, &sig, "init", &tree, &[])
+                .unwrap();
+        }
+        let wt_parent = tempfile::tempdir().unwrap();
+        let wt_root_parent = dunce::canonicalize(wt_parent.path()).unwrap();
+        let wt_path = wt_root_parent.join("wt");
+        let other_path = wt_root_parent.join("other");
+        repo.worktree("wt", &wt_path, None).unwrap();
+        repo.worktree("other", &other_path, None).unwrap();
+
+        let main_cwd = AbsPathBuf::new(main_root).unwrap();
+        let wt_cwd = AbsPathBuf::new(wt_path.clone()).unwrap();
+        let other_cwd = AbsPathBuf::new(other_path).unwrap();
+        let session_dirs = RemoveSessionDirs(vec![
+            state_dir_for_cwd(&main_cwd),
+            state_dir_for_cwd(&wt_cwd),
+            state_dir_for_cwd(&other_cwd),
+        ]);
+
+        let mut main_state = PermissionState::default();
+        main_state.allow_bash_execute = true;
+        main_state
+            .allowed_bash_commands
+            .insert(MAIN_ALLOW.to_string());
+        main_state
+            .allowed_mcp_tools
+            .insert("linear__get_issue".to_string());
+        main_state
+            .disallowed_bash_commands
+            .insert(MAIN_DENY.to_string());
+        main_state
+            .disallowed_web_fetch_domains
+            .insert("tracker.example".to_string());
+        persist_state(&main_cwd, &main_state, None).await;
+
+        let loaded = load_state_from_disk(&wt_cwd, None).await;
+        assert!(
+            granted(MAIN_ALLOW, &loaded),
+            "a worktree session must not ask again for a command the main checkout already allowed"
+        );
+        assert!(loaded.allow_bash_execute);
+        assert!(loaded.allowed_mcp_tools.contains("linear__get_issue"));
+        assert!(
+            denied(MAIN_DENY, &loaded),
+            "the main checkout's never-allow must reject the command"
+        );
+        assert!(
+            loaded
+                .disallowed_web_fetch_domains
+                .contains("tracker.example")
+        );
+
+        let wt_sub = wt_path.join("nested");
+        std::fs::create_dir_all(&wt_sub).unwrap();
+        let sub_loaded = load_state_from_disk(&AbsPathBuf::new(wt_sub).unwrap(), None).await;
+        assert!(granted(MAIN_ALLOW, &sub_loaded));
+
+        let mut sibling = PermissionState::default();
+        sibling
+            .allowed_bash_commands
+            .insert(SIBLING_ALLOW.to_string());
+        persist_state(&other_cwd, &sibling, None).await;
+        let from_other = load_state_from_disk(&wt_cwd, None).await;
+        assert!(
+            !from_other.allowed_bash_commands.contains(SIBLING_ALLOW),
+            "another worktree's own grant must not be inherited"
+        );
+        assert!(granted(MAIN_ALLOW, &from_other));
+        let other_loaded = load_state_from_disk(&other_cwd, None).await;
+        assert!(granted(SIBLING_ALLOW, &other_loaded));
+        assert!(granted(MAIN_ALLOW, &other_loaded));
+
+        let mut session = loaded.clone();
+        session
+            .allowed_bash_commands
+            .insert(LOCAL_ALLOW.to_string());
+        persist_state(&wt_cwd, &session, None).await;
+        let on_disk = load_state_from_dir(&state_dir_for_cwd(&wt_cwd), None).await;
+        assert!(on_disk.allowed_bash_commands.contains(LOCAL_ALLOW));
+        assert!(
+            !on_disk.allowed_bash_commands.contains(MAIN_ALLOW),
+            "saving the worktree must not copy the main checkout's always-allow into its file"
+        );
+        assert!(!on_disk.disallowed_bash_commands.contains(MAIN_DENY));
+        assert!(!on_disk.allow_bash_execute);
+        assert!(!on_disk.allowed_mcp_tools.contains("linear__get_issue"));
+
+        let still = load_state_from_disk(&wt_cwd, None).await;
+        assert!(granted(MAIN_ALLOW, &still));
+        assert!(granted(LOCAL_ALLOW, &still));
+        assert!(denied(MAIN_DENY, &still));
+
+        std::fs::write(
+            home.path().join("config.toml"),
+            "[features]\nworktree_inherits_main_approvals = false\n",
+        )
+        .unwrap();
+        let off = load_state_from_disk(&wt_cwd, None).await;
+        assert!(
+            asks(MAIN_ALLOW, &off),
+            "the feature flag must stop always-allow inheritance"
+        );
+        assert!(!off.allow_bash_execute);
+        assert!(!off.allowed_mcp_tools.contains("linear__get_issue"));
+        assert!(granted(LOCAL_ALLOW, &off));
+        assert!(
+            denied(MAIN_DENY, &off),
+            "never-allow from the main checkout applies when the flag is off"
+        );
+        assert!(off.disallowed_web_fetch_domains.contains("tracker.example"));
+
+        std::fs::write(
+            home.path().join("config.toml"),
+            "[features]\nworktree_inherits_main_approvals = \"false\"\n",
+        )
+        .unwrap();
+        let mistyped = load_state_from_disk(&wt_cwd, None).await;
+        assert!(
+            asks(MAIN_ALLOW, &mistyped),
+            "a non-boolean flag fails closed and does not inherit always-allow"
+        );
+        assert!(denied(MAIN_DENY, &mistyped));
+        assert!(granted(LOCAL_ALLOW, &mistyped));
+
+        let main_loaded = load_state_from_disk(&main_cwd, None).await;
+        assert!(granted(MAIN_ALLOW, &main_loaded));
+        assert!(main_loaded.allow_bash_execute);
+        drop(session_dirs);
+    }
+}
+
+#[cfg(test)]
+struct RemoveSessionDirs(Vec<std::path::PathBuf>);
+
+#[cfg(test)]
+impl Drop for RemoveSessionDirs {
+    fn drop(&mut self) {
+        for dir in &self.0 {
+            let _ = std::fs::remove_dir_all(dir);
         }
     }
 }

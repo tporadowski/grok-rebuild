@@ -561,6 +561,8 @@ pub fn spawn_permission_manager_with_pin(
                 PermissionCommand::ResetState => {
                     state = PermissionState::default();
                     replace_state_on_disk(&cwd, &state, client_id_ref).await;
+                    // The worktree file is clear. The main checkout's answers still apply on the next read.
+                    state = store.read().await;
                     allow_edits_for_session = false;
                     tracing::info!(
                         "Permission state reset to defaults (including session edit allow)"

@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-089 — Worktrees read the main checkout's saved answers
+
+A worktree keeps its own permission file. On load, the main checkout's always-allow grants are added in memory unless `[features] worktree_inherits_main_approvals` is false. A value that is not a boolean fails closed, so those allows are not inherited. Never-allow grants from the main checkout are added either way. A save writes only the worktree's own grants. Another worktree's grants are not copied. The key is a normal feature: default on, `GROK_WORKTREE_INHERITS_MAIN_APPROVALS` outranks the config file, and a requirements pin outranks both (`v67-f01`, `worktree_inherits_main_checkout_always_allow`).
+
 ### D-088 — A typed worktree name is not given a numbered suffix
 
 A name the user typed is claimed exactly. If that directory exists, or another live create already claimed it, create stops with `worktree name '<name>' is already taken`. Names grok chose still use `label-2` when they collide (D-063). Deleting the folder by hand drops the stale `.git/worktrees` registration on the next add, so that name can be used again (`v64-x06`, `typed_name_is_refused_while_taken_and_reusable_after_the_folder_is_gone`, `two_prepares_with_the_same_label_choose_different_directories`, `worktree_add_reuses_a_name_after_the_folder_was_deleted`).
@@ -407,7 +411,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 7 | 0 | 31 | 3 | 0 |
+| W7 | Worktrees | 6 | 0 | 32 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -419,9 +423,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 393. Skipped: 8. Done: 139. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 392. Skipped: 8. Done: 140. Already: 33. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: worktrees also use their main checkout's saved "always allow" answers (`v67-f01`).
+**Next:** W7 worktrees. First open row: worktree create and fork list files that could not be copied (`v68-f01`).
 
 ## Waves
 
@@ -451,7 +455,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 7. Done: 31 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086; `v64-x05`, D-087; `v64-x06`, D-088). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 6. Done: 32 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086; `v64-x05`, D-087; `v64-x06`, D-088; `v67-f01`, D-089). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -639,7 +643,7 @@ id | status | wave | kind | flag | covered | note
 - v64-x04 | done | W7 | Bug Fixes |  |  | **`grok -w`, `grok worktree create`, worktree forks, and subagent worktrees** refuse up front with the sandbox's message when the sandbox profile does not allow creating worktrees.
 - v64-x05 | done | W7 | Bug Fixes |  |  | **Worktree options** are hidden in `/fork`, `/new`, and the Welcome screen when the sandbox profile does not allow creating worktrees.
 - v64-x06 | done | W7 | Bug Fixes |  |  | **A worktree name you type** that is already taken is refused instead of getting a numbered suffix, and a name whose folder you deleted by hand can be used again.
-- v67-f01 | pending | W7 | Features |  |  | **Worktrees** also use their main checkout's saved "always allow" answers, so you are not asked again for a tool you already allowed there. Set `[features] worktree_inherits_main_approvals = false` to turn this off; the main checkout's "never allow" answers apply either way.
+- v67-f01 | done | W7 | Features |  |  | **Worktrees** also use their main checkout's saved "always allow" answers, so you are not asked again for a tool you already allowed there. Set `[features] worktree_inherits_main_approvals = false` to turn this off; the main checkout's "never allow" answers apply either way.
 - v68-f01 | pending | W7 | Features |  |  | **Worktree create and fork** now list files that could not be copied and any mode changes that were lost.
 - v68-x01 | pending | W7 | Bug Fixes |  |  | **Worktree create** now fails cleanly instead of falling back when it cannot copy tracked files or runs out of disk space.
 - v69-f04 | pending | W7 | Features |  |  | **Welcome menu** now lists Resume session (`Ctrl+R`) above New worktree (`Ctrl+W`).

@@ -78,6 +78,10 @@ fn registered_settings() {
             ("dock", ("GROK_DOCK", false)),
             ("terminal_theme", ("GROK_TERMINAL_THEME", false)),
             ("file_acceleration", ("GROK_FILE_ACCELERATION", false)),
+            (
+                "worktree_inherits_main_approvals",
+                ("GROK_WORKTREE_INHERITS_MAIN_APPROVALS", true),
+            ),
         ]),
     );
 }
@@ -113,8 +117,8 @@ fn every_registered_feature_reads_its_own_remote_setting() {
             Feature::Dock => settings.dock_enabled = Some(value),
             Feature::TerminalTheme => settings.terminal_theme_enabled = Some(value),
             Feature::FileAcceleration => settings.file_acceleration_enabled = Some(value),
-            // The one row with no remote tier, stated as such rather than as a projection that reads nothing
-            Feature::BackendTools => {
+            // Rows with no remote tier, stated as such rather than as a projection that reads nothing
+            Feature::BackendTools | Feature::WorktreeInheritsMainApprovals => {
                 assert!(spec.remote.is_none(), "{} grew a remote tier", spec.key);
                 continue;
             }

@@ -53,6 +53,8 @@ pub enum Feature {
     TerminalTheme,
     /// Hand local sessions' file systems to an installed file accelerator.
     FileAcceleration,
+    /// A worktree session also uses the main checkout's saved always-allow answers.
+    WorktreeInheritsMainApprovals,
 }
 
 /// How one feature is written on each surface it can be set from.
@@ -333,6 +335,15 @@ pub const FEATURES: &[FeatureSpec] = &[
         env: "GROK_FILE_ACCELERATION",
         default_enabled: false,
         remote: Some(|settings| settings.file_acceleration_enabled),
+        capability: None,
+    },
+    FeatureSpec {
+        id: Feature::WorktreeInheritsMainApprovals,
+        key: "worktree_inherits_main_approvals",
+        path: "features.worktree_inherits_main_approvals",
+        env: "GROK_WORKTREE_INHERITS_MAIN_APPROVALS",
+        default_enabled: true,
+        remote: None,
         capability: None,
     },
 ];
