@@ -702,7 +702,14 @@ impl AgentView {
                         InputOutcome::Changed
                     }
                     Some(AgentPane::Scrollback) => {
-                        self.set_active_pane(AgentPane::Scrollback, false);
+                        // [Copy] under a code block copies in place. A pane switch would
+                        // discard a clean queued-prompt edit, or block a dirty one and drop the click.
+                        let copy_keeps_queue_edit =
+                            matches!(self.prompt_mode, PromptMode::EditingQueued { .. })
+                                && self.code_copy_button_at(mouse.column, mouse.row);
+                        if !copy_keeps_queue_edit {
+                            self.set_active_pane(AgentPane::Scrollback, false);
+                        }
                         if self.block_viewer.is_some() {
                             self.handle_block_viewer_mouse(mouse);
                             return InputOutcome::Changed;
@@ -806,6 +813,17 @@ impl AgentView {
                     && mouse.row == lr
                 {
                     return InputOutcome::Action(Action::OpenLink(target));
+                }
+                if self.active_pane != AgentPane::Scrollback
+                    && self
+                        .pending_scrollback_click
+                        .is_some_and(|(col, row)| self.code_copy_button_at(col, row))
+                {
+                    if let Some((click_col, click_row)) = self.pending_scrollback_click.take()
+                        && let Some(outcome) = self.handle_inline_media_click(click_col, click_row)
+                    {
+                        return outcome;
+                    }
                 }
                 if self.active_pane == AgentPane::Scrollback {
                     if let Some((click_col, click_row)) = self.pending_scrollback_click.take() {
@@ -1789,5 +1807,100 @@ mod tests {
         let resume = agent.block_viewer_resume.expect("resume");
         assert_eq!(resume.entry_id, entry_id);
         assert_eq!(resume.selected_id, selected_id);
+    }
+
+    fn editing_agent(text: &str, original: &str) -> AgentView {
+        let mut agent = crate::app::agent_view::test_fixtures::make_agent();
+        agent.set_active_pane(AgentPane::Prompt, true);
+        agent.prompt.set_text(text);
+        agent.prompt_mode = PromptMode::EditingQueued {
+            id: 7,
+            original: original.into(),
+            server_id: None,
+            kind: crate::app::agent::QueueEntryKind::Prompt,
+        };
+        agent.pane_areas.scrollback = Rect::new(0, 0, 80, 20);
+        agent.pane_areas.prompt = Rect::new(0, 22, 80, 4);
+        agent
+            .inline_media_hits
+            .code_payloads
+            .push("fn answer() {}".into());
+        agent.inline_media_hits.code_buttons.push((Rect::new(4, 3, 10, 1), 0));
+        agent
+    }
+
+    fn click_code_copy(agent: &mut AgentView) {
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            agent.handle_mouse(&MouseEvent {
+                kind,
+                column: 5,
+                row: 3,
+                modifiers: KeyModifiers::empty(),
+            });
+        }
+    }
+
+    /// Turns clipboard capture on for this thread and off on drop, including after a panic.
+    struct CopyCapture;
+    impl CopyCapture {
+        fn arm() -> Self {
+            crate::clipboard::set_copy_capture(true);
+            Self
+        }
+    }
+    impl Drop for CopyCapture {
+        fn drop(&mut self) {
+            crate::clipboard::set_copy_capture(false);
+        }
+    }
+
+    #[test]
+    fn code_copy_during_queue_edit_copies_and_keeps_the_edit() {
+        let _capture = CopyCapture::arm();
+        let mut clean = editing_agent("queued text", "queued text");
+        click_code_copy(&mut clean);
+        assert_eq!(
+            crate::clipboard::take_captured_copy().as_deref(),
+            Some("fn answer() {}")
+        );
+        assert!(
+            matches!(clean.prompt_mode, PromptMode::EditingQueued { .. }),
+            "a clean edit must stay open"
+        );
+        assert_eq!(clean.prompt.text(), "queued text");
+        assert_eq!(clean.active_pane, AgentPane::Prompt);
+
+        let mut dirty = editing_agent("queued text plus", "queued text");
+        click_code_copy(&mut dirty);
+        assert_eq!(
+            crate::clipboard::take_captured_copy().as_deref(),
+            Some("fn answer() {}")
+        );
+        assert!(
+            matches!(dirty.prompt_mode, PromptMode::EditingQueued { .. }),
+            "a dirty edit must stay open"
+        );
+        assert_eq!(dirty.prompt.text(), "queued text plus");
+        assert_eq!(dirty.active_pane, AgentPane::Prompt);
+        assert_ne!(
+            dirty.toast.as_ref().map(|(msg, _)| msg.as_str()),
+            Some("Editing a queued prompt: press Enter to save, Esc to discard")
+        );
+
+        // A click that is not [Copy] still leaves a clean edit, as before.
+        let mut plain = editing_agent("queued text", "queued text");
+        plain.handle_mouse(&MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 1,
+            row: 1,
+            modifiers: KeyModifiers::empty(),
+        });
+        assert!(
+            matches!(plain.prompt_mode, PromptMode::Normal),
+            "a transcript click off the button still ends a clean edit"
+        );
     }
 }

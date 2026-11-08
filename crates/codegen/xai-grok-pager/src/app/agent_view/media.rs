@@ -541,6 +541,15 @@ impl AgentView {
 
     // -- Inline media click handling -----------------------------------------
 
+    /// Whether `(col, row)` is a code-block or quote `[Copy]` registered last frame.
+    pub(in crate::app) fn code_copy_button_at(&self, col: u16, row: u16) -> bool {
+        let pos = ratatui::layout::Position::new(col, row);
+        self.inline_media_hits
+            .code_buttons
+            .iter()
+            .any(|(rect, _)| rect.contains(pos))
+    }
+
     /// Handle a click on inline media buttons.
     /// Returns `Some(InputOutcome)` if the click was consumed, `None` to fall through to normal handling.
     pub(in crate::app) fn handle_inline_media_click(

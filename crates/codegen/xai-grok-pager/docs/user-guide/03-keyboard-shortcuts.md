@@ -88,7 +88,7 @@ prompt. `⇧E` clears all pins, and `Ctrl+E` clears pins on thinking blocks.
 
 | Key | Action |
 |-----|--------|
-| `y` | Copy block content to clipboard (rendered plain text for markdown). A quote in a finished reply also has a `[Copy]` button that copies that quote as Markdown without its `>` markers. |
+| `y` | Copy block content to clipboard (rendered plain text for markdown). A quote in a finished reply also has a `[Copy]` button that copies that quote as Markdown without its `>` markers. A code block's `[Copy]` copies that block while a queued prompt is open for editing, and the edit stays open. |
 | `⇧Y` | Copy block metadata (e.g., the shell command) to clipboard |
 | `Enter` | Open block content in fullscreen viewer |
 | `Ctrl+F` | Open block content in fullscreen viewer (alt binding) |
