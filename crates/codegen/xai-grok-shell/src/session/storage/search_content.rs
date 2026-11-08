@@ -151,16 +151,29 @@ pub(super) fn collect_all_indexable_content_single_pass(
                         && content.content_type == Some("text")
                         && let Some(text) = content.text
                     {
-                        if content
+                        let bash_command = content
                             .meta
                             .as_ref()
-                            .is_some_and(|m| m.bash_command.is_some())
-                            || peek
-                                .update
-                                .meta
-                                .as_ref()
-                                .is_some_and(|m| m.host_turn == Some(true))
-                        {
+                            .and_then(|meta| meta.bash_command.as_deref())
+                            .filter(|command| !command.is_empty());
+                        let host_turn = peek
+                            .update
+                            .meta
+                            .as_ref()
+                            .is_some_and(|meta| meta.host_turn == Some(true));
+                        if bash_command.is_some() || host_turn {
+                            // A shell command is not a prompt, but `/resume` search still matches it.
+                            if let Some(command) = bash_command {
+                                let budget = TOOL_MAX_CHARS.saturating_sub(tool_chars_emitted);
+                                if budget > 0 {
+                                    let mut take = command.len().min(budget);
+                                    while take > 0 && !command.is_char_boundary(take) {
+                                        take -= 1;
+                                    }
+                                    tool_meta.push(command.get(..take).unwrap_or("").to_string());
+                                    tool_chars_emitted += take;
+                                }
+                            }
                             prompt_events.push(PromptExtractEvent::NotUserMessage);
                         } else {
                             let prompt_index = peek

@@ -107,8 +107,37 @@ fn test_single_pass_extracts_text_with_json_escapes() {
         "tool location path with escapes must be indexed: {content:?}"
     );
     assert!(
-        !content.contains("echo \"hi\""),
-        "escaped bash command must still be excluded from the index: {content:?}"
+        content.contains("echo \"hi\""),
+        "a shell command is searchable even though it is not a prompt: {content:?}"
+    );
+}
+
+#[test]
+fn resume_search_indexes_commands_paths_and_replies() {
+    let lines = vec![
+        acp_update(
+            r#"{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"! cargo test","_meta":{"bash_command":"cargo test"}}}"#,
+        ),
+        acp_update(
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"the suite passed"}}"#,
+        ),
+        acp_update(
+            r#"{"sessionUpdate":"tool_call","toolCallId":"tc1","title":"Read file","kind":"read","locations":[{"path":"src/resume_match.rs"}]}"#,
+        ),
+    ];
+    let f = write_updates_jsonl(&lines);
+    let (content, _bytes) = collect_all_indexable_content_single_pass(f.path()).unwrap();
+    assert!(
+        content.contains("cargo test"),
+        "commands are searchable: {content:?}"
+    );
+    assert!(
+        content.contains("the suite passed"),
+        "replies are searchable: {content:?}"
+    );
+    assert!(
+        content.contains("src/resume_match.rs"),
+        "file paths are searchable: {content:?}"
     );
 }
 

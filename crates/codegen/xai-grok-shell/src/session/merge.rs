@@ -959,6 +959,30 @@ mod tests {
         );
     }
 
+    /// A one-edit title query keeps a session from another folder and still sorts the current folder first.
+    #[test]
+    fn resume_search_keeps_a_typo_match_from_another_folder() {
+        let mut here = make_summary("here", "Fix login bug", "2026-01-01T00:00:00Z");
+        here.info.cwd = "/repo".into();
+        let mut elsewhere = make_summary("else", "Fix login bug", "2026-08-01T00:00:00Z");
+        elsewhere.info.cwd = "/elsewhere".into();
+        let merged = merge_with_preference(
+            Vec::new(),
+            vec![elsewhere, here],
+            Some("fixx"),
+            &[],
+            20,
+            Some("/repo"),
+        );
+        assert_eq!(
+            merged
+                .iter()
+                .map(|row| row.session_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["here", "else"]
+        );
+    }
+
     #[test]
     fn resume_order_puts_current_folder_and_checkouts_before_newer_other_folders() {
         let mut current = make_summary("cur", "Current work", "2026-01-01T00:00:00Z");

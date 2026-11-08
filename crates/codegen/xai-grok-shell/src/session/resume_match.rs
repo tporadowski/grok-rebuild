@@ -63,9 +63,54 @@ fn text_matches(q_words: &[String], q_stripped: &str, text: &str) -> bool {
     if stripped == q_stripped {
         return true;
     }
-    q_words
-        .iter()
-        .all(|word| words.iter().any(|title_word| title_word.starts_with(word.as_str())))
+    q_words.iter().all(|word| {
+        words.iter().any(|title_word| {
+            title_word.starts_with(word.as_str()) || within_one_edit(word, title_word)
+        })
+    })
+}
+
+/// A query word of at least four characters may miss the title word by one edit.
+/// Shorter words stay exact prefixes, so `log` still does not hit `Blog`.
+fn within_one_edit(query_word: &str, title_word: &str) -> bool {
+    query_word.chars().count() >= 4 && one_edit_apart(query_word, title_word)
+}
+
+/// Insertion, deletion, substitution, or an adjacent transposition.
+fn one_edit_apart(left: &str, right: &str) -> bool {
+    let a: Vec<char> = left.chars().collect();
+    let b: Vec<char> = right.chars().collect();
+    let (na, nb) = (a.len(), b.len());
+    if na.abs_diff(nb) > 1 {
+        return false;
+    }
+    let mut i = 0;
+    let mut j = 0;
+    let mut edits = 0;
+    while i < na && j < nb {
+        if a[i] == b[j] {
+            i += 1;
+            j += 1;
+            continue;
+        }
+        if edits == 1 {
+            return false;
+        }
+        edits = 1;
+        if na == nb && i + 1 < na && j + 1 < nb && a[i] == b[j + 1] && a[i + 1] == b[j] {
+            i += 2;
+            j += 2;
+        } else if na == nb {
+            i += 1;
+            j += 1;
+        } else if na > nb {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    edits += (na - i) + (nb - j);
+    edits == 1
 }
 
 /// Lowercase words split on anything that is not a letter or digit.
@@ -214,6 +259,20 @@ mod tests {
             "log is inside Blog, not at the start of a word"
         );
         assert!(!query_matches("", &["rust-check"], "rc"));
+    }
+
+    #[test]
+    fn resume_search_tolerates_one_edit() {
+        assert!(query_matches("", &["Fix login bug"], "fixx"));
+        assert!(query_matches("", &["Fix login bug"], "fxix"));
+        assert!(
+            !query_matches("", &["Fix login bug"], "fixxx"),
+            "two extra characters are not one typo"
+        );
+        assert!(
+            !query_matches("", &["Blog prefix cleanup"], "log fix"),
+            "a three-letter fragment still does not match inside Blog"
+        );
     }
 
     #[test]
