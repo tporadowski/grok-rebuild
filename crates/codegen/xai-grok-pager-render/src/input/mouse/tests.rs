@@ -1302,6 +1302,73 @@ fn debug_snapshot_tracks_stream_lifecycle_without_mutating() {
     assert!(last.applied_lines > 0);
 }
 
+/// A tick can run before a scroll event that was queued earlier.
+/// The late sample must not panic, and the log timestamps and accel interval must not run backwards.
+#[test]
+fn late_scroll_sample_keeps_log_and_accel_time_moving_forward() {
+    let config = make_config(3, ScrollInputMode::Trackpad);
+    let base = Instant::now();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("scroll-log.jsonl");
+    let mut state = MouseScrollState::new_at(base);
+    state.recorder = Some(ScrollLogRecorder::new(path.clone(), base));
+
+    let mut last_event = base;
+    for i in 0..20u64 {
+        last_event = base + Duration::from_millis(40 + i * 2);
+        let _ = state.on_scroll_event_at(last_event, ScrollDirection::Down, config);
+    }
+    // Stamped before those events were applied, processed only after them. A direction
+    // change finalizes the stream, so the late sample is written into the log.
+    let queued_at = base + Duration::from_millis(20);
+    assert!(queued_at < last_event);
+    let _ = state.on_scroll_event_at(queued_at, ScrollDirection::Up, config);
+    let _ = state.debug_snapshot(&config, queued_at);
+    let _ = state.scroll_clock_deadline(queued_at);
+    let tick_at = last_event;
+    // Finalize flushes the log writer. The stale sample is already in that buffer.
+    let mut at = tick_at + STREAM_GAP + Duration::from_millis(1);
+    for _ in 0..16 {
+        if !state.has_active_stream() {
+            break;
+        }
+        let _ = state.on_tick_at(at);
+        at += REDRAW_CADENCE;
+    }
+
+    let raw = std::fs::read_to_string(&path).expect("scroll log");
+    let records: Vec<serde_json::Value> = raw
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| serde_json::from_str(line).expect("jsonl"))
+        .collect();
+    assert!(records.len() >= 2, "expected a stream log, got {records:?}");
+    let mut prev_ts = 0.0_f64;
+    for record in &records {
+        let ts = record
+            .get("ts_ms")
+            .and_then(|v| v.as_f64())
+            .expect("ts_ms");
+        assert!(
+            ts + f64::EPSILON >= prev_ts,
+            "log timestamp went backwards: {ts} after {prev_ts}"
+        );
+        prev_ts = ts;
+        if let Some(interval) = record.get("avg_interval_ms").and_then(|v| v.as_f64()) {
+            assert!(
+                (0.0..1_000.0).contains(&interval),
+                "accel interval must stay a forward duration, got {interval}"
+            );
+        }
+        if let Some(accel) = record.get("accel").and_then(|v| v.as_f64()) {
+            assert!(
+                (1.0..=10.0).contains(&accel),
+                "accel multiplier out of range: {accel}"
+            );
+        }
+    }
+}
+
 #[test]
 fn scroll_log_records_flood_flushes_and_capped_finalize_drop() {
     // GROK_SCROLL_LOG: a trackpad flood on the synthetic clock must produce parseable JSONL ordered stream_start, then flushes, then finalize

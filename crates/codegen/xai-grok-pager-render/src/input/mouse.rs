@@ -581,11 +581,13 @@ impl MouseScrollState {
         direction: ScrollDirection,
         config: ScrollConfig,
     ) -> ScrollUpdate {
+        // A sample queued under load can be older than a tick that already advanced this clock.
+        let now = self.not_before(now);
         let direction = config.apply_direction(direction);
         let mut lines = 0;
 
         if let Some(mut stream) = self.stream.take() {
-            let gap = now.duration_since(stream.last);
+            let gap = now.saturating_duration_since(stream.last);
             if gap > STREAM_GAP || stream.direction != direction {
                 // Flip: cancel the old stream's backlog; reversal must be instant, not preceded by a stale opposite-direction jump
                 let cancel_backlog = stream.direction != direction;
@@ -619,7 +621,9 @@ impl MouseScrollState {
         stream.push_event(now, direction);
         stream.maybe_promote_kind(now);
 
-        if now.duration_since(self.last_redraw_at) >= self.redraw_cadence || stream.just_promoted {
+        if now.saturating_duration_since(self.last_redraw_at) >= self.redraw_cadence
+            || stream.just_promoted
+        {
             // Capture before the flush block resets the promotion flag.
             let trigger = if stream.just_promoted {
                 ScrollLogTrigger::Promotion
@@ -655,16 +659,17 @@ impl MouseScrollState {
 
     /// Check whether an active stream has ended at a specific time (for tests).
     pub fn on_tick_at(&mut self, now: Instant) -> ScrollUpdate {
+        let now = self.not_before(now);
         let mut lines = 0;
         if let Some(mut stream) = self.stream.take() {
-            let gap = now.duration_since(stream.last);
+            let gap = now.saturating_duration_since(stream.last);
             // Past the gap, defer finalize while a coast drain still has lines, so the tail decays instead of bursting.
             // Every drain tick delivers at least one line; the budget caps the backlog at one flush_cap.
             if gap > STREAM_GAP && stream.flushable_now(self.carry_lines) == 0 {
                 lines = self.finalize_stream_at(now, &mut stream, false);
             } else {
                 // Cadence-flush active streams so short bursts (especially on ept=1 terminals) don't stall until the 80ms gap
-                if now.duration_since(self.last_redraw_at) >= self.redraw_cadence {
+                if now.saturating_duration_since(self.last_redraw_at) >= self.redraw_cadence {
                     lines = Self::flush_lines_at(
                         &mut self.last_redraw_at,
                         self.carry_lines,
@@ -714,6 +719,7 @@ impl MouseScrollState {
 
     /// Pass the event path's viewport stamp so the echoed cap matches what a gesture would get right now.
     pub fn debug_snapshot(&self, config: &ScrollConfig, now: Instant) -> ScrollDebugSnapshot {
+        let now = self.not_before(now);
         let cfg = self.stream.as_ref().map_or(*config, |s| s.config);
         ScrollDebugSnapshot {
             stream: self.stream.as_ref().map(|s| ScrollStreamDebug {
@@ -881,12 +887,13 @@ impl MouseScrollState {
 
     /// `None` means no tick: no stream, or past the gap with nothing to drain. The public clock maps overdue to "tick now", not "never".
     fn next_tick_in(&self, now: Instant) -> Option<Duration> {
+        let now = self.not_before(now);
         let stream = self.stream.as_ref()?;
-        let gap = now.duration_since(stream.last);
+        let gap = now.saturating_duration_since(stream.last);
 
         // Deadline only when a flush would apply lines. `desired != applied` includes no-ops that leave last_redraw_at stale and busy-spin the clock.
         let flushable = stream.flushable_now(self.carry_lines) != 0;
-        let since_redraw = now.duration_since(self.last_redraw_at);
+        let since_redraw = now.saturating_duration_since(self.last_redraw_at);
         let until_redraw = self.redraw_cadence.saturating_sub(since_redraw);
 
         if gap > STREAM_GAP {
@@ -899,6 +906,18 @@ impl MouseScrollState {
             next = next.min(until_redraw);
         }
         Some(next)
+    }
+}
+
+impl MouseScrollState {
+    /// The latest instant this state has already used.
+    /// A sample from before that instant is a queued event, not time running backwards.
+    fn not_before(&self, now: Instant) -> Instant {
+        let mut floor = self.last_redraw_at;
+        if let Some(stream) = &self.stream {
+            floor = floor.max(stream.start).max(stream.last);
+        }
+        now.max(floor)
     }
 }
 
@@ -970,7 +989,7 @@ impl ScrollStream {
         // Record inter-event interval for acceleration (O(1) with running sum)
         // Sub-6ms intervals are batching artifacts (see ACCEL_MIN_INTERVAL_MS)
         // They count for line accumulation below but must not feed the interval window
-        let interval_ms = now.duration_since(self.last).as_secs_f32() * 1000.0;
+        let interval_ms = now.saturating_duration_since(self.last).as_secs_f32() * 1000.0;
         if self.event_count > 0 && interval_ms >= ACCEL_MIN_INTERVAL_MS {
             self.interval_history.push_back(interval_ms);
             self.interval_sum += interval_ms;
@@ -1064,7 +1083,7 @@ impl ScrollStream {
         }
 
         if events_per_tick >= 2 && self.event_count >= events_per_tick {
-            let elapsed = now.duration_since(self.start);
+            let elapsed = now.saturating_duration_since(self.start);
             if elapsed <= self.config.wheel_tick_detect_max {
                 self.kind = ScrollStreamKind::Wheel;
                 self.just_promoted = true;
@@ -1080,7 +1099,7 @@ impl ScrollStream {
                 if self.kind != ScrollStreamKind::Unknown {
                     return;
                 }
-                let duration = self.last.duration_since(self.start);
+                let duration = self.last.saturating_duration_since(self.start);
                 if self.config.events_per_tick <= 1
                     && self.event_count <= 2
                     && duration <= self.config.wheel_like_max_duration
