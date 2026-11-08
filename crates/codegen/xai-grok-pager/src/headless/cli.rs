@@ -55,6 +55,27 @@ impl HeadlessPrompt {
         }
     }
 
+    /// Explicit `-p` / `--prompt-json` / `--prompt-file` win. Otherwise a non-terminal stdin is the prompt, so a pipe does not open the UI.
+    pub fn from_args_or_stdin(
+        single: Option<&str>,
+        prompt_json: Option<&str>,
+        prompt_file: Option<&Path>,
+        stdin_is_terminal: bool,
+        read_stdin: impl FnOnce() -> std::io::Result<String>,
+    ) -> anyhow::Result<Option<Self>> {
+        if let Some(prompt) = Self::from_args(single, prompt_json, prompt_file)? {
+            return Ok(Some(prompt));
+        }
+        if stdin_is_terminal {
+            return Ok(None);
+        }
+        let text = read_stdin()
+            .map_err(|e| anyhow::anyhow!("failed to read prompt from stdin: {e}"))?;
+        Self::from_text(&text)
+            .map(Some)
+            .map_err(|e| anyhow::anyhow!("stdin: {e}"))
+    }
+
     /// `.json` files are parsed as content blocks, everything else as text.
     pub fn from_file(path: &Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)
@@ -234,6 +255,71 @@ pub(crate) fn parse_cli_agents(
         agents.push(def);
     }
     Ok(agents)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HeadlessPrompt;
+    use std::cell::Cell;
+
+    fn text_of(prompt: HeadlessPrompt) -> String {
+        match prompt {
+            HeadlessPrompt::Text(text) => text,
+            HeadlessPrompt::Blocks(blocks) => panic!("expected text, got {blocks:?}"),
+        }
+    }
+
+    #[test]
+    fn piped_stdin_becomes_the_headless_prompt() {
+        let reads = Cell::new(0);
+        let prompt = HeadlessPrompt::from_args_or_stdin(None, None, None, false, || {
+            reads.set(reads.get() + 1);
+            Ok("  Explain this codebase\n".to_string())
+        })
+        .unwrap()
+        .expect("piped stdin is a prompt");
+        assert_eq!(reads.get(), 1);
+        assert_eq!(text_of(prompt), "Explain this codebase");
+    }
+
+    #[test]
+    fn a_terminal_without_a_prompt_stays_interactive() {
+        let reads = Cell::new(0);
+        let prompt = HeadlessPrompt::from_args_or_stdin(None, None, None, true, || {
+            reads.set(reads.get() + 1);
+            Ok("should not be read".into())
+        })
+        .unwrap();
+        assert!(prompt.is_none(), "a terminal with no prompt opens the UI");
+        assert_eq!(reads.get(), 0);
+    }
+
+    #[test]
+    fn an_explicit_prompt_wins_over_the_pipe() {
+        let reads = Cell::new(0);
+        let prompt = HeadlessPrompt::from_args_or_stdin(
+            Some("from the flag"),
+            None,
+            None,
+            false,
+            || {
+                reads.set(reads.get() + 1);
+                Ok("from the pipe".into())
+            },
+        )
+        .unwrap()
+        .expect("flag prompt");
+        assert_eq!(reads.get(), 0, "an explicit prompt must not read stdin");
+        assert_eq!(text_of(prompt), "from the flag");
+    }
+
+    #[test]
+    fn an_empty_pipe_is_an_error_and_does_not_open_the_ui() {
+        let err = HeadlessPrompt::from_args_or_stdin(None, None, None, false, || Ok(" \n".into()))
+            .expect_err("empty stdin is not an interactive session");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("empty"), "{msg}");
+    }
 }
 
 pub(crate) fn apply_agent_flag(

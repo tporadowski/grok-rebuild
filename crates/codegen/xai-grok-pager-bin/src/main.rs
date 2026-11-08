@@ -26,7 +26,7 @@ mod jemalloc_malloc_conf {
     static MALLOC_CONF: MallocConfPtr = MallocConfPtr(CONF.as_ptr());
 }
 use anyhow::Result;
-use std::io::Write;
+use std::io::{IsTerminal, Read, Write};
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use tokio_util::sync::CancellationToken;
@@ -2258,7 +2258,8 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
     let is_interactive = args.command.is_none()
         && args.single.is_none()
         && args.prompt_json.is_none()
-        && args.prompt_file.is_none();
+        && args.prompt_file.is_none()
+        && std::io::stdin().is_terminal();
     xai_grok_shell::http::set_client_name(if is_interactive {
         xai_grok_workspace::permission::ClientType::GrokPager
     } else {
@@ -2577,11 +2578,25 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
             }
         }
     }
-    let headless_prompt = xai_grok_pager::headless::HeadlessPrompt::from_args(
-        args.single.as_deref(),
-        args.prompt_json.as_deref(),
-        args.prompt_file.as_deref(),
-    )?;
+    let headless_prompt = if args.command.is_none() {
+        xai_grok_pager::headless::HeadlessPrompt::from_args_or_stdin(
+            args.single.as_deref(),
+            args.prompt_json.as_deref(),
+            args.prompt_file.as_deref(),
+            std::io::stdin().is_terminal(),
+            || {
+                let mut buf = String::new();
+                std::io::stdin().read_to_string(&mut buf)?;
+                Ok(buf)
+            },
+        )?
+    } else {
+        xai_grok_pager::headless::HeadlessPrompt::from_args(
+            args.single.as_deref(),
+            args.prompt_json.as_deref(),
+            args.prompt_file.as_deref(),
+        )?
+    };
     if headless_prompt.is_some() || args.memory_flush {
         if args.memory_flush
             && headless_prompt.is_none()

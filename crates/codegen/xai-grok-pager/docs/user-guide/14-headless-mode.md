@@ -394,15 +394,16 @@ grok -p "List files" --output-format json | jq -r '.text'
 
 ### Standard Input
 
-Headless mode does not read piped stdin into the prompt. Pass external content through command substitution or `--prompt-file`:
+A prompt on stdin runs headless instead of opening the UI:
 
 ```bash
-# Include git diff as context via command substitution
-grok -p "Write a concise commit message for these changes:
+echo "Explain this codebase" | grok
+git diff --staged | grok
+```
 
-$(git diff --staged)"
+`-p`, `--prompt-json`, and `--prompt-file` still name the prompt when you pass them. An empty pipe is an error. You can also put the prompt in a file:
 
-# Or read the prompt from a file
+```bash
 grok --prompt-file ./prompt.txt
 ```
 

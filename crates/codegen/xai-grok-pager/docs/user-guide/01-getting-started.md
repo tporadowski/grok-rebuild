@@ -235,6 +235,9 @@ grok --fullscreen
 
 # Headless mode (for scripts)
 grok -p "Explain this codebase"
+
+# The same, with the prompt on stdin
+echo "Explain this codebase" | grok
 ```
 
 ---
