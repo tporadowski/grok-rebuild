@@ -175,14 +175,14 @@ impl AgentView {
                 return InputOutcome::Changed;
             }
             match key.code {
-                // Up / Ctrl-P: move selection up.
-                KeyCode::Up => {
+                // Up / Ctrl-P: move selection up. Cmd+Up stays a prompt-buffer jump.
+                KeyCode::Up if !key.modifiers.contains(KeyModifiers::SUPER) => {
                     self.prompt.slash_move_selection(-1);
                     self.prompt.slash_preview_current_selection();
                     return InputOutcome::Changed;
                 }
-                // Down / Ctrl-N: move selection down.
-                KeyCode::Down => {
+                // Down / Ctrl-N: move selection down. Cmd+Down stays a prompt-buffer jump.
+                KeyCode::Down if !key.modifiers.contains(KeyModifiers::SUPER) => {
                     self.prompt.slash_move_selection(1);
                     self.prompt.slash_preview_current_selection();
                     return InputOutcome::Changed;
@@ -276,15 +276,19 @@ impl AgentView {
                     return InputOutcome::Changed;
                 }
                 match key.code {
-                    KeyCode::Up | KeyCode::Char('p')
-                        if key.code == KeyCode::Up || key.modifiers == KeyModifiers::CONTROL =>
-                    {
+                    KeyCode::Up if !key.modifiers.contains(KeyModifiers::SUPER) => {
                         self.prompt.completion_dropdown_move(-1);
                         return InputOutcome::Changed;
                     }
-                    KeyCode::Down | KeyCode::Char('n')
-                        if key.code == KeyCode::Down || key.modifiers == KeyModifiers::CONTROL =>
-                    {
+                    KeyCode::Char('p') if key.modifiers == KeyModifiers::CONTROL => {
+                        self.prompt.completion_dropdown_move(-1);
+                        return InputOutcome::Changed;
+                    }
+                    KeyCode::Down if !key.modifiers.contains(KeyModifiers::SUPER) => {
+                        self.prompt.completion_dropdown_move(1);
+                        return InputOutcome::Changed;
+                    }
+                    KeyCode::Char('n') if key.modifiers == KeyModifiers::CONTROL => {
                         self.prompt.completion_dropdown_move(1);
                         return InputOutcome::Changed;
                     }

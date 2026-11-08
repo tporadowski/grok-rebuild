@@ -1864,17 +1864,15 @@ impl TextArea {
             Movement::VisualRowEnd => self.move_cursor_to_end_of_line(false),
             Movement::LogicalLineStart => self.set_cursor(self.beginning_of_current_line()),
             Movement::LogicalLineEnd => self.set_cursor(self.end_of_current_line()),
+            Movement::DocumentStart => self.set_cursor(0),
+            Movement::DocumentEnd => self.set_cursor(self.text().len()),
         }
     }
 
     pub fn input(&mut self, event: KeyEvent) {
-        // ── Shift+movement extends the selection (browser-style) ──
-        // Super+Up/Down never extend (terminals claim Cmd+Up/Down); they fall
-        // through to the same plain movement as before this feature.
-        if event.modifiers.contains(KeyModifiers::SHIFT)
-            && !(matches!(event.code, KeyCode::Up | KeyCode::Down)
-                && event.modifiers.contains(KeyModifiers::SUPER))
-        {
+        // Shift+movement extends the selection, including Cmd+Up/Down and
+        // Ctrl+Home/End, which jump to the start or end of the whole buffer.
+        if event.modifiers.contains(KeyModifiers::SHIFT) {
             // Windows Win32 input reports shifted letters uppercase — fold the
             // case so Ctrl+Shift+A/E/P/N classify like their lowercase forms.
             let code = match event.code {

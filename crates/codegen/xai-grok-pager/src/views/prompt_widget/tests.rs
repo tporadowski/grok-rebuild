@@ -30,6 +30,40 @@
     }
 
     #[test]
+    fn cmd_up_and_ctrl_home_move_through_the_whole_prompt() {
+        let mut pw = PromptWidget::new();
+        pw.textarea.insert_str("one\ntwo\nthree");
+        let end = pw.text().len();
+        let two = pw.text().find("two").unwrap();
+        pw.set_cursor(two + 1);
+
+        pw.handle_key(&key!(Home).to_key_event());
+        assert_eq!(pw.cursor(), two, "Home stays on this line");
+        pw.handle_key(&key!(Home, CONTROL).to_key_event());
+        assert_eq!(pw.cursor(), 0, "Ctrl+Home jumps to the start of the prompt");
+        pw.handle_key(&key!(End, CONTROL).to_key_event());
+        assert_eq!(pw.cursor(), end, "Ctrl+End jumps to the end of the prompt");
+
+        pw.set_cursor(two + 1);
+        pw.handle_key(&key!(Up, SUPER).to_key_event());
+        assert_eq!(pw.cursor(), 0, "Cmd+Up jumps to the start of the prompt");
+        pw.handle_key(&key!(Down, SUPER).to_key_event());
+        assert_eq!(pw.cursor(), end, "Cmd+Down jumps to the end of the prompt");
+
+        pw.set_cursor(two + 1);
+        pw.textarea.clear_selection();
+        pw.handle_key(&key!(Up, SUPER | SHIFT).to_key_event());
+        assert_eq!(pw.textarea.selection_range(), Some(0..two + 1));
+        pw.set_cursor(two + 1);
+        pw.textarea.clear_selection();
+        pw.handle_key(&key!(Down, SUPER | SHIFT).to_key_event());
+        assert_eq!(pw.textarea.selection_range(), Some(two + 1..end));
+        pw.handle_key(&key!(End, CONTROL | SHIFT).to_key_event());
+        assert_eq!(pw.textarea.selection_range(), Some(two + 1..end));
+        assert_eq!(pw.text(), "one\ntwo\nthree");
+    }
+
+    #[test]
     fn shift_enter_inserts_newline() {
         let mut pw = PromptWidget::new();
         pw.textarea.insert_str("line1");

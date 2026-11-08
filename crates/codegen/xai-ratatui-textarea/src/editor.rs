@@ -62,6 +62,10 @@ pub(crate) enum Movement {
     LogicalLineStart,
     /// End: logical line end, no already-at-EOL chain (unlike Ctrl+E).
     LogicalLineEnd,
+    /// Cmd+Up and Ctrl+Home: the start of the whole buffer.
+    DocumentStart,
+    /// Cmd+Down and Ctrl+End: the end of the whole buffer.
+    DocumentEnd,
 }
 
 impl Movement {
@@ -69,10 +73,13 @@ impl Movement {
     pub(crate) fn collapse_edge(self) -> HorizontalEdge {
         match self {
             Self::Command(_, edge) => edge,
-            Self::VisualRowUp | Self::VisualRowStart | Self::LogicalLineStart => {
-                HorizontalEdge::Start
+            Self::VisualRowUp
+            | Self::VisualRowStart
+            | Self::LogicalLineStart
+            | Self::DocumentStart => HorizontalEdge::Start,
+            Self::VisualRowDown | Self::VisualRowEnd | Self::LogicalLineEnd | Self::DocumentEnd => {
+                HorizontalEdge::End
             }
-            Self::VisualRowDown | Self::VisualRowEnd | Self::LogicalLineEnd => HorizontalEdge::End,
         }
     }
 

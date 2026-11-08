@@ -2292,6 +2292,56 @@ fn home_end_use_logical_line_when_soft_wrapped() {
 }
 
 #[test]
+fn cmd_up_and_ctrl_home_move_through_the_whole_buffer() {
+    let text = "one\ntwo\nthree";
+    let mut t = ta_with(text);
+    let end = t.text().len();
+    let two = t.text().find("two").unwrap();
+    t.set_cursor(two + 1);
+
+    t.input(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    assert_eq!(t.cursor(), two, "Home stays on this line");
+    t.input(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+    assert_eq!(t.cursor(), 0, "Ctrl+Home jumps to the start");
+    assert_eq!(t.selection_range(), None);
+    t.input(KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL));
+    assert_eq!(t.cursor(), end, "Ctrl+End jumps to the end");
+
+    t.set_cursor(two + 1);
+    t.input(KeyEvent::new(KeyCode::Up, KeyModifiers::SUPER));
+    assert_eq!(t.cursor(), 0, "Cmd+Up jumps to the start");
+    t.input(KeyEvent::new(KeyCode::Down, KeyModifiers::SUPER));
+    assert_eq!(t.cursor(), end, "Cmd+Down jumps to the end");
+
+    t.set_cursor(two + 1);
+    t.clear_selection();
+    t.input(KeyEvent::new(
+        KeyCode::Home,
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ));
+    assert_eq!(t.selection_range(), Some(0..two + 1));
+    t.input(KeyEvent::new(
+        KeyCode::End,
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ));
+    assert_eq!(t.selection_range(), Some(two + 1..end));
+
+    t.set_cursor(two + 1);
+    t.clear_selection();
+    t.input(KeyEvent::new(
+        KeyCode::Down,
+        KeyModifiers::SUPER | KeyModifiers::SHIFT,
+    ));
+    assert_eq!(t.selection_range(), Some(two + 1..end));
+    t.input(KeyEvent::new(
+        KeyCode::Up,
+        KeyModifiers::SUPER | KeyModifiers::SHIFT,
+    ));
+    assert_eq!(t.selection_range(), Some(0..two + 1));
+    assert_eq!(t.text(), text, "selecting does not edit");
+}
+
+#[test]
 fn end_of_line_or_down_at_end_of_text() {
     let mut t = ta_with("one\ntwo");
     // Place cursor at absolute end of the text

@@ -12,6 +12,19 @@ pub(crate) fn resolve_movement(event: &KeyEvent) -> Option<Movement> {
         KeyCode::Right if event.modifiers.contains(KeyModifiers::SUPER) => {
             return Some(Movement::VisualRowEnd);
         }
+        // Ctrl+Home/End and Cmd+Up/Down cover the whole buffer. Bare Home/End stay on this line.
+        KeyCode::Home if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            return Some(Movement::DocumentStart);
+        }
+        KeyCode::End if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            return Some(Movement::DocumentEnd);
+        }
+        KeyCode::Up if event.modifiers.contains(KeyModifiers::SUPER) => {
+            return Some(Movement::DocumentStart);
+        }
+        KeyCode::Down if event.modifiers.contains(KeyModifiers::SUPER) => {
+            return Some(Movement::DocumentEnd);
+        }
         KeyCode::Home => return Some(Movement::LogicalLineStart),
         KeyCode::End => return Some(Movement::LogicalLineEnd),
         KeyCode::Up => return Some(Movement::VisualRowUp),
