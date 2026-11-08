@@ -513,6 +513,218 @@ fn toggle_off_while_short_keeps_render_compact_and_persists_user_value() {
         "toast must note auto-compact stays active, got {toast:?}"
     );
 }
+
+/// Compact mode collapses recaps. On a tall terminal it keeps the user prompt's inner padding.
+/// A short terminal drops that padding. A pinned recap stays open. A plain session line does not collapse.
+#[test]
+fn compact_mode_collapses_recaps_and_keeps_inner_spacing_on_a_tall_terminal() {
+    use crossterm::event::Event;
+    use crate::scrollback::block::{BlockContent, RenderBlock};
+    use crate::scrollback::blocks::SessionEvent;
+    use crate::scrollback::types::DisplayMode;
+
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    let _ = app.handle_input(&Event::Resize(100, 40));
+    assert!(!app.appearance.prompt.compact);
+    assert!(!app.appearance.prompt.drop_inner_spacing);
+    app.appearance.scrollback.scroll.respect_manual_folds = true;
+
+    let prompt_id = test_agent_mut(&mut app, id)
+        .scrollback
+        .push_block(RenderBlock::user_prompt("hello"));
+    let pinned_id = test_agent_mut(&mut app, id).scrollback.push_block(
+        RenderBlock::session_event(SessionEvent::Recap {
+            summary: "pinned recap".into(),
+            auto: false,
+        }),
+    );
+    let recap_id = test_agent_mut(&mut app, id).scrollback.push_block(
+        RenderBlock::session_event(SessionEvent::Recap {
+            summary: "open recap".into(),
+            auto: true,
+        }),
+    );
+    let marker_id = test_agent_mut(&mut app, id).scrollback.push_block(
+        RenderBlock::session_event(SessionEvent::TurnCompleted { elapsed: None }),
+    );
+    {
+        let agent = test_agent_mut(&mut app, id);
+        let pinned = agent.scrollback.get_by_id_mut(pinned_id).unwrap();
+        assert_eq!(pinned.display_mode, DisplayMode::Expanded);
+        pinned.display_mode_pinned = true;
+    }
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(recap_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Expanded,
+        "a recap stays open when compact mode is off"
+    );
+
+    let _ = dispatch(Action::SetCompactMode(true), &mut app);
+    assert!(app.appearance.prompt.compact);
+    assert!(
+        !app.appearance.prompt.drop_inner_spacing,
+        "40 rows keeps inner spacing"
+    );
+    let appearance = test_agent(&app, id).scrollback.appearance().clone();
+    assert!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(prompt_id)
+            .unwrap()
+            .block
+            .has_vpad_for(&appearance),
+        "user prompt keeps its inner padding on a tall terminal"
+    );
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(pinned_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Expanded,
+        "a pinned recap stays open"
+    );
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(recap_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Collapsed,
+        "compact mode collapses a recap that was still open"
+    );
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(marker_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Expanded,
+        "a turn marker is not a recap"
+    );
+
+    let fresh_id = test_agent_mut(&mut app, id).scrollback.push_block(
+        RenderBlock::session_event(SessionEvent::Recap {
+            summary: "arrived while compact".into(),
+            auto: false,
+        }),
+    );
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(fresh_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Collapsed,
+        "a recap created while compact is on starts collapsed"
+    );
+    let running_id = test_agent_mut(&mut app, id).scrollback.push(
+        crate::scrollback::entry::ScrollbackEntry::running(RenderBlock::session_event(
+            SessionEvent::Recap {
+                summary: String::new(),
+                auto: false,
+            },
+        )),
+    );
+    test_agent_mut(&mut app, id)
+        .scrollback
+        .finish_running(running_id);
+    {
+        let agent = test_agent_mut(&mut app, id);
+        let entry = agent.scrollback.get_by_id_mut(running_id).unwrap();
+        entry.block = RenderBlock::session_event(SessionEvent::Recap {
+            summary: "filled in".into(),
+            auto: false,
+        });
+        assert_eq!(entry.display_mode, DisplayMode::Collapsed);
+        assert!(!entry.is_running);
+    }
+
+    let _ = app.handle_input(&Event::Resize(100, 14));
+    assert!(app.appearance.prompt.compact);
+    assert!(app.appearance.prompt.drop_inner_spacing);
+    let appearance = test_agent(&app, id).scrollback.appearance().clone();
+    assert!(
+        !test_agent(&app, id)
+            .scrollback
+            .get_by_id(prompt_id)
+            .unwrap()
+            .block
+            .has_vpad_for(&appearance),
+        "a short terminal drops the user prompt's inner padding"
+    );
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(recap_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Collapsed
+    );
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(pinned_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Expanded
+    );
+
+    let _ = app.handle_input(&Event::Resize(100, 40));
+    assert!(app.appearance.prompt.compact, "the user setting stays on");
+    assert!(!app.appearance.prompt.drop_inner_spacing);
+    let appearance = test_agent(&app, id).scrollback.appearance().clone();
+    assert!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(prompt_id)
+            .unwrap()
+            .block
+            .has_vpad_for(&appearance)
+    );
+    assert_eq!(
+        crate::views::agent::prompt_inner_gap(40, 0, true),
+        1
+    );
+    assert_eq!(
+        crate::views::agent::prompt_inner_gap(14, 0, true),
+        0
+    );
+
+    let _ = dispatch(Action::SetCompactMode(false), &mut app);
+    assert!(!app.appearance.prompt.compact);
+    assert!(!app.appearance.prompt.drop_inner_spacing);
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(recap_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Expanded,
+        "turning compact off opens a recap that compact had collapsed"
+    );
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(pinned_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Expanded
+    );
+    assert_eq!(
+        test_agent(&app, id)
+            .scrollback
+            .get_by_id(fresh_id)
+            .unwrap()
+            .display_mode,
+        DisplayMode::Expanded
+    );
+}
 #[test]
 fn set_timestamps_emits_persist_setting_with_correct_payload() {
     use crate::settings::SettingValue;

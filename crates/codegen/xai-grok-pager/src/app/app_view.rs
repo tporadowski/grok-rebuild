@@ -2134,18 +2134,26 @@ impl AppView {
             self.current_ui.compact_mode,
             self.last_known_terminal_rows,
         );
-        if self.appearance.prompt.compact == derived {
+        let drop_inner = crate::views::agent::compact_drops_inner_spacing(
+            self.last_known_terminal_rows,
+        );
+        let compact_changed = self.appearance.prompt.compact != derived;
+        let spacing_changed = self.appearance.prompt.drop_inner_spacing != drop_inner;
+        if !compact_changed && !spacing_changed {
             return;
         }
         let mut config = self.appearance.clone();
         config.prompt.compact = derived;
+        config.prompt.drop_inner_spacing = drop_inner;
         self.set_appearance(config);
-        for agent in self.agents.values_mut() {
-            agent.prompt.set_compact(derived);
-            // A new compact period hides again. Showing with Ctrl+G during the
-            // previous period does not carry over, and turning compact off
-            // forgets that show so the next on hides.
-            agent.clear_compact_ctrl_g_show();
+        if compact_changed {
+            for agent in self.agents.values_mut() {
+                agent.prompt.set_compact(derived);
+                // A new compact period hides again. Showing with Ctrl+G during the
+                // previous period does not carry over, and turning compact off
+                // forgets that show so the next on hides.
+                agent.clear_compact_ctrl_g_show();
+            }
         }
     }
     /// Viewport height (rows) of the surface a scroll would move.

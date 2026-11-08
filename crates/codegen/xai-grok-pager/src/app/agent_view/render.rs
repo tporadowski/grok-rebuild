@@ -1096,14 +1096,11 @@ impl AgentView {
         } else {
             0
         };
-        let prompt_gap = if appearance.prompt.compact
-            || (turn_status_height > 0 && !appearance.turn_status.gap)
-            || area.height <= agent::SHORT_TERMINAL_ROWS
-        {
-            0
-        } else {
-            1
-        };
+        let prompt_gap = agent::prompt_inner_gap(
+            area.height,
+            turn_status_height,
+            appearance.turn_status.gap,
+        );
         let voice_recording_height = if voice_listening { 1 } else { 0 };
         let model_notice = self.session.models.current_notice();
         let model_notice_height = model_notice.as_ref().map_or(0, |notice| {

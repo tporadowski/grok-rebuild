@@ -541,7 +541,8 @@ impl BlockContent for UserPromptBlock {
     }
 
     fn has_vpad_for(&self, appearance: &AppearanceConfig) -> bool {
-        appearance.scrollback.blocks.prompt.vpad && !appearance.prompt.compact
+        // Compact mode keeps this padding on a tall terminal. A short terminal sets `drop_inner_spacing`.
+        appearance.scrollback.blocks.prompt.vpad && !appearance.prompt.drop_inner_spacing
     }
 
     fn has_raw_mode(&self) -> bool {

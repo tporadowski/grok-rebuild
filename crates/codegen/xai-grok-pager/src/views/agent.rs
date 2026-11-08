@@ -97,6 +97,21 @@ const _: () = assert!(SHORT_TERMINAL_ROWS < AUTO_COMPACT_MAX_ROWS);
 pub fn effective_compact(user_compact: bool, terminal_rows: u16) -> bool {
     user_compact || (terminal_rows > 0 && terminal_rows <= AUTO_COMPACT_MAX_ROWS)
 }
+/// Inner spacing (user-prompt padding, the gap row above the prompt) drops only on a measured short terminal.
+/// Compact mode on a taller terminal keeps it. `terminal_rows == 0` is not measured yet and keeps it.
+pub fn compact_drops_inner_spacing(terminal_rows: u16) -> bool {
+    terminal_rows > 0 && terminal_rows <= AUTO_COMPACT_MAX_ROWS
+}
+/// Gap row between the turn status (or the scrollback) and the prompt.
+/// A short terminal omits it. Compact mode on a taller terminal keeps it.
+/// A visible turn-status row whose own gap is off also omits it.
+pub fn prompt_inner_gap(area_height: u16, turn_status_height: u16, turn_status_gap: bool) -> u16 {
+    if area_height <= AUTO_COMPACT_MAX_ROWS || (turn_status_height > 0 && !turn_status_gap) {
+        0
+    } else {
+        1
+    }
+}
 /// Every input [`AgentViewLayout::compute`] reads: the screen area, the appearance config, and the
 /// requested height of each row it stacks.
 #[derive(Debug, Clone, Copy, Default)]
@@ -1033,6 +1048,34 @@ fn send_now_footer_hint(def: &ActionDef, ctrl_enter_is_plain_enter: bool) -> Hin
 mod tests {
     use super::*;
     use crate::actions::ActionRegistry;
+
+    #[test]
+    fn prompt_inner_gap_stays_on_a_tall_terminal() {
+        assert_eq!(prompt_inner_gap(40, 0, true), 1);
+        assert_eq!(prompt_inner_gap(21, 0, true), 1);
+        assert_eq!(
+            prompt_inner_gap(40, 1, true),
+            1,
+            "a turn-status row that keeps its own gap still leaves the prompt gap"
+        );
+        assert_eq!(
+            prompt_inner_gap(40, 0, false),
+            1,
+            "the turn-status gap setting only applies when that row is showing"
+        );
+        assert_eq!(
+            prompt_inner_gap(40, 1, false),
+            0,
+            "a visible turn-status row with its gap off drops the prompt gap"
+        );
+        assert_eq!(prompt_inner_gap(AUTO_COMPACT_MAX_ROWS, 0, true), 0);
+        assert_eq!(prompt_inner_gap(SHORT_TERMINAL_ROWS, 0, true), 0);
+        assert_eq!(prompt_inner_gap(0, 0, true), 0);
+        assert!(!compact_drops_inner_spacing(0));
+        assert!(!compact_drops_inner_spacing(21));
+        assert!(compact_drops_inner_spacing(AUTO_COMPACT_MAX_ROWS));
+        assert!(compact_drops_inner_spacing(SHORT_TERMINAL_ROWS));
+    }
     /// Convenience: build hints for the Scrollback pane with sensible defaults.
     /// Override only what each test cares about.
     #[allow(clippy::too_many_arguments)]

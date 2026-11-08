@@ -74,6 +74,9 @@ pub struct PromptViewConfig {
     /// This is the DERIVED render value, which the app may force on for short terminals (the persisted user setting is `UiConfig::compact_mode`).
     /// In the pager, write it only via `AppView::apply_effective_compact`.
     pub compact: bool,
+    /// Drop the inner vertical padding of user prompts. Set only for a measured short terminal.
+    /// Compact mode on a tall terminal leaves this false. Not a user setting; written with `compact`.
+    pub drop_inner_spacing: bool,
 }
 
 impl Default for PromptViewConfig {
@@ -83,6 +86,7 @@ impl Default for PromptViewConfig {
             mouse_hover: true,
             show_prefix: true,
             compact: false,
+            drop_inner_spacing: false,
         }
     }
 }
@@ -1215,6 +1219,7 @@ impl From<RawAppearanceConfig> for AppearanceConfig {
                 mouse_hover: raw.prompt.mouse_hover,
                 show_prefix: raw.prompt.show_prefix,
                 compact: false, // runtime-only, not persisted in TOML
+                drop_inner_spacing: false,
             },
             scrollback: ScrollbackConfig {
                 layout: raw.scrollback.layout.into(),

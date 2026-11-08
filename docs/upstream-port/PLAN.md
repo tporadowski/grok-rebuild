@@ -56,6 +56,12 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-158 — Compact mode collapses recaps and keeps inner spacing on a tall terminal
+
+Compact mode collapses recaps. A new recap starts collapsed while compact is on, and turning compact on collapses recaps that are still open. A fold the user already changed stays. A pinned fold stays when manual folds are kept (`compact_mode_collapses_recaps_and_keeps_inner_spacing_on_a_tall_terminal`). Turning compact off opens recaps that are still on that collapsed default.
+
+Inner spacing stays on a tall terminal. That is the blank lines inside a user prompt and the gap row above the prompt. Those drop only when the terminal is at or below 20 rows. Outer padding still goes to zero in compact mode. The blank line between answered questions stays `v70-f01` (`v50-f01`).
+
 ### D-157 — @ mentions take :N and a leading ! for hidden files
 
 `:N` attaches that one line. `:N-M` stays an inclusive range. A leading `!` (`@!.env`) is the hidden-file marker and is not part of the path (`at_mention_colon_n_and_bang_hidden_file`). The `@` picker already restarts its walk to include hidden and gitignored files when the query starts with `!` (`hidden_mode`). Listing other outside-workspace roots stays `v74-f09` (`v78-f03`).
@@ -686,7 +692,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
+| W10 | Transcript, density, and copy | 44 | 0 | 1 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -695,9 +701,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 322. Skipped: 8. Done: 205. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 321. Skipped: 8. Done: 206. Already: 38. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: compact mode collapses recaps (`v50-f01`).
+**Next:** W10 transcript, density, and copy. First open row: timestamps off, minimal, and on (`v50-f06`).
 
 ## Waves
 
@@ -739,7 +745,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 45. Look first: `show_timestamps` is a bool today. Extend it to off / minimal / on; map the old `false` to off and `true` to on. `/density` is not in the slash list. Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice.
+Pending: 44. Done: 1 (`v50-f01`, D-158). Look first: `show_timestamps` is a bool today. Extend it to off / minimal / on; map the old `false` to off and `true` to on. `/density` is not in the slash list. Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1001,7 +1007,7 @@ id | status | wave | kind | flag | covered | note
 - v77-x03 | done | W9 | Bug Fixes |  |  | **Ctrl+L** now works on more screens and copy hints match what actually copies to the clipboard.
 - v78-f01 | done | W9 | Features |  |  | **@ file chips** can now be edited in place; typed @~/ paths resolve to the home folder.
 - v78-f03 | done | W9 | Features |  |  | **@ mentions** now support :N line suffixes and @!hidden files.
-- v50-f01 | pending | W10 | Features |  |  | **Compact mode** now collapses recaps and keeps inner spacing on tall terminals.
+- v50-f01 | done | W10 | Features |  |  | **Compact mode** now collapses recaps and keeps inner spacing on tall terminals.
 - v50-f06 | pending | W10 | Features |  |  | New **timestamps** setting offers off, minimal, and on modes in Settings and `/timestamps`.
 - v50-f10 | pending | W10 | Features |  |  | Tables rendered by grok now show copy buttons underneath that export clean TSV, CSV or Markdown suitable for spreadsheets.
 - v50-x04 | pending | W10 | Bug Fixes |  |  | **Em-dashes** no longer appear in status messages and subagent rows.

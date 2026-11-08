@@ -366,8 +366,12 @@ impl ScrollbackState {
 
     /// Update the appearance configuration.
     pub fn set_appearance(&mut self, appearance: AppearanceConfig) {
+        let was_compact = self.appearance.prompt.compact;
         crate::render::bidi::set_enabled(appearance.scrollback.display.rtl_bidi);
         self.appearance = appearance;
+        if was_compact != self.appearance.prompt.compact {
+            self.apply_recap_compact_flip(was_compact);
+        }
         // Invalidate caches since appearance affects rendering
         self.layout_cache = None;
         self.gaps_may_be_dirty = true;
@@ -534,7 +538,7 @@ impl ScrollbackState {
         let mut entry = entry;
         entry.id = id;
 
-        self.apply_edit_default_display_mode(&mut entry);
+        self.apply_entry_display_policy(&mut entry);
 
         // Track if this entry is running
         if entry.is_running {
@@ -621,7 +625,7 @@ impl ScrollbackState {
         self.next_id += 1;
         let mut entry = ScrollbackEntry::new(block);
         entry.id = id;
-        self.apply_edit_default_display_mode(&mut entry);
+        self.apply_entry_display_policy(&mut entry);
         if entry.is_running {
             self.running.insert(id);
         }
@@ -641,6 +645,45 @@ impl ScrollbackState {
         self.invalidate_layout_cache();
         self.bump_content_generation();
         id
+    }
+
+    /// Edit rows take the materialize policy. Recaps start collapsed while compact mode is on.
+    fn apply_entry_display_policy(&self, entry: &mut ScrollbackEntry) {
+        self.apply_edit_default_display_mode(entry);
+        self.apply_recap_compact_on_insert(entry);
+    }
+
+    /// A recap still on the open default collapses when compact mode is on.
+    /// An explicit other mode, and a pinned fold when manual folds are kept, stays.
+    fn apply_recap_compact_on_insert(&self, entry: &mut ScrollbackEntry) {
+        if !self.appearance.prompt.compact || !is_recap_block(&entry.block) {
+            return;
+        }
+        if self.appearance.scrollback.scroll.respect_manual_folds && entry.display_mode_pinned {
+            return;
+        }
+        if entry.display_mode == DisplayMode::Expanded {
+            entry.display_mode = DisplayMode::Collapsed;
+        }
+    }
+
+    /// Recaps still sitting on the previous compact default follow the new one.
+    /// A fold the user already changed is left alone. A pinned fold is left alone when that setting is on.
+    fn apply_recap_compact_flip(&mut self, was_compact: bool) {
+        let respect_manual_folds = self.appearance.scrollback.scroll.respect_manual_folds;
+        let old_mode = recap_display_mode(was_compact);
+        let new_mode = recap_display_mode(self.appearance.prompt.compact);
+        for entry in self.entries.values_mut() {
+            if !is_recap_block(&entry.block) {
+                continue;
+            }
+            if respect_manual_folds && entry.display_mode_pinned {
+                continue;
+            }
+            if entry.display_mode == old_mode {
+                entry.display_mode = new_mode;
+            }
+        }
     }
 
     /// Fresh Edit entries at the block's Collapsed default adopt the state-owned materialize policy.
@@ -1668,6 +1711,23 @@ impl ScrollbackState {
         };
         let entry_bottom = entry_top + info.height as usize;
         entry_top < bottom && entry_bottom > top
+    }
+}
+
+fn is_recap_block(block: &RenderBlock) -> bool {
+    matches!(
+        block,
+        RenderBlock::SessionEvent(event)
+            if matches!(event.event, crate::scrollback::blocks::SessionEvent::Recap { .. })
+    )
+}
+
+/// Open by default. Compact mode starts a recap collapsed.
+fn recap_display_mode(compact: bool) -> DisplayMode {
+    if compact {
+        DisplayMode::Collapsed
+    } else {
+        DisplayMode::Expanded
     }
 }
 
