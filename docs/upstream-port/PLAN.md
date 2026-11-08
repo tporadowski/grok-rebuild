@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-122 — `grok --resume <id>` opens the recorded folder
+
+`materialize_startup_for_cwd` resolves an explicit resume id that is not under the launch directory through `resolve_local_session_any_cwd` and returns that recorded folder as `original_cwd`. Interactive startup loads the session there, and headless open uses the same folder. The launch directory does not refuse the resume (`resume_id_from_another_directory_opens_the_recorded_folder`) (`v75-x04`).
+
 ### D-121 — An unrecognized effort or unreadable history still resumes
 
 A stored `reasoning_effort` that is not a known level does not fail `summary.json`. The session loads with that effort unset, so restore keeps the model's default, and the client gets one message: unrecognized effort, using the model's default. A later unknown effort in the same history does not add another sentence. Lines that are not valid UTF-8 are left out of the chat transcript and of `updates.jsonl`. A readable history line that names an unknown effort stays, with that field cleared (`unrecognized_effort_or_unreadable_history_still_loads`, `unrecognized_effort_notice_is_one_session_message`) (`v74-x23`).
@@ -540,7 +544,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 2 | 0 | 39 | 2 | 0 |
+| W8 | Sessions, resume, and dashboard | 1 | 0 | 40 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -551,9 +555,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 360. Skipped: 8. Done: 170. Already: 35. Deferred: 10.
+Catalog rows: 583. Pending: 359. Skipped: 8. Done: 171. Already: 35. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: `grok --resume <id>` opens the session in the folder it was recorded in (`v75-x04`).
+**Next:** W8 sessions, resume, and dashboard. First open row: `/resume` rows expand and collapse the same way they do inside a session (`v77-x05`).
 
 ## Waves
 
@@ -587,7 +591,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 2. Done: 39 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121). Already: 2 (`v68-x02`, D-114; `v72-x04`, D-117). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 1. Done: 40 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122). Already: 2 (`v68-x02`, D-114; `v72-x04`, D-117). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -818,7 +822,7 @@ id | status | wave | kind | flag | covered | note
 - v74-x23 | done | W8 | Bug Fixes |  |  | **Sessions with an unrecognized reasoning effort or unreadable bytes in their history** resume instead of failing: the session runs at the model's default effort and says so once, and the unreadable lines are left out of the transcript.
 - v74-x29 | done | W8 | Bug Fixes |  |  | **Dashboard**: the peek header reads `Responding` while a reply streams, and the `Esc` footer hint reads `new agent` like the other lowercase hints.
 - v75-f06 | done | W8 | Features |  |  | **`Left` on an empty prompt** opens the dashboard from any session or the welcome screen, not only from a session you opened from the dashboard.
-- v75-x04 | pending | W8 | Bug Fixes |  |  | **`grok --resume <id>`** opens the session in the folder it was recorded in, wherever you launch Grok from, instead of refusing.
+- v75-x04 | done | W8 | Bug Fixes |  |  | **`grok --resume <id>`** opens the session in the folder it was recorded in, wherever you launch Grok from, instead of refusing.
 - v75-x15 | done | W8 | Bug Fixes |  |  | **`grok sessions delete`** no longer fails with "Directory not empty" when another process is still writing into the session's folder.
 - v77-x05 | pending | W8 | Bug Fixes |  |  | Rows in the `/resume` list now expand and collapse the same way they do inside a session.
 - v50-f05 | pending | W9 | Features |  |  | **Compact mode** now hides the dock (or tasks pane) the same way Ctrl+G does.

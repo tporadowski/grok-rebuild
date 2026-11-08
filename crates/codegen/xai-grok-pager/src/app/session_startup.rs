@@ -2289,6 +2289,50 @@ mod tests {
             "unexpected error: {err}"
         );
     }
+    /// `grok --resume <id>` from another directory opens the recorded folder instead of refusing.
+    #[serial_test::serial(GROK_HOME)]
+    #[tokio::test]
+    async fn resume_id_from_another_directory_opens_the_recorded_folder() {
+        let mut fx = crate::test_util::GrokHomeFixture::new();
+        let recorded = fx.cwd_str();
+        let id = uuid::Uuid::new_v4().to_string();
+        fx.write_summary(&recorded, &id, serde_json::json!({}));
+        let out = materialize_startup_for_cwd(
+            MaterializeCtx {
+                has_worktree: false,
+                allow_remote_restore: false,
+                chat_mode: false,
+                title_resolution: TitleResolution::Allowed,
+                restore_code: false,
+                recent_session_selection: RecentSessionSelection::Interactive,
+                restore_progress_on_stdout: false,
+            },
+            SessionStartupIntent::Resume {
+                session_id: Some(id.clone()),
+                most_recent_for_cwd: false,
+            },
+            "/elsewhere/not-the-recorded-folder",
+        )
+        .await
+        .expect("resume from another directory must not refuse");
+        match out {
+            MaterializedStartup::Resume {
+                session_id,
+                original_cwd,
+                deferred_local_miss,
+                ..
+            } => {
+                assert_eq!(session_id, id);
+                assert_eq!(
+                    original_cwd.as_deref(),
+                    Some(std::path::Path::new(&recorded)),
+                    "the session opens in the folder it was recorded in"
+                );
+                assert!(!deferred_local_miss);
+            }
+            other => panic!("expected Resume, got {other:?}"),
+        }
+    }
     #[tokio::test]
     async fn materialize_fork_refused_under_chat_mode() {
         for intent in [
