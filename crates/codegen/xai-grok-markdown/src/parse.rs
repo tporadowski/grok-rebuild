@@ -9,7 +9,9 @@
 use std::ops::Range;
 
 use anstyle::Style;
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag, TagEnd, TextMergeWithOffset};
+use pulldown_cmark::{
+    CodeBlockKind, CowStr, Event, LinkType, Tag, TagEnd, TextMergeWithOffset,
+};
 use ratatui::style::Stylize as RatatuiStylize;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
@@ -206,6 +208,48 @@ pub struct MarkdownParser<'a, 'b, 'syn, 'oc> {
     pending_code_block: Option<PendingCodeBlock>,
     /// Source start of the open top-level blockquote.
     outer_quote_start: Option<usize>,
+    /// Open links, innermost last. `Some` is a reference-style link inside a quote
+    /// whose copy should become an inline link.
+    quote_ref_links: Vec<(usize, Option<String>)>,
+    /// `(source range of the reference link, inline replacement)` for the quote being parsed.
+    quote_ref_rewrites: Vec<(Range<usize>, String)>,
+}
+
+/// Link text of a reference, collapsed, or shortcut link. The source still has its markers.
+fn reference_link_text(raw: &str) -> Option<&str> {
+    let rest = raw.strip_prefix('[')?;
+    let end = rest.find(']')?;
+    Some(&rest[..end])
+}
+
+/// Replace reference-style links whose ranges fall inside `src` (absolute offsets start at `base`).
+fn apply_reference_link_rewrites(
+    src: &str,
+    base: usize,
+    rewrites: &[(Range<usize>, String)],
+) -> String {
+    let mut applicable: Vec<_> = rewrites
+        .iter()
+        .filter(|(range, _)| range.start >= base && range.end <= base + src.len())
+        .collect();
+    if applicable.is_empty() {
+        return src.to_string();
+    }
+    applicable.sort_by_key(|(range, _)| range.start);
+    let mut out = String::with_capacity(src.len());
+    let mut pos = 0usize;
+    for (range, replacement) in applicable {
+        let rel_start = range.start - base;
+        let rel_end = range.end - base;
+        if rel_start < pos || rel_end > src.len() {
+            continue;
+        }
+        out.push_str(&src[pos..rel_start]);
+        out.push_str(replacement);
+        pos = rel_end;
+    }
+    out.push_str(&src[pos..]);
+    out
 }
 
 /// Drop one blockquote marker from each line: up to three leading spaces, a `>`, and one following space.
@@ -513,6 +557,8 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
             collapse_soft_breaks: true,
             pending_code_block: None,
             outer_quote_start: None,
+            quote_ref_links: Vec::new(),
+            quote_ref_rewrites: Vec::new(),
         }
     }
 
@@ -560,6 +606,8 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
         self.outer_quote_start = None;
         self.last_checkpoint = None;
         self.pending_code_block = None;
+        self.quote_ref_links.clear();
+        self.quote_ref_rewrites.clear();
 
         for (event, range) in
             TextMergeWithOffset::new(xai_grok_markdown_core::offset_events(self.text))
@@ -701,6 +749,7 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                         self.buffers.replaces.push(Replace {
                             highlighted,
                             range: range.clone(),
+                            quote_depth: u8::try_from(self.bq_depth).unwrap_or(u8::MAX),
                         });
                     } else {
                         self.push_highlight(Some(self.ms.code_untagged), &range);
@@ -818,6 +867,7 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                     self.buffers.replaces.push(Replace {
                         highlighted,
                         range: range.clone(),
+                        quote_depth: 0,
                     });
                 }
             }
@@ -855,6 +905,7 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                             self.buffers.replaces.push(Replace {
                                 highlighted,
                                 range: inner_range,
+                                quote_depth: 0,
                             });
                         } else {
                             self.push_highlight(Some(self.ms.code_untagged), &inner_range);
@@ -1123,11 +1174,24 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                 Some(self.ms.strikethrough_outer)
             }
             Tag::Link {
-                dest_url, title, ..
+                link_type,
+                dest_url,
+                title,
+                ..
             }
             | Tag::Image {
-                dest_url, title, ..
+                link_type,
+                dest_url,
+                title,
+                ..
             } => {
+                let ref_dest = matches!(
+                    link_type,
+                    LinkType::Reference | LinkType::Collapsed | LinkType::Shortcut
+                )
+                .then(|| dest_url.to_string())
+                .filter(|dest| !dest.is_empty() && self.bq_depth > 0);
+                self.quote_ref_links.push((range.start, ref_dest));
                 // Links inside a table cell go through the table renderer's own hyperlink path (TableHyperlink in TableReplace)
                 // The paragraph link path (LinkTarget + chunk_link_offsets) can't project links onto rendered table cells
                 if let Some(ref mut state) = self.table_state {
@@ -1302,6 +1366,15 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                 if let Some(ref mut state) = self.table_state {
                     state.cell_link = None;
                 }
+                if let Some((start, dest)) = self.quote_ref_links.pop()
+                    && matches!(tag_end, TagEnd::Link)
+                    && let Some(dest) = dest
+                    && let Some(raw) = self.text.get(start..range.end)
+                    && let Some(text) = reference_link_text(raw)
+                {
+                    self.quote_ref_rewrites
+                        .push((start..range.end, format!("[{text}]({dest})")));
+                }
                 None
             }
             TagEnd::TableCell => {
@@ -1380,7 +1453,8 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                 let start = self.outer_quote_start.take().unwrap_or(range.start);
                 let end = range.end.max(start);
                 if let Some(src) = self.text.get(start..end) {
-                    let body = strip_one_blockquote_level(src);
+                    let rewritten = apply_reference_link_rewrites(src, start, &self.quote_ref_rewrites);
+                    let body = strip_one_blockquote_level(&rewritten);
                     if !body.trim().is_empty() {
                         self.buffers.quotes.push(crate::buffers::QuoteMeta {
                             body,

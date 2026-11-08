@@ -163,10 +163,10 @@ impl Clone for StreamingMarkdownRenderer {
         new.set_collapse_soft_breaks(self.collapse_soft_breaks);
         // `self.source` is already normalized, so append it verbatim rather than re-running the normalizer
         // A re-run could hold back a trailing ambiguous suffix and make the clone's source diverge
-        // Copy the normalizer state separately so any held-back bytes survive the clone
+        // The normalizer's line map has to be in place before render translates source lines
+        new.normalizer = self.normalizer.clone();
         new.push_normalized(&self.source);
         new.render(None);
-        new.normalizer = self.normalizer.clone();
         new
     }
 }
@@ -310,9 +310,16 @@ impl StreamingMarkdownRenderer {
 
         // Append tail to output
         self.output.lines.extend(tail_output.lines);
-        self.output
-            .line_source_map
-            .extend(tail_output.line_source_map);
+        let norm_base = self.source[..tail_start]
+            .bytes()
+            .filter(|&byte| byte == b'\n')
+            .count();
+        self.output.line_source_map.extend(
+            tail_output
+                .line_source_map
+                .into_iter()
+                .map(|line| self.normalizer.original_line(norm_base + line)),
+        );
 
         // Offset tail hyperlink line indices by frozen line count and append
         let frozen_lines = self.frozen.lines_len;
@@ -464,6 +471,9 @@ impl StreamingMarkdownRenderer {
         );
 
         self.output = full_output;
+        for line in &mut self.output.line_source_map {
+            *line = self.normalizer.original_line(*line);
+        }
 
         // Scan rendered lines for plain, non-md URLs that pulldown-cmark didn't emit as Tag::Link
         // Dedup against existing hyperlinks by (line_index, column_range) overlap to avoid double-linking

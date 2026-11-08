@@ -22,6 +22,9 @@ pub struct Replace {
     pub highlighted: Vec<Vec<(SyntectStyle, String)>>,
     /// Source byte range this replaces.
     pub range: Range<usize>,
+    /// Blockquote depth of a fenced block. Continuation lines are not in the
+    /// de-prefixed highlight, so the renderer repeats the quote bar on each of them.
+    pub quote_depth: u8,
 }
 
 /// Internal representation of a hyperlink target discovered during parsing.

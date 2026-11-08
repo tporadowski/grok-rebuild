@@ -139,6 +139,15 @@ impl<'a> std::fmt::Display for StyledStr<'a> {
 }
 
 impl<'a, 'b> ParsedMarkdown<'a, 'b> {
+fn spans_are_quote_chrome(spans: &[Span<'_>]) -> bool {
+    !spans.is_empty()
+        && spans.iter().all(|span| {
+            span.content
+                .chars()
+                .all(|ch| ch == '│' || ch == ' ' || ch == '\t')
+        })
+}
+
     fn apply_transforms<'t>(&self, text: &'t str, start: usize, pretty: bool) -> Cow<'t, str> {
         if self.buffers.transforms.is_empty() {
             return Cow::Borrowed(text);
@@ -798,6 +807,29 @@ impl<'a, 'b> ParsedMarkdown<'a, 'b> {
                         }
                         let code_start_source_line = current_source_line;
 
+                        // A hidden fence swallows the newline under its quote marker, so the next
+                        // line sticks to that marker. Drop a marker-only line and paint the bar on
+                        // every highlighted line, including blank ones.
+                        let quote_prefix = if repl.quote_depth > 0 {
+                            if Self::spans_are_quote_chrome(&self.buffers.current_spans) {
+                                self.buffers.current_spans.clear();
+                                cur_col_in_line = 0;
+                            } else if !self.buffers.current_spans.is_empty() {
+                                line_source_map.push(current_source_line);
+                                lines.push(
+                                    Line::from(std::mem::take(&mut self.buffers.current_spans))
+                                        .style(code_bg_style),
+                                );
+                                cur_col_in_line = 0;
+                            }
+                            Some("│ ".repeat(repl.quote_depth as usize))
+                        } else {
+                            None
+                        };
+                        let quote_bar_style: ratatui::style::Style =
+                            self.ms.blockquote_outer.style_into();
+                        let mut quote_line_open = false;
+
                         for (line_idx, line_spans) in repl.highlighted.iter().enumerate() {
                             current_source_line = code_start_source_line + line_idx;
 
@@ -811,6 +843,13 @@ impl<'a, 'b> ParsedMarkdown<'a, 'b> {
 
                                 for (idx, segment) in text.split('\n').enumerate() {
                                     if idx > 0 {
+                                        if !quote_line_open
+                                            && let Some(prefix) = quote_prefix.as_deref()
+                                        {
+                                            self.buffers
+                                                .current_spans
+                                                .push(Span::styled(prefix.to_string(), quote_bar_style));
+                                        }
                                         line_source_map.push(current_source_line);
                                         let line = Line::from(std::mem::take(
                                             &mut self.buffers.current_spans,
@@ -819,6 +858,18 @@ impl<'a, 'b> ParsedMarkdown<'a, 'b> {
                                         lines.push(line);
                                         current_source_line += 1;
                                         cur_col_in_line = 0;
+                                        quote_line_open = false;
+                                    }
+                                    if segment.is_empty() {
+                                        continue;
+                                    }
+                                    if !quote_line_open
+                                        && let Some(prefix) = quote_prefix.as_deref()
+                                    {
+                                        self.buffers
+                                            .current_spans
+                                            .push(Span::styled(prefix.to_string(), quote_bar_style));
+                                        quote_line_open = true;
                                     }
                                     if !segment.is_empty() {
                                         self.buffers
@@ -836,6 +887,7 @@ impl<'a, 'b> ParsedMarkdown<'a, 'b> {
                                         .style(code_bg_style);
                                 lines.push(line);
                                 cur_col_in_line = 0;
+                                quote_line_open = false;
                             }
                         }
 
@@ -3228,5 +3280,78 @@ mod entity_tests {
             let _ = render_markdown(text, test_style::STYLE, true, None);
             let _ = render_markdown(text, test_style::STYLE, false, None);
         }
+    }
+}
+
+#[cfg(test)]
+mod quote_math_line_tests {
+    use crate::style::test_style;
+    use crate::{StreamingMarkdownRenderer, render_markdown_ratatui_full};
+
+    fn lines_to_text(lines: &[ratatui::text::Line<'static>]) -> Vec<String> {
+        lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn code_block_inside_a_quote_keeps_the_bar_on_every_line() {
+        let syn = crate::syntax::test_syntect();
+        let src = "> before\n> ```rust\n> fn alpha() {}\n>\n> fn beta() {}\n> ```\n> after\n";
+        let (out, _) = render_markdown_ratatui_full(src, test_style::STYLE, true, Some(syn));
+        let lines = lines_to_text(&out.lines);
+        let alpha = lines
+            .iter()
+            .position(|line| line == "│ fn alpha() {}")
+            .expect(&format!("alpha line: {lines:#?}"));
+        let beta = lines
+            .iter()
+            .position(|line| line == "│ fn beta() {}")
+            .expect(&format!("beta line: {lines:#?}"));
+        assert!(alpha < beta, "{lines:#?}");
+        assert!(
+            lines[alpha + 1..beta]
+                .iter()
+                .any(|line| line.starts_with('│') && !line.contains("fn")),
+            "the blank code line keeps the bar: {lines:#?}"
+        );
+        assert!(
+            lines.iter().any(|line| line == "│ after"),
+            "{lines:#?}"
+        );
+    }
+
+    #[test]
+    fn quote_copy_turns_a_reference_link_into_an_inline_link() {
+        let src = "> See [the docs][docs].\n>\n> [docs]: https://example.com/docs\n";
+        let (out, _) = render_markdown_ratatui_full(src, test_style::STYLE, true, None);
+        assert_eq!(out.quotes.len(), 1, "{:?}", out.quotes);
+        let body = out.quotes[0].body.trim_end();
+        assert!(
+            body.contains("[the docs](https://example.com/docs)"),
+            "quote copy: {body:?}"
+        );
+    }
+
+    #[test]
+    fn lines_after_multiline_math_keep_their_source_numbers() {
+        let src = "Before.\n\n$$\nx\n=\ny\n$$\n\nAfter.\n";
+        let mut renderer = StreamingMarkdownRenderer::new(test_style::STYLE, true);
+        renderer.set_collapse_soft_breaks(false);
+        renderer.push_and_render(src, None);
+        let view = renderer.finish(None);
+        let lines = lines_to_text(view.lines);
+        let after_idx = lines
+            .iter()
+            .position(|line| line.contains("After"))
+            .expect(&format!("after line missing: {lines:#?}"));
+        let expected = src.lines().position(|line| line.contains("After")).unwrap();
+        assert_eq!(
+            view.line_source_map.get(after_idx).copied(),
+            Some(expected),
+            "map={:?} lines={lines:#?}",
+            view.line_source_map
+        );
     }
 }

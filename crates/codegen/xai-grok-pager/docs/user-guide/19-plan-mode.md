@@ -70,7 +70,7 @@ If the agent exits without writing a plan (empty or missing `plan.md`), the same
 
 ### Reviewing the Plan
 
-Scroll the plan with the arrow keys or `j`/`k`. The action bar shows these shortcuts:
+Scroll the plan with the arrow keys or `j`/`k`. Line numbers follow the plan file, including the lines after a math block written across several lines. The action bar shows these shortcuts:
 
 | Shortcut | Action                                                                                               |
 | -------- | ---------------------------------------------------------------------------------------------------- |

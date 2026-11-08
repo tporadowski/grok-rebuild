@@ -93,6 +93,10 @@ pub struct LatexDelimiterNormalizer {
     at_line_start: bool,
     /// Raw bytes held back from a previous `push` because they may be the prefix of a construct that needs more input to classify.
     pending: String,
+    /// Original source line of the current normalized line. Joined display-math newlines advance this without a new normalized line.
+    orig_line: usize,
+    /// `norm_line_orig[i]` is the original line where normalized line `i` begins.
+    norm_line_orig: Vec<usize>,
 }
 
 impl Default for LatexDelimiterNormalizer {
@@ -107,6 +111,8 @@ impl LatexDelimiterNormalizer {
             state: State::Normal,
             at_line_start: true,
             pending: String::new(),
+            orig_line: 0,
+            norm_line_orig: vec![0],
         }
     }
 
@@ -115,6 +121,34 @@ impl LatexDelimiterNormalizer {
         self.state = State::Normal;
         self.at_line_start = true;
         self.pending.clear();
+        self.orig_line = 0;
+        self.norm_line_orig = vec![0];
+    }
+
+    /// Original source line for a line number counted in the normalized text.
+    /// Missing entries stay identity, which is every document that did not join a math span.
+    pub(crate) fn original_line(&self, normalized_line: usize) -> usize {
+        self.norm_line_orig
+            .get(normalized_line)
+            .copied()
+            .unwrap_or(normalized_line)
+    }
+
+    /// Append `text`, counting each emitted newline as a new normalized line.
+    fn emit(&mut self, out: &mut String, text: &str) {
+        let mut rest = text;
+        while let Some(i) = rest.find('\n') {
+            out.push_str(&rest[..=i]);
+            self.orig_line += 1;
+            self.norm_line_orig.push(self.orig_line);
+            rest = &rest[i + 1..];
+        }
+        out.push_str(rest);
+    }
+
+    /// Count original newlines that were joined away and therefore never emitted.
+    fn swallow_newlines(&mut self, text: &str) {
+        self.orig_line += text.bytes().filter(|&byte| byte == b'\n').count();
     }
 
     /// Push a raw chunk; returns the finalized normalized prefix.
@@ -160,7 +194,7 @@ impl LatexDelimiterNormalizer {
                                 let Some(s) = buf.get(i..end) else {
                                     break;
                                 };
-                                out.push_str(s);
+                                self.emit(&mut out, s);
                                 i = end;
                                 self.state = State::Fenced { ch, len };
                                 self.at_line_start = false;
@@ -174,7 +208,7 @@ impl LatexDelimiterNormalizer {
                     };
                     match bi {
                         b'\n' => {
-                            out.push('\n');
+                            self.emit(&mut out, "\n");
                             i += 1;
                             self.at_line_start = true;
                         }
@@ -186,7 +220,7 @@ impl LatexDelimiterNormalizer {
                             let Some(s) = buf.get(i..i + run) else {
                                 break;
                             };
-                            out.push_str(s);
+                            self.emit(&mut out, s);
                             i += run;
                             self.state = State::InlineCode { run };
                             self.at_line_start = false;
@@ -201,7 +235,7 @@ impl LatexDelimiterNormalizer {
                                         // Trim pulldown's flanking whitespace so `$…$` is accepted
                                         // The custom set (vs `char::is_ascii_whitespace`) exists only to add vertical tab (0x0B)
                                         let Some(raw) = buf.get(i + 2..close) else {
-                                            out.push('$');
+                                            self.emit(&mut out, "$");
                                             i += 2;
                                             self.at_line_start = false;
                                             continue;
@@ -211,20 +245,21 @@ impl LatexDelimiterNormalizer {
                                         if inner.is_empty() {
                                             // Empty after trim: a lone `$` keeps the old position-for-position output
                                             // That output is `$<ws>$`, or `$$` when the interior is truly empty
-                                            out.push('$');
+                                            self.emit(&mut out, "$");
                                             i += 2;
                                         } else {
                                             // Join interior newlines
                                             // A `$…$` wrapped across source lines could be re-parsed as blocks (setext underlines, list markers)
-                                            out.push('$');
+                                            self.swallow_newlines(raw);
+                                            self.emit(&mut out, "$");
                                             push_joined_lines(&mut out, inner);
-                                            out.push('$');
+                                            self.emit(&mut out, "$");
                                             i = close + 2;
                                         }
                                     }
                                     // Too far, or unclosed at EOF: lone `$`, no trim.
                                     InlineClose::Unmatched => {
-                                        out.push('$');
+                                        self.emit(&mut out, "$");
                                         i += 2;
                                     }
                                     // Hold back from `\(` until the `\)` arrives.
@@ -239,6 +274,7 @@ impl LatexDelimiterNormalizer {
                                                 self.at_line_start = false;
                                                 continue;
                                             };
+                                            self.swallow_newlines(interior);
                                             emit_display_span(&mut out, interior);
                                             i = close + close_len;
                                         }
@@ -258,7 +294,7 @@ impl LatexDelimiterNormalizer {
                                 }
                                 Bs::Literal { len } => {
                                     if let Some(s) = buf.get(i..i + len) {
-                                        out.push_str(s);
+                                        self.emit(&mut out, s);
                                     }
                                     i += len;
                                 }
@@ -282,6 +318,7 @@ impl LatexDelimiterNormalizer {
                                             self.at_line_start = false;
                                             continue;
                                         };
+                                        self.swallow_newlines(interior);
                                         emit_display_span(&mut out, interior);
                                         i = close + close_len;
                                     }
@@ -294,7 +331,7 @@ impl LatexDelimiterNormalizer {
                                 }
                             } else {
                                 // Single `$` (inline math / currency) passes through verbatim; pulldown handles it
-                                out.push('$');
+                                self.emit(&mut out, "$");
                                 i += 1;
                             }
                             self.at_line_start = false;
@@ -312,7 +349,7 @@ impl LatexDelimiterNormalizer {
                                 i += 1;
                             }
                             if let Some(s) = buf.get(start..i) {
-                                out.push_str(s);
+                                self.emit(&mut out, s);
                             }
                             self.at_line_start = false;
                         }
@@ -328,7 +365,7 @@ impl LatexDelimiterNormalizer {
                             Some(b'\n') => {
                                 i += 1;
                                 if let Some(s) = buf.get(start..i) {
-                                    out.push_str(s);
+                                    self.emit(&mut out, s);
                                 }
                                 self.state = State::Normal;
                                 self.at_line_start = true;
@@ -339,14 +376,14 @@ impl LatexDelimiterNormalizer {
                                 let r = count_run(bytes, i, b'`');
                                 if i + r == n && !final_flush {
                                     if let Some(s) = buf.get(start..i) {
-                                        out.push_str(s);
+                                        self.emit(&mut out, s);
                                     }
                                     return (out, i); // hold back the trailing run
                                 }
                                 if r == run {
                                     i += r;
                                     if let Some(s) = buf.get(start..i) {
-                                        out.push_str(s);
+                                        self.emit(&mut out, s);
                                     }
                                     self.state = State::Normal;
                                     self.at_line_start = false;
@@ -360,7 +397,7 @@ impl LatexDelimiterNormalizer {
                         }
                     }
                     if !handled && let Some(s) = buf.get(start..i) {
-                        out.push_str(s); // EOF inside code
+                        self.emit(&mut out, s); // EOF inside code
                     }
                 }
                 State::Fenced { ch, len } => {
@@ -371,7 +408,7 @@ impl LatexDelimiterNormalizer {
                                 let Some(s) = buf.get(i..end) else {
                                     break;
                                 };
-                                out.push_str(s);
+                                self.emit(&mut out, s);
                                 i = end;
                                 self.state = State::Normal;
                                 self.at_line_start = false;
@@ -392,7 +429,7 @@ impl LatexDelimiterNormalizer {
                         self.at_line_start = false;
                     }
                     if let Some(s) = buf.get(start..i) {
-                        out.push_str(s);
+                        self.emit(&mut out, s);
                     }
                 }
             }
