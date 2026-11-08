@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-184 — A `/btw` drag scrolls the answer at the panel edge
+
+Dragging a selection in a `/btw` answer scrolls that answer while the pointer stays on the panel's edge or past it. The same edge zone the transcript uses applies to the panel. The interior of the panel does not scroll. The transcript stays where it is. After the answer moves, the selection follows the new lines (`btw_drag_on_the_panel_edge_scrolls_the_answer`) (`v73-f03`).
+
 ### D-183 — A finished reply names a subagent by its label
 
 A finished agent reply shows the subagent's label where it wrote that subagent's id. The label is `subagent_display_label`, and it stays a link that opens the subagent. A reply that is still streaming keeps the raw id. Code, inline code, and a token glued to the id stay unchanged (`finished_reply_shows_the_subagent_label_instead_of_its_id`) (`v72-f04`).
@@ -798,7 +802,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 19 | 0 | 24 | 2 | 0 |
+| W10 | Transcript, density, and copy | 18 | 0 | 25 | 2 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -807,9 +811,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 296. Skipped: 8. Done: 229. Already: 40. Deferred: 10.
+Catalog rows: 583. Pending: 295. Skipped: 8. Done: 230. Already: 40. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: drag-selecting text in a `/btw` answer scrolls the answer at the panel edge (`v73-f03`).
+**Next:** W10 transcript, density, and copy. First open row: Gruvbox dark theme (`gruvbox-dark-hard`), selectable with `/theme` (`v73-f05`).
 
 ## Waves
 
@@ -851,7 +855,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 19. Done: 24 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183). Already: 2 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 18. Done: 25 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184). Already: 2 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1139,7 +1143,7 @@ id | status | wave | kind | flag | covered | note
 - v70-f01 | done | W10 | Features |  |  | **Answered questions** now have a blank line between them, except in compact mode (`/compact-mode`).
 - v72-f02 | done | W10 | Features |  |  | **Subagent and background task ids** mentioned in the transcript open that subagent's view or the task's output on click.
 - v72-f04 | done | W10 | Features |  |  | **Subagents named in a reply** show as the subagent's label instead of its raw id once the reply finishes, as a link that opens its transcript.
-- v73-f03 | pending | W10 | Features |  |  | **Drag-selecting text in a `/btw` answer** scrolls the answer while you hold the pointer on or past the panel's edge.
+- v73-f03 | done | W10 | Features |  |  | **Drag-selecting text in a `/btw` answer** scrolls the answer while you hold the pointer on or past the panel's edge.
 - v73-f05 | pending | W10 | Features |  |  | **Gruvbox dark theme** (`gruvbox-dark-hard`), selectable with `/theme`.
 - v73-x02 | pending | W10 | Bug Fixes |  |  | **Mouse wheel** in a `/btw` answer reaches the last lines on short terminals.
 - v73-x03 | pending | W10 | Bug Fixes |  |  | **Several Send nows in a row** no longer label the turns they stop "Turn cancelled by user" or jump the transcript view.

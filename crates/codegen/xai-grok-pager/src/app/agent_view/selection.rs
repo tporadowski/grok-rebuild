@@ -281,8 +281,14 @@ impl AgentView {
             return false;
         };
 
-        // Scroll the active scrollback.
-        {
+        // A `/btw` drag scrolls that answer. Every other drag scrolls the active transcript.
+        let btw_drag = self
+            .drag_selection
+            .as_ref()
+            .is_some_and(|drag| drag.anchor.entry_idx == BTW_OVERLAY_ENTRY_IDX);
+        if btw_drag {
+            self.scroll_btw_answer(autoscroll);
+        } else {
             let scrollback = if let Some(ref child_id) = self.active_subagent {
                 if let Some(child) = self.subagent_views.get_mut(child_id) {
                     &mut child.scrollback
@@ -299,15 +305,13 @@ impl AgentView {
             }
         }
 
-        // Recompute the text drag head from the stored mouse position, against the pre-scroll (stale) model
-        // The within-tick estimate keeps the overlay responsive; the post-render reclamp re-resolves it against the fresh model every frame
-        // Skip for btw-anchored drags; they don't autoscroll the scrollback
+        // Recompute the text drag head from the stored mouse position, against the pre-scroll model.
+        // The post-render reclamp re-resolves it against the fresh model every frame.
         if let Some((col, row)) = self.last_drag_mouse
             && let Some(drag) = self.drag_selection
-            && drag.anchor.entry_idx != BTW_OVERLAY_ENTRY_IDX
         {
             let head = self
-                .last_scrollback_selection_model
+                .selection_model_for_hit(&drag.anchor)
                 .hit_test_nearest_in_range(drag.anchor, col, row)
                 .unwrap_or(drag.head);
             let kind = self.resolve_drag_kind(&drag.anchor, &head, drag.kind);
@@ -639,13 +643,38 @@ impl AgentView {
             drag.kind = kind;
         }
         self.last_drag_mouse = Some((mouse.column, mouse.row));
-        // Btw drags don't scroll the scrollback pane.
+        // A `/btw` drag scrolls the answer when the pointer is on or past the panel edge.
         self.drag_autoscroll = if is_btw {
-            None
+            self.btw_drag_autoscroll_for(mouse.row)
         } else {
             self.drag_autoscroll_for(mouse.row)
         };
         changed
+    }
+
+    /// Scroll the open `/btw` answer by one autoscroll tick. The panel's body is the bordered rect minus its frame.
+    fn scroll_btw_answer(&mut self, autoscroll: DragAutoScrollState) {
+        let content_width = self.last_btw_area.width.saturating_sub(4) as usize;
+        let max_body = self.last_btw_area.height.saturating_sub(2).max(1) as usize;
+        let Some(btw) = self.btw_state.as_mut() else {
+            return;
+        };
+        match autoscroll.direction {
+            AutoScrollDirection::Up => btw.scroll_up(autoscroll.speed as usize),
+            AutoScrollDirection::Down => {
+                let max_off = btw.max_scroll_offset(content_width, max_body);
+                btw.scroll_down(autoscroll.speed as usize, max_off);
+            }
+        }
+    }
+
+    /// Autoscroll for a `/btw` drag, measured from the panel rect. The pointer on the frame, or past it, scrolls the answer.
+    fn btw_drag_autoscroll_for(&self, row: u16) -> Option<DragAutoScrollState> {
+        let panel = self.last_btw_area;
+        if panel.width == 0 || panel.height == 0 {
+            return None;
+        }
+        compute_autoscroll(row, panel)
     }
 
     pub(in crate::app) fn handle_scrollback_drag_motion(
@@ -3683,5 +3712,91 @@ mod tests {
         assert!(agent.deferred_text_press.is_none(), "btw stays exact-only");
         assert!(agent.pending_block_drag.is_none());
         assert!(agent.pending_text_drag.is_none());
+    }
+
+    /// Dragging a `/btw` answer scrolls that answer when the pointer is held on or past the panel edge, and leaves the transcript still.
+    #[test]
+    fn btw_drag_on_the_panel_edge_scrolls_the_answer() {
+        use crate::views::btw_overlay::{render_btw_panel, BtwOverlayState};
+        use ratatui::buffer::Buffer;
+
+        let mut agent = make_agent();
+        let body = (0..40)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        agent.btw_state = Some(BtwOverlayState::done("question".into(), body));
+        // Rows 10..18. The edge zone is the outer two rows; 12..16 is the interior.
+        let area = Rect::new(2, 10, 40, 8);
+        agent.last_btw_area = area;
+        paint_btw(&mut agent, area);
+
+        let hit = agent
+            .last_btw_selection_model
+            .hit_test_selectable_range(4, 13)
+            .expect("answer text");
+        agent.arm_text_drag(&mouse_drag(4, 13), hit, hit, Some(36));
+        assert_eq!(agent.btw_state.as_ref().unwrap().scroll_offset(), 0);
+        assert!(agent.drag_autoscroll.is_none(), "the interior does not scroll");
+
+        let transcript_before = agent.scrollback.scroll_info().0;
+        assert!(agent.update_active_text_drag(&mouse_drag(4, 16)));
+        assert_eq!(
+            agent.drag_autoscroll.map(|state| state.direction),
+            Some(AutoScrollDirection::Down)
+        );
+        assert!(agent.tick_drag_autoscroll());
+        let after_edge = agent.btw_state.as_ref().unwrap().scroll_offset();
+        assert!(after_edge > 0, "the edge tick scrolls the answer");
+        assert_eq!(agent.scrollback.scroll_info().0, transcript_before);
+
+        let _ = agent.update_active_text_drag(&mouse_drag(4, 24));
+        assert_eq!(
+            agent.drag_autoscroll.map(|state| state.direction),
+            Some(AutoScrollDirection::Down),
+            "past the panel keeps scrolling down"
+        );
+        assert!(agent.tick_drag_autoscroll());
+        assert!(agent.btw_state.as_ref().unwrap().scroll_offset() > after_edge);
+
+        paint_btw(&mut agent, area);
+        let head_before = agent.drag_selection.expect("drag").head.block_line_idx;
+        agent.reclamp_drag_head_post_render(true);
+        let head_after = agent.drag_selection.expect("drag").head.block_line_idx;
+        assert!(
+            head_after > head_before,
+            "the selection follows the scrolled answer: {head_before} -> {head_after}"
+        );
+
+        let before_up = agent.btw_state.as_ref().unwrap().scroll_offset();
+        let _ = agent.update_active_text_drag(&mouse_drag(4, 9));
+        assert_eq!(
+            agent.drag_autoscroll.map(|state| state.direction),
+            Some(AutoScrollDirection::Up),
+            "above the panel scrolls up"
+        );
+        assert!(agent.tick_drag_autoscroll());
+        assert!(agent.btw_state.as_ref().unwrap().scroll_offset() < before_up);
+        assert_eq!(agent.scrollback.scroll_info().0, transcript_before);
+    }
+
+    fn paint_btw(agent: &mut AgentView, area: Rect) {
+        use crate::views::btw_overlay::render_btw_panel;
+        use ratatui::buffer::Buffer;
+        let mut buf = Buffer::empty(Rect::new(0, 0, 80, 40));
+        let mut model = ResolvedSelectionModel::default();
+        render_btw_panel(
+            &mut buf,
+            agent.btw_state.as_ref().expect("btw"),
+            area,
+            0,
+            false,
+            None,
+            &mut model,
+            None,
+            &[],
+            None,
+        );
+        agent.last_btw_selection_model = model;
     }
 }
