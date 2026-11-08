@@ -300,13 +300,23 @@ impl AgentView {
         let Some(content) = self.post_turn_review_plan_content() else {
             return;
         };
+        // Same prefill as in-turn exit_plan_mode: a draft the user was typing
+        // stays in the notes and owns the keyboard, so the next letter is not
+        // a preview shortcut (`a` approve, `s` notes, `q` abandon).
         let stashed = self.prompt.stash();
+        let keep_draft_in_notes = !stashed.is_effectively_empty();
+        if keep_draft_in_notes {
+            self.prompt.restore(stashed.clone_for_live_prefill());
+        }
         self.plan_approval_view = Some(PlanApprovalViewState::after_turn(
             "CreatePlan".to_owned(),
             content,
             stashed,
         ));
         self.show_plan_preview_if_available();
+        if keep_draft_in_notes && let Some(pav) = self.plan_approval_view.as_mut() {
+            pav.focus = PlanApprovalFocus::Prompt;
+        }
     }
     /// Queued follow-up CreatePlan can replace the keep while approve
     /// is still mounted. Refresh the snapshot; do not remount.
@@ -2197,6 +2207,69 @@ mod plan_approval_optimistic_mode_tests {
         assert!(pav.is_after_turn(), "review must not hold a worker prompt");
         assert_eq!(pav.plan_content.as_deref(), Some("# Build it\n"));
         assert_eq!(pav.source, PlanReviewSource::Inline);
+    }
+    fn press_bare_a(agent: &mut AgentView) -> InputOutcome {
+        let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        agent.handle_input(
+            &crossterm::event::Event::Key(key),
+            &ActionRegistry::non_vscode_for_test(),
+        )
+    }
+    #[test]
+    fn post_turn_review_keeps_a_typed_draft_so_a_does_not_approve() {
+        let mut agent = make_agent();
+        agent.plan_mode_active = true;
+        agent.kept_plan =
+            crate::app::agent_view::KeptPlan::kept(Some("# Build it\n".to_owned()), None);
+        agent.prompt.set_text("ship the flag");
+        agent.prompt.set_cursor(agent.prompt.text().len());
+        agent.open_post_turn_plan_review();
+        assert!(
+            agent.line_viewer.is_some(),
+            "the preview must be up, or `a` never reaches the approve shortcut"
+        );
+        assert_eq!(agent.prompt.text(), "ship the flag");
+        assert_eq!(
+            agent.plan_approval_view.as_ref().map(|pav| pav.focus),
+            Some(PlanApprovalFocus::Prompt),
+        );
+        assert_eq!(
+            agent
+                .plan_approval_view
+                .as_ref()
+                .map(|pav| pav.stashed_prompt.text.as_str()),
+            Some("ship the flag"),
+            "the session draft stays stashed for when the review closes"
+        );
+        let outcome = press_bare_a(&mut agent);
+        assert!(
+            agent.plan_approval_view.is_some(),
+            "a letter typed into the notes must not approve"
+        );
+        assert!(
+            !matches!(outcome, InputOutcome::Action(Action::ExecutePlan { .. })),
+            "approve must not dispatch; got {outcome:?}"
+        );
+        assert_eq!(agent.prompt.text(), "ship the flaga");
+    }
+    #[test]
+    fn post_turn_review_with_an_empty_draft_still_approves_on_a() {
+        let mut agent = agent_with_post_turn_review();
+        assert_eq!(agent.prompt.text(), "");
+        assert_eq!(
+            agent.plan_approval_view.as_ref().map(|pav| pav.focus),
+            Some(PlanApprovalFocus::Preview),
+        );
+        assert!(agent.line_viewer.is_some());
+        let outcome = press_bare_a(&mut agent);
+        assert!(
+            matches!(outcome, InputOutcome::Action(Action::ExecutePlan { .. })),
+            "an empty notes field must still approve from the preview; got {outcome:?}"
+        );
+        assert!(
+            agent.plan_approval_view.is_some(),
+            "post-turn approve stays mounted until dispatch accepts"
+        );
     }
     #[test]
     fn post_turn_approve_refreshes_when_the_keep_diverges() {
