@@ -18,6 +18,7 @@ pub mod remap;
 pub mod serde_base64;
 pub(crate) mod shared_http;
 pub mod shell_env_policy;
+pub mod source_probe;
 pub mod spawn;
 pub mod truncate;
 pub mod unicode_confusables;

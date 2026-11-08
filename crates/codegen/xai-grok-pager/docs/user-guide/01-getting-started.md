@@ -170,6 +170,8 @@ Grok has built-in tools for:
 | `spawn_subagent` | Spawn parallel subagent sessions |
 | `memory_search` | Search cross-session memory |
 
+`read_file`, `search_replace`, and `grep` say why they stop on a pipe, socket, or device, on a file over 5 MB, and on binary content.
+
 Tools can be extended with [MCP servers](05-configuration.md#mcp-servers) for integrations like GitHub, databases, and more.
 
 ### Slash Commands

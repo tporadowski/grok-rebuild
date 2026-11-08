@@ -811,7 +811,7 @@ Refresh these numbers at the end of a session.
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
-| W11 | Headless mode and tools | 37 | 0 | 4 | 0 | 0 |
+| W11 | Headless mode and tools | 36 | 0 | 5 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
@@ -819,9 +819,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 276. Skipped: 8. Done: 249. Already: 40. Deferred: 10.
+Catalog rows: 583. Pending: 275. Skipped: 8. Done: 250. Already: 40. Deferred: 10.
 
-**Next:** W11 headless mode and tools. First open row: `read_file`, `search_replace`, and `grep` handle large files, special files, and binary content (`v48-x03`).
+**Next:** W11 headless mode and tools. First open row: cancelling one tool call does not kill commands started by other parallel calls (`v48-x05`).
 
 ## Waves
 
@@ -867,7 +867,7 @@ Pending: 0. Done: 43 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50
 
 ### W11 — Headless mode and tools
 
-Pending: 37. Done: 4 (`v46-x05`). Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat.
+Pending: 36. Done: 5 (`v46-x05`, `v48-x03`). Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat.
 
 ### W12 — MCP, web, images, and browser
 
@@ -1171,7 +1171,7 @@ id | status | wave | kind | flag | covered | note
 - v77-x01 | done | W10 | Bug Fixes |  |  | **Quote copy** now preserves & in links and double-clicks no longer fold thoughts when missing text.
 - v78-f02 | done | W10 | Features |  |  | **Dragging in the transcript** now selects and copies colored text across message blocks instead of whole blocks.
 - v46-x05 | done | W11 | Bug Fixes |  |  | **Context compacted** line now shows the correct token count immediately after compaction instead of at the end of a long turn.
-- v48-x03 | pending | W11 | Bug Fixes |  |  | `read_file`, `search_replace`, and `grep` now handle large files, special files, and binary content more reliably and surface better errors.
+- v48-x03 | done | W11 | Bug Fixes |  |  | `read_file`, `search_replace`, and `grep` now handle large files, special files, and binary content more reliably and surface better errors.
 - v48-x05 | pending | W11 | Bug Fixes |  |  | **Cancelling one tool call** no longer kills commands started by other parallel calls.
 - v49-x03 | pending | W11 | Bug Fixes |  |  | **Allow once** in permission cards now applies only to the next shell command instead of the whole session.
 - v49-x04 | pending | W11 | Bug Fixes |  |  | **pkill -f** and **pgrep -f** commands are now rejected earlier when the pattern would kill their own shell wrapper.

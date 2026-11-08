@@ -181,6 +181,14 @@ pub(crate) async fn run_search_replace(
             "File path is a directory".to_owned(),
         ));
     }
+    if let Some(block) = crate::util::source_probe::text_source_block(&path).await {
+        return Ok(SearchReplaceOutput::InvalidInput(
+            crate::util::source_probe::text_source_message(
+                std::path::Path::new(&input.file_path),
+                &block,
+            ),
+        ));
+    }
     let is_legacy = SearchReplaceVersion::from_contract(contract_version.as_deref()).is_legacy();
     if !is_legacy {
         let res = resources.lock().await;
@@ -565,6 +573,20 @@ async fn handle_replacement(
             return Ok(output);
         }
     };
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if let Some(message) =
+        crate::util::source_probe::binary_source_message(
+            std::path::Path::new(&input.file_path),
+            &extension,
+            &bytes,
+        )
+    {
+        return Ok(SearchReplaceOutput::InvalidInput(message));
+    }
     let old_text = String::from_utf8_lossy(&bytes).into_owned();
     let has_crlf = old_text.contains("\r\n");
     let match_text: std::borrow::Cow<'_, str> = if has_crlf {
@@ -1204,6 +1226,46 @@ mod tests {
                 assert!(msg.contains("already exists as a file"), "got: {msg}");
             }
             other => panic!("Expected InvalidInput, got {:?}", other),
+        }
+    }
+    #[tokio::test]
+    async fn search_replace_refuses_a_pipe_an_oversized_file_and_binary_bytes() {
+        let tmp = TempDir::new().unwrap();
+        let fifo = tmp.path().join("pipe");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let huge = tmp.path().join("huge.txt");
+        std::fs::File::create(&huge)
+            .unwrap()
+            .set_len(crate::util::source_probe::TEXT_TOOL_MAX_BYTES + 1)
+            .unwrap();
+        std::fs::write(tmp.path().join("blob.dat"), [0u8, 1, 2, 3, 4]).unwrap();
+        let tool = SearchReplaceTool;
+        let resources = test_resources(tmp.path());
+        let shared = resources.into_shared();
+        for (path, needle) in [
+            ("pipe", "not a regular file"),
+            ("huge.txt", "too large"),
+            ("blob.dat", "Cannot read binary file"),
+        ] {
+            let result = xai_tool_runtime::Tool::run(
+                &tool,
+                test_ctx(shared.clone()),
+                make_input(path, "old", "new"),
+            )
+            .await
+            .unwrap();
+            match result {
+                SearchReplaceOutput::InvalidInput(msg) => {
+                    assert!(msg.contains(needle), "{path}: {msg}");
+                }
+                other => panic!("{path}: expected InvalidInput, got {other:?}"),
+            }
         }
     }
     #[tokio::test]

@@ -684,6 +684,47 @@ async fn prepare_grep(
         Some(Ok(metadata)) if metadata.is_file() => RootKind::File,
         Some(Ok(_) | Err(_)) | None => RootKind::Unknown,
     };
+    if let Some(block) = crate::util::source_probe::text_source_block(&workdir).await
+        && !matches!(block, crate::util::source_probe::TextSourceBlock::Directory)
+    {
+        let display_path = if let Ok(suffix) = workdir.strip_prefix(&cwd) {
+            display_base.join(suffix)
+        } else {
+            workdir.clone()
+        };
+        let message = crate::util::source_probe::text_source_message(&display_path, &block);
+        return Ok(GrepStep::Early(GrepSearchOutput {
+            stdout: message.into_bytes(),
+            stderr: Vec::new(),
+            exit_code: 2,
+            match_count: 0,
+            file_matches: Vec::new(),
+        }));
+    }
+    if root_kind == RootKind::File
+        && let Some(prefix) = crate::util::source_probe::text_source_prefix(&workdir).await
+    {
+        let extension = workdir
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+        let display_path = if let Ok(suffix) = workdir.strip_prefix(&cwd) {
+            display_base.join(suffix)
+        } else {
+            workdir.clone()
+        };
+        if let Some(message) =
+            crate::util::source_probe::binary_source_message(&display_path, extension, &prefix)
+        {
+            return Ok(GrepStep::Early(GrepSearchOutput {
+                stdout: message.into_bytes(),
+                stderr: Vec::new(),
+                exit_code: 2,
+                match_count: 0,
+                file_matches: Vec::new(),
+            }));
+        }
+    }
 
     let output_mode = input.output_mode.clone().unwrap_or(OutputMode::Content);
     let effective_head_limit = resolve_effective_head_limit(input, &output_mode);
@@ -1207,6 +1248,43 @@ mod tests {
     }
 
     /// Explicit `head_limit` truncates the card and stops the search early.
+    #[tokio::test]
+    async fn grep_refuses_a_pipe_an_oversized_file_and_binary_bytes() {
+        let tmp = TempDir::new().unwrap();
+        let fifo = tmp.path().join("pipe");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let huge = tmp.path().join("huge.txt");
+        std::fs::File::create(&huge)
+            .unwrap()
+            .set_len(crate::util::source_probe::TEXT_TOOL_MAX_BYTES + 1)
+            .unwrap();
+        std::fs::write(tmp.path().join("blob.dat"), [0u8, 1, 2, 3, 4]).unwrap();
+        let mut resources = Resources::new();
+        resources.insert(Cwd(tmp.path().to_path_buf()));
+        let shared = resources.into_shared();
+        for (path, needle) in [
+            ("pipe", "not a regular file"),
+            ("huge.txt", "too large"),
+            ("blob.dat", "Cannot read binary file"),
+        ] {
+            let mut input = make_grep_input("needle");
+            input.path = Some(path.to_string());
+            let output =
+                xai_tool_runtime::Tool::run(&GrepTool, test_ctx(shared.clone()), input)
+                    .await
+                    .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert_eq!(output.exit_code, 2, "{path}: {stdout}");
+            assert!(stdout.contains(needle), "{path}: {stdout}");
+        }
+    }
+
     #[tokio::test]
     async fn tool_grep_head_limit_truncates() {
         let tmp = TempDir::new().unwrap();

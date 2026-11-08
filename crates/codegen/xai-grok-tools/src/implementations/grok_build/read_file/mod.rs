@@ -453,6 +453,23 @@ pub(crate) async fn run_read_file(
             return Ok(ReadFileOutput::FileReadError(error));
         }
     }
+    if let Some(block) = crate::util::source_probe::text_source_block(&path).await {
+        let message = crate::util::source_probe::text_source_message(&display_path, &block);
+        return Ok(match block {
+            crate::util::source_probe::TextSourceBlock::Directory => {
+                observed.note_directory();
+                ReadFileOutput::IsADirectory(message)
+            }
+            crate::util::source_probe::TextSourceBlock::Special => {
+                observed.note_io();
+                ReadFileOutput::FileReadError(message)
+            }
+            crate::util::source_probe::TextSourceBlock::TooLarge { .. } => {
+                observed.note_io();
+                ReadFileOutput::FileReadError(message)
+            }
+        });
+    }
     let mut file_bytes = match fs.read_file(&path).await {
         Ok(bytes) => {
             observed.note_source_bytes(bytes.len());
@@ -2610,6 +2627,63 @@ pub fn verify(req: &HttpRequest) -> Result<Claims, Error> {
         xai_tool_runtime::Tool::run(&ReadFileTool, test_ctx(resources.into_shared()), input)
             .await
             .unwrap()
+    }
+    #[tokio::test]
+    async fn read_file_refuses_a_pipe_and_an_oversized_file() {
+        let tmp = TempDir::new().unwrap();
+        let fifo = tmp.path().join("pipe");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let huge = tmp.path().join("huge.txt");
+        std::fs::File::create(&huge)
+            .unwrap()
+            .set_len(crate::util::source_probe::TEXT_TOOL_MAX_BYTES + 1)
+            .unwrap();
+        let resources = test_resources(tmp.path());
+        let shared = resources.into_shared();
+        let pipe = xai_tool_runtime::Tool::run(
+            &ReadFileTool,
+            test_ctx(shared.clone()),
+            ReadFileInput {
+                path: "pipe".into(),
+                offset: None,
+                limit: None,
+                pages: None,
+                format: None,
+            },
+        )
+        .await
+        .unwrap();
+        match pipe {
+            ReadFileOutput::FileReadError(msg) => {
+                assert!(msg.contains("not a regular file"), "{msg}");
+            }
+            other => panic!("expected a special-file error, got {other:?}"),
+        }
+        let large = xai_tool_runtime::Tool::run(
+            &ReadFileTool,
+            test_ctx(shared),
+            ReadFileInput {
+                path: "huge.txt".into(),
+                offset: None,
+                limit: None,
+                pages: None,
+                format: None,
+            },
+        )
+        .await
+        .unwrap();
+        match large {
+            ReadFileOutput::FileReadError(msg) => {
+                assert!(msg.contains("too large"), "{msg}");
+            }
+            other => panic!("expected a size error, got {other:?}"),
+        }
     }
     #[tokio::test]
     async fn read_file_binary_rejected() {
