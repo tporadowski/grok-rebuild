@@ -42,6 +42,7 @@ const ALL_SETTINGS_EXERCISED: &[&str] = &[
     "render_mermaid",
     "multiline_mode",
     "multiline_default",
+    "single_ctrl_c_quit",
     "permission_mode",
     "default_model",
     "max_thoughts_width",
@@ -234,6 +235,12 @@ fn assert_set_bool_action(outcome: SettingsKeyOutcome, key: &str, expected: bool
             assert_eq!(
                 b, expected,
                 "SetMultilineDefault value differs from expected"
+            )
+        }
+        ("single_ctrl_c_quit", Action::SetSingleCtrlCQuit(b)) => {
+            assert_eq!(
+                b, expected,
+                "SetSingleCtrlCQuit value differs from expected"
             )
         }
         ("vim_mode", Action::SetVimMode(b)) => {
@@ -1868,6 +1875,7 @@ fn registry_kind_membership_through_pr_14() {
             "display_refresh_auto_cadence",
             "multiline_mode",
             "multiline_default",
+            "single_ctrl_c_quit",
             "prompt_suggestions",
             "respect_manual_folds",
             "show_thinking_blocks",
@@ -2047,6 +2055,7 @@ fn defaults_round_trip_through_registry() {
             "render_mermaid" => SettingValue::Enum("auto"),
             "multiline_mode" => SettingValue::Bool(false),
             "multiline_default" => SettingValue::Bool(false),
+            "single_ctrl_c_quit" => SettingValue::Bool(false),
             "permission_mode" => SettingValue::Enum("ask"),
             "default_model" => SettingValue::String(String::new()),
             "max_thoughts_width" => SettingValue::Int(120),
@@ -2145,6 +2154,7 @@ fn settings_value_payload_matches_kind() {
             | SettingsKeyOutcome::Action(Action::SetSimpleMode(_))
             | SettingsKeyOutcome::Action(Action::SetMultilineMode(_))
             | SettingsKeyOutcome::Action(Action::SetMultilineDefault(_))
+            | SettingsKeyOutcome::Action(Action::SetSingleCtrlCQuit(_))
             | SettingsKeyOutcome::Action(Action::SetVimMode(_))
             | SettingsKeyOutcome::Action(Action::SetRememberToolApprovals(_))
             | SettingsKeyOutcome::Action(Action::SetAskUserQuestionTimeoutEnabled(_))
@@ -7120,6 +7130,63 @@ fn multiline_default_mouse_click_two_stage_toggles() {
     );
     assert_set_bool_action(outcome, "multiline_default", true);
     xai_grok_pager::appearance::cache::set_multiline_default(false);
+}
+
+#[test]
+fn single_ctrl_c_quit_space_dispatches_typed_setter() {
+    xai_grok_pager::appearance::cache::set_single_ctrl_c_quit(false);
+    let mut s = make_state();
+    navigate_to(&mut s, "single_ctrl_c_quit");
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Char(' ')));
+    assert_set_bool_action(outcome, "single_ctrl_c_quit", true);
+    xai_grok_pager::appearance::cache::set_single_ctrl_c_quit(false);
+}
+
+#[test]
+fn single_ctrl_c_quit_enter_dispatches_typed_setter() {
+    xai_grok_pager::appearance::cache::set_single_ctrl_c_quit(false);
+    let mut s = make_state();
+    navigate_to(&mut s, "single_ctrl_c_quit");
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    assert_set_bool_action(outcome, "single_ctrl_c_quit", true);
+    xai_grok_pager::appearance::cache::set_single_ctrl_c_quit(false);
+}
+
+#[test]
+fn single_ctrl_c_quit_mouse_click_two_stage_toggles() {
+    xai_grok_pager::appearance::cache::set_single_ctrl_c_quit(false);
+    let mut s = make_state();
+    synth_rects(&mut s);
+    let row_y = row_idx_for(&s, "single_ctrl_c_quit") as u16;
+    let outcome = handle_settings_mouse(
+        &mut s,
+        MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        10,
+        row_y,
+    );
+    assert!(matches!(outcome, SettingsKeyOutcome::Changed));
+    let outcome = handle_settings_mouse(
+        &mut s,
+        MouseEventKind::Down(crossterm::event::MouseButton::Left),
+        10,
+        row_y,
+    );
+    assert_set_bool_action(outcome, "single_ctrl_c_quit", true);
+    xai_grok_pager::appearance::cache::set_single_ctrl_c_quit(false);
+}
+
+#[test]
+fn single_ctrl_c_quit_renders_under_editor_category_shell_owned() {
+    let reg = SettingsRegistry::defaults();
+    let meta = reg
+        .find("single_ctrl_c_quit")
+        .expect("single_ctrl_c_quit must be registered");
+    assert_eq!(meta.category, SettingCategory::Editor);
+    assert_eq!(meta.owner, SettingOwner::Shell);
+    match &meta.kind {
+        SettingKind::Bool { default } => assert!(!*default, "default must be off"),
+        other => panic!("expected Bool kind for single_ctrl_c_quit, got {other:?}"),
+    }
 }
 
 #[test]

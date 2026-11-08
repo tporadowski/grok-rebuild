@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-141 — One Ctrl+C quits only when nothing would be lost
+
+`[ui].single_ctrl_c_quit` defaults off, so Ctrl+C still asks for a second press. When it is on, one Ctrl+C quits an idle session whose composer, queue, cards, and subagents are empty. A draft is still cleared first, and a running turn is still cancelled. The switch is under Editor in `/settings` (`single_ctrl_c_quits_when_nothing_would_be_lost`, `single_ctrl_c_still_confirms_when_a_draft_would_be_lost`, `single_ctrl_c_still_confirms_while_a_turn_is_running`) (`v71-f01`).
+
 ### D-140 — Vim navigation is `[keys] vim`
 
 `[keys] vim` is `off`, `nav`, or `all`. A parsed value wins over `[ui] vim_mode`. When `[keys] vim` is absent, `vim_mode = true` still means `nav`. `/vim-mode` toggles, and `/vim-mode off` or `nav` sets it. A bool save writes `nav` or `off` plus the legacy bool so the two do not drift. `all` navigates like `nav`; prompt editing stays `v71-f05`, and `/vim-mode all` does not rewrite a file (`keys_vim_wins_over_the_legacy_bool`, `legacy_bool_is_nav_when_keys_vim_is_absent`, `write_vim_mode_stores_keys_vim_and_the_legacy_bool`, `vim_mode_toggles_or_sets_off_and_nav`) (`v68-f02`).
@@ -617,7 +621,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 19 | 0 | 14 | 3 | 0 |
+| W9 | Prompt, mentions, and keyboard | 18 | 0 | 15 | 3 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -627,9 +631,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 341. Skipped: 8. Done: 186. Already: 38. Deferred: 10.
+Catalog rows: 583. Pending: 340. Skipped: 8. Done: 187. Already: 38. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: one Ctrl+C quits when nothing would be lost (`v71-f01`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: vim editing in the prompt, `[keys] vim = "all"` (`v71-f05`).
 
 ## Waves
 
@@ -667,7 +671,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 19. Done: 14 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 18. Done: 15 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -914,7 +918,7 @@ id | status | wave | kind | flag | covered | note
 - v63-f01 | done | W9 | Features |  |  | **Rex terminal support** reports each open session and each running subagent as its own record, so Rex shows what each one is doing. Set `children = false` under `[ui.notifications.program_status]` to report only the main status.
 - v67-f02 | done | W9 | Features |  |  | **Prompt suggestions** follow vim mode: with `[ui].vim_mode` on, `Tab` moves focus to the scrollback instead of accepting the suggestion. `→` or `Ctrl+→` accepts a suggestion, and `Esc` dismisses it.
 - v68-f02 | done | W9 | Features |  |  | **Vim navigation** is now one setting, `[keys] vim` (`off` or `nav`), also set with `/vim-mode`; the older `[ui] vim_mode` still works.
-- v71-f01 | pending | W9 | Features |  |  | **`ui.single_ctrl_c_quit = true`** lets a single `Ctrl+C` quit when no draft or unfinished work would be lost. It is also under Editor in `/settings`; the default still asks for a second press.
+- v71-f01 | done | W9 | Features |  |  | **`ui.single_ctrl_c_quit = true`** lets a single `Ctrl+C` quit when no draft or unfinished work would be lost. It is also under Editor in `/settings`; the default still asks for a second press.
 - v71-f05 | pending | W9 | Features |  |  | **Vim editing in the prompt** (experimental): set `[keys] vim = "all"` in `config.toml` for Insert and Normal modes with vim motions, operators, counts and undo. The prompt's info line shows `NORMAL` or `INSERT`.
 - v71-f10 | pending | W9 | Features |  |  | **Prompt vim cursor** is a block in Normal mode and a bar in Insert mode; `ui.cursor_blink` sets whether they blink.
 - v71-f11 | pending | W9 | Features |  |  | **Minimal mode** starts its info row with the prompt's vim mode (`NORMAL` or `INSERT`), and `NORMAL` is shown in bold.

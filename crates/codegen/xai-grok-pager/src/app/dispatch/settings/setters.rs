@@ -713,6 +713,34 @@ pub(in crate::app::dispatch) fn set_multiline_default(app: &mut AppView, new: bo
     }]
 }
 
+pub(super) fn set_single_ctrl_c_quit_inner(app: &mut AppView, new: bool) {
+    crate::appearance::cache::set_single_ctrl_c_quit(new);
+    app.current_ui.single_ctrl_c_quit = Some(new);
+}
+
+/// One Ctrl+C quits when the composer is empty and nothing is still running.
+/// SHELL-OWNED: cache mirror and `[ui].single_ctrl_c_quit` via `Effect::PersistSetting`.
+pub(in crate::app::dispatch) fn set_single_ctrl_c_quit(app: &mut AppView, new: bool) -> Vec<Effect> {
+    let prev = crate::appearance::cache::load_single_ctrl_c_quit();
+    if prev == new {
+        return vec![];
+    }
+    set_single_ctrl_c_quit_inner(app, new);
+    refresh_open_settings_modals(app);
+    tracing::info!(
+        target: "settings",
+        key = "single_ctrl_c_quit",
+        value = new,
+        "setting changed",
+    );
+    app.show_toast(&save_success_toast("Quit on one Ctrl+C", new));
+    vec![Effect::PersistSetting {
+        key: "single_ctrl_c_quit",
+        value: crate::settings::SettingValue::Bool(new),
+        rollback_value: crate::settings::SettingValue::Bool(prev),
+    }]
+}
+
 pub(super) fn set_prompt_suggestions_inner(app: &mut AppView, new: bool) {
     crate::appearance::cache::set_prompt_suggestions(new);
     app.current_ui.prompt_suggestions = Some(new);

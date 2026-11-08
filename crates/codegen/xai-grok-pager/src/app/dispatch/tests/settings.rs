@@ -1832,6 +1832,11 @@ fn move_setting_away_from_default(app: &mut AppView, key: crate::settings::Setti
             crate::appearance::cache::set_multiline_default(false);
             let _ = dispatch(Action::SetMultilineDefault(true), app);
         }
+        "single_ctrl_c_quit" => {
+            crate::appearance::cache::set_single_ctrl_c_quit(false);
+            let _ = dispatch(Action::SetSingleCtrlCQuit(true), app);
+            crate::appearance::cache::set_single_ctrl_c_quit(false);
+        }
         "respect_manual_folds" => {
             let _ = dispatch(
                 Action::SetRespectManualFolds(

@@ -419,6 +419,35 @@ pub fn set_multiline_default(enabled: bool) {
     MULTILINE_DEFAULT_LOADED.with(|l| l.set(true));
 }
 
+const SINGLE_CTRL_C_QUIT_DEFAULT: bool = false;
+
+thread_local! {
+    static SINGLE_CTRL_C_QUIT_CURRENT: Cell<bool> = const { Cell::new(SINGLE_CTRL_C_QUIT_DEFAULT) };
+    static SINGLE_CTRL_C_QUIT_LOADED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Read cached `[ui].single_ctrl_c_quit`. Unset means a second Ctrl+C is required.
+pub fn load_single_ctrl_c_quit() -> bool {
+    SINGLE_CTRL_C_QUIT_LOADED.with(|loaded| {
+        if !loaded.get() {
+            SINGLE_CTRL_C_QUIT_CURRENT.with(|c| {
+                c.set(load_bool_from_effective_config(
+                    "single_ctrl_c_quit",
+                    SINGLE_CTRL_C_QUIT_DEFAULT,
+                ))
+            });
+            loaded.set(true);
+        }
+    });
+    SINGLE_CTRL_C_QUIT_CURRENT.with(|c| c.get())
+}
+
+/// Replace cached `[ui].single_ctrl_c_quit`.
+pub fn set_single_ctrl_c_quit(enabled: bool) {
+    SINGLE_CTRL_C_QUIT_CURRENT.with(|c| c.set(enabled));
+    SINGLE_CTRL_C_QUIT_LOADED.with(|l| l.set(true));
+}
+
 thread_local! {
     static KEEP_TEXT_SELECTION_CURRENT: Cell<TextSelection> =
         const { Cell::new(KEEP_TEXT_SELECTION_DEFAULT) };
@@ -655,6 +684,7 @@ pub fn prime(ui: &UiConfig) {
     let _ = load_collapsed_edit_blocks();
     let _ = load_prompt_suggestions();
     let _ = load_multiline_default();
+    let _ = load_single_ctrl_c_quit();
     // `default_selected_permission` owns its own cache in `permission_cursor`.
     crate::appearance::permission_cursor::prime();
 }
@@ -778,6 +808,10 @@ mod tests {
             ui.prompt_suggestions.unwrap_or(PROMPT_SUGGESTIONS_DEFAULT)
         );
         assert_eq!(MULTILINE_DEFAULT_DEFAULT, ui.multiline_default_enabled());
+        assert_eq!(
+            SINGLE_CTRL_C_QUIT_DEFAULT,
+            ui.single_ctrl_c_quit_enabled()
+        );
         assert_eq!(KEEP_TEXT_SELECTION_DEFAULT, text_selection_from_ui(&ui));
         assert_eq!(
             SCROLL_MODE_DEFAULT,

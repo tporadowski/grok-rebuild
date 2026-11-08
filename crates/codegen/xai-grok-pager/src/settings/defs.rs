@@ -981,6 +981,20 @@ pub fn default_settings() -> Vec<SettingMeta> {
             restart_required: false,
             hidden_in_minimal: false,
         },
+        SettingMeta {
+            key: "single_ctrl_c_quit",
+            category: SettingCategory::Editor,
+            owner: SettingOwner::Shell,
+            label: "Quit on one Ctrl+C",
+            description: "Ctrl+C quits immediately when the prompt is empty and nothing \
+                          is still running. Otherwise it still asks for a second press.",
+            keywords: &["quit", "ctrl+c", "ctrlc", "exit", "cancel"],
+            kind: SettingKind::Bool {
+                default: ui_default.single_ctrl_c_quit_enabled(),
+            },
+            restart_required: false,
+            hidden_in_minimal: false,
+        },
         // PAGER-owned, persisted to `[scrollback.scroll].respect_manual_folds` in pager.toml (NOT config.toml)
         // The live value is the appearance config (`AppView::set_appearance` fans changes out to every agent)
         // The flag is read at use time, so no restart

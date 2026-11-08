@@ -615,6 +615,9 @@ pub fn current_value_for(
         "multiline_default" => Some(SettingValue::Bool(
             crate::appearance::cache::load_multiline_default(),
         )),
+        "single_ctrl_c_quit" => Some(SettingValue::Bool(
+            crate::appearance::cache::load_single_ctrl_c_quit(),
+        )),
         // PAGER: read from the process-wide cache (the snapshot mirror keeps the modal in sync with the live cache value)
         "vim_mode" => Some(SettingValue::Bool(pager.vim_mode)),
         "scroll_speed" => Some(SettingValue::Int(pager.scroll_speed as i64)),
@@ -1120,6 +1123,14 @@ mod tests {
                         "multiline_default default drifts from UiConfig::default()"
                     );
                     assert!(!*default, "multiline_default must default OFF");
+                }
+                ("single_ctrl_c_quit", SettingKind::Bool { default }) => {
+                    assert_eq!(
+                        *default,
+                        ui.single_ctrl_c_quit_enabled(),
+                        "single_ctrl_c_quit default drifts from UiConfig::default()"
+                    );
+                    assert!(!*default, "single_ctrl_c_quit must default OFF");
                 }
                 ("keep_text_selection", SettingKind::Enum { default, .. }) => {
                     // The compile-time default is flash

@@ -3785,6 +3785,57 @@ fn ctrl_c_idle_empty_prompt_focused_sets_pending_quit() {
     assert_pending_quit(&app);
 }
 #[test]
+fn single_ctrl_c_quits_when_nothing_would_be_lost() {
+    crate::appearance::cache::set_simple_mode(true);
+    crate::appearance::cache::set_single_ctrl_c_quit(true);
+    let mut app = test_app_with_agent();
+    let outcome = app.handle_input(&ctrl_c());
+    assert!(
+        matches!(outcome, InputOutcome::Action(Action::Quit)),
+        "one Ctrl+C quits an idle empty session, got {outcome:?}"
+    );
+    assert!(app.pending_action.is_none());
+    crate::appearance::cache::set_single_ctrl_c_quit(false);
+}
+#[test]
+fn single_ctrl_c_still_confirms_when_a_draft_would_be_lost() {
+    crate::appearance::cache::set_single_ctrl_c_quit(true);
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    let agent = app.agents.get_mut(&id).unwrap();
+    agent.active_pane = crate::views::agent::ActivePane::Prompt;
+    agent.prompt.textarea.set_text("keep this");
+    let outcome = app.handle_input(&ctrl_c());
+    assert!(
+        matches!(outcome, InputOutcome::Changed),
+        "a draft is cleared, not quit, got {outcome:?}"
+    );
+    assert_eq!(
+        app.agents.get(&id).unwrap().prompt.text(),
+        "",
+        "the first Ctrl+C still clears the draft"
+    );
+    assert!(
+        app.pending_action.is_none(),
+        "clearing a draft must not also arm quit"
+    );
+    crate::appearance::cache::set_single_ctrl_c_quit(false);
+}
+#[test]
+fn single_ctrl_c_still_confirms_while_a_turn_is_running() {
+    crate::appearance::cache::set_single_ctrl_c_quit(true);
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    app.agents.get_mut(&id).unwrap().session.state = AgentState::TurnRunning;
+    let outcome = app.handle_input(&ctrl_c());
+    assert!(
+        matches!(outcome, InputOutcome::Action(Action::CancelTurn)),
+        "a running turn is cancelled, not quit, got {outcome:?}"
+    );
+    assert!(app.pending_action.is_none());
+    crate::appearance::cache::set_single_ctrl_c_quit(false);
+}
+#[test]
 fn ctrl_c_double_press_idle_quits() {
     crate::appearance::cache::set_simple_mode(true);
     let mut app = test_app_with_agent();

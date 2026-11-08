@@ -10,6 +10,7 @@ use super::setters::{
     set_fork_secondary_model_inner, set_group_tool_verbs_inner, set_hunk_tracker_mode_inner,
     set_invert_scroll_inner, set_keep_text_selection_inner, set_max_thoughts_width_inner,
     set_multiline_default_inner, set_multiline_mode, set_page_flip_on_send_inner,
+    set_single_ctrl_c_quit_inner,
     set_prompt_suggestions_inner, set_remember_tool_approvals_inner, set_render_mermaid_inner,
     set_respect_manual_folds_inner, set_screen_mode_inner, set_scroll_lines_inner,
     set_scroll_mode_inner, set_scroll_speed_inner, set_show_thinking_blocks_inner,
@@ -693,6 +694,7 @@ pub(in crate::app::dispatch) fn action_for_reset(
         }
         ("multiline_mode", SettingValue::Bool(b)) => Some(Action::SetMultilineMode(*b)),
         ("multiline_default", SettingValue::Bool(b)) => Some(Action::SetMultilineDefault(*b)),
+        ("single_ctrl_c_quit", SettingValue::Bool(b)) => Some(Action::SetSingleCtrlCQuit(*b)),
         ("render_mermaid", SettingValue::Enum(s)) => {
             crate::appearance::RenderMermaid::from_canonical(s).map(Action::SetRenderMermaid)
         }
@@ -1050,6 +1052,7 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
         }
         ("prompt_suggestions", SettingValue::Bool(b)) => set_prompt_suggestions_inner(app, *b),
         ("multiline_default", SettingValue::Bool(b)) => set_multiline_default_inner(app, *b),
+        ("single_ctrl_c_quit", SettingValue::Bool(b)) => set_single_ctrl_c_quit_inner(app, *b),
         // keep_text_selection: restore the cache mirror to the canonical value.
         ("keep_text_selection", SettingValue::Enum(s)) => {
             if let Some(kind) = crate::appearance::TextSelection::from_canonical(s) {

@@ -2490,6 +2490,7 @@ mod question_send_now_tests {
     }
 }
 
+#[cfg(test)]
 mod question_answer_focus_tests {
     //! The question card's answer walk.
     //! Tab used to hand focus to the scrollback while the card stayed drawn; these tests pin the walk that replaced it.

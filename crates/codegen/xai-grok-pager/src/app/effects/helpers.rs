@@ -1317,6 +1317,14 @@ pub(crate) async fn persist_setting(
                 .await
                 .map_err(|e| e.to_string())
         }
+        "single_ctrl_c_quit" => {
+            let SettingValue::Bool(b) = value else {
+                return Err(kind_mismatch("single_ctrl_c_quit", "Bool", &value));
+            };
+            xai_grok_shell::util::config::set_single_ctrl_c_quit(b)
+                .await
+                .map_err(|e| e.to_string())
+        }
         "keep_text_selection" => {
             let SettingValue::Enum(s) = value else {
                 return Err(kind_mismatch("keep_text_selection", "Enum", &value));

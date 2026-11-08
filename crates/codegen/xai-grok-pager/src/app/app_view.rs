@@ -2968,6 +2968,9 @@ impl AppView {
                 ActiveView::Agent(_) | ActiveView::AgentDashboard
             )
         {
+            if self.single_ctrl_c_quits_now(key) {
+                return InputOutcome::Action(Action::Quit);
+            }
             self.pending_action = Some(PendingAction::new(
                 Action::Quit,
                 KeyShortcut::from(*key),
@@ -3006,6 +3009,7 @@ impl AppView {
         if def.requires_confirmation
             && !(action_id == ActionId::NewSession
                 && matches!(self.active_view, ActiveView::Welcome))
+            && !(action_id == ActionId::Quit && self.single_ctrl_c_quits_now(key))
         {
             let shortcut = KeyShortcut::from(*key);
             let action = if action_id == ActionId::NewSession
@@ -3039,7 +3043,7 @@ impl AppView {
         let Some(def) = self.registry.find(ActionId::Quit) else {
             return InputOutcome::Action(Action::Quit);
         };
-        if def.requires_confirmation {
+        if def.requires_confirmation && !self.single_ctrl_c_quits_now(key) {
             let shortcut = KeyShortcut::from(*key);
             self.pending_action = Some(PendingAction::new(
                 Action::Quit,
@@ -3050,6 +3054,31 @@ impl AppView {
         } else {
             InputOutcome::Action(Action::Quit)
         }
+    }
+    /// `[ui].single_ctrl_c_quit`: this Ctrl+C can quit without a second press.
+    fn single_ctrl_c_quits_now(&self, key: &crossterm::event::KeyEvent) -> bool {
+        crate::key!('c', CONTROL).matches(key) && self.nothing_would_be_lost_on_quit()
+    }
+    /// Empty composers and no live work. A draft, a running turn, a queue, a card, or a subagent still confirms.
+    fn nothing_would_be_lost_on_quit(&self) -> bool {
+        if !crate::appearance::cache::load_single_ctrl_c_quit() || self.has_running_workflow() {
+            return false;
+        }
+        self.agents.values().all(|agent| {
+            agent.prompt.text().trim().is_empty()
+                && agent.prompt.images.is_empty()
+                && agent.session.state.is_idle()
+                && !agent.any_cancel_pending()
+                && agent.permission_queue.is_empty()
+                && agent.question_view.is_none()
+                && agent.plan_approval_view.is_none()
+                && agent.session.pending_prompts.is_empty()
+                && agent.shared_queue.is_empty()
+                && agent
+                    .subagent_sessions
+                    .values()
+                    .all(|info| !info.attempt.lifecycle.is_running())
+        })
     }
     fn has_running_workflow(&self) -> bool {
         self.agents

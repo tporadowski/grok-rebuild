@@ -511,6 +511,9 @@ pub enum Action {
     /// Start new sessions and the dashboard in multiline mode.
     /// SHELL-owned: cache mirror and `[ui].multiline_default` via `Effect::PersistSetting`.
     SetMultilineDefault(bool),
+    /// One Ctrl+C quits when nothing would be lost.
+    /// SHELL-owned: cache mirror and `[ui].single_ctrl_c_quit` via `Effect::PersistSetting`.
+    SetSingleCtrlCQuit(bool),
     /// Set `[scrollback.scroll].respect_manual_folds`.
     /// PAGER-owned: live-applied via `AppView::set_appearance` and persisted to pager.toml via `Effect::PersistSetting`.
     SetRespectManualFolds(bool),

@@ -156,6 +156,10 @@ pub struct UiConfig {
     /// `None` means off. Written by the settings modal as `[ui].multiline_default`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multiline_default: Option<bool>,
+    /// One Ctrl+C quits when the composer is empty and nothing is still running.
+    /// `None` means off: Ctrl+C still asks for a second press.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub single_ctrl_c_quit: Option<bool>,
     /// Startup cursor style: `None` (default) inherits the terminal's own style.
     /// `Some(true)` forces the legacy blinking block, `Some(false)` a steady block.
     /// Config-file-only knob (no /settings row).
@@ -302,6 +306,7 @@ impl Default for UiConfig {
             collapsed_edit_blocks: None,
             prompt_suggestions: None,
             multiline_default: None,
+            single_ctrl_c_quit: None,
             cursor_blink: None,
             screen_mode: None,
             double_click_action: None,
@@ -331,6 +336,14 @@ impl UiConfig {
     pub fn multiline_default_enabled(&self) -> bool {
         self.multiline_default
             .unwrap_or(Self::MULTILINE_DEFAULT_DEFAULT)
+    }
+
+    /// Default for [`Self::single_ctrl_c_quit`]. A second Ctrl+C is still required.
+    pub const SINGLE_CTRL_C_QUIT_DEFAULT: bool = false;
+
+    pub fn single_ctrl_c_quit_enabled(&self) -> bool {
+        self.single_ctrl_c_quit
+            .unwrap_or(Self::SINGLE_CTRL_C_QUIT_DEFAULT)
     }
 
     /// Resolved timeline-sidebar setting: the configured value, or [`Self::SHOW_TIMELINE_DEFAULT`] when unset.

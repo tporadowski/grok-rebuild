@@ -710,6 +710,8 @@ fn rows_contain_categories_and_settings_through_pr_14() {
             "multiline_default",
             // SHELL-owned prompt_suggestions (Editor; tab autocomplete ghost text, live cache)
             "prompt_suggestions",
+            // SHELL-owned single Ctrl+C quit (Editor).
+            "single_ctrl_c_quit",
             // voice_keybind_enabled, voice_capture_mode, and voice_stt_language hidden when the voice gate is off
             // SHELL-owned permission_mode (Agent category).
             "permission_mode",
