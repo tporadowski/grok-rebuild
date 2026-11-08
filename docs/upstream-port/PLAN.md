@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-188 — Allow once covers the command on the card
+
+`Allow once` allows the shell command the card is asking about. `record_prompt_outcome` writes a session allow for `AllowAlways`, `AllowAlwaysBashCommand`, and `AllowAlwaysBashGlob`. `AllowOnce` writes nothing, so a later shell command is asked again (`v49-x03`).
+
 ### D-187 — Cancelling one tool call stops only that call's command
 
 Dropping a shell tool call while its command is still in the foreground signals that command's process group (`KillThisCallOnDrop` calls `kill_by_tool_call_id`). The match is the call's `tool_call_id`. Every other command on the terminal keeps running. A command that has already moved to the background stays up for `kill_task`. Turn and session teardown still stop every foreground command through `kill_foreground_commands` (`killing_one_tool_call_leaves_the_parallel_command_running`, `cancelling_one_bash_call_leaves_the_parallel_command_running`) (`v48-x05`).
@@ -815,7 +819,7 @@ Refresh these numbers at the end of a session.
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
-| W11 | Headless mode and tools | 35 | 0 | 6 | 0 | 0 |
+| W11 | Headless mode and tools | 34 | 0 | 6 | 1 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
@@ -823,9 +827,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 274. Skipped: 8. Done: 251. Already: 40. Deferred: 10.
+Catalog rows: 583. Pending: 273. Skipped: 8. Done: 251. Already: 41. Deferred: 10.
 
-**Next:** W11 headless mode and tools. First open row: Allow once applies only to the next shell command (`v49-x03`).
+**Next:** W11 headless mode and tools. First open row: `pkill -f` and `pgrep -f` are rejected when the pattern matches their wrapper (`v49-x04`).
 
 ## Waves
 
@@ -871,7 +875,7 @@ Pending: 0. Done: 43 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50
 
 ### W11 — Headless mode and tools
 
-Pending: 35. Done: 6 (`v46-x05`, `v48-x03`, `v48-x05`). Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat. Cancelling one shell tool call stops that command and leaves the other parallel commands running (D-187).
+Pending: 34. Done: 6 (`v46-x05`, `v48-x03`, `v48-x05`). Already: 1 (`v49-x03`, D-188). Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat. Cancelling one shell tool call stops that command and leaves the other parallel commands running (D-187). Allow once allows the command on the card and does not remember it for the session (D-188).
 
 ### W12 — MCP, web, images, and browser
 
@@ -1177,7 +1181,7 @@ id | status | wave | kind | flag | covered | note
 - v46-x05 | done | W11 | Bug Fixes |  |  | **Context compacted** line now shows the correct token count immediately after compaction instead of at the end of a long turn.
 - v48-x03 | done | W11 | Bug Fixes |  |  | `read_file`, `search_replace`, and `grep` now handle large files, special files, and binary content more reliably and surface better errors.
 - v48-x05 | done | W11 | Bug Fixes |  |  | **Cancelling one tool call** no longer kills commands started by other parallel calls.
-- v49-x03 | pending | W11 | Bug Fixes |  |  | **Allow once** in permission cards now applies only to the next shell command instead of the whole session.
+- v49-x03 | already | W11 | Bug Fixes |  |  | **Allow once** in permission cards now applies only to the next shell command instead of the whole session.
 - v49-x04 | pending | W11 | Bug Fixes |  |  | **pkill -f** and **pgrep -f** commands are now rejected earlier when the pattern would kill their own shell wrapper.
 - v50-f07 | pending | W11 | Features |  |  | **Shell command output** now shows "Running …" while executing and "Ran …" when finished.
 - v50-x02 | pending | W11 | Bug Fixes |  |  | **Cancelled turns** now correctly mark unanswered tool calls as cancelled instead of succeeded.
