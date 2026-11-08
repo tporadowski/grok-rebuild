@@ -1393,24 +1393,16 @@ pub(crate) async fn run(
         )
         .value,
     );
-    crate::appearance::cache::set_group_tool_verbs(
-        xai_grok_shell::util::config::resolve_group_tool_verbs(
-            requirements.as_ref(),
-            user_config.as_ref(),
-            managed_config.as_ref(),
-            remote_settings.as_ref(),
-        )
-        .value,
+    // Legacy flags only count from a tier at least as high as `tool_call_density`.
+    // `prime` below writes the merged density and would drop an env or requirement override, so density is applied again after it.
+    let density_fold = xai_grok_shell::util::config::resolve_density_fold(
+        requirements.as_ref(),
+        user_config.as_ref(),
+        managed_config.as_ref(),
+        remote_settings.as_ref(),
     );
-    crate::appearance::cache::set_collapsed_edit_blocks(
-        xai_grok_shell::util::config::resolve_collapsed_edit_blocks(
-            requirements.as_ref(),
-            user_config.as_ref(),
-            managed_config.as_ref(),
-            remote_settings.as_ref(),
-        )
-        .value,
-    );
+    crate::appearance::cache::set_group_tool_verbs(density_fold.group_tool_verbs);
+    crate::appearance::cache::set_collapsed_edit_blocks(density_fold.collapsed_edit_blocks);
     app.usage_billing_redirect_url = remote_settings
         .as_ref()
         .and_then(|s| s.usage_billing_redirect_url.clone());
@@ -1617,6 +1609,7 @@ pub(crate) async fn run(
     app.auto_update = config_session_bools.auto_update;
     app.ask_user_question_timeout_enabled = config_session_bools.ask_user_question_timeout_enabled;
     crate::appearance::cache::prime(&app.current_ui);
+    crate::appearance::cache::set_tool_call_density(density_fold.density);
     crate::appearance::cache::apply_remote_keep_text_selection_default(
         remote_settings
             .as_ref()

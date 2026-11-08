@@ -270,15 +270,16 @@ pub(super) fn handle_settings_update(notif: &acp::ExtNotification, app: &mut App
     // Either way resolving without a remote value is correct
     let remote = xai_grok_shell::util::config::RemoteSettings {
         group_tool_verbs: update.group_tool_verbs,
+        collapsed_edit_blocks: update.collapsed_edit_blocks,
         ..Default::default()
     };
-    let resolved = xai_grok_shell::util::config::resolve_group_tool_verbs(
+    let fold = xai_grok_shell::util::config::resolve_density_fold(
         requirements.as_ref(),
         user_config.as_ref(),
         managed_config.as_ref(),
         Some(&remote),
-    )
-    .value;
+    );
+    let resolved = fold.group_tool_verbs;
     // On a real flip, re-fold every live transcript (mirrors dispatch's set_group_tool_verbs_inner); unchanged values keep `/new` cheap
     // Stale expansion ids describe the old grouping shape
     // Drop them so the re-fold can't reopen a verb slot expanded or mark a coincident dense group expanded (see `clear_group_expansion`)
@@ -296,30 +297,32 @@ pub(super) fn handle_settings_update(notif: &acp::ExtNotification, app: &mut App
 
     // Same rule as group_tool_verbs above: None also reverts
     // Re-resolve the full local chain with the pushed remote tier so a cleared remote field falls back to local/default instead of staying latched
-    let remote = xai_grok_shell::util::config::RemoteSettings {
-        collapsed_edit_blocks: update.collapsed_edit_blocks,
-        ..Default::default()
-    };
-    let resolved = xai_grok_shell::util::config::resolve_collapsed_edit_blocks(
-        requirements.as_ref(),
-        user_config.as_ref(),
-        managed_config.as_ref(),
-        Some(&remote),
-    )
-    .value;
-    // On a real flip, rebuild on-default Edit rows and repaint suffixes in every live transcript (mirrors dispatch's set_collapsed_edit_blocks_inner)
-    // Unchanged values keep `/new` cheap
-    let prev = crate::appearance::cache::load_collapsed_edit_blocks();
-    if resolved != prev {
+    let resolved = fold.collapsed_edit_blocks;
+    let prev_edits = crate::appearance::cache::edits_start_collapsed();
+    let prev_density = crate::appearance::cache::load_tool_call_density();
+    if fold.density != prev_density {
+        crate::appearance::cache::set_tool_call_density(fold.density);
+        for agent in app.agents.values_mut() {
+            agent.scrollback.invalidate_heights();
+            for child in agent.subagent_views.values_mut() {
+                child.scrollback.invalidate_heights();
+            }
+        }
+    }
+    // Edit rows follow the effective collapse, which is the legacy flag or the density.
+    if resolved != crate::appearance::cache::load_collapsed_edit_blocks() {
         crate::appearance::cache::set_collapsed_edit_blocks(resolved);
+    }
+    let next_edits = crate::appearance::cache::edits_start_collapsed();
+    if prev_edits != next_edits {
         for agent in app.agents.values_mut() {
             agent
                 .scrollback
-                .apply_collapsed_edit_blocks_flip(prev, resolved);
+                .apply_collapsed_edit_blocks_flip(prev_edits, next_edits);
             for child in agent.subagent_views.values_mut() {
                 child
                     .scrollback
-                    .apply_collapsed_edit_blocks_flip(prev, resolved);
+                    .apply_collapsed_edit_blocks_flip(prev_edits, next_edits);
             }
         }
     }

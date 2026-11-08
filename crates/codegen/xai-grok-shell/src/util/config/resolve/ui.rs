@@ -69,6 +69,99 @@ pub fn resolve_group_tool_verbs(
     )
 }
 
+pub const ENV_TOOL_CALL_DENSITY: &str = "GROK_TOOL_CALL_DENSITY";
+
+/// One config tier's view of the density family. `None` means that tier did not set the key.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DensityTier {
+    pub density: Option<crate::agent::config::ToolCallDensity>,
+    pub group_tool_verbs: Option<bool>,
+    pub collapsed_edit_blocks: Option<bool>,
+}
+
+/// The fold that should be shown after the density family is combined across tiers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DensityFold {
+    pub density: crate::agent::config::ToolCallDensity,
+    pub group_tool_verbs: bool,
+    pub collapsed_edit_blocks: bool,
+}
+
+/// `tiers` is highest priority first.
+///
+/// A legacy flag counts only from a tier at least as high as the tier that set
+/// `tool_call_density`. A lower tier's `group_tool_verbs = false` does not turn
+/// folding off against a higher tier's density, and a lower tier's
+/// `collapsed_edit_blocks` does not force edit collapse against it. On the
+/// winning tier, `group_tool_verbs = false` still turns every fold off and
+/// `collapsed_edit_blocks = true` still forces edit collapse.
+pub fn combine_density_tiers(tiers: &[DensityTier]) -> DensityFold {
+    let density_at = tiers.iter().position(|tier| tier.density.is_some());
+    let counts = |index: usize| density_at.is_none_or(|density| index <= density);
+    let group_tool_verbs = tiers
+        .iter()
+        .enumerate()
+        .find_map(|(index, tier)| counts(index).then_some(tier.group_tool_verbs).flatten())
+        .unwrap_or(true);
+    let collapsed_edit_blocks = tiers
+        .iter()
+        .enumerate()
+        .find_map(|(index, tier)| counts(index).then_some(tier.collapsed_edit_blocks).flatten())
+        .unwrap_or(false);
+    DensityFold {
+        density: tiers.iter().find_map(|tier| tier.density).unwrap_or_default(),
+        group_tool_verbs,
+        collapsed_edit_blocks,
+    }
+}
+
+/// Requirement, then env, then user, then managed, then remote.
+/// Env is `GROK_TOOL_CALL_DENSITY`, `GROK_GROUP_TOOL_VERBS`, and `GROK_COLLAPSED_EDIT_BLOCKS`.
+pub fn resolve_density_fold(
+    requirements: Option<&TomlValue>,
+    user: Option<&TomlValue>,
+    managed: Option<&TomlValue>,
+    remote: Option<&RemoteSettings>,
+) -> DensityFold {
+    let tier = |value: Option<&TomlValue>| DensityTier {
+        density: density_from_toml(value),
+        group_tool_verbs: bool_from_toml(value, "group_tool_verbs"),
+        collapsed_edit_blocks: bool_from_toml(value, "collapsed_edit_blocks"),
+    };
+    let env_density = std::env::var(ENV_TOOL_CALL_DENSITY)
+        .ok()
+        .and_then(|raw| crate::agent::config::ToolCallDensity::parse(&raw));
+    combine_density_tiers(&[
+        tier(requirements),
+        DensityTier {
+            density: env_density,
+            group_tool_verbs: xai_grok_config::env_bool(ENV_GROUP_TOOL_VERBS),
+            collapsed_edit_blocks: xai_grok_config::env_bool(ENV_COLLAPSED_EDIT_BLOCKS),
+        },
+        tier(user),
+        tier(managed),
+        DensityTier {
+            density: None,
+            group_tool_verbs: remote.and_then(|settings| settings.group_tool_verbs),
+            collapsed_edit_blocks: remote.and_then(|settings| settings.collapsed_edit_blocks),
+        },
+    ])
+}
+
+fn bool_from_toml(value: Option<&TomlValue>, key: &str) -> Option<bool> {
+    value?.get("ui")?.get(key)?.as_bool()
+}
+
+fn density_from_toml(
+    value: Option<&TomlValue>,
+) -> Option<crate::agent::config::ToolCallDensity> {
+    value?
+        .get("ui")?
+        .get("tool_call_density")?
+        .as_str()
+        .and_then(crate::agent::config::ToolCallDensity::parse)
+}
+
 pub const ENV_COLLAPSED_EDIT_BLOCKS: &str = "GROK_COLLAPSED_EDIT_BLOCKS";
 
 #[cfg(test)]
@@ -412,5 +505,89 @@ mod collapsed_edit_blocks_tests {
         let r = resolve_collapsed_edit_blocks(None, None, Some(&on), Some(&remote(Some(false))));
         assert!(r.value);
         assert_eq!(r.source, ConfigSource::ManagedConfig);
+    }
+}
+
+#[cfg(test)]
+mod density_tier_tests {
+    use super::{DensityTier, combine_density_tiers, resolve_density_fold};
+    use crate::agent::config::ToolCallDensity;
+
+    fn tier(
+        density: Option<ToolCallDensity>,
+        group: Option<bool>,
+        collapsed: Option<bool>,
+    ) -> DensityTier {
+        DensityTier {
+            density,
+            group_tool_verbs: group,
+            collapsed_edit_blocks: collapsed,
+        }
+    }
+
+    #[test]
+    fn higher_density_ignores_a_lower_legacy_flag() {
+        let fold = combine_density_tiers(&[
+            tier(Some(ToolCallDensity::Detailed), None, None),
+            tier(None, Some(false), Some(true)),
+        ]);
+        assert_eq!(fold.density, ToolCallDensity::Detailed);
+        assert!(fold.group_tool_verbs);
+        assert!(!fold.collapsed_edit_blocks);
+    }
+
+    #[test]
+    fn higher_legacy_flag_still_changes_a_lower_density() {
+        let fold = combine_density_tiers(&[
+            tier(None, Some(false), Some(true)),
+            tier(Some(ToolCallDensity::Detailed), None, None),
+        ]);
+        assert_eq!(fold.density, ToolCallDensity::Detailed);
+        assert!(!fold.group_tool_verbs);
+        assert!(fold.collapsed_edit_blocks);
+    }
+
+    #[test]
+    fn same_tier_legacy_flag_still_applies() {
+        let fold = combine_density_tiers(&[tier(
+            Some(ToolCallDensity::CompactGrouped),
+            Some(false),
+            Some(true),
+        )]);
+        assert_eq!(fold.density, ToolCallDensity::CompactGrouped);
+        assert!(!fold.group_tool_verbs);
+        assert!(fold.collapsed_edit_blocks);
+    }
+
+    #[test]
+    fn nothing_set_uses_the_defaults() {
+        let fold = combine_density_tiers(&[DensityTier::default()]);
+        assert_eq!(fold.density, ToolCallDensity::CompactAllGrouped);
+        assert!(fold.group_tool_verbs);
+        assert!(!fold.collapsed_edit_blocks);
+    }
+
+    #[test]
+    fn user_density_beats_managed_legacy_flags() {
+        let _group = super::GROUP_TOOL_VERBS_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let _collapsed = super::COLLAPSED_EDIT_BLOCKS_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        unsafe {
+            std::env::remove_var(super::ENV_GROUP_TOOL_VERBS);
+            std::env::remove_var(super::ENV_COLLAPSED_EDIT_BLOCKS);
+            std::env::remove_var(super::ENV_TOOL_CALL_DENSITY);
+        }
+        let user = toml::from_str("[ui]\ntool_call_density = \"detailed\"\n").unwrap();
+        let managed = toml::from_str(
+            "[ui]\ngroup_tool_verbs = false\ncollapsed_edit_blocks = true\n",
+        )
+        .unwrap();
+        let fold = resolve_density_fold(None, Some(&user), Some(&managed), None);
+        assert_eq!(fold.density, ToolCallDensity::Detailed);
+        assert!(fold.group_tool_verbs);
+        assert!(!fold.collapsed_edit_blocks);
     }
 }
