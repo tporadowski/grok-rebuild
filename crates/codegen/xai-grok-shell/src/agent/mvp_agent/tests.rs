@@ -1809,6 +1809,30 @@ async fn restore_keeps_the_saved_context_window_selection_without_a_catalog() {
         selection.load(std::sync::atomic::Ordering::Relaxed)
     );
 }
+/// An editor that can read and write files gets one transcript notice. Read-only does not.
+#[tokio::test(flavor = "current_thread")]
+async fn file_access_notice_is_one_session_message_when_the_editor_offers_both() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut agent = build_minimal_agent_for_tests();
+    agent.gateway = GatewaySender::new(tx);
+    let sid = acp::SessionId::new("editor-fs");
+    agent.announce_file_access(&sid, true, true).await;
+    let message = rx.try_recv().expect("one notice");
+    let xai_acp_lib::AcpClientMessage::SessionNotification(args) = message else {
+        panic!("expected a session notification, got {message:?}");
+    };
+    let rendered = format!("{:?}", args.request.update);
+    assert!(
+        rendered.contains(super::session_setup::FILE_ACCESS_NOTICE),
+        "{rendered}"
+    );
+    assert!(rx.try_recv().is_err(), "says so once");
+    agent.announce_file_access(&sid, true, false).await;
+    agent.announce_file_access(&sid, false, true).await;
+    agent.announce_file_access(&sid, false, false).await;
+    assert!(rx.try_recv().is_err(), "a partial offer sends nothing");
+}
+
 /// The resume notice is one session message, not one per bad history line.
 #[tokio::test(flavor = "current_thread")]
 async fn unrecognized_effort_notice_is_one_session_message() {

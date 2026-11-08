@@ -77,6 +77,14 @@ fn parse_client_session_kind(meta: Option<&acp::Meta>) -> Result<Option<String>,
     tracing::warn!(kind, "ignoring unsupported _meta.sessionKind claim");
     Ok(None)
 }
+/// Shown once, when a new session's editor can both read and write files.
+pub(super) const FILE_ACCESS_NOTICE: &str = "The agent reads and writes files on disk.";
+
+/// `Some` only when the editor offered both file read and file write.
+pub(super) fn file_access_notice(fs_read: bool, fs_write: bool) -> Option<&'static str> {
+    (fs_read && fs_write).then_some(FILE_ACCESS_NOTICE)
+}
+
 /// Per-client capabilities for one session.
 /// Leader mode injects these per request, so they belong to the request rather than to the agent.
 struct ClientCaps {
@@ -723,6 +731,8 @@ impl MvpAgent {
         }
         spawn_res?;
         tracing::debug!(session_id = %session_id.0, "new_session: spawn_session_actor");
+        self.announce_file_access(&session_id, client_fs_read, client_fs_write)
+            .await;
         if session_computer_sessions
             .as_ref()
             .is_some_and(|sessions| !sessions.is_empty())
@@ -1742,6 +1752,25 @@ impl MvpAgent {
             )
             .await;
         }
+    }
+    /// Tell an editor that offered file read and write, once per new session, that the agent uses disk.
+    /// Resume and load do not send it again.
+    pub(super) async fn announce_file_access(
+        &self,
+        session_id: &acp::SessionId,
+        fs_read: bool,
+        fs_write: bool,
+    ) {
+        let Some(notice) = file_access_notice(fs_read, fs_write) else {
+            return;
+        };
+        let notification = acp::SessionNotification::new(
+            session_id.clone(),
+            acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(acp::ContentBlock::Text(
+                acp::TextContent::new(notice.to_string()),
+            ))),
+        );
+        let _ = self.gateway.session_notification(notification).await;
     }
     /// Tell the client once that this resume dropped an unrecognized effort and is on the model default.
     pub(super) async fn announce_unrecognized_reasoning_effort(
