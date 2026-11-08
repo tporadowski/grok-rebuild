@@ -2295,6 +2295,201 @@ fn peek_mouse_click_on_reply_rect_focuses() {
     );
 }
 
+/// Turns on the clipboard write capture for this thread and turns it off on drop, including after a panic.
+struct CopyCapture;
+
+impl CopyCapture {
+    fn arm() -> Self {
+        crate::clipboard::set_copy_capture(true);
+        Self
+    }
+}
+
+impl Drop for CopyCapture {
+    fn drop(&mut self) {
+        crate::clipboard::set_copy_capture(false);
+    }
+}
+
+fn mouse_at(
+    kind: crossterm::event::MouseEventKind,
+    column: u16,
+    row: u16,
+) -> crossterm::event::MouseEvent {
+    crossterm::event::MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+fn paint_dashboard(
+    buf: &mut ratatui::buffer::Buffer,
+    state: &mut DashboardState,
+    agents: &mut indexmap::IndexMap<AgentId, crate::app::agent_view::AgentView>,
+) {
+    use crate::views::dashboard::WorkspaceRowInputs;
+    use crate::views::dashboard::render::render_dashboard;
+
+    let area = Rect::new(0, 0, 100, 40);
+    let _ = render_dashboard(
+        buf,
+        area,
+        state,
+        agents,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+        &[],
+        false,
+        WorkspaceRowInputs::default(),
+        None,
+        false,
+        None,
+        None,
+    );
+}
+
+/// Render a dashboard whose open peek paints `token` in the transcript tail.
+/// Returns the state, the agents that produced it, and the screen cells of the token's first and last columns.
+fn rendered_peek_token(
+    token: &str,
+) -> (
+    DashboardState,
+    indexmap::IndexMap<AgentId, crate::app::agent_view::AgentView>,
+    u16,
+    u16,
+    u16,
+) {
+    use unicode_width::UnicodeWidthStr;
+
+    use crate::app::agent_view::test_fixtures::make_agent;
+    use crate::scrollback::block::RenderBlock;
+    use crate::scrollback::entry::ScrollbackEntry;
+
+    let mut agent = make_agent();
+    // An idle agent with no user prompt is omitted from the row list, so the peek never opens.
+    agent.display_name = Some("peek-session".to_string());
+    agent
+        .scrollback
+        .push(ScrollbackEntry::new(RenderBlock::user_prompt("ask")));
+    agent
+        .scrollback
+        .push(ScrollbackEntry::new(RenderBlock::agent_message(
+            token.to_string(),
+        )));
+    let mut agents = indexmap::IndexMap::from([(AgentId(0), agent)]);
+    let mut state = DashboardState::new();
+    state.preview_enabled = true;
+    state.focus_row(DashboardRowId::TopLevel(AgentId(0)));
+    let area = Rect::new(0, 0, 100, 40);
+    let mut buf = ratatui::buffer::Buffer::empty(area);
+    paint_dashboard(&mut buf, &mut state, &mut agents);
+    let (line_idx, line) = state
+        .peek_body_lines
+        .iter()
+        .enumerate()
+        .find(|(_, line)| line.contains(token))
+        .unwrap_or_else(|| {
+            panic!(
+                "token not in peek body: {:?} peek_open={}",
+                state.peek_body_lines,
+                state.peek.is_some()
+            )
+        });
+    let byte = line.find(token).expect("token");
+    let start_col = line[..byte].width() as u16;
+    let end_col = start_col + token.width() as u16 - 1;
+    let rect = state.peek_body_rect.expect("peek body rect");
+    assert!(
+        end_col < rect.width,
+        "token clipped in {line:?} (rect width {})",
+        rect.width
+    );
+    (
+        state,
+        agents,
+        rect.x + start_col,
+        rect.x + end_col,
+        rect.y + line_idx as u16,
+    )
+}
+
+/// Dragging across peek transcript text selects that span and copies it on release.
+#[test]
+fn peek_text_select_drag_copies_on_release() {
+    use crossterm::event::{MouseButton, MouseEventKind};
+    use ratatui::style::{Color, Modifier};
+
+    let _capture = CopyCapture::arm();
+    let (mut state, mut agents, x0, x1, y) = rendered_peek_token("PEEKTOKEN");
+    let down = MouseEventKind::Down(MouseButton::Left);
+    let drag = MouseEventKind::Drag(MouseButton::Left);
+    let up = MouseEventKind::Up(MouseButton::Left);
+    assert!(matches!(
+        state.handle_mouse(&mouse_at(down, x0, y)),
+        InputOutcome::Changed
+    ));
+    assert!(
+        state.peek_text_drag.is_none(),
+        "a press alone is not a selection yet"
+    );
+    assert!(matches!(
+        state.handle_mouse(&mouse_at(drag, x1, y)),
+        InputOutcome::Changed
+    ));
+    assert!(
+        state.peek_text_drag.is_some(),
+        "drag selects the transcript"
+    );
+
+    let area = Rect::new(0, 0, 100, 40);
+    let mut buf = ratatui::buffer::Buffer::empty(area);
+    paint_dashboard(&mut buf, &mut state, &mut agents);
+    assert!(
+        state.peek_text_drag.is_some(),
+        "redraw keeps the in-progress selection"
+    );
+    let theme = crate::theme::Theme::current();
+    let cell = buf.cell((x0, y)).expect("selection cell");
+    if theme.text_primary == Color::Reset || theme.bg_base == Color::Reset {
+        assert!(
+            cell.modifier.contains(Modifier::REVERSED),
+            "selection cell {cell:?}"
+        );
+    } else {
+        assert_eq!(cell.bg, theme.text_primary, "selection cell {cell:?}");
+    }
+
+    assert!(matches!(
+        state.handle_mouse(&mouse_at(up, x1, y)),
+        InputOutcome::Changed
+    ));
+    assert!(state.peek_text_drag.is_none(), "release ends the drag");
+    assert_eq!(
+        crate::clipboard::take_captured_copy().as_deref(),
+        Some("PEEKTOKEN"),
+        "release copies the dragged span"
+    );
+    assert_eq!(state.error_toast.as_deref(), Some("Copied!"));
+    assert!(state.peek_reply.text().is_empty());
+    assert!(state.peek_reply.textarea.selection_range().is_none());
+}
+
+/// A click on peek transcript text does not copy it. Copy happens when a drag is released.
+#[test]
+fn peek_text_select_click_does_not_copy() {
+    use crossterm::event::{MouseButton, MouseEventKind};
+
+    let _capture = CopyCapture::arm();
+    let (mut state, _agents, x0, _x1, y) = rendered_peek_token("PEEKTOKEN");
+    let _ = state.handle_mouse(&mouse_at(MouseEventKind::Down(MouseButton::Left), x0, y));
+    let _ = state.handle_mouse(&mouse_at(MouseEventKind::Up(MouseButton::Left), x0, y));
+    assert!(state.peek_text_drag.is_none());
+    assert!(crate::clipboard::take_captured_copy().is_none());
+    assert!(state.error_toast.is_none());
+}
+
 /// Esc never wipes a typed dispatch draft. On a focused input the first. EscEsc unfocuses (blurs) to
 /// the overview list so the user can navigate; the draft is left intact. A later. EscEsc exits, still.
 #[test]

@@ -351,6 +351,14 @@ impl PersistedDashboard {
     }
 }
 
+/// Left press on the peek transcript that has not moved yet.
+#[derive(Clone, Copy)]
+struct PeekTextPress {
+    column: u16,
+    row: u16,
+    endpoint: crate::views::drag_select::TextEndpoint,
+}
+
 /// In-memory dashboard state. Refreshed every render frame off `app.agents`. Selection is keyed by
 /// `DashboardRowId` so a rename / reorder / completion does not invalidate the cursor as long as
 /// the row's id is stable.
@@ -416,6 +424,17 @@ pub struct DashboardState {
     /// Mirrors [`Self::dispatch_rect`]: consumed by mouse handling for click-to-focus and drag text selection.
     /// `None` while the peek is closed.
     pub peek_reply_rect: Option<Rect>,
+    /// Left press started in [`Self::peek_reply_rect`]. Drag and release stay with the reply until that press ends.
+    peek_reply_selecting: bool,
+    /// Last frame's screen rect of the peek transcript, between the status line and the reply.
+    /// `None` while the peek is closed or that tail has no text.
+    peek_body_rect: Option<Rect>,
+    /// Plain text of each painted transcript row, top to bottom. Drag-select copies from these lines.
+    peek_body_lines: Vec<String>,
+    /// Press on the transcript that has not yet moved into a selection.
+    peek_text_press: Option<PeekTextPress>,
+    /// In-progress transcript selection. Mouse-up copies it and clears this.
+    peek_text_drag: Option<crate::views::drag_select::TextDrag>,
     /// Directory the reply's `@` file-search daemon is currently rooted at. Tracked so
     /// [`Self::ensure_peek_reply_cwd`] can skip a `retarget` (which drops the daemon so the next @-use
     /// rebuilds it) when the peeked agent's cwd hasn't actually changed.
@@ -1151,6 +1170,11 @@ impl DashboardState {
             peek_viewport: None,
             peek_reply,
             peek_reply_rect: None,
+            peek_reply_selecting: false,
+            peek_body_rect: None,
+            peek_body_lines: Vec::new(),
+            peek_text_press: None,
+            peek_text_drag: None,
             peek_reply_cwd: None,
             peek_reply_target_cwd: None,
             rename: None,
@@ -1878,6 +1902,8 @@ impl DashboardState {
         if peek.is_none() {
             self.peek_close_rect = None;
             self.peek_reply_rect = None;
+            self.peek_reply_selecting = false;
+            self.clear_peek_body();
         }
         let row_changed = peek.as_ref().map(|p| &p.row) != self.peek.as_ref().map(|p| &p.row);
         if row_changed {
@@ -1886,8 +1912,154 @@ impl DashboardState {
             }
             self.clear_peek_reply();
             self.deferred_peek_send = None;
+            self.peek_reply_selecting = false;
+            self.clear_peek_body();
         }
         self.peek = peek;
+    }
+
+    /// Remember the transcript rows painted this frame. A content change drops an in-progress drag
+    /// so the selection cannot copy text that is no longer on screen.
+    pub(crate) fn record_peek_body(&mut self, lines: Vec<String>, rect: Option<Rect>) {
+        if self.peek_body_lines != lines {
+            self.clear_peek_text_gesture();
+        }
+        self.peek_body_lines = lines;
+        self.peek_body_rect = rect.filter(|rect| rect.width > 0 && rect.height > 0);
+    }
+
+    /// Drop the transcript hit target and any drag over it.
+    pub(crate) fn clear_peek_body(&mut self) {
+        self.peek_body_lines.clear();
+        self.peek_body_rect = None;
+        self.clear_peek_text_gesture();
+    }
+
+    /// Paint the in-progress transcript selection over the rows recorded by [`Self::record_peek_body`].
+    pub(crate) fn paint_peek_text_selection(
+        &self,
+        buf: &mut ratatui::buffer::Buffer,
+        theme: &crate::theme::Theme,
+    ) {
+        let Some(drag) = self.peek_text_drag else {
+            return;
+        };
+        let Some(rect) = self.peek_body_rect else {
+            return;
+        };
+        crate::views::drag_select::paint_text_drag(
+            drag,
+            &self.peek_body_lines,
+            rect,
+            0,
+            buf,
+            theme,
+        );
+    }
+
+    fn clear_peek_text_gesture(&mut self) -> bool {
+        let had_press = self.peek_text_press.take().is_some();
+        let had_drag = self.peek_text_drag.take().is_some();
+        had_press || had_drag
+    }
+
+    fn begin_peek_text_press(&mut self, column: u16, row: u16) -> bool {
+        use crate::views::drag_select::endpoint_at;
+        let Some(rect) = self.peek_body_rect else {
+            return false;
+        };
+        if rect.width == 0
+            || rect.height == 0
+            || column < rect.x
+            || column >= rect.x.saturating_add(rect.width)
+            || row < rect.y
+            || row >= rect.y.saturating_add(rect.height)
+        {
+            return false;
+        }
+        let Some(endpoint) = endpoint_at(&self.peek_body_lines, rect, 0, column, row) else {
+            return false;
+        };
+        self.peek_text_press = Some(PeekTextPress {
+            column,
+            row,
+            endpoint,
+        });
+        self.peek_text_drag = None;
+        true
+    }
+
+    /// A pointer below the last painted row clamps to that row. The tail rect can be taller than the text.
+    fn peek_text_endpoint_clamped(
+        &self,
+        column: u16,
+        row: u16,
+    ) -> Option<crate::views::drag_select::TextEndpoint> {
+        use crate::views::drag_select::endpoint_at_clamped;
+        let rect = self.peek_body_rect?;
+        let rows = self.peek_body_lines.len();
+        if rows == 0 || rect.width == 0 || rect.height == 0 {
+            return None;
+        }
+        let text_rect = Rect {
+            height: (rows as u16).min(rect.height),
+            ..rect
+        };
+        endpoint_at_clamped(&self.peek_body_lines, text_rect, 0, column, row)
+    }
+
+    fn extend_peek_text_drag(&mut self, column: u16, row: u16) -> InputOutcome {
+        if let Some(press) = self.peek_text_press {
+            if press.column == column && press.row == row {
+                return InputOutcome::Unchanged;
+            }
+            self.peek_text_press = None;
+            self.peek_text_drag = Some(crate::views::drag_select::TextDrag {
+                anchor: press.endpoint,
+                head: press.endpoint,
+            });
+        }
+        if self.peek_text_drag.is_none() {
+            return InputOutcome::Unchanged;
+        }
+        if self.peek_body_rect.is_none() {
+            self.clear_peek_text_gesture();
+            return InputOutcome::Changed;
+        }
+        let head = self.peek_text_endpoint_clamped(column, row);
+        if let (Some(head), Some(drag)) = (head, self.peek_text_drag.as_mut()) {
+            drag.head = head;
+        }
+        InputOutcome::Changed
+    }
+
+    /// Release (or a lost `Up` reported as `Moved`) copies a non-empty transcript drag.
+    /// A press that never moved is a click and copies nothing.
+    fn finish_peek_text_drag(&mut self, column: u16, row: u16) -> bool {
+        if self.peek_text_drag.is_none() {
+            return self.peek_text_press.take().is_some();
+        }
+        self.peek_text_press = None;
+        let Some(mut drag) = self.peek_text_drag.take() else {
+            return false;
+        };
+        if let Some(head) = self.peek_text_endpoint_clamped(column, row) {
+            drag.head = head;
+        }
+        let width = self.peek_body_rect.map(|rect| rect.width).unwrap_or(0);
+        let text = drag
+            .is_non_empty()
+            .then(|| crate::views::drag_select::text_for_drag(drag, &self.peek_body_lines, width))
+            .flatten();
+        if let Some(text) = text {
+            self.copy_peek_selection(&text);
+        }
+        true
+    }
+
+    fn copy_peek_selection(&mut self, text: &str) {
+        let delivery = crate::clipboard::copy_text_or_file(text);
+        self.error_toast = Some(delivery.toast_message().into_owned());
     }
 
     pub fn restore_peek_viewport(
@@ -3422,6 +3594,12 @@ impl DashboardState {
 
         // Update hover state when the mouse moves over a row or one of the header / actions-row affordances
         if matches!(mouse.kind, MouseEventKind::Moved) {
+            // A bare Moved while a transcript drag is active means the Up was lost. Finish it so the
+            // span is still copied, matching the usage and memory panes.
+            if self.peek_owns_input() && self.peek_text_drag.is_some() {
+                let _ = self.finish_peek_text_drag(mouse.column, mouse.row);
+                return InputOutcome::Changed;
+            }
             let mut changed = self
                 .new_agent_button_hit
                 .update_hover(mouse.column, mouse.row);
@@ -3546,7 +3724,9 @@ impl DashboardState {
 
         // Peek reply input: mouse interaction with the `❯ reply` row (or the reject-feedback slot in
         // question mode), mirroring the dispatch box's click-to-focus plus the agent prompt's drag text
-        // selection.
+        // selection. A drag that starts on the transcript above that row selects those rows and copies
+        // them on release. Reply drags keep going only after a press inside the reply rect, so a
+        // transcript drag is not swallowed when the reply box already has text.
         if self.peek_owns_input() {
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
@@ -3556,6 +3736,8 @@ impl DashboardState {
                         && mouse.row >= rect.y
                         && mouse.row < rect.y + rect.height
                     {
+                        self.peek_reply_selecting = true;
+                        self.clear_peek_text_gesture();
                         if let Some(p) = self.peek.as_mut() {
                             p.focused = true;
                         }
@@ -3569,12 +3751,37 @@ impl DashboardState {
                         self.last_prompt_click = Some(now);
                         return InputOutcome::Changed;
                     }
+                    if self.begin_peek_text_press(mouse.column, mouse.row) {
+                        self.peek_reply_selecting = false;
+                        return InputOutcome::Changed;
+                    }
                 }
-                MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
-                    if !self.peek_reply.text().is_empty() =>
-                {
-                    let _ = self.peek_reply.handle_mouse(mouse);
-                    return InputOutcome::Changed;
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    if self.peek_text_press.is_some() || self.peek_text_drag.is_some() {
+                        return self.extend_peek_text_drag(mouse.column, mouse.row);
+                    }
+                    if self.peek_reply_selecting && !self.peek_reply.text().is_empty() {
+                        let _ = self.peek_reply.handle_mouse(mouse);
+                        return InputOutcome::Changed;
+                    }
+                }
+                MouseEventKind::Up(MouseButton::Left) => {
+                    if self.peek_reply_selecting {
+                        self.peek_reply_selecting = false;
+                        if !self.peek_reply.text().is_empty() {
+                            let _ = self.peek_reply.handle_mouse(mouse);
+                            return InputOutcome::Changed;
+                        }
+                    }
+                    if self.finish_peek_text_drag(mouse.column, mouse.row) {
+                        return InputOutcome::Changed;
+                    }
+                }
+                MouseEventKind::Down(_) => {
+                    if self.clear_peek_text_gesture() {
+                        self.peek_reply_selecting = false;
+                        return InputOutcome::Changed;
+                    }
                 }
                 _ => {}
             }

@@ -339,6 +339,10 @@ pub struct PeekRenderResult {
     /// Screen rect of the reply input row (the `❯ reply` line, or the reject-feedback slot in question mode).
     /// Recorded by the caller for mouse routing (click-to-focus, drag text selection).
     pub reply_rect: Option<Rect>,
+    /// Plain text of each painted transcript row, top to bottom. Empty when the tail is not shown.
+    pub body_lines: Vec<String>,
+    /// Screen rect of the transcript tail. `None` when [`Self::body_lines`] is empty.
+    pub body_rect: Option<Rect>,
 }
 
 /// Paint the peeked agent's model and mode flags (plan, then permission) onto the peek box's **bottom border**.
@@ -545,9 +549,15 @@ pub fn render_peek_panel(
             crate::render::color::recede_area(buf, frame_inner, theme.bg_base, 0.45);
         }
         // No reply row in question mode; return the feedback caret (if the user is typing into the reject option)
-        return PeekRenderResult { caret, reply_rect };
+        return PeekRenderResult {
+            caret,
+            reply_rect,
+            ..PeekRenderResult::default()
+        };
     }
 
+    let mut body_lines = Vec::new();
+    let mut body_rect = None;
     {
         // Last-response TYPE on the LEFT, time-ago on the FAR RIGHT, like the row list's primary/secondary
         // columns. The label is truncated so it never collides with the time.
@@ -595,7 +605,11 @@ pub fn render_peek_panel(
                         buf.set_string(inner.x, middle_top, trunc, theme.dim().bg(theme.bg_base));
                     }
                 } else {
-                    super::peek_tail::paint_peek_live_tail(scrollback, middle_area, buf);
+                    body_lines =
+                        super::peek_tail::paint_peek_live_tail(scrollback, middle_area, buf);
+                    if !body_lines.is_empty() {
+                        body_rect = Some(middle_area);
+                    }
                 }
             }
         } else if let Some(hint) = empty_hint
@@ -663,7 +677,12 @@ pub fn render_peek_panel(
     if !panel.focused {
         crate::render::color::recede_area(buf, frame_inner, theme.bg_base, 0.45);
     }
-    PeekRenderResult { caret, reply_rect }
+    PeekRenderResult {
+        caret,
+        reply_rect,
+        body_lines,
+        body_rect,
+    }
 }
 
 /// Returns at least 1.

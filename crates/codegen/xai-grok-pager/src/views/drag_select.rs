@@ -1,5 +1,5 @@
-//! In-app drag-select over a scrolled column of plain text lines, shared by modals that copy the
-//! selection on mouse-up (usage modal Session-info tab, memory modal preview).
+//! In-app drag-select over a scrolled column of plain text lines. Callers copy the selection on
+//! mouse-up (usage modal Session-info tab, memory modal preview, dashboard peek transcript).
 //!
 //! Endpoints are display columns into `lines`; callers own the press/drag state machine and the
 //! copy, this module only maps mouse cells to text and paints the band.

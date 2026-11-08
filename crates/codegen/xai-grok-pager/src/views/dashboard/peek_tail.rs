@@ -25,7 +25,7 @@ use crate::render::SafeBuf;
 use crate::scrollback::block::BlockContent;
 use crate::scrollback::entry::ScrollbackEntry;
 use crate::scrollback::state::ScrollbackState;
-use crate::scrollback::types::{BlockLine, DisplayMode};
+use crate::scrollback::types::{BlockLine, DisplayMode, line_plain_text};
 use crate::theme::Theme;
 
 /// Densified body line count for shrink-to-content (v1: the current-turn body). Counts only content
@@ -43,12 +43,16 @@ pub fn scrollback_has_last_user(scrollback: &ScrollbackState) -> bool {
     find_last_user_idx(scrollback).is_some()
 }
 
-/// Paint a dense live tail into `area`. Does not call `prepare_layout`, `enable_follow`, or
-/// `set_view_mode`. Those either belong to the viewport lease or would dirty state the attach path
-/// needs.
-pub fn paint_peek_live_tail(scrollback: &ScrollbackState, area: Rect, buf: &mut Buffer) {
+/// Paint a dense live tail into `area` and return the plain text of each painted row, top to bottom.
+/// Does not call `prepare_layout`, `enable_follow`, or `set_view_mode`. Those either belong to the
+/// viewport lease or would dirty state the attach path needs.
+pub fn paint_peek_live_tail(
+    scrollback: &ScrollbackState,
+    area: Rect,
+    buf: &mut Buffer,
+) -> Vec<String> {
     if area.width < 1 || area.height == 0 || scrollback.is_empty() {
-        return;
+        return Vec::new();
     }
 
     let theme = Theme::current();
@@ -83,16 +87,19 @@ pub fn paint_peek_live_tail(scrollback: &ScrollbackState, area: Rect, buf: &mut 
         }
     }
 
+    let mut painted = Vec::new();
     let mut y = area.y;
     if let Some(line) = pin {
         // Mirrors the scrollback pane's content paint so the same rows read the same direction in the peek preview
         buf.set_line_safe_bidi(area.x, y, &line, content_w);
+        painted.push(line_plain_text(&line));
         y = y.saturating_add(1);
     }
     if ellipsis {
         let style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
         let ell = Line::from(Span::styled("…", style));
         buf.set_line_safe(area.x, y, &ell, content_w);
+        painted.push("…".to_string());
         y = y.saturating_add(1);
     }
     for line in &body {
@@ -100,8 +107,10 @@ pub fn paint_peek_live_tail(scrollback: &ScrollbackState, area: Rect, buf: &mut 
             break;
         }
         buf.set_line_safe_bidi(area.x, y, line, content_w);
+        painted.push(line_plain_text(line));
         y = y.saturating_add(1);
     }
+    painted
 }
 
 /// Take a pure tail of `flat` into `budget` rows, reserving one row for a top `…` when content is omitted above.

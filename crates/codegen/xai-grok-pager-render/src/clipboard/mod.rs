@@ -563,6 +563,10 @@ fn resolve_delivery(
 
 /// Always write the backup file too. It is the recovery path when SSH cannot reach the local clipboard; a failed file write does not fail a successful clipboard leg.
 pub fn copy_text_or_file(text: &str) -> CopyDelivery {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(delivery) = test_support::captured_copy(text) {
+        return delivery;
+    }
     let clipboard = copy_text(text);
     let file = write_copy_fallback(text);
     match &file {
@@ -1236,6 +1240,38 @@ pub mod test_support {
         static HOOK: RefCell<Option<ClipboardProbeHook>> = const { RefCell::new(None) };
         static PROBE_CALLS: Cell<u32> = const { Cell::new(0) };
         static PRIMARY_READS: Cell<u32> = const { Cell::new(0) };
+        static CAPTURE_WRITES: Cell<bool> = const { Cell::new(false) };
+        static CAPTURED_WRITE: RefCell<Option<String>> = const { RefCell::new(None) };
+    }
+
+    /// Record `copy_text_or_file` text on this thread and skip the system clipboard and backup file.
+    /// Off by default. A test that turns it on must turn it off before returning, including on panic.
+    pub fn set_copy_capture(enabled: bool) {
+        CAPTURE_WRITES.with(|flag| flag.set(enabled));
+        CAPTURED_WRITE.with(|slot| *slot.borrow_mut() = None);
+    }
+
+    /// Take the text recorded by [`set_copy_capture`], if a copy ran.
+    pub fn take_captured_copy() -> Option<String> {
+        CAPTURED_WRITE.with(|slot| slot.borrow_mut().take())
+    }
+
+    /// `Some` when capture is armed: the write is recorded and no system clipboard leg runs.
+    pub(super) fn captured_copy(text: &str) -> Option<super::CopyDelivery> {
+        let enabled = CAPTURE_WRITES.with(|flag| flag.get());
+        if !enabled {
+            return None;
+        }
+        CAPTURED_WRITE.with(|slot| *slot.borrow_mut() = Some(text.to_string()));
+        Some(super::CopyDelivery::Clipboard {
+            result: super::CopyResult {
+                message: "Copied!",
+                message_lead: "Copied!",
+                ticks: 30,
+                delivery: super::ClipboardDelivery::Confirmed,
+            },
+            file: None,
+        })
     }
 
     /// Install a canned clipboard hook and reset the probe counter.
@@ -1328,7 +1364,7 @@ pub use test_support::primary_selection_read_call_count;
 #[cfg(any(test, feature = "test-support"))]
 pub use test_support::{
     ClipboardProbeHook, clear_clipboard_probe_hook, clipboard_probe_call_count,
-    set_clipboard_probe_hook,
+    set_clipboard_probe_hook, set_copy_capture, take_captured_copy,
 };
 
 // ===========================================================================

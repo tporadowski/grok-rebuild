@@ -121,6 +121,7 @@ pub(crate) fn render_dashboard(
         state.slash_dropdown_hit = Default::default();
         state.file_search_dropdown_items_area = None;
         state.dispatch_rect = None;
+        state.clear_peek_body();
         let popup = popup_rect(area);
         let banner_h = popup.y.saturating_sub(area.y);
         let banner_area = Rect {
@@ -238,6 +239,8 @@ pub(crate) fn render_dashboard(
         paint_dispatch_feedback_badge(buf, layout.dispatch, &theme, state.error_toast.as_deref());
         state.peek_reply_rect = render.reply_rect;
         let cursor = render.caret;
+        state.record_peek_body(render.body_lines, render.body_rect);
+        state.paint_peek_text_selection(buf, &theme);
         // The reply is a full PromptWidget, so its `@` file-context picker paints ABOVE the peek box (same chrome as the dispatch box's)
         // Slash completion stays inert for the reply
         state.slash_dropdown_items_area = None;
@@ -259,6 +262,7 @@ pub(crate) fn render_dashboard(
     } else {
         state.peek_close_rect = None;
         state.peek_reply_rect = None;
+        state.clear_peek_body();
         // Record the box rect so a click anywhere on it focuses the input (see `handle_mouse`)
         state.dispatch_rect = Some(layout.dispatch);
         let cursor = render_dispatch(
