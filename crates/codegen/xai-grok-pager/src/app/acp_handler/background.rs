@@ -550,7 +550,10 @@ pub(super) fn handle_task_completed(notif: &acp::ExtNotification, app: &mut AppV
     // Compute elapsed duration from the bg task state (if we have it).
     // Prefer the human description for "Task completed/failed: …" labels (same as "Task started")
     // Fall back to the raw command only when no description was supplied
-    let (command, elapsed, mut description, scrollback_entry_id) =
+    let recorded_runtime = task_snapshot
+        .end_time
+        .and_then(|end| end.duration_since(task_snapshot.start_time).ok());
+    let (command, mut elapsed, mut description, scrollback_entry_id) =
         if let Some(bg_task) = session.bg_tasks.get_mut(task_id) {
             // Some backends report a stopped subagent shell as a plain non-zero exit
             if bg_task.pending_kill && !success && signal.is_none() {
@@ -619,6 +622,18 @@ pub(super) fn handle_task_completed(notif: &acp::ExtNotification, app: &mut AppV
             (command, elapsed, description, None)
         };
 
+    // Replay stamps the live clock as "now", so start and end are the same instant and the row reads "0.0s".
+    // The snapshot still has the command's real start and end.
+    if meta.is_replay
+        && let Some(runtime) = recorded_runtime
+    {
+        elapsed = runtime;
+        if let Some(bg_task) = session.bg_tasks.get_mut(task_id) {
+            bg_task.start_time = task_snapshot.start_time;
+            bg_task.end_time = task_snapshot.end_time;
+        }
+    }
+
     // Finish the "Task started" scrollback entry (stops bullet animation).
     // Also sync the description onto that block so the historical "Task started" line shows the label if it was missing at background time
     if let Some(entry_id) = scrollback_entry_id {
@@ -664,7 +679,14 @@ pub(super) fn handle_task_completed(notif: &acp::ExtNotification, app: &mut AppV
         RenderBlock::bg_task_failed(&command, task_id, elapsed, exit_code, signal)
             .with_bg_task_description(description)
     };
-    let completion_eid = scrollback.push_block(block);
+    // A resumed completion is replayed after later turns. Park it at the end of the turn that started the command.
+    let completion_eid = if meta.is_replay
+        && let Some(started) = scrollback_entry_id
+    {
+        scrollback.insert_block_at_end_of_turn(started, block)
+    } else {
+        scrollback.push_block(block)
+    };
 
     // Anchor tasks that have no "Task started" block (tombstones) to the completion block
     // Without an anchor, block-viewer actions fall back to a bogus EntryId(0) and immediately close

@@ -359,6 +359,56 @@
         );
     }
 
+    /// A resumed background command finished after later turns were recorded.
+    /// The completion belongs at the end of the turn that started it, with the snapshot's runtime.
+    #[test]
+    fn replayed_completion_stays_in_the_turn_that_ran_it() {
+        use std::time::{Duration, SystemTime};
+
+        let mut app = make_app_with_agent("sess-1");
+        let replayed =
+            make_replayed_task_backgrounded_notif("sess-1", "tc-bg", "task-bg", "sleep 12");
+        handle_task_backgrounded(&replayed, &mut app);
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            agent
+                .scrollback
+                .push_block(RenderBlock::user_prompt("a later turn"));
+        }
+        let end = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_012);
+        let start = end - Duration::from_secs(12);
+        let notif =
+            make_replayed_task_completed_notif("sess-1", "task-bg", "sleep 12", start, end);
+        assert!(handle_task_completed(&notif, &mut app));
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        assert_eq!(agent.scrollback.len(), 3);
+        assert!(
+            matches!(
+                agent.scrollback.get(0).unwrap().block,
+                RenderBlock::BgTask(_)
+            ),
+            "the started row stays first"
+        );
+        let RenderBlock::BgTask(done) = &agent.scrollback.get(1).unwrap().block else {
+            panic!("completion must sit before the later turn");
+        };
+        let crate::scrollback::blocks::BgTaskKind::Completed { elapsed } = done.kind else {
+            panic!("expected a completed task, got {:?}", done.kind);
+        };
+        assert_eq!(elapsed, Duration::from_secs(12));
+        let shown = crate::util::format_duration(elapsed);
+        assert_eq!(shown, "12s");
+        assert!(!shown.contains("0.0s"));
+        assert!(
+            matches!(
+                agent.scrollback.get(2).unwrap().block,
+                RenderBlock::UserPrompt(_)
+            ),
+            "the later turn stays after the completion"
+        );
+    }
+
     /// Guard that the quiet path is NARROW: any other kill signal keeps the live behavior of pushing a completion/failure block.
     #[test]
     fn non_restart_signal_completion_still_pushes_failure_block() {

@@ -583,6 +583,25 @@ impl ScrollbackState {
         self.push(ScrollbackEntry::new(block))
     }
 
+    /// Put `block` at the end of the turn that contains `started`.
+    /// The end is the next user prompt after that entry. A missing or already-printed anchor appends.
+    /// Resume uses this so a background command's completion stays in the turn that ran it.
+    pub fn insert_block_at_end_of_turn(&mut self, started: EntryId, block: RenderBlock) -> EntryId {
+        let Some(start_index) = self.entries.get_index_of(&started) else {
+            return self.push_block(block);
+        };
+        let anchor = (start_index + 1..self.entries.len()).find_map(|index| {
+            let (id, entry) = self.entries.get_index(index)?;
+            matches!(entry.block, RenderBlock::UserPrompt(_)).then_some(*id)
+        });
+        match anchor {
+            Some(anchor) if !self.committed.contains(&anchor) => {
+                self.insert_block_before(anchor, block)
+            }
+            _ => self.push_block(block),
+        }
+    }
+
     /// Add a finalized block positioned immediately before the entry `anchor`, instead of at the end. `anchor` must not
     /// already be committed. A terminal's native scrollback is append-only. Inserting above a block already printed
     /// there would emit the new block below content that logically follows it.

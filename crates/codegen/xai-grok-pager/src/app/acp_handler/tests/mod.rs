@@ -1988,6 +1988,46 @@ pub(super) fn make_task_completed_notif(
 ) -> acp::ExtNotification {
     make_task_completed_notif_with_signal(session_id, task_id, command, exit_code, None)
 }
+/// Replayed completion whose snapshot records a real runtime, not the moment of replay.
+pub(super) fn make_replayed_task_completed_notif(
+    session_id: &str,
+    task_id: &str,
+    command: &str,
+    start_time: std::time::SystemTime,
+    end_time: std::time::SystemTime,
+) -> acp::ExtNotification {
+    use xai_grok_tools::types::TaskSnapshot;
+    let notif = SessionNotification {
+        session_id: acp_fixtures::session_id(session_id),
+        update: XaiSessionUpdate::TaskCompleted {
+            task_snapshot: TaskSnapshot {
+                task_id: task_id.into(),
+                command: command.into(),
+                display_command: None,
+                cwd: "/tmp".into(),
+                start_time,
+                end_time: Some(end_time),
+                output: String::new(),
+                output_file: "/tmp/out.log".into(),
+                truncated: false,
+                exit_code: Some(0),
+                signal: None,
+                completed: true,
+                kind: Default::default(),
+                block_waited: false,
+                explicitly_killed: false,
+                kill_result_delivered: false,
+                owner_session_id: None,
+                description: None,
+                is_backgrounded: true,
+                output_total_bytes: 0,
+            },
+            will_wake: false,
+        },
+        meta: Some(crate::acp::meta::ReplayMetaStamp::replayed()),
+    };
+    acp_fixtures::ext_notification("x.ai/task_completed", &notif)
+}
 pub(super) fn make_task_completed_notif_with_signal(
     session_id: &str,
     task_id: &str,
