@@ -1233,8 +1233,10 @@ impl AgentView {
             && self.last_btw_area.area() > 0
             && self.last_btw_area.contains((col, row).into())
         {
-            use crate::views::btw_overlay::DONE_MAX_BODY_LINES;
-            let max_body = DONE_MAX_BODY_LINES as usize;
+            // The painted body is this panel minus its frame. A short terminal
+            // hands the panel fewer rows than the 12-line preferred height, and
+            // the wheel has to reach the last of those rows.
+            let max_body = self.last_btw_area.height.saturating_sub(2) as usize;
             let content_width = self.last_btw_area.width.saturating_sub(4) as usize;
             let max_off = btw.max_scroll_offset(content_width, max_body);
             if lines > 0 {
@@ -1620,5 +1622,51 @@ mod paste_routing_tests {
             InputOutcome::ActionThenForward(crate::app::actions::Action::FocusPrompt)
         ));
         assert_eq!(agent.prompt.text(), "hidden prompt");
+    }
+}
+
+#[cfg(test)]
+mod btw_wheel_tests {
+    use super::super::test_fixtures::make_agent;
+    use crate::views::btw_overlay::{BtwOverlayState, DONE_MAX_BODY_LINES};
+    use ratatui::layout::Rect;
+
+    /// A wheel notch inside a short `/btw` panel scrolls by the rows that panel paints,
+    /// so the last lines come into view.
+    #[test]
+    fn wheel_on_a_short_btw_panel_reaches_the_last_lines() {
+        let mut agent = make_agent();
+        let body = (0..40)
+            .map(|i| format!("line {i:02}"))
+            .collect::<Vec<_>>()
+            .join("  \n");
+        agent.btw_state = Some(BtwOverlayState::done("q".into(), body));
+        // Height 6 leaves a 4-line body, under the 12-line preferred panel.
+        let area = Rect::new(2, 4, 40, 6);
+        agent.last_btw_area = area;
+        let content_width = area.width.saturating_sub(4) as usize;
+        let visible = area.height.saturating_sub(2) as usize;
+        assert!(visible < DONE_MAX_BODY_LINES as usize);
+        let state = agent.btw_state.as_ref().expect("btw panel");
+        let reachable = state.max_scroll_offset(content_width, visible);
+        let capped = state.max_scroll_offset(content_width, DONE_MAX_BODY_LINES as usize);
+        assert!(
+            reachable > capped,
+            "a short panel scrolls further than the 12-line cap ({reachable} > {capped})"
+        );
+
+        agent.handle_scroll(100, area.x + 4, area.y + 2);
+        assert_eq!(
+            agent.btw_state.as_ref().expect("btw panel").scroll_offset(),
+            reachable,
+            "the wheel lands on the last visible page"
+        );
+        assert_eq!(agent.scrollback.scroll_info().0, 0);
+
+        agent.handle_scroll(-3, area.x + 4, area.y + 2);
+        assert_eq!(
+            agent.btw_state.as_ref().expect("btw panel").scroll_offset(),
+            reachable - 3
+        );
     }
 }
