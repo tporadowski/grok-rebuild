@@ -5515,6 +5515,52 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(nth(&result, 0).event, Event::Paste("ab\ncd".to_string()));
     }
+    /// Keystrokes with no bracketed-paste marker, longer than one kilobyte and split by Enter, are one paste.
+    #[tokio::test]
+    async fn long_unbracketed_paste_is_read_completely() {
+        let line_a = "a".repeat(800);
+        let line_b = "b".repeat(800);
+        let expected = format!("{line_a}\n{line_b}");
+        assert!(expected.len() > 1024);
+        let mut keys = Vec::with_capacity(expected.len());
+        for ch in line_a.chars() {
+            keys.push(press(KeyCode::Char(ch)));
+        }
+        keys.push(press(KeyCode::Enter));
+        for ch in line_b.chars() {
+            keys.push(press(KeyCode::Char(ch)));
+        }
+        assert!(keys.len() > 1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut batch = vec![keys.remove(0)];
+        for event in keys.drain(..1200) {
+            tx.send(event).expect("queue the first burst");
+        }
+        assert!(should_extend_for_paste(&batch));
+        assert!(detect_paste(&mut batch, &mut rx).await);
+        assert!(
+            rx.try_recv().is_err(),
+            "detect_paste drains the queued burst"
+        );
+        assert!(
+            batch.len() > 1024,
+            "the first read must keep going past one kilobyte"
+        );
+        for event in keys {
+            tx.send(event).expect("queue the tail");
+        }
+        drop(tx);
+        collect_remaining_paste(&mut batch, &mut rx).await;
+        assert!(
+            batch
+                .iter()
+                .all(|event| !matches!(event.event, Event::Paste(_))),
+            "the input never carried a bracketed-paste marker"
+        );
+        let result = coalesce_rapid_keys(batch);
+        assert_eq!(result.len(), 1);
+        assert_eq!(nth(&result, 0).event, Event::Paste(expected));
+    }
     #[test]
     fn coalesce_filters_release_events() {
         let events = vec![

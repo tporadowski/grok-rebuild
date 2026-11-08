@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-132 — A long paste without bracketed-paste markers is already read completely
+
+`drain_and_process` keeps reading a keystroke run that has no `Event::Paste`, and `coalesce_live_keys` turns a multiline run into one paste. A burst longer than 1024 keys is drained whole, and the tail that arrives after that burst is kept (`long_unbracketed_paste_is_read_completely`). The pager reader keeps calling `read()` after crossterm fills its 1024-byte tty buffer (`v51-x29`).
+
 ### D-131 — Ctrl+Enter does not answer an open question
 
 Bare Enter still submits the focused question. Ctrl+Enter and Shift+Enter do not (`ctrl_enter_does_not_answer_an_open_question`) (`v51-x19`).
@@ -581,7 +585,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 28 | 0 | 6 | 2 | 0 |
+| W9 | Prompt, mentions, and keyboard | 27 | 0 | 6 | 3 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -591,9 +595,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 350. Skipped: 8. Done: 178. Already: 37. Deferred: 10.
+Catalog rows: 583. Pending: 349. Skipped: 8. Done: 178. Already: 38. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: long pastes without bracketed-paste markers are read completely (`v51-x29`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: @-file completion no longer accepts a match from an earlier query when typing quickly (`v51-x62`).
 
 ## Waves
 
@@ -631,7 +635,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 28. Done: 6 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131). Already: 2 (`v51-f12`, D-128; `v51-x11`, D-129). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 27. Done: 6 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131). Already: 3 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -869,7 +873,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x11 | already | W9 | Bug Fixes |  |  | Very large pasted prompts are now offloaded to a file instead of being sent inline.
 - v51-x14 | done | W9 | Bug Fixes |  |  | The send-now shortcut no longer accidentally enables always-approve mode while a permission card is open.
 - v51-x19 | done | W9 | Bug Fixes |  |  | Send-now (Ctrl+Enter) no longer accidentally answers an open question card.
-- v51-x29 | pending | W9 | Bug Fixes |  |  | Long pastes without bracketed-paste markers are now read completely instead of stalling after ~1 KB.
+- v51-x29 | already | W9 | Bug Fixes |  |  | Long pastes without bracketed-paste markers are now read completely instead of stalling after ~1 KB.
 - v51-x62 | pending | W9 | Bug Fixes |  |  | **@-file completion** no longer accepts a match from an earlier query when you type quickly.
 - v51-x78 | pending | W9 | Bug Fixes |  |  | **@ file search** no longer accepts keys or moves the highlight while results are still updating.
 - v52-f02 | pending | W9 | Features |  |  | **Tool call density improvements**: expanded tool call groups now stay expanded as new calls join them, and Ctrl+E expands or collapses thinking faster in long transcripts.
