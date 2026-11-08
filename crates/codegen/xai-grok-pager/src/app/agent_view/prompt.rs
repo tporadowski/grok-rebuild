@@ -356,7 +356,13 @@ impl AgentView {
             && !self.prompt.completion_dropdown_open()
             && self.prompt.prompt_suggestion_visible()
         {
-            if key!(Tab).matches(key) || key!(Right).matches(key) {
+            // Vim navigation keeps Tab for the scrollback. Right and Ctrl+Right accept.
+            let accept = if crate::appearance::cache::load_vim_mode() {
+                key!(Right).matches(key) || key!(Right, CONTROL).matches(key)
+            } else {
+                key!(Tab).matches(key) || key!(Right).matches(key)
+            };
+            if accept {
                 if self.prompt.accept_prompt_suggestion() {
                     // Post-accept, the prompt text is the full suggestion (the ghost only shows when the text is a prefix of it)
                     let (chars, words) =
@@ -1788,6 +1794,7 @@ mod prompt_suggestion_key_tests {
     /// Pins the settings cache so `resolve_enabled()` never reads the dev machine's config.toml (thread-local, so per-test).
     fn suggestion_agent(text: &str) -> AgentView {
         crate::appearance::cache::set_prompt_suggestions(true);
+        crate::appearance::cache::set_vim_mode(false);
         let mut agent = super::test_fixtures::make_agent();
         agent.prompt.prompt_suggestion.set_suggestion_for_test(text);
         agent.refresh_prompt_suggestion_gate();
@@ -1858,6 +1865,51 @@ mod prompt_suggestion_key_tests {
         let outcome = agent.handle_prompt_key_for_test(&key(KeyCode::BackTab));
         assert!(!matches!(outcome, InputOutcome::Unchanged));
         assert_eq!(agent.prompt.textarea.selection_range(), None);
+    }
+
+    #[test]
+    fn vim_mode_tab_focuses_scrollback_instead_of_accepting() {
+        let mut agent = suggestion_agent("run the tests");
+        crate::appearance::cache::set_vim_mode(true);
+        agent.prompt.textarea.insert_str("run ");
+        let outcome = agent.handle_prompt_key_for_test(&key(KeyCode::Tab));
+        assert!(
+            matches!(outcome, InputOutcome::Action(Action::FocusScrollback)),
+            "vim mode: Tab moves to the scrollback, got {outcome:?}"
+        );
+        assert_eq!(agent.prompt.text(), "run ");
+        assert_eq!(agent.prompt.prompt_suggestion_ghost(), Some("the tests"));
+        crate::appearance::cache::set_vim_mode(false);
+    }
+
+    #[test]
+    fn vim_mode_right_and_ctrl_right_accept_the_suggestion() {
+        let mut agent = suggestion_agent("run the tests");
+        crate::appearance::cache::set_vim_mode(true);
+        let outcome = agent.handle_prompt_key_for_test(&key(KeyCode::Right));
+        assert!(matches!(outcome, InputOutcome::Changed));
+        assert_eq!(agent.prompt.text(), "run the tests");
+
+        let mut agent = suggestion_agent("commit this");
+        crate::appearance::cache::set_vim_mode(true);
+        let ctrl_right = KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL);
+        let outcome = agent.handle_prompt_key_for_test(&ctrl_right);
+        assert!(matches!(outcome, InputOutcome::Changed));
+        assert_eq!(agent.prompt.text(), "commit this");
+        assert!(!agent.prompt.prompt_suggestion_visible());
+        crate::appearance::cache::set_vim_mode(false);
+    }
+
+    #[test]
+    fn vim_mode_esc_dismisses_the_suggestion() {
+        let mut agent = suggestion_agent("run the tests");
+        crate::appearance::cache::set_vim_mode(true);
+        let outcome = agent.handle_prompt_key_for_test(&key(KeyCode::Esc));
+        assert!(matches!(outcome, InputOutcome::Changed));
+        assert!(!agent.prompt.prompt_suggestion_visible());
+        assert!(!agent.prompt.prompt_suggestion.has_suggestion());
+        assert_eq!(agent.prompt.text(), "");
+        crate::appearance::cache::set_vim_mode(false);
     }
 
     #[test]
