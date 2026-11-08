@@ -15,6 +15,26 @@ use std::sync::Arc;
 fn reclaim_partial_worktree(dest: &Path) {
     let _ = crate::remove_worktree(dest);
 }
+
+/// Stop creation when a tracked file could not be copied, or the disk is full.
+/// A lost mode stays a warning: the bytes are already in place. Returning here,
+/// before `git reset`, is what keeps that reset from filling the gap.
+fn refuse_incomplete_copy(issues: &[String], tracked: bool) -> Result<()> {
+    let fatal: Vec<&str> = issues
+        .iter()
+        .filter(|line| {
+            let disk_full = line.contains(crate::ENOSPC_OS_MESSAGE)
+                || line.contains("os error 28")
+                || line.contains("os error 112");
+            disk_full || (tracked && line.starts_with("could not copy "))
+        })
+        .map(String::as_str)
+        .collect();
+    if fatal.is_empty() {
+        return Ok(());
+    }
+    anyhow::bail!("worktree copy failed:\n{}", fatal.join("\n"));
+}
 /// Removes a partially built worktree on drop unless [`disarm`](Self::disarm)ed,
 /// so any early return (`?`/cancel) from a creation path tears down the partial
 /// `dest`. Only arm this once no background thread is still writing into `dest`.
@@ -840,6 +860,7 @@ fn execute_copy_worktree(plan: WorktreePlan) -> Result<CreateWorktreeResult> {
     };
     let copy_result =
         copy::copy_parallel(&source_root, &dest, copy_config, cancellation_token.clone())?;
+    refuse_incomplete_copy(&copy_result.stats.issues, true)?;
     tracing::debug!(
         elapsed = ?copy_start.elapsed(),
         files = copy_result.stats.files_copied,
@@ -871,6 +892,7 @@ fn execute_copy_worktree(plan: WorktreePlan) -> Result<CreateWorktreeResult> {
                 skip_patterns,
             };
             let stats = copy::copy_parallel(&source_root, &dest, copy_config, cancellation_token)?;
+            refuse_incomplete_copy(&stats.stats.issues, false)?;
             tracing::debug!(
                 elapsed = ?ignored_start.elapsed(),
                 files = stats.stats.files_copied,
@@ -1079,6 +1101,7 @@ fn execute_standalone_worktree(plan: WorktreePlan) -> Result<CreateWorktreeResul
     }
     let guard = PartialWorktreeGuard::new(&dest);
     let copy_stats = copy_result.stats;
+    refuse_incomplete_copy(&copy_stats.issues, true)?;
     let copied_paths = copy_result.copied_paths;
     let file_metadata = copy_result.file_metadata;
     let finalize_start = std::time::Instant::now();
@@ -1128,6 +1151,7 @@ fn execute_standalone_worktree(plan: WorktreePlan) -> Result<CreateWorktreeResul
                 skip_patterns,
             };
             let stats = copy::copy_parallel(&source_root, &dest, copy_config, cancellation_token)?;
+            refuse_incomplete_copy(&stats.stats.issues, false)?;
             tracing::debug!(
                 elapsed = ?ignored_start.elapsed(),
                 files = stats.stats.files_copied,
@@ -1263,6 +1287,41 @@ fn execute_git_checkout_worktree(plan: WorktreePlan) -> Result<CreateWorktreeRes
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn tracked_copy_failure_stops_creation_and_a_lost_mode_does_not() {
+        let mut stats = CopyStats::default();
+        stats
+            .issues
+            .push("mode change lost for script.sh: Operation not permitted".into());
+        assert!(refuse_incomplete_copy(&stats.issues, true).is_ok());
+
+        stats
+            .issues
+            .push("could not copy secret.env: Permission denied (os error 13)".into());
+        let err = refuse_incomplete_copy(&stats.issues, true).unwrap_err();
+        let text = format!("{err:#}");
+        assert!(text.contains("worktree copy failed"), "{text}");
+        assert!(text.contains("could not copy secret.env"), "{text}");
+        assert!(!text.contains("mode change lost"), "{text}");
+    }
+
+    #[test]
+    fn disk_full_stops_creation_even_for_an_ignored_file() {
+        let issues = vec![
+            "could not copy target/cache.bin: No space left on device (os error 28)".to_string(),
+        ];
+        assert!(refuse_incomplete_copy(&issues, false).is_err());
+        let err = refuse_incomplete_copy(&issues, false).unwrap_err();
+        let text = format!("{err:#}");
+        assert!(text.contains(crate::ENOSPC_OS_MESSAGE), "{text}");
+    }
+
+    #[test]
+    fn an_ignored_file_that_cannot_be_copied_is_not_fatal() {
+        let issues = vec!["could not copy target/cache.bin: Permission denied".to_string()];
+        assert!(refuse_incomplete_copy(&issues, false).is_ok());
+    }
     #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     #[test]
     fn skip_line_stays_one_line() {
