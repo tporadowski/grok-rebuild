@@ -171,6 +171,10 @@ impl SubagentLifecycleState {
             .and_then(SubagentAttemptKey::attempt_id)
     }
 
+    pub(crate) fn is_running(&self) -> bool {
+        self.phase() == Some(SubagentLifecyclePhase::Running)
+    }
+
     pub(crate) fn phase(&self) -> Option<SubagentLifecyclePhase> {
         self.current.as_ref().and_then(|key| {
             self.attempts

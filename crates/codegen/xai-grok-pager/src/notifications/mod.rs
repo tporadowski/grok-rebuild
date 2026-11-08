@@ -1,6 +1,7 @@
 pub mod config;
 pub mod focus;
 pub mod hooks;
+pub mod program_status;
 pub mod progress;
 pub mod protocol;
 pub mod sleep;
@@ -17,7 +18,7 @@ const PROGRESS_KEEPALIVE: Duration = Duration::from_secs(5);
 
 pub use config::{
     NotificationCondition, NotificationConfig, NotificationEventKind, NotificationHook,
-    NotificationMethod, TitleConfig, TitleItem,
+    NotificationMethod, ProgramStatusConfig, TitleConfig, TitleItem,
 };
 pub use title::TitleState;
 
@@ -44,6 +45,7 @@ pub struct NotificationService {
     permission_notified: bool,
     /// Out-of-band escape queue for notification/shutdown escapes; see [`EscapeWriter`](crate::render::draw::EscapeWriter).
     escape_writer: EscapeWriter,
+    program_status: program_status::ProgramStatusPublisher,
 }
 
 impl NotificationService {
@@ -67,7 +69,41 @@ impl NotificationService {
             progress_last_sent: None,
             permission_notified: false,
             escape_writer,
+            program_status: program_status::ProgramStatusPublisher::default(),
         }
+    }
+
+    /// OSC 7501 reports for the open sessions. Empty when the picture has not changed.
+    pub(crate) fn program_status_escapes(
+        &mut self,
+        sessions: &[program_status::SessionSnap],
+        focused: bool,
+    ) -> Option<String> {
+        let sequences = self.program_status.update(
+            sessions,
+            self.config.program_status.children,
+            focused,
+        );
+        self.wrap_program_status(sequences)
+    }
+
+    pub(crate) fn note_program_failure(&mut self, session_key: &str) {
+        self.program_status.note_failed(session_key);
+    }
+
+    fn wrap_program_status(&self, sequences: Vec<String>) -> Option<String> {
+        if sequences.is_empty() {
+            return None;
+        }
+        let mut buf = String::new();
+        for sequence in sequences {
+            if tmux::passthrough_available(self.terminal_ctx) {
+                buf.push_str(&tmux::tmux_passthrough(&sequence));
+            } else {
+                buf.push_str(&sequence);
+            }
+        }
+        Some(buf)
     }
 
     pub fn config(&self) -> &NotificationConfig {
@@ -191,6 +227,10 @@ impl NotificationService {
     pub fn shutdown(&mut self) {
         let mut buf = self.title_manager.reset();
         self.clear_progress_into(&mut buf);
+        let clear = self.program_status.clear_all();
+        if let Some(clear) = self.wrap_program_status(vec![clear]) {
+            buf.push_str(&clear);
+        }
         self.escape_writer.emit(buf);
     }
 
@@ -250,6 +290,7 @@ impl NotificationService {
             progress_last_sent: None,
             permission_notified: false,
             escape_writer: EscapeWriter::disconnected(),
+            program_status: program_status::ProgramStatusPublisher::default(),
         }
     }
 }

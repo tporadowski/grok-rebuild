@@ -1827,6 +1827,10 @@ pub(super) fn handle_prompt_response(
                     app.notification_service.build_idle_escapes(&idle_title);
             }
 
+            if kind == NotificationEventKind::AgentError {
+                let key = crate::notifications::program_status::session_key(agent);
+                app.notification_service.note_program_failure(&key);
+            }
             if kind != NotificationEventKind::TurnComplete || queue_empty {
                 // Defer the notification so the terminal has time to apply the idle title
                 // Ghostty debounces setTitle() by 75 ms (SurfaceView_AppKit.swift:576)

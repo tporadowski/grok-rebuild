@@ -5924,6 +5924,23 @@ impl AppView {
                 .get_or_insert_with(String::new)
                 .push_str(&esc);
         }
+        let active_id = self.active_view.agent_id();
+        let focused = self.notification_service.focus_tracker.is_focused();
+        let snaps: Vec<_> = self
+            .agents
+            .iter()
+            .map(|(id, agent)| {
+                crate::notifications::program_status::snap_agent(agent, Some(*id) == active_id)
+            })
+            .collect();
+        if let Some(esc) = self
+            .notification_service
+            .program_status_escapes(&snaps, focused)
+        {
+            self.pending_notification_escapes
+                .get_or_insert_with(String::new)
+                .push_str(&esc);
+        }
     }
 }
 #[cfg(test)]

@@ -19,6 +19,8 @@ pub struct NotificationConfig {
     pub session_recap_threshold_secs: u64,
     pub title: TitleConfig,
     pub hooks: Vec<NotificationHook>,
+    /// OSC 7501 program status (Rex and other terminals that store the records).
+    pub program_status: ProgramStatusConfig,
 }
 
 impl Default for NotificationConfig {
@@ -37,7 +39,22 @@ impl Default for NotificationConfig {
             session_recap_threshold_secs: 30,
             title: TitleConfig::default(),
             hooks: Vec::new(),
+            program_status: ProgramStatusConfig::default(),
         }
+    }
+}
+
+/// `[ui.notifications.program_status]`.
+/// `children = false` reports only the focused session. The default reports every open session and every running subagent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProgramStatusConfig {
+    pub children: bool,
+}
+
+impl Default for ProgramStatusConfig {
+    fn default() -> Self {
+        Self { children: true }
     }
 }
 
@@ -170,6 +187,11 @@ enabled = true
 # session-name, cwd, model, turn-timer, grok
 items = [\"action-required\", \"spinner\", \"activity\", \"session-name\", \"grok\"]
 
+[ui.notifications.program_status]
+# One OSC 7501 record per open session and per running subagent.
+# Set children to false to report only the focused session.
+children = true
+
 # [[ui.notifications.hooks]]
 # command = \"terminal-notifier -title 'Grok' -message '$GROK_MESSAGE'\"
 # events = [\"turn_complete\", \"approval_required\"]
@@ -208,6 +230,7 @@ mod tests {
                 only_unfocused: false,
                 timeout_secs: 5,
             }],
+            program_status: ProgramStatusConfig { children: false },
         };
 
         let toml_str = toml::to_string(&config).expect("serialize");
@@ -236,6 +259,7 @@ mod tests {
         assert_eq!(parsed.session_recap_threshold_secs, 30);
         assert!(parsed.title.enabled);
         assert!(parsed.hooks.is_empty());
+        assert!(parsed.program_status.children);
     }
 
     #[test]
