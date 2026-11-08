@@ -648,7 +648,7 @@ fn session_exists_in_root(session_id: &str, sessions_root: &Path) -> bool {
 pub(crate) fn title_is_manual_in_dir(session_dir: &Path) -> bool {
     std::fs::read(session_dir.join("summary.json"))
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Summary>(&bytes).ok())
+        .and_then(|bytes| parse_stored_summary(&bytes).ok())
         .is_some_and(|summary| summary.title_is_manual)
 }
 
@@ -728,7 +728,7 @@ pub(crate) async fn read_wake_summary_state_from_dir(
     tokio::task::spawn_blocking(move || {
         let path = session_dir.join("summary.json");
         let bytes = std::fs::read(&path)?;
-        serde_json::from_slice::<Summary>(&bytes)
+        parse_stored_summary(&bytes)
             .map(|summary| {
                 let agent_name = summary.agent_name().map(String::from);
                 WakeSummaryState {
@@ -1298,6 +1298,32 @@ pub(crate) fn grok_home_string() -> Option<String> {
 
 pub fn default_model_id() -> acp::ModelId {
     acp::ModelId::new(crate::models::default_model())
+}
+
+/// A `summary.json` plus the one sentence to say when its `reasoning_effort` is not a known level.
+/// The effort field on [`Summary`] is then `None`, so resume uses the model's default.
+pub(crate) struct StoredSummary {
+    pub summary: Summary,
+    pub unrecognized_effort_notice: Option<String>,
+}
+
+/// Parse `summary.json`. An unrecognized `reasoning_effort` does not fail the session.
+pub(crate) fn summary_from_stored_slice(bytes: &[u8]) -> Result<StoredSummary, serde_json::Error> {
+    let mut value: serde_json::Value = serde_json::from_slice(bytes)?;
+    let unrecognized = value
+        .as_object_mut()
+        .and_then(xai_grok_sampling_types::soften_reasoning_effort_field);
+    let summary = serde_json::from_value(value)?;
+    Ok(StoredSummary {
+        summary,
+        unrecognized_effort_notice: unrecognized
+            .as_deref()
+            .map(xai_grok_sampling_types::unrecognized_reasoning_effort_notice),
+    })
+}
+
+pub(crate) fn parse_stored_summary(bytes: &[u8]) -> Result<Summary, serde_json::Error> {
+    summary_from_stored_slice(bytes).map(|stored| stored.summary)
 }
 
 impl Summary {
@@ -3115,6 +3141,9 @@ pub struct PersistedInfo {
     /// Persisted goal mode orchestration state (None for sessions without goal mode)
     pub goal_mode_state: Option<crate::session::goal_tracker::GoalOrchestration>,
     pub workflow_runs: Vec<crate::session::workflow::store::RestoredWorkflowRun>,
+    /// Set when the stored reasoning effort was not a known level. Resume says this once
+    /// and runs at the model's default effort. Not persisted.
+    pub unrecognized_effort_notice: Option<String>,
 }
 
 /// On NotFound, try pulling from backend. Returns pulled info or the original error.
@@ -3190,6 +3219,7 @@ pub(crate) async fn load_light(
         announcement_state: persisted.announcement_state,
         goal_mode_state: persisted.goal_mode_state,
         workflow_runs: persisted.workflow_runs,
+        unrecognized_effort_notice: persisted.unrecognized_effort_notice,
     };
 
     let (handle, rx, summary_tx, disk_full_tx) = actor_channel();

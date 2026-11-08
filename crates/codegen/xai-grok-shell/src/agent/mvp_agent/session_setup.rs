@@ -9,6 +9,7 @@ use super::sampler_prewarm::spawn_sampler_transport_prewarm;
 use super::*;
 use crate::agent::session_metrics::SessionStartKind;
 use crate::sampling::EffortTarget;
+use agent_client_protocol::Client as _;
 /// Refusals resume must give verbatim, so a test cannot mistake some other `invalid_params` for the guard it is pinning.
 pub(super) const RESUME_REFUSES_CHAT: &str =
     "session/resume is not supported for chat sessions; use session/load";
@@ -1064,6 +1065,7 @@ impl MvpAgent {
             announcement_state: persisted_announcement_state,
             goal_mode_state: _persisted_goal_mode,
             workflow_runs: persisted_workflow_runs,
+            unrecognized_effort_notice,
         } = persistence_info;
         let persisted_base_url = self
             .resolve_sampling_config_for_model(&summary.current_model_id, origin_client.clone())
@@ -1374,6 +1376,12 @@ impl MvpAgent {
             .await;
         self.restore_persisted_model(&session_id, &summary, initial_reasoning_effort)
             .await;
+        if initial_reasoning_effort.is_none()
+            && let Some(notice) = unrecognized_effort_notice.as_deref()
+        {
+            self.announce_unrecognized_reasoning_effort(&session_id, notice)
+                .await;
+        }
         let (model_state, response_meta) = self
             .build_attach_response_meta(&session_id, &summary, persist_data, code_restore_info)
             .await;
@@ -1734,6 +1742,22 @@ impl MvpAgent {
             )
             .await;
         }
+    }
+    /// Tell the client once that this resume dropped an unrecognized effort and is on the model default.
+    pub(super) async fn announce_unrecognized_reasoning_effort(
+        &self,
+        session_id: &acp::SessionId,
+        notice: &str,
+    ) {
+        tracing::warn!(session_id = %session_id.0, "{notice}");
+        xai_grok_telemetry::unified_log::warn(notice, Some(session_id.0.as_ref()), None);
+        let notification = acp::SessionNotification::new(
+            session_id.clone(),
+            acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(acp::ContentBlock::Text(
+                acp::TextContent::new(notice.to_string()),
+            ))),
+        );
+        let _ = self.gateway.session_notification(notification).await;
     }
     /// Model-restore phase: point the actor at the persisted model without writing the global `current_model_id` (shared across leader clients).
     pub(super) async fn restore_persisted_model(

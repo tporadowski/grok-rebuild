@@ -2331,6 +2331,85 @@ async fn read_updates_jsonl_skips_invalid_utf8_line() {
             "valid line kept, invalid-UTF8 line skipped"
         );
 }
+/// An unrecognized reasoning effort does not fail the resume. The session comes back
+/// with no stored effort (the model default) and one notice. Unreadable history and
+/// update lines are left out; readable lines, including ones whose own effort is unknown, stay.
+#[tokio::test]
+async fn unrecognized_effort_or_unreadable_history_still_loads() {
+    let temp_dir = TempDir::new().unwrap();
+    let adapter = JsonlStorageAdapter::with_root(temp_dir.path().to_path_buf());
+    let info = create_test_info();
+    adapter.init_session(&info, default_model_id()).await.unwrap();
+    let user = r#"{"type":"user","content":[{"type":"text","text":"kept question"}]}"#;
+    let assistant = r#"{"type":"assistant","content":"kept answer","reasoning_effort":"ultra"}"#;
+    let later = r#"{"type":"assistant","content":"also kept","reasoning_effort":"ludicrous"}"#;
+    let mut chat = Vec::new();
+    chat.extend_from_slice(user.as_bytes());
+    chat.push(b'\n');
+    chat.extend_from_slice(br#"{"type":"assistant","content":"price: "#);
+    chat.extend_from_slice(&[0xE2, 0x82]);
+    chat.push(b'\n');
+    chat.extend_from_slice(assistant.as_bytes());
+    chat.push(b'\n');
+    chat.extend_from_slice(later.as_bytes());
+    chat.push(b'\n');
+    std::fs::write(adapter.chat_file(&info), chat).unwrap();
+    adapter
+        .append_update(&info, &SessionUpdate::Acp(Box::new(create_test_notification())))
+        .await
+        .unwrap();
+    {
+        use std::io::Write as _;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(adapter.updates_file(&info))
+            .unwrap();
+        file.write_all(&[0xE2, 0x82, b'\n']).unwrap();
+    }
+    // Patch after the update append: that append rewrites summary.json, and a rewrite
+    // would otherwise drop the unknown effort before this load reads it.
+    let summary_path = adapter.summary_file(&info);
+    let mut summary_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&summary_path).unwrap()).unwrap();
+    summary_json["reasoning_effort"] = serde_json::json!("turbo");
+    std::fs::write(
+            &summary_path,
+            serde_json::to_vec_pretty(&summary_json).unwrap(),
+        )
+        .unwrap();
+    let loaded = adapter
+        .load_session(&info)
+        .await
+        .expect("unrecognized effort and unreadable bytes still load");
+    assert_eq!(loaded.summary.reasoning_effort, None);
+    let notice = xai_grok_sampling_types::unrecognized_reasoning_effort_notice("turbo");
+    assert_eq!(loaded.unrecognized_effort_notice.as_deref(), Some(notice.as_str()));
+    assert!(
+            !notice.contains("ultra") && !notice.contains("ludicrous"),
+            "one notice, for the session effort, not one per history line"
+        );
+    assert_eq!(user_text(&loaded.chat_history), vec!["kept question".to_string()]);
+    let answers: Vec<_> = loaded
+        .chat_history
+        .iter()
+        .filter_map(|item| match item {
+            ConversationItem::Assistant(item) => {
+                Some((item.content.as_ref().to_string(), item.reasoning_effort))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+            answers,
+            vec![
+                ("kept answer".to_string(), None),
+                ("also kept".to_string(), None),
+            ]
+        );
+    assert_eq!(loaded.updates.len(), 1, "unreadable update line left out");
+    let rendered = format!("{:?}", loaded.updates[0]);
+    assert!(rendered.contains("Test response"), "{rendered}");
+}
 /// A clean file must not leave a quarantine copy behind.
 #[test]
 fn read_chat_history_clean_file_writes_no_quarantine() {

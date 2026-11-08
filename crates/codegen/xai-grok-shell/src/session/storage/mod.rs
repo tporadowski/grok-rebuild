@@ -818,6 +818,8 @@ pub struct PersistedData {
     /// Persisted goal mode orchestration state (None for sessions without goal mode)
     pub goal_mode_state: Option<crate::session::goal_tracker::GoalOrchestration>,
     pub workflow_runs: Vec<crate::session::workflow::store::RestoredWorkflowRun>,
+    /// One sentence when the stored reasoning effort was not a known level.
+    pub unrecognized_effort_notice: Option<String>,
 }
 
 /// Persisted data WITHOUT updates, for memory-efficient session loading
@@ -836,6 +838,8 @@ pub struct PersistedDataLight {
     /// Persisted goal mode orchestration state (None for sessions without goal mode)
     pub goal_mode_state: Option<crate::session::goal_tracker::GoalOrchestration>,
     pub workflow_runs: Vec<crate::session::workflow::store::RestoredWorkflowRun>,
+    /// One sentence when the stored reasoning effort was not a known level.
+    pub unrecognized_effort_notice: Option<String>,
 }
 
 #[derive(Debug, Clone)]

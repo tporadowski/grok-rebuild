@@ -841,6 +841,36 @@ pub fn parse_canonical_effort_token(token: &str) -> Option<ReasoningEffort> {
     token.parse().ok()
 }
 
+/// Drop an unrecognized `reasoning_effort` from a stored JSON object.
+/// A known level is left in place. A missing or null field is left alone.
+/// The returned token is the raw unrecognized value, so a resume can say so once
+/// and then run at the model's default effort.
+pub fn soften_reasoning_effort_field(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
+    let raw = object.get("reasoning_effort")?;
+    if raw.is_null() {
+        return None;
+    }
+    let token = match raw.as_str() {
+        Some(text) => text.to_string(),
+        None => raw.to_string(),
+    };
+    if token.parse::<ReasoningEffort>().is_ok() {
+        return None;
+    }
+    object.remove("reasoning_effort");
+    Some(token)
+}
+
+/// The one sentence a resume says when a stored effort is not a known level.
+pub fn unrecognized_reasoning_effort_notice(token: &str) -> String {
+    let shown: String = token.trim().chars().take(80).collect();
+    format!(
+        "Unrecognized reasoning effort '{shown}'. This session is using the model's default effort."
+    )
+}
+
 /// The `reasoning.summary` requested on the Responses API.
 /// `None` omits the field, for gateways that reject it (AWS Bedrock Mantle returns 400 for it as of 2026-09).
 #[derive(
@@ -1399,6 +1429,34 @@ mod tests {
             assert_eq!(back, v, "round-trip {v:?}");
         }
         assert!(serde_json::from_str::<ReasoningEffort>("\"BOGUS\"").is_err());
+    }
+
+    #[test]
+    fn soften_reasoning_effort_field_keeps_known_and_drops_unknown() {
+        let mut known = json!({ "reasoning_effort": "high", "keep": 1 });
+        assert!(soften_reasoning_effort_field(known.as_object_mut().unwrap()).is_none());
+        assert_eq!(known["reasoning_effort"], "high");
+
+        let mut unknown = json!({ "reasoning_effort": "turbo", "keep": 1 });
+        assert_eq!(
+            soften_reasoning_effort_field(unknown.as_object_mut().unwrap()).as_deref(),
+            Some("turbo")
+        );
+        assert!(unknown.get("reasoning_effort").is_none());
+        assert_eq!(unknown["keep"], 1);
+
+        let mut missing = json!({ "keep": true });
+        assert!(soften_reasoning_effort_field(missing.as_object_mut().unwrap()).is_none());
+        let notice = unrecognized_reasoning_effort_notice("turbo");
+        assert_eq!(
+            notice,
+            "Unrecognized reasoning effort 'turbo'. This session is using the model's default effort."
+        );
+        assert_eq!(
+            unrecognized_reasoning_effort_notice("turbo"),
+            notice,
+            "the sentence is stable so a resume says it once"
+        );
     }
 
     #[test]

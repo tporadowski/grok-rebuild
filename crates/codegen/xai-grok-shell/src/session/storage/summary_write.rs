@@ -458,7 +458,7 @@ fn read_summary(path: &Path) -> io::Result<Summary> {
             format!("summary.json is empty (0 bytes): {}", path.display()),
         ));
     }
-    serde_json::from_slice::<Summary>(&bytes)
+    crate::session::persistence::parse_stored_summary(&bytes)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 

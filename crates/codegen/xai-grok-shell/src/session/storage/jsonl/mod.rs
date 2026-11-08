@@ -181,6 +181,7 @@ impl JsonlStorageAdapter {
     ) -> std::io::Result<Vec<ConversationItem>> {
         let chat_file = dir.join(super::CHAT_HISTORY_FILE);
         self.read_chat_history_sync_bounded(chat_file, CHAT_FORMAT_VERSION, max_bytes, max_items)
+            .map(|(items, _notice)| items)
     }
     fn session_dir(&self, info: &Info) -> PathBuf {
         match &self.dir_mode {
@@ -285,7 +286,8 @@ impl JsonlStorageAdapter {
             let summary_path = session_dir.join(super::SUMMARY_FILE);
             match std::fs::read(&summary_path) {
                 Ok(bytes) => {
-                    if let Ok(mut summary) = serde_json::from_slice::<Summary>(&bytes)
+                    if let Ok(mut summary) =
+                        crate::session::persistence::parse_stored_summary(&bytes)
                         && !summary.is_hidden()
                     {
                         super::summary_write::repair_untagged_worktree_summary(
@@ -342,7 +344,8 @@ impl JsonlStorageAdapter {
             }
             match std::fs::read(&summary_path) {
                 Ok(bytes) => {
-                    if let Ok(mut summary) = serde_json::from_slice::<Summary>(&bytes)
+                    if let Ok(mut summary) =
+                        crate::session::persistence::parse_stored_summary(&bytes)
                         && !summary.is_hidden()
                         && !summary.is_headless()
                     {
@@ -768,6 +771,13 @@ impl JsonlStorageAdapter {
         super::write_bytes_atomic(&summary_path, &bytes)
     }
     fn read_summary_sync(&self, info: &Info) -> io::Result<Summary> {
+        self.read_stored_summary(info).map(|stored| stored.summary)
+    }
+    /// Like [`Self::read_summary_sync`], and keeps the one-time notice when the stored effort is unknown.
+    fn read_stored_summary(
+        &self,
+        info: &Info,
+    ) -> io::Result<crate::session::persistence::StoredSummary> {
         let path = self.summary_file(info);
         let bytes = std::fs::read(&path)?;
         if bytes.is_empty() {
@@ -776,7 +786,7 @@ impl JsonlStorageAdapter {
                 format!("summary.json is empty (0 bytes): {}", path.display()),
             ));
         }
-        serde_json::from_slice::<Summary>(&bytes)
+        crate::session::persistence::summary_from_stored_slice(&bytes)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
     fn read_optional_json_sync<T: serde::de::DeserializeOwned>(
@@ -960,6 +970,7 @@ impl JsonlStorageAdapter {
         chat_format_version: u8,
     ) -> io::Result<Vec<ConversationItem>> {
         self.read_chat_history_sync_bounded(path, chat_format_version, usize::MAX, usize::MAX)
+            .map(|(items, _notice)| items)
     }
     fn read_chat_history_sync_bounded(
         &self,
@@ -967,9 +978,9 @@ impl JsonlStorageAdapter {
         chat_format_version: u8,
         max_bytes: usize,
         max_items: usize,
-    ) -> io::Result<Vec<ConversationItem>> {
+    ) -> io::Result<(Vec<ConversationItem>, Option<String>)> {
         if !path.exists() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), None));
         }
         let metadata = std::fs::symlink_metadata(&path)?;
         if !metadata.file_type().is_file()
@@ -1006,18 +1017,26 @@ impl JsonlStorageAdapter {
             }
         };
         let mut items = Vec::new();
+        let mut unrecognized_effort: Option<String> = None;
         for (line_idx, line) in contents.split(|b| *b == b'\n').enumerate() {
             let line = line.trim_ascii();
             if line.is_empty() {
                 continue;
             }
-            let raw: serde_json::Value = match serde_json::from_slice(line) {
+            let mut raw: serde_json::Value = match serde_json::from_slice(line) {
                 Ok(raw) => raw,
                 Err(e) => {
                     skip_line(line_idx + 1, e.to_string());
                     continue;
                 }
             };
+            if let Some(object) = raw.as_object_mut()
+                && let Some(token) = xai_grok_sampling_types::soften_reasoning_effort_field(object)
+                && unrecognized_effort.is_none()
+            {
+                unrecognized_effort =
+                    Some(xai_grok_sampling_types::unrecognized_reasoning_effort_notice(&token));
+            }
             let item_result = if chat_format_version >= CHAT_FORMAT_VERSION {
                 serde_json::from_value::<ConversationItem>(raw.clone()).or_else(|e| {
                     serde_json::from_value::<ChatRequestMessage>(raw.clone())
@@ -1099,7 +1118,7 @@ impl JsonlStorageAdapter {
                 "reconstructed legacy reasoning siblings from pre-sibling-split session"
             );
         }
-        Ok(items)
+        Ok((items, unrecognized_effort))
     }
     /// Apply a typed [`SummaryPatch`](super::summary_write::SummaryPatch) to this session's `summary.json` under an exclusive sidecar lock.
     /// The read-modify-write thus serializes against every other writer (including a second persistence actor on reconnect, or another process).
@@ -1180,6 +1199,22 @@ async fn next_compaction_segment_index(compaction_dir: &std::path::Path) -> u64 
     }
     next
 }
+/// One notice per load. The summary's unknown effort wins. A history-line effort is
+/// reported only when the session itself has no known effort, so a saved level is kept.
+fn session_effort_notice(
+    stored: &crate::session::persistence::StoredSummary,
+    history_notice: Option<String>,
+) -> Option<String> {
+    if stored.unrecognized_effort_notice.is_some() {
+        return stored.unrecognized_effort_notice.clone();
+    }
+    if stored.summary.reasoning_effort.is_none() {
+        history_notice
+    } else {
+        None
+    }
+}
+
 #[async_trait]
 impl StorageAdapter for JsonlStorageAdapter {
     async fn init_session(&self, info: &Info, model_id: acp::ModelId) -> io::Result<Summary> {
@@ -1189,7 +1224,7 @@ impl StorageAdapter for JsonlStorageAdapter {
             self.sync_parent_if_first_create_summary(info, &summary_path)?;
             tracing::info!("Loading existing session from JSONL");
             let bytes = tokio::fs::read(&summary_path).await?;
-            let mut summary = serde_json::from_slice::<Summary>(&bytes)
+            let mut summary = crate::session::persistence::parse_stored_summary(&bytes)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
             if summary.session_kind.is_none() || summary.worktree_label.is_none() {
                 let lock_path = self.summary_lock_file(info);
@@ -1594,10 +1629,17 @@ impl StorageAdapter for JsonlStorageAdapter {
         }
     }
     async fn load_session(&self, info: &Info) -> io::Result<PersistedData> {
-        let summary = self.read_summary_sync(info)?;
+        let stored = self.read_stored_summary(info)?;
         let chat_file = self.chat_file(info);
-        self.ensure_chat_history(info, summary.chat_format_version)?;
-        let chat_history = self.read_chat_history_sync(chat_file, summary.chat_format_version)?;
+        self.ensure_chat_history(info, stored.summary.chat_format_version)?;
+        let (chat_history, history_notice) = self.read_chat_history_sync_bounded(
+            chat_file,
+            stored.summary.chat_format_version,
+            usize::MAX,
+            usize::MAX,
+        )?;
+        let unrecognized_effort_notice = session_effort_notice(&stored, history_notice);
+        let summary = stored.summary;
         let updates = self.read_updates_jsonl(self.updates_file(info))?;
         let plan_state = self.read_optional_json_sync::<TodoState>(&self.plan_file(info))?;
         let plan_mode_state = self
@@ -1628,6 +1670,7 @@ impl StorageAdapter for JsonlStorageAdapter {
             announcement_state,
             goal_mode_state,
             workflow_runs,
+            unrecognized_effort_notice,
         };
         tracing::info!(
             session_id = %info.id,
@@ -1649,10 +1692,17 @@ impl StorageAdapter for JsonlStorageAdapter {
         info: &Info,
     ) -> io::Result<super::PersistedDataLight> {
         tracing::info!("Loading session data (without updates) from JSONL");
-        let summary = self.read_summary_sync(info)?;
+        let stored = self.read_stored_summary(info)?;
         let chat_file = self.chat_file(info);
-        self.ensure_chat_history(info, summary.chat_format_version)?;
-        let chat_history = self.read_chat_history_sync(chat_file, summary.chat_format_version)?;
+        self.ensure_chat_history(info, stored.summary.chat_format_version)?;
+        let (chat_history, history_notice) = self.read_chat_history_sync_bounded(
+            chat_file,
+            stored.summary.chat_format_version,
+            usize::MAX,
+            usize::MAX,
+        )?;
+        let unrecognized_effort_notice = session_effort_notice(&stored, history_notice);
+        let summary = stored.summary;
         let plan_state = self.read_optional_json_sync::<TodoState>(&self.plan_file(info))?;
         let plan_mode_state = self
             .read_optional_json_sync::<crate::session::plan_mode::PlanModeSnapshot>(
@@ -1679,6 +1729,7 @@ impl StorageAdapter for JsonlStorageAdapter {
             announcement_state,
             goal_mode_state,
             workflow_runs,
+            unrecognized_effort_notice,
         };
         tracing::info!(
             session_id = %info.id,

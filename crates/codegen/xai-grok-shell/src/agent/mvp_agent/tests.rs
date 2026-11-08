@@ -1809,6 +1809,24 @@ async fn restore_keeps_the_saved_context_window_selection_without_a_catalog() {
         selection.load(std::sync::atomic::Ordering::Relaxed)
     );
 }
+/// The resume notice is one session message, not one per bad history line.
+#[tokio::test(flavor = "current_thread")]
+async fn unrecognized_effort_notice_is_one_session_message() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut agent = build_minimal_agent_for_tests();
+    agent.gateway = GatewaySender::new(tx);
+    let notice = xai_grok_sampling_types::unrecognized_reasoning_effort_notice("turbo");
+    agent
+        .announce_unrecognized_reasoning_effort(&acp::SessionId::new("resume-effort"), &notice)
+        .await;
+    let message = rx.try_recv().expect("one notice");
+    let xai_acp_lib::AcpClientMessage::SessionNotification(args) = message else {
+        panic!("expected a session notification, got {message:?}");
+    };
+    let rendered = format!("{:?}", args.request.update);
+    assert!(rendered.contains(&notice), "{rendered}");
+    assert!(rx.try_recv().is_err(), "says so once");
+}
 /// A session persisted under a routing *slug* (not the catalog map key) must still get reasoning modes and a selected model.
 /// `session_config_options` resolves the id to the catalog key before the catalog effort lookups and the selected-model match.
 #[tokio::test]
