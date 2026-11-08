@@ -454,9 +454,19 @@ pub(crate) fn render_close_button(
     state.close_button_rect = Some(close_rect);
 }
 
+/// Keep `text` when it fits in `remaining` columns. Otherwise end it with `…`.
+fn fit_label<'a>(text: &'a str, remaining: usize) -> std::borrow::Cow<'a, str> {
+    if text.width() <= remaining {
+        std::borrow::Cow::Borrowed(text)
+    } else {
+        std::borrow::Cow::Owned(crate::render::line_utils::truncate_str(text, remaining))
+    }
+}
+
 /// Render a tab bar below the top border. Returns the number of rows used.
 ///
 /// Tabs wrap onto additional rows when they don't fit on a single line.
+/// A label that is still wider than its row ends in `…`.
 fn render_tab_bar(
     buf: &mut Buffer,
     inner: Rect,
@@ -527,9 +537,7 @@ fn render_tab_bar(
             let is_active = tab_idx == state.active_tab;
             // Minimal renders every element background-free, so the focused active tab uses accent text instead of a highlight band
             let is_embedded = embedded();
-            let display = label
-                .get(..byte_offset_at_width(label, remaining))
-                .unwrap_or("");
+            let display = fit_label(label, remaining);
             let label_w = display.width();
             // Inactive tab labels use `theme.gray` (secondary-text tier), not `theme.gray_dim`
             // At ANSI16 `gray_dim` collapses to the softer slot (silver on White), leaving text at ~1.2:1 contrast
@@ -548,7 +556,7 @@ fn render_tab_bar(
             } else {
                 Style::default().fg(theme.gray)
             };
-            buf.set_string(cur_x, y, display, style);
+            buf.set_string(cur_x, y, display.as_ref(), style);
             if let Some(slot) = state.tab_rects.get_mut(tab_idx) {
                 *slot = Some(Rect {
                     x: cur_x,
@@ -712,10 +720,7 @@ pub fn render_modal_shortcuts(
                 break;
             }
 
-            let display = shortcut
-                .label
-                .get(..byte_offset_at_width(shortcut.label, remaining))
-                .unwrap_or("");
+            let display = fit_label(shortcut.label, remaining);
             let visible_w = display.width() as u16;
             let is_hovered = hovered == Some(shortcut_idx);
 
@@ -732,7 +737,7 @@ pub fn render_modal_shortcuts(
             // Split the label at the first whitespace
             // The leading token is the "key" (bold text_secondary); the rest is the descriptive label (gray, the tertiary shade)
             // Single-token labels render entirely as the key
-            let (key_part, label_part) = split_shortcut_label(display);
+            let (key_part, label_part) = split_shortcut_label(display.as_ref());
 
             let mut key_style = Style::default()
                 .fg(theme.text_secondary)
@@ -1945,6 +1950,90 @@ mod tests {
         assert_eq!(
             split_shortcut_label("Esc cancel\twith\ttabs"),
             ("Esc", " cancel\twith\ttabs")
+        );
+    }
+
+    fn row_text(buf: &Buffer, y: u16) -> String {
+        (0..buf.area.width)
+            .map(|x| buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or(" "))
+            .collect()
+    }
+
+    /// A dialog tab or footer shortcut wider than the row ends in `…` instead of a hard cut.
+    #[test]
+    fn dialog_tab_and_shortcut_that_do_not_fit_end_in_ellipsis() {
+        let theme = Theme::current();
+        let mut state = ModalWindowState::with_tabs(1);
+        let area = Rect::new(0, 0, 12, 1);
+        let mut buf = Buffer::empty(area);
+        render_tab_bar(&mut buf, area, &mut state, &["日本語の設定タブ名"], &theme);
+        let painted = row_text(&buf, 0);
+        assert!(
+            painted.contains('…'),
+            "a wide tab must end in an ellipsis:\n{painted}"
+        );
+        assert!(
+            !painted.contains("タブ名"),
+            "the cut tail must not remain:\n{painted}"
+        );
+        assert!(
+            state.tab_rects[0].is_some_and(|rect| rect.width > 0),
+            "the truncated tab stays clickable"
+        );
+
+        let mut wide = Buffer::empty(Rect::new(0, 0, 40, 1));
+        let mut state = ModalWindowState::with_tabs(1);
+        render_tab_bar(
+            &mut wide,
+            Rect::new(0, 0, 40, 1),
+            &mut state,
+            &["Hooks"],
+            &theme,
+        );
+        let short = row_text(&wide, 0);
+        assert!(short.contains("Hooks"), "{short}");
+        assert!(
+            !short.contains('…'),
+            "a tab that fits stays whole:\n{short}"
+        );
+
+        let shortcuts = [Shortcut {
+            label: "Enter confirm this very long action",
+            clickable: true,
+            id: 1,
+        }];
+        let footer = Rect::new(0, 0, 14, 1);
+        let mut buf = Buffer::empty(footer);
+        let hits = render_modal_shortcuts(&mut buf, footer, &shortcuts, None, &theme);
+        let painted = row_text(&buf, 0);
+        assert!(
+            painted.contains('…'),
+            "a wide shortcut must end in an ellipsis:\n{painted}"
+        );
+        assert!(
+            painted.contains("Enter") && !painted.contains("action"),
+            "the shortcut keeps its key and drops the tail:\n{painted}"
+        );
+        assert_eq!(hits.len(), 1, "the truncated shortcut stays a hit target");
+
+        let wide_footer = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(wide_footer);
+        let _ = render_modal_shortcuts(
+            &mut buf,
+            wide_footer,
+            &[Shortcut {
+                label: "Esc cancel",
+                clickable: true,
+                id: 0,
+            }],
+            None,
+            &theme,
+        );
+        let short = row_text(&buf, 0);
+        assert!(short.contains("Esc cancel"), "{short}");
+        assert!(
+            !short.contains('…'),
+            "a shortcut that fits stays whole:\n{short}"
         );
     }
 }
