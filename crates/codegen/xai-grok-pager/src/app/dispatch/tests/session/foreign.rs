@@ -229,6 +229,8 @@ fn native_empty_waits_for_foreign_and_foreign_only_rows_survive() {
             partial: None,
             seq: 1,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -282,6 +284,8 @@ fn foreign_empty_then_native_empty_finishes_once_without_resurrecting() {
             partial: None,
             seq: 3,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -358,6 +362,8 @@ fn modal_empty_notice_waits_until_both_lanes_are_empty() {
             partial: None,
             seq: 9,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -487,6 +493,8 @@ fn modal_selection_survives_native_and_foreign_completion_races() {
             partial: None,
             seq: 2,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -700,6 +708,8 @@ fn empty_headless_welcome_keeps_picker_open() {
             partial: None,
             seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );

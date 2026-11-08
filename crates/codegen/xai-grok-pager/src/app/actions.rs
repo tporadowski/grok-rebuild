@@ -98,6 +98,8 @@ pub enum Action {
     OpenPrevLink,
     /// Fetch the session list for the session picker on the welcome screen.
     FetchSessionList,
+    /// Load the next `/resume` page when the selection is on the last loaded row.
+    ResumeOlderSessions,
     /// Cycle the active session picker's source filter.
     CycleSessionSourceFilter,
     /// Load a selected session from the session picker.
@@ -1510,6 +1512,8 @@ pub enum Effect {
         /// Server-side `session_kind=headless` policy: `Only` while the picker is on the Headless page, `Exclude` everywhere else.
         /// Applied by the shell before its page truncation, so it cannot be a client refilter.
         headless_policy: xai_grok_shell::session::unified_list::HeadlessPolicy,
+        /// Continuation cursor from the previous page. `None` fetches the first page.
+        cursor: Option<String>,
     },
     /// Coalesce picker search keystrokes: fires [`TaskResult::SessionSearchDebounceExpired`] after a short sleep.
     /// The expiry acts only if `host`, `generation`, and `seq` still name the live picker.
@@ -2506,6 +2510,10 @@ pub enum TaskResult {
         /// `Some` marks the sessions as server-side search results, so the local fuzzy re-filter doesn't hide content-only hits.
         /// Zero hits are then a normal outcome rather than an empty-directory error.
         query: Option<String>,
+        /// Echo of [`Effect::FetchSessionList::cursor`]. `Some` appends this page onto the rows already loaded.
+        cursor: Option<String>,
+        /// `nextCursor` from `x.ai/session/list`. `Some` means another older page exists.
+        next_cursor: Option<String>,
     },
     /// A background foreign-session scan completed.
     ForeignSessionsScanned {

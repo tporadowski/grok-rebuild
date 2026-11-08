@@ -1819,6 +1819,7 @@ async fn fetch_session_list_pushes_query_and_echoes_seq() {
         seq: 7,
         kind_filter: None,
         headless_policy: Default::default(),
+        cursor: None,
     });
     match tasks.join_next().await.expect("task").expect("no panic") {
         TaskResult::SessionListLoaded {
@@ -1850,6 +1851,7 @@ async fn fetch_session_list_pushes_query_and_echoes_seq() {
         seq: 8,
         kind_filter: None,
         headless_policy: Default::default(),
+        cursor: None,
     });
     match tasks.join_next().await.expect("task").expect("no panic") {
         TaskResult::SessionListLoaded { scope, seq, query, .. } => {
@@ -1870,6 +1872,7 @@ async fn fetch_session_list_pushes_query_and_echoes_seq() {
         seq: 10,
         kind_filter: Some(vec!["build".into()]),
         headless_policy: Default::default(),
+        cursor: None,
     });
     assert!(matches!(
             tasks.join_next().await.expect("task").expect("no panic"),
@@ -1886,6 +1889,7 @@ async fn fetch_session_list_pushes_query_and_echoes_seq() {
         seq: 9,
         kind_filter: None,
         headless_policy: Default::default(),
+        cursor: None,
     });
     match tasks.join_next().await.expect("task").expect("no panic") {
         TaskResult::SessionListFailed { host, generation, error, seq, query } => {
@@ -2008,6 +2012,7 @@ async fn fetch_session_list_sends_kind_facet_filter() {
             seq: 1,
             kind_filter: Some(vec!["build".into()]),
             headless_policy: Default::default(),
+            cursor: None,
         },
         &mut tasks,
         &tx,
@@ -2208,6 +2213,74 @@ async fn load_card_detail_echoes_identity_and_zeroes_missing_session() {
         other => panic!("expected CardDetailLoaded, got {other:?}"),
     }
 }
+/// A continuation fetch sends `cursor` and keeps the response `nextCursor`.
+#[tokio::test]
+async fn resume_older_sessions_fetch_keeps_next_cursor() {
+    use std::sync::{Arc, Mutex};
+    use xai_acp_lib::AcpAgentMessage;
+    let captured: Arc<Mutex<Vec<serde_json::Value>>> = Arc::default();
+    let captured_for_task = captured.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if let AcpAgentMessage::ExtMethod(args) = msg {
+                assert_eq!(args.request.method.as_ref(), "x.ai/session/list");
+                let params: serde_json::Value =
+                    serde_json::from_str(args.request.params.get()).expect("params JSON");
+                captured_for_task.lock().unwrap().push(params);
+                let body = serde_json::json!({
+                    "result": {
+                        "sessions": [],
+                        "nextCursor": "page-3",
+                    }
+                });
+                let raw = serde_json::value::RawValue::from_string(body.to_string())
+                    .expect("serialize list response");
+                let _ = args.response_tx.send(Ok(acp::ExtResponse::new(Arc::from(raw))));
+            }
+        }
+    });
+    let (progress_tx, _progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut tasks = JoinSet::new();
+    use crate::views::session_picker_surface::SessionPickerHost;
+    execute(
+        Effect::FetchSessionList {
+            host: SessionPickerHost::AgentModal,
+            cwd_override: None,
+            generation: 9,
+            query: None,
+            seq: 4,
+            kind_filter: None,
+            headless_policy: Default::default(),
+            cursor: Some("page-2".into()),
+        },
+        &mut tasks,
+        &tx,
+        Path::new("."),
+        &SessionFlags::default(),
+        &progress_tx,
+    );
+    match tasks.join_next().await.expect("task").expect("no panic") {
+        TaskResult::SessionListLoaded {
+            cursor,
+            next_cursor,
+            seq,
+            query,
+            ..
+        } => {
+            assert_eq!(cursor.as_deref(), Some("page-2"));
+            assert_eq!(next_cursor.as_deref(), Some("page-3"));
+            assert_eq!(seq, 4);
+            assert!(query.is_none());
+        }
+        other => panic!("expected SessionListLoaded, got {other:?}"),
+    }
+    let captured = captured.lock().unwrap();
+    assert_eq!(captured.len(), 1);
+    assert_eq!(j(nth(&captured, 0), "cursor").as_str(), Some("page-2"));
+    assert_eq!(j(nth(&captured, 0), "limit"), 30);
+}
+
 /// Verify that every profile name produced by `SessionFlags::agent_profile()` is a valid `BuiltinAgentName` that the shell can resolve.
 #[test]
 fn agent_profile_names_are_valid_builtins() {

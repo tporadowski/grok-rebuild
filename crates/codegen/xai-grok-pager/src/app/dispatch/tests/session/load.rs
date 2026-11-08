@@ -2128,6 +2128,8 @@ fn stale_session_list_responses_are_dropped() {
             partial: None,
             seq: 1,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2158,6 +2160,8 @@ fn stale_session_list_responses_are_dropped() {
             partial: None,
             seq: 2,
             query: Some("abcd".into()),
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2205,6 +2209,8 @@ fn modal_search_response_lands_and_stale_is_dropped() {
             partial: None,
             seq: 1,
             query: Some("hit".into()),
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2250,6 +2256,8 @@ fn modal_search_response_lands_and_stale_is_dropped() {
             partial: None,
             seq: 1,
             query: Some("hit".into()),
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2308,6 +2316,8 @@ fn modal_close_drops_in_flight_search_response() {
             partial: None,
             seq,
             query: Some("hit".into()),
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2356,6 +2366,8 @@ fn modal_pick_drops_in_flight_search_response() {
             partial: None,
             seq,
             query: Some("hit".into()),
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2402,6 +2414,8 @@ fn welcome_esc_drops_in_flight_fetch_response() {
             partial: None,
             seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2452,6 +2466,8 @@ fn build_welcome_esc_during_load_dismisses_without_resurrection() {
             partial: None,
             seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2563,6 +2579,8 @@ fn build_mode_close_and_reopen_drop_opposite_policy_response() {
             partial: None,
             seq: exclude_seq,
             query: Some("modal-only".into()),
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2591,6 +2609,8 @@ fn build_mode_close_and_reopen_drop_opposite_policy_response() {
             partial: None,
             seq: only_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2620,6 +2640,8 @@ fn build_mode_close_and_reopen_drop_opposite_policy_response() {
             partial: None,
             seq: exclude_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2650,6 +2672,8 @@ fn zero_hit_search_shows_empty_list_without_toast() {
             partial: None,
             seq: 1,
             query: Some("zzz".into()),
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2674,6 +2698,8 @@ fn zero_hit_search_shows_empty_list_without_toast() {
             partial: None,
             seq: 2,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2863,6 +2889,8 @@ fn build_mode_list_response_preserves_deep_search_spinner() {
             partial: None,
             seq: app.session_picker_list_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2931,6 +2959,8 @@ fn build_mode_rapid_plain_fetches_drop_superseded_response() {
             partial: None,
             seq: *first_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2951,6 +2981,8 @@ fn build_mode_rapid_plain_fetches_drop_superseded_response() {
             partial: None,
             seq: *second_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -2971,6 +3003,8 @@ fn build_mode_rapid_plain_fetches_drop_superseded_response() {
             partial: None,
             seq: *first_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3076,6 +3110,8 @@ fn reopened_modal_drops_prior_incarnation_list_result() {
             partial: None,
             seq: first_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3103,6 +3139,8 @@ fn reopened_modal_drops_prior_incarnation_list_result() {
             partial: None,
             seq: second_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3218,6 +3256,8 @@ fn welcome_fetch_response_does_not_retarget_open_modal() {
             partial: None,
             seq: welcome_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3262,6 +3302,8 @@ fn dashboard_host_results_route_to_surface_only() {
             partial: None,
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         })
     };
     let _ = dispatch(list_result(generation, "dash-fresh"), &mut app);
@@ -3408,6 +3450,8 @@ fn modal_result_does_not_cross_agents_and_background_modal_starves() {
             partial: None,
             seq: a_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3528,6 +3572,8 @@ fn background_modal_card_detail_survives_welcome_refetch() {
             partial: None,
             seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         })
     };
     let _ = dispatch(modal_list(modal_generation, modal_seq), &mut app);
@@ -3574,6 +3620,8 @@ fn background_modal_card_detail_survives_welcome_refetch() {
             partial: None,
             seq: welcome_seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3922,6 +3970,8 @@ fn finish_resume_list(
             scope: ListScope::Cwd,
             seq: app.session_picker_list_seq,
             query: Some(query.to_string()),
+            cursor: None,
+            next_cursor: None,
         }),
         app,
     )
@@ -4038,4 +4088,90 @@ fn resume_ambiguous_or_empty_query_opens_the_picker() {
         picker_is_open(&app),
         "resume with no query opens the picker immediately"
     );
+}
+
+/// Down onto the last loaded `/resume` row requests the next page, and that page is appended.
+#[test]
+fn resume_older_sessions_load_at_the_last_row() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    let mut app = test_app_with_agent();
+    open_session_picker_with(
+        &mut app,
+        vec![
+            make_picker_entry("newer", "/r"),
+            make_picker_entry("middle", "/r"),
+            make_picker_entry("oldest-loaded", "/r"),
+        ],
+    );
+    {
+        let agent = get_active_agent_mut(&mut app).unwrap();
+        let Some(ActiveModal::SessionPicker {
+            grouped,
+            next_cursor,
+            state,
+            ..
+        }) = agent.active_modal.as_mut()
+        else {
+            panic!("picker");
+        };
+        *grouped = false;
+        *next_cursor = Some("page-2".into());
+        state.selected = 0;
+    }
+    let down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    let first = app.handle_input(&down);
+    assert!(
+        matches!(first, crate::app::app_view::InputOutcome::Changed),
+        "moving toward the last row must not fetch yet, got {first:?}"
+    );
+    let second = app.handle_input(&down);
+    let action = match second {
+        crate::app::app_view::InputOutcome::Action(action) => action,
+        other => panic!("last row must request the next page, got {other:?}"),
+    };
+    assert!(matches!(action, Action::ResumeOlderSessions));
+    let effects = dispatch(action, &mut app);
+    let [Effect::FetchSessionList {
+        cursor, seq, host, ..
+    }] = effects.as_slice()
+    else {
+        panic!("{effects:?}");
+    };
+    assert_eq!(cursor.as_deref(), Some("page-2"));
+    assert_eq!(*host, SessionPickerHost::AgentModal);
+    let seq = *seq;
+    let generation = modal_picker_generation(&app);
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::SessionListLoaded {
+            host: SessionPickerHost::AgentModal,
+            generation,
+            scope: ListScope::Cwd,
+            sessions: vec![make_picker_entry("older", "/r")],
+            partial: None,
+            seq,
+            query: None,
+            cursor: Some("page-2".into()),
+            next_cursor: None,
+        }),
+        &mut app,
+    );
+    let agent = get_active_agent(&app).unwrap();
+    let Some(ActiveModal::SessionPicker {
+        entries,
+        next_cursor,
+        paging,
+        ..
+    }) = agent.active_modal.as_ref()
+    else {
+        panic!("picker");
+    };
+    let ids: Vec<_> = entries
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
+    assert_eq!(ids, ["newer", "middle", "oldest-loaded", "older"]);
+    assert!(next_cursor.is_none());
+    assert!(!*paging);
 }

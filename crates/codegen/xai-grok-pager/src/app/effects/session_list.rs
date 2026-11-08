@@ -68,6 +68,15 @@ pub(super) fn parse_session_list_partial(payload: &Value) -> Option<Conversation
         _ => ConversationsPartial::Error,
     })
 }
+/// `nextCursor` on `x.ai/session/list`. Empty is treated as the end of the list.
+pub(super) fn parse_session_list_next_cursor(payload: &Value) -> Option<String> {
+    payload
+        .get("nextCursor")
+        .and_then(Value::as_str)
+        .filter(|cursor| !cursor.is_empty())
+        .map(str::to_owned)
+}
+
 pub(super) fn parse_session_list_scope(payload: &Value) -> ListScope {
     match payload
         .get("_meta")

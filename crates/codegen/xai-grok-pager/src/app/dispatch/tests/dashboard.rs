@@ -86,6 +86,8 @@ fn dashboard_resume_owns_picker_lifecycle_and_leaves_welcome_untouched() {
             scope: xai_grok_shell::session::unified_list::ListScope::Cwd,
             seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -117,6 +119,8 @@ fn dashboard_resume_owns_picker_lifecycle_and_leaves_welcome_untouched() {
             scope: xai_grok_shell::session::unified_list::ListScope::Cwd,
             seq,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -328,6 +332,8 @@ fn dashboard_picker_filters_workspace_members_and_strict_loads_fuzzy_pick() {
             scope: xai_grok_shell::session::unified_list::ListScope::Cwd,
             seq: 1,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -432,6 +438,8 @@ fn v1_dashboard_picker_does_not_consult_workspace_view() {
             scope: xai_grok_shell::session::unified_list::ListScope::Cwd,
             seq: 1,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );

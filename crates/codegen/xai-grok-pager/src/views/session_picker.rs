@@ -926,6 +926,26 @@ pub(crate) fn build_content_header_label(
     }
 }
 /// Hint for external sessions hidden on the Headless page.
+/// How many `/resume` rows are loaded. Shown above the list.
+pub(crate) fn loaded_sessions_label(count: usize) -> String {
+    if count == 1 {
+        "1 session loaded".to_owned()
+    } else {
+        format!("{count} sessions loaded")
+    }
+}
+
+/// `selected` is the last real row (group headers are `None` in the entry map).
+pub(crate) fn selection_is_last_loaded_row(
+    selected: usize,
+    entry_map: &[Option<PickerItem>],
+) -> bool {
+    entry_map
+        .iter()
+        .rposition(Option::is_some)
+        .is_some_and(|last| last == selected)
+}
+
 pub(crate) fn hidden_external_hint(
     entries: Option<&[SessionPickerEntry]>,
     source_filter: SourceFilter,
@@ -1086,6 +1106,57 @@ mod tests {
         );
         assert_eq!(effective_filter_query(" hit ", Some("hit")), "");
         assert_eq!(effective_filter_query("", None), "");
+    }
+    /// The `/resume` modal paints how many sessions are loaded above the list.
+    #[test]
+    fn resume_older_sessions_label_is_painted() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+        let area = Rect::new(0, 0, 100, 30);
+        let mut buf = Buffer::empty(area);
+        let theme = crate::theme::Theme::default();
+        let mut state = PickerState::default();
+        let mut window = crate::views::modal_window::ModalWindowState::new();
+        let sessions = vec![make_entry("newer", "repo"), make_entry("older", "repo")];
+        let mut ctx = crate::views::session_picker_surface::SessionPickerRenderCtx {
+            state: &mut state,
+            sessions: Some(&sessions),
+            cwd: std::path::Path::new("/repo"),
+            loading: false,
+            pending_hint: None,
+            shortcuts_area: None,
+            content_results: None,
+            content_loading: false,
+            entries_query: None,
+            tick: 0,
+            grouped: false,
+            source_filter: SourceFilter::Grok,
+            pending_delete: false,
+            chat_mode: false,
+        };
+        let _ = crate::views::session_picker_surface::render_session_picker(
+            area,
+            &mut buf,
+            &theme,
+            crate::views::session_picker_surface::SessionPickerRenderMode::Modal {
+                window: &mut window,
+                title: "Resume session",
+            },
+            &mut ctx,
+        );
+        let painted: String = (area.top()..area.bottom())
+            .map(|y| {
+                (area.left()..area.right())
+                    .filter_map(|x| buf.cell((x, y)))
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            painted.contains("2 sessions loaded"),
+            "the resume modal must show how many sessions are loaded, got {painted}"
+        );
     }
     fn make_entry(id: &str, repo: &str) -> SessionPickerEntry {
         SessionPickerEntry {

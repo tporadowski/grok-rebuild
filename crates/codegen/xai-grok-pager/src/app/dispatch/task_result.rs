@@ -676,6 +676,8 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             scope,
             seq,
             query,
+            cursor,
+            next_cursor,
         } => handle_session_list_loaded(
             app,
             PickerRequest {
@@ -687,6 +689,8 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             partial,
             scope,
             query,
+            cursor,
+            next_cursor,
         ),
         TaskResult::ForeignSessionsScanned { entries, seq } => {
             handle_foreign_sessions_scanned(app, entries, seq)

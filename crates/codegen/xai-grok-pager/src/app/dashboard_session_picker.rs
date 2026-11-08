@@ -71,6 +71,17 @@ impl AppView {
             vim_normal_first: crate::appearance::cache::load_vim_mode(),
         };
         let outcome = handle_picker_input(ev, &mut surface.state, entry_map.len(), &config);
+        if matches!(outcome, PickerOutcome::Changed | PickerOutcome::Unchanged)
+            && !surface.loading
+            && !surface.paging
+            && surface.next_cursor.is_some()
+            && crate::views::session_picker::selection_is_last_loaded_row(
+                surface.state.selected,
+                &entry_map,
+            )
+        {
+            return Some(InputOutcome::Action(Action::ResumeOlderSessions));
+        }
         Some(match outcome {
             PickerOutcome::Selected(index) => {
                 match entry_map.get(index).and_then(|item| item.as_ref()) {

@@ -257,6 +257,8 @@ pub(crate) fn test_app() -> AppView {
         session_picker_content_loading: false,
         session_picker_deep_search_seq: 0,
         session_picker_list_seq: 0,
+        session_picker_next_cursor: None,
+        session_picker_paging: false,
         foreign_session_compat: Default::default(),
         foreign_session_scan_seq: 0,
         foreign_scan_coordinator: Default::default(),
@@ -822,6 +824,8 @@ fn tick_demand_fast_while_modal_session_picker_loads() {
             source_filter: crate::views::session_picker::SourceFilter::default(),
             pending_delete: None,
             grouped: true,
+            next_cursor: None,
+            paging: false,
         });
     assert_eq!(
         app.tick_demand(),

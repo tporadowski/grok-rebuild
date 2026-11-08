@@ -2507,6 +2507,15 @@ pub(crate) fn render_session_picker_body(
     } else {
         crate::views::session_picker::hidden_external_hint(ctx.sessions, ctx.source_filter)
     };
+    let loaded = ctx
+        .sessions
+        .map(|sessions| crate::views::session_picker::loaded_sessions_label(sessions.len()));
+    let header = match (loaded, hidden_hint) {
+        (Some(loaded), Some(hint)) => Some(format!("{loaded} · {hint}")),
+        (Some(loaded), None) => Some(loaded),
+        (None, Some(hint)) => Some(hint),
+        (None, None) => None,
+    };
 
     // Build shortcuts for fullscreen mode. Chat mode drops the worktree / deep-search / filter hints (local-Build-row actions).
     let worktree_shortcut: &'static str = "ctrl+w";
@@ -2574,7 +2583,7 @@ pub(crate) fn render_session_picker_body(
         filter_label: (!controls_hidden).then(|| ctx.source_filter.label()),
         filter_key_hint: (!controls_hidden).then_some("f"),
         filter_active: !controls_hidden && ctx.source_filter.is_active(),
-        header_note: hidden_hint.as_deref(),
+        header_note: header.as_deref(),
         action_keys: if controls_hidden || ctx.pending_delete {
             &[]
         } else {

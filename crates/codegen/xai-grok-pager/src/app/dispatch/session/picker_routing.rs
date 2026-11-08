@@ -10,6 +10,27 @@ use crate::views::session_picker::{
     capture_picker_selection, effective_filter_query, repo_name_from_cwd, restore_picker_selection,
 };
 use crate::views::session_picker_surface::SessionPickerHost;
+use std::collections::HashSet;
+
+/// Append a continuation page. Rows already loaded (same source and id) are skipped.
+fn append_resume_page(
+    entries: &mut Option<Vec<SessionPickerEntry>>,
+    sessions: Vec<SessionPickerEntry>,
+) -> usize {
+    let slot = entries.get_or_insert_with(Vec::new);
+    let mut seen: HashSet<(String, String)> = slot
+        .iter()
+        .map(|entry| (entry.source.clone(), entry.id.clone()))
+        .collect();
+    let mut added = 0;
+    for session in sessions {
+        if seen.insert((session.source.clone(), session.id.clone())) {
+            slot.push(session);
+            added += 1;
+        }
+    }
+    added
+}
 
 type SearchHit = xai_grok_shell::extensions::session_search::SearchSessionHit;
 
@@ -91,6 +112,8 @@ pub(in crate::app::dispatch) struct PickerTarget<'a> {
     pub list_seq: u64,
     pub deep_search_seq: u64,
     pub detail_seq: &'a mut u64,
+    pub next_cursor: &'a mut Option<String>,
+    pub paging: &'a mut bool,
 }
 
 /// Resolve `host` to its live picker storage.
@@ -118,6 +141,8 @@ pub(in crate::app::dispatch) fn picker_for_host(
                 entries_query,
                 source_filter,
                 grouped,
+                next_cursor,
+                paging,
                 ..
             }) = agent.active_modal.as_mut()
             else {
@@ -138,6 +163,8 @@ pub(in crate::app::dispatch) fn picker_for_host(
                 list_seq,
                 deep_search_seq: *deep_search_seq,
                 detail_seq,
+                next_cursor,
+                paging,
             })
         }
         // Welcome storage always exists; staleness is caught by the generation check, so the accessor always resolves
@@ -158,6 +185,8 @@ pub(in crate::app::dispatch) fn picker_for_host(
                 list_seq: app.session_picker_list_seq,
                 deep_search_seq: app.session_picker_deep_search_seq,
                 detail_seq: &mut app.session_picker_detail_seq,
+                next_cursor: &mut app.session_picker_next_cursor,
+                paging: &mut app.session_picker_paging,
             })
         }
         SessionPickerHost::Dashboard => {
@@ -182,6 +211,8 @@ pub(in crate::app::dispatch) fn picker_for_host(
                 list_seq: surface.list_seq,
                 deep_search_seq: surface.deep_search_seq,
                 detail_seq: &mut surface.detail_seq,
+                next_cursor: &mut surface.next_cursor,
+                paging: &mut surface.paging,
             })
         }
     }
@@ -225,19 +256,34 @@ impl PickerTarget<'_> {
         chat_mode: bool,
         empty_notice: String,
         partial_notice: Option<&'static str>,
+        append: bool,
+        next_cursor: Option<String>,
     ) -> Option<String> {
         let anchor = self.capture_selection();
         let is_search = query.is_some();
         *self.loading = false;
+        *self.paging = false;
         if is_search {
             *self.content_loading = false;
         }
         *self.entries_query = query;
-        if chat_mode {
+        let added = if append {
+            append_resume_page(self.entries, sessions)
+        } else if chat_mode {
+            let count = sessions.len();
             *self.entries = (!sessions.is_empty()).then_some(sessions);
+            count
         } else {
+            let count = sessions.len();
             crate::app::foreign_sessions::replace_native_entries(self.entries, sessions);
-        }
+            count
+        };
+        // An empty continuation is the end of the list, even if the server repeated a cursor.
+        *self.next_cursor = if append && added == 0 {
+            None
+        } else {
+            next_cursor
+        };
         if (is_search || self.source_filter.is_active()) && self.entries.is_none() {
             *self.entries = Some(Vec::new());
         }
@@ -268,7 +314,14 @@ impl PickerTarget<'_> {
         chat_mode: bool,
     ) -> Option<String> {
         let anchor = self.capture_selection();
+        let was_paging = *self.paging;
         *self.loading = false;
+        *self.paging = false;
+        if was_paging {
+            // The rows already on screen stay. The cursor is still valid, so the next Down retries.
+            self.restore_selection(anchor);
+            return None;
+        }
         if is_search {
             *self.content_loading = false;
         }

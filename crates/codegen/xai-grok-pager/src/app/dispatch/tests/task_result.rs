@@ -3177,6 +3177,8 @@ fn session_list_partial_no_oauth_surfaces_login_hint() {
             partial: Some(crate::app::effects::ConversationsPartial::NoOauth),
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3198,6 +3200,8 @@ fn session_list_relax_surfaces_notice_once() {
             partial: None,
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         })
     };
 
@@ -3226,6 +3230,8 @@ fn session_list_relax_surfaces_notice_once() {
             partial: None,
             seq: 0,
             query: Some("needle".into()),
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3244,6 +3250,8 @@ fn session_list_relax_surfaces_notice_once() {
             partial: None,
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3268,6 +3276,8 @@ fn session_list_relax_on_welcome_does_not_latch() {
             partial: None,
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3289,6 +3299,8 @@ fn session_list_relax_renotifies_when_cwd_changes() {
             partial: None,
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         })
     };
 
@@ -3326,6 +3338,8 @@ fn session_list_empty_without_partial_keeps_generic_toast() {
             partial: None,
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3346,6 +3360,8 @@ fn session_list_nonempty_partial_toasts_retry_in_chat_mode_only() {
             partial: Some(crate::app::effects::ConversationsPartial::Timeout),
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3369,6 +3385,8 @@ fn session_list_nonempty_partial_toasts_retry_in_chat_mode_only() {
             partial: Some(crate::app::effects::ConversationsPartial::Timeout),
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3394,6 +3412,8 @@ fn session_list_nonempty_partial_modal_toasts_in_chat_mode_only() {
             partial: Some(crate::app::effects::ConversationsPartial::Timeout),
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );
@@ -3425,6 +3445,8 @@ fn session_list_nonempty_partial_modal_toasts_in_chat_mode_only() {
             partial: Some(crate::app::effects::ConversationsPartial::Timeout),
             seq: 0,
             query: None,
+            cursor: None,
+            next_cursor: None,
         }),
         &mut app,
     );

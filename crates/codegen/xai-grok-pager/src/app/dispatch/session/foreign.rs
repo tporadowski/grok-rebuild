@@ -45,6 +45,203 @@ pub(in crate::app::dispatch) fn next_picker_list_generation(app: &mut AppView) -
     app.session_picker_list_seq
 }
 
+/// A fresh list replaces the cursor. A continuation page leaves the cursor until its result lands.
+pub(in crate::app::dispatch) fn begin_session_list_fetch(
+    app: &mut AppView,
+    host: SessionPickerHost,
+    paging: bool,
+) {
+    let apply = |next: &mut Option<String>, paging_flag: &mut bool| {
+        if !paging {
+            *next = None;
+        }
+        *paging_flag = paging;
+    };
+    match host {
+        SessionPickerHost::AgentModal => {
+            if let Some(agent) = get_active_agent_mut(app)
+                && let Some(ActiveModal::SessionPicker {
+                    next_cursor,
+                    paging: paging_flag,
+                    ..
+                }) = agent.active_modal.as_mut()
+            {
+                apply(next_cursor, paging_flag);
+            }
+        }
+        SessionPickerHost::Welcome => {
+            apply(
+                &mut app.session_picker_next_cursor,
+                &mut app.session_picker_paging,
+            );
+        }
+        SessionPickerHost::Dashboard => {
+            if let Some(surface) = app.dashboard_session_picker.as_mut() {
+                apply(&mut surface.next_cursor, &mut surface.paging);
+            }
+        }
+    }
+}
+
+/// Fetch the next `/resume` page when the open picker is sitting on its last loaded row.
+pub(in crate::app::dispatch) fn dispatch_resume_older_sessions(app: &mut AppView) -> Vec<Effect> {
+    use crate::views::session_picker::{
+        build_entry_map, effective_filter_query, repo_name_from_cwd, selection_is_last_loaded_row,
+    };
+    let history_kind = welcome_history_kind_filter(app);
+    let modal = if let Some(agent) = get_active_agent(app)
+        && matches!(agent.active_modal, Some(ActiveModal::SessionPicker { .. }))
+    {
+        let cwd = agent.session.cwd.clone();
+        let repo = repo_name_from_cwd(&cwd.to_string_lossy());
+        let (ready, query, generation) = {
+            let Some(ActiveModal::SessionPicker {
+                entries,
+                state,
+                loading,
+                paging,
+                next_cursor,
+                content_results,
+                content_loading,
+                entries_query,
+                source_filter,
+                grouped,
+                generation,
+                ..
+            }) = agent.active_modal.as_ref()
+            else {
+                return vec![];
+            };
+            if *loading || *paging {
+                return vec![];
+            }
+            let Some(cursor) = next_cursor.clone() else {
+                return vec![];
+            };
+            let entry_map = build_entry_map(
+                entries.as_deref(),
+                content_results.as_deref(),
+                effective_filter_query(state.query(), entries_query.as_deref()),
+                *grouped,
+                *content_loading,
+                *source_filter,
+                Some(repo.as_str()),
+            );
+            if !selection_is_last_loaded_row(state.selected, &entry_map) {
+                return vec![];
+            }
+            (cursor, entries_query.clone(), *generation)
+        };
+        Some((
+            SessionPickerHost::AgentModal,
+            generation,
+            query.filter(|text| !text.is_empty()),
+            ready,
+            None,
+            history_kind.clone(),
+        ))
+    } else if app.dashboard_session_picker.is_some() {
+        let cwd = app
+            .dashboard
+            .as_ref()
+            .map_or_else(|| app.cwd.clone(), |dashboard| dashboard.cwd.clone());
+        let repo = repo_name_from_cwd(&cwd.to_string_lossy());
+        let Some(surface) = app.dashboard_session_picker.as_ref() else {
+            return vec![];
+        };
+        if surface.loading || surface.paging {
+            return vec![];
+        }
+        let Some(cursor) = surface.next_cursor.clone() else {
+            return vec![];
+        };
+        let entry_map = build_entry_map(
+            surface.entries.as_deref(),
+            None,
+            effective_filter_query(surface.state.query(), surface.entries_query.as_deref()),
+            true,
+            false,
+            surface.source_filter,
+            Some(repo.as_str()),
+        );
+        if !selection_is_last_loaded_row(surface.state.selected, &entry_map) {
+            return vec![];
+        }
+        Some((
+            SessionPickerHost::Dashboard,
+            surface.generation,
+            surface
+                .entries_query
+                .clone()
+                .filter(|text| !text.is_empty()),
+            cursor,
+            Some(cwd),
+            Some(vec!["build".to_owned()]),
+        ))
+    } else if app.session_picker_entries.is_some() {
+        if app.session_picker_loading || app.session_picker_paging {
+            return vec![];
+        }
+        let Some(cursor) = app.session_picker_next_cursor.clone() else {
+            return vec![];
+        };
+        let repo = repo_name_from_cwd(&app.cwd.to_string_lossy());
+        let entry_map = build_entry_map(
+            app.session_picker_entries.as_deref(),
+            app.session_picker_content_results.as_deref(),
+            effective_filter_query(
+                app.session_picker_state.query(),
+                app.session_picker_entries_query.as_deref(),
+            ),
+            app.session_picker_grouped,
+            app.session_picker_content_loading,
+            app.session_picker_source_filter,
+            Some(repo.as_str()),
+        );
+        if !selection_is_last_loaded_row(app.session_picker_state.selected, &entry_map) {
+            return vec![];
+        }
+        Some((
+            SessionPickerHost::Welcome,
+            app.session_picker_generation,
+            app.session_picker_entries_query
+                .clone()
+                .filter(|text| !text.is_empty()),
+            cursor,
+            None,
+            history_kind,
+        ))
+    } else {
+        None
+    };
+    let Some((host, generation, query, cursor, cwd_override, kind_filter)) = modal else {
+        return vec![];
+    };
+    begin_session_list_fetch(app, host, true);
+    let seq = match host {
+        SessionPickerHost::Dashboard => {
+            let Some(surface) = app.dashboard_session_picker.as_mut() else {
+                return vec![];
+            };
+            surface.list_seq = surface.list_seq.wrapping_add(1);
+            surface.list_seq
+        }
+        SessionPickerHost::Welcome | SessionPickerHost::AgentModal => {
+            next_picker_list_generation(app)
+        }
+    };
+    vec![Effect::FetchSessionList {
+        host,
+        cwd_override,
+        generation,
+        query,
+        seq,
+        kind_filter,
+        headless_policy: active_picker_headless_policy(app),
+        cursor: Some(cursor),
+    }]
+}
+
 pub(in crate::app::dispatch) fn dispatch_fetch_session_list(app: &mut AppView) -> Vec<Effect> {
     dispatch_fetch_session_list_query(app, None)
 }
@@ -86,6 +283,7 @@ pub(in crate::app::dispatch) fn dispatch_fetch_session_list_query(
         Some(generation) => (SessionPickerHost::AgentModal, generation),
         None => (SessionPickerHost::Welcome, app.session_picker_generation),
     };
+    begin_session_list_fetch(app, host, false);
     let mut effects = vec![Effect::FetchSessionList {
         host,
         cwd_override: None,
@@ -94,6 +292,7 @@ pub(in crate::app::dispatch) fn dispatch_fetch_session_list_query(
         seq,
         kind_filter,
         headless_policy: active_picker_headless_policy(app),
+        cursor: None,
     }];
     let foreign_effect = if app.chat_mode {
         app.foreign_scan_coordinator.begin_request(foreign_seq);
@@ -144,6 +343,8 @@ pub(in crate::app::dispatch) fn handle_session_list_loaded(
     partial: Option<ConversationsPartial>,
     scope: ListScope,
     query: Option<String>,
+    cursor: Option<String>,
+    next_cursor: Option<String>,
 ) -> Vec<Effect> {
     let dashboard_request =
         request.host == crate::views::session_picker_surface::SessionPickerHost::Dashboard;
@@ -203,7 +404,15 @@ pub(in crate::app::dispatch) fn handle_session_list_loaded(
             |partial| partial.picker_notice().to_owned(),
         );
         let partial_notice = partial.map(ConversationsPartial::picker_notice);
-        notice = target.native_loaded(sessions, query, chat_mode, empty_notice, partial_notice);
+        notice = target.native_loaded(
+            sessions,
+            query,
+            chat_mode,
+            empty_notice,
+            partial_notice,
+            cursor.is_some(),
+            next_cursor,
+        );
         *target.detail_seq += 1;
     }
     if let Some(notice) = notice {
@@ -228,7 +437,8 @@ pub(in crate::app::dispatch) fn handle_session_list_loaded(
     if !dashboard_request && !scope.is_relaxed() && is_browse {
         app.session_picker_relaxed_notified_for = None;
     }
-    if let Some(wanted) = app.resume_direct_query.take()
+    if cursor.is_none()
+        && let Some(wanted) = app.resume_direct_query.take()
         && echoed_query
             .as_deref()
             .is_some_and(|query| query.trim() == wanted.trim())
@@ -382,6 +592,8 @@ pub(in crate::app::dispatch) fn handle_foreign_sessions_scanned(
             entries_query,
             source_filter,
             grouped,
+            next_cursor,
+            paging,
             ..
         }) = agent.active_modal.as_mut()
             && lanes.foreign_loading
@@ -402,6 +614,8 @@ pub(in crate::app::dispatch) fn handle_foreign_sessions_scanned(
                 list_seq,
                 deep_search_seq: *deep_search_seq,
                 detail_seq,
+                next_cursor,
+                paging,
             };
             notice = target.foreign_loaded(scanned.take().unwrap_or_default());
             *target.detail_seq += 1;
@@ -424,6 +638,8 @@ pub(in crate::app::dispatch) fn handle_foreign_sessions_scanned(
             list_seq,
             deep_search_seq: app.session_picker_deep_search_seq,
             detail_seq: &mut app.session_picker_detail_seq,
+            next_cursor: &mut app.session_picker_next_cursor,
+            paging: &mut app.session_picker_paging,
         };
         notice = target.foreign_loaded(scanned.unwrap_or_default());
         *target.detail_seq += 1;

@@ -174,6 +174,8 @@ pub fn session_picker_modal(previous_palette: Option<PaletteSnapshot>) -> Active
         pending_delete: None,
         // Fetch stamps the real `[cli].session_picker_grouped` value while generation is still 0.
         grouped: true,
+        next_cursor: None,
+        paging: false,
     }
 }
 /// The currently active modal dialog, if any.
@@ -248,6 +250,10 @@ pub enum ActiveModal {
         /// Same flag as the welcome picker (`[cli].session_picker_grouped`).
         /// `false` is the flat list; the modal used to ignore the flag and always group.
         grouped: bool,
+        /// `nextCursor` from the last page. `None` means the loaded rows are the end.
+        next_cursor: Option<String>,
+        /// A continuation page is already in flight.
+        paging: bool,
     },
     /// How-to documentation list modal (wider picker style).
     DocPicker {

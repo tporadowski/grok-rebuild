@@ -354,6 +354,7 @@ pub(super) fn dispatch_dashboard_open_session_picker(
     let seq = surface.list_seq;
     let headless_policy = surface.source_filter.headless_policy();
     app.dashboard_session_picker = Some(surface);
+    super::session::foreign::begin_session_list_fetch(app, SessionPickerHost::Dashboard, false);
     vec![Effect::FetchSessionList {
         host: SessionPickerHost::Dashboard,
         cwd_override: Some(cwd),
@@ -362,6 +363,7 @@ pub(super) fn dispatch_dashboard_open_session_picker(
         seq,
         kind_filter: Some(vec!["build".to_owned()]),
         headless_policy,
+        cursor: None,
     }]
 }
 pub(super) fn dispatch_dashboard_close_session_picker(app: &mut AppView) -> Vec<Effect> {

@@ -805,6 +805,10 @@ pub struct AppView {
     /// Only the seq-current response is applied.
     /// Stale completions and responses fetched under an obsolete Headless policy thus cannot clobber newer results.
     pub session_picker_list_seq: u64,
+    /// `nextCursor` from the last welcome `/resume` page. `None` means the loaded rows are the end.
+    pub session_picker_next_cursor: Option<String>,
+    /// A continuation page is already in flight for the welcome picker.
+    pub session_picker_paging: bool,
     /// Resolved compat-session cells used before checking resume-skill paths.
     pub(crate) foreign_session_compat: xai_grok_foreign_sessions::EnabledForeignSessionSources,
     /// Monotonic picker scan sequence, bumped on every open and close.
@@ -1472,6 +1476,8 @@ impl AppView {
             session_picker_content_loading: false,
             session_picker_deep_search_seq: 0,
             session_picker_list_seq: 0,
+            session_picker_next_cursor: None,
+            session_picker_paging: false,
             foreign_session_compat: Default::default(),
             foreign_session_scan_seq: 0,
             foreign_scan_coordinator: Default::default(),
@@ -2444,6 +2450,8 @@ impl AppView {
                     sp_content_results: &self.session_picker_content_results,
                     sp_content_loading: self.session_picker_content_loading,
                     sp_entries_query: &self.session_picker_entries_query,
+                    sp_next_cursor: &self.session_picker_next_cursor,
+                    sp_paging: self.session_picker_paging,
                     has_claude_import: self.has_claude_import,
                     import_claude_modal: &mut self.import_claude_modal,
                     welcome_doc_viewer: &mut self.welcome_doc_viewer,
@@ -3141,6 +3149,10 @@ struct WelcomeInputCtx<'a> {
     sp_content_loading: bool,
     /// The query `sp_entries` were server-fetched with (see [`crate::views::session_picker::effective_filter_query`]).
     sp_entries_query: &'a Option<String>,
+    /// `nextCursor` for the welcome `/resume` list. `None` means the loaded rows are the end.
+    sp_next_cursor: &'a Option<String>,
+    /// A continuation page is already in flight.
+    sp_paging: bool,
     has_claude_import: bool,
     import_claude_modal: &'a mut Option<crate::views::import_claude_modal::ImportClaudeModalState>,
     welcome_doc_viewer: &'a mut Option<crate::views::modal::ActiveModal>,
@@ -3519,6 +3531,17 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
         let outcome = handle_picker_input(ev, ctx.sp_state, entry_count, &config);
         if ctx.sp_pending_delete.is_some() && ctx.sp_state.selected != selected_before {
             *ctx.sp_pending_delete = None;
+        }
+        if matches!(outcome, PickerOutcome::Changed | PickerOutcome::Unchanged)
+            && !ctx.sp_loading
+            && !ctx.sp_paging
+            && ctx.sp_next_cursor.is_some()
+            && crate::views::session_picker::selection_is_last_loaded_row(
+                ctx.sp_state.selected,
+                &entry_map,
+            )
+        {
+            return InputOutcome::Action(Action::ResumeOlderSessions);
         }
         match outcome {
             PickerOutcome::Selected(i) => match entry_map.get(i).and_then(|e| e.as_ref()) {

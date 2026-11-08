@@ -54,7 +54,7 @@ use super::rewind::{
     dispatch_rewind_confirm_never_ask, dispatch_rewind_dismiss, dispatch_rewind_dismiss_error,
     dispatch_rewind_picker_select, dispatch_rewind_show_picker,
 };
-use super::session::foreign::dispatch_fetch_session_list;
+use super::session::foreign::{dispatch_fetch_session_list, dispatch_resume_older_sessions};
 use super::session::fork::{
     apply_persist_worktree_mode, dispatch_fork, dispatch_fork_resolved,
     dispatch_startup_fork_session,
@@ -292,6 +292,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             new_session_id,
         } => dispatch_startup_fork_session(app, parent_session_id, parent_cwd, new_session_id),
         Action::FetchSessionList => dispatch_fetch_session_list(app),
+        Action::ResumeOlderSessions => dispatch_resume_older_sessions(app),
         Action::CycleSessionSourceFilter => dispatch_cycle_session_source_filter(app),
         Action::ShowSessionPicker(query) => {
             if app.workspace_dashboard_enabled

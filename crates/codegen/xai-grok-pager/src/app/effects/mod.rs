@@ -22,8 +22,8 @@ pub(crate) use helpers::{
 pub(crate) use helpers::reject_non_fs_only_advertised_tools;
 use helpers::*;
 use session_list::{
-    LocalPresence, parse_session_list_partial, parse_session_list_scope,
-    parse_session_picker_entries_blocking, read_session_list_response,
+    LocalPresence, parse_session_list_next_cursor, parse_session_list_partial,
+    parse_session_list_scope, parse_session_picker_entries_blocking, read_session_list_response,
     session_picker_entry_to_roster,
 };
 use std::path::Path;
@@ -686,6 +686,7 @@ pub(crate) fn execute(
             seq,
             kind_filter,
             headless_policy,
+            cursor,
         } => {
             let tx = acp_tx.clone();
             let cwd = cwd_override.unwrap_or_else(|| cwd.to_path_buf());
@@ -713,6 +714,12 @@ pub(crate) fn execute(
                             obj.insert(
                                 "allowRelax".into(),
                                 serde_json::Value::Bool(true),
+                            );
+                        }
+                        if let Some(cursor) = &cursor {
+                            obj.insert(
+                                "cursor".into(),
+                                serde_json::Value::String(cursor.clone()),
                             );
                         }
                         if host
@@ -767,6 +774,7 @@ pub(crate) fn execute(
                             };
                             let partial = parse_session_list_partial(&payload);
                             let scope = parse_session_list_scope(&payload);
+                            let next_cursor = parse_session_list_next_cursor(&payload);
                             let sessions = match parse_session_picker_entries_blocking(
                                     payload,
                                     LocalPresence::for_host(host),
@@ -792,6 +800,8 @@ pub(crate) fn execute(
                                 scope,
                                 seq,
                                 query,
+                                cursor,
+                                next_cursor,
                             }
                         }
                         Err(e) => {

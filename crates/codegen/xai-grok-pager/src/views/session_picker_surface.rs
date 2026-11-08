@@ -40,6 +40,10 @@ pub struct SessionPickerSurface {
     pub entries_query: Option<String>,
     pub source_filter: crate::views::session_picker::SourceFilter,
     pub pending_delete: Option<crate::views::session_picker::PendingDelete>,
+    /// `nextCursor` from the last page. `None` means the loaded rows are the end.
+    pub next_cursor: Option<String>,
+    /// A continuation page is already in flight.
+    pub paging: bool,
 }
 
 impl SessionPickerSurface {
@@ -60,6 +64,8 @@ impl SessionPickerSurface {
             entries_query: None,
             source_filter: Default::default(),
             pending_delete: None,
+            next_cursor: None,
+            paging: false,
         }
     }
 }
@@ -232,6 +238,21 @@ fn render_simple_session_picker_modal(
             Some(theme.bg_base),
         );
     }
+    let loaded_note = ctx
+        .sessions
+        .map(|sessions| crate::views::session_picker::loaded_sessions_label(sessions.len()));
+    let note_rows = u16::from(loaded_note.is_some());
+    if let Some(note) = loaded_note.as_deref()
+        && separator_y + 1 < content.y + content.height
+    {
+        buf.set_stringn(
+            content.x + 1,
+            separator_y + 1,
+            note,
+            content.width.saturating_sub(1) as usize,
+            ratatui::style::Style::default().fg(theme.gray_dim),
+        );
+    }
 
     let query =
         crate::views::session_picker::effective_filter_query(ctx.state.query(), ctx.entries_query);
@@ -266,11 +287,14 @@ fn render_simple_session_picker_modal(
     );
     let entries_area = Rect {
         x: content.x,
-        y: separator_y + 1,
+        y: separator_y + 1 + note_rows,
         width: content.width,
-        height: content
-            .height
-            .saturating_sub(separator_y.saturating_add(1).saturating_sub(content.y)),
+        height: content.height.saturating_sub(
+            separator_y
+                .saturating_add(1)
+                .saturating_add(note_rows)
+                .saturating_sub(content.y),
+        ),
     };
     let content_hit = picker::render_picker_content_with_scrollbar_x(
         buf,

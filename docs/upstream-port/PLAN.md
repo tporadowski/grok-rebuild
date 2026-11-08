@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-111 — `/resume` loads the next page at the last row
+
+Reaching the last loaded `/resume` row requests the next `x.ai/session/list` page with the stored `nextCursor`. That page is appended, and the picker shows how many sessions are loaded. An empty continuation ends the list (`resume_older_sessions_load_at_the_last_row`, `resume_older_sessions_fetch_keeps_next_cursor`, `resume_older_sessions_label_is_painted`) (`v64-f03`).
+
 ### D-110 — A cold `/resume` keeps the dashboard overlay
 
 A `/resume` that loads a session while a dashboard overlay is open moves that overlay onto the loaded session. Left and Ctrl+\ still back out. A load that did not start on the overlay does not attach (`cold_resume_from_the_dashboard_overlay_stays_attached`) (`v62-x02`).
@@ -496,7 +500,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 13 | 0 | 30 | 0 | 0 |
+| W8 | Sessions, resume, and dashboard | 12 | 0 | 31 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -507,9 +511,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 371. Skipped: 8. Done: 161. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 370. Skipped: 8. Done: 162. Already: 33. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: `/resume` loads older sessions at the last row (`v64-f03`).
+**Next:** W8 sessions, resume, and dashboard. First open row: `/resume` search finds sessions from other folders, tolerates typos, and also matches commands, file paths, and replies (`v65-f01`).
 
 ## Waves
 
@@ -543,7 +547,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 13. Done: 30 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 12. Done: 31 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -756,7 +760,7 @@ id | status | wave | kind | flag | covered | note
 - v61-x01 | done | W8 | Bug Fixes |  |  | **Dashboard peek** text can be selected by dragging over it with the mouse, and the selection is copied to the clipboard when you release.
 - v62-x02 | done | W8 | Bug Fixes |  |  | **Cold `/resume` from the dashboard overlay** keeps the overlay attached, so you can still back out with Left or `Ctrl+\`.
 - v62-x04 | done | W8 | Bug Fixes |  |  | **CLI commands** such as `grok models`, `grok sessions` and `grok export` no longer crash when their output pipe closes early, such as when piped to `head`, or when the output device is full.
-- v64-f03 | pending | W8 | Features |  |  | **`/resume`** loads older sessions when you reach the last row, and shows how many sessions are loaded.
+- v64-f03 | done | W8 | Features |  |  | **`/resume`** loads older sessions when you reach the last row, and shows how many sessions are loaded.
 - v65-f01 | pending | W8 | Features |  |  | **`/resume` search** finds sessions from other folders, tolerates typos, and also matches the commands, file paths, and replies in a session.
 - v65-f03 | done | W8 | Features |  |  | **The dashboard's `Ctrl+L` folder picker** lists up to 50 recent folders instead of 10.
 - v65-x01 | done | W8 | Bug Fixes |  |  | **`/resume` search** keeps a single typed character literal and matches each typed word at the start of a word, so `log fix` no longer matches "Blog prefix cleanup".

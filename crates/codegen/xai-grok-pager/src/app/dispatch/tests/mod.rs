@@ -271,6 +271,8 @@ fn test_app() -> AppView {
         session_picker_content_loading: false,
         session_picker_deep_search_seq: 0,
         session_picker_list_seq: 0,
+        session_picker_next_cursor: None,
+        session_picker_paging: false,
         foreign_session_compat: Default::default(),
         foreign_session_scan_seq: 0,
         foreign_scan_coordinator: Default::default(),
@@ -905,6 +907,8 @@ fn open_session_picker_with(
         source_filter: crate::views::session_picker::SourceFilter::default(),
         pending_delete: None,
         grouped: true,
+        next_cursor: None,
+        paging: false,
     });
 }
 /// Live generation of the active agent's SessionPicker modal, for stamping modal-host results the way the executors echo them.

@@ -787,6 +787,7 @@ pub(in crate::app::dispatch) fn dispatch_cycle_session_source_filter(
         return vec![];
     }
     let seq = next_picker_list_generation(app);
+    super::foreign::begin_session_list_fetch(app, request_identity.0, false);
     let mut effects = vec![Effect::FetchSessionList {
         host: request_identity.0,
         cwd_override: None,
@@ -795,6 +796,7 @@ pub(in crate::app::dispatch) fn dispatch_cycle_session_source_filter(
         seq,
         kind_filter: super::foreign::welcome_history_kind_filter(app),
         headless_policy: super::foreign::active_picker_headless_policy(app),
+        cursor: None,
     }];
     effects.extend(restart_search);
     effects
@@ -915,6 +917,7 @@ fn dispatch_chat_search_refetch(app: &mut AppView, force: bool) -> Vec<Effect> {
     let seq = next_picker_list_generation(app);
     if query.is_empty() {
         set_chat_search_loading(app, host, false);
+        super::foreign::begin_session_list_fetch(app, host, false);
         return vec![Effect::FetchSessionList {
             host,
             cwd_override: None,
@@ -923,10 +926,12 @@ fn dispatch_chat_search_refetch(app: &mut AppView, force: bool) -> Vec<Effect> {
             seq,
             kind_filter: super::foreign::welcome_history_kind_filter(app),
             headless_policy: super::foreign::active_picker_headless_policy(app),
+            cursor: None,
         }];
     }
     set_chat_search_loading(app, host, true);
     if force {
+        super::foreign::begin_session_list_fetch(app, host, false);
         vec![Effect::FetchSessionList {
             host,
             cwd_override: None,
@@ -935,6 +940,7 @@ fn dispatch_chat_search_refetch(app: &mut AppView, force: bool) -> Vec<Effect> {
             seq,
             kind_filter: super::foreign::welcome_history_kind_filter(app),
             headless_policy: super::foreign::active_picker_headless_policy(app),
+            cursor: None,
         }]
     } else {
         vec![Effect::DebounceSessionSearch {
@@ -1489,6 +1495,7 @@ pub(in crate::app::dispatch) fn handle_session_search_debounce_expired(
         return vec![];
     }
     if chat_mode {
+        super::foreign::begin_session_list_fetch(app, request.host, false);
         vec![Effect::FetchSessionList {
             host: request.host,
             cwd_override: None,
@@ -1497,6 +1504,7 @@ pub(in crate::app::dispatch) fn handle_session_search_debounce_expired(
             seq: request.seq,
             kind_filter: super::foreign::welcome_history_kind_filter(app),
             headless_policy,
+            cursor: None,
         }]
     } else {
         vec![Effect::DeepSearchSessions {

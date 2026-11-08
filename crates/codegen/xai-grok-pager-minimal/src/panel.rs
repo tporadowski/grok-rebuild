@@ -635,6 +635,8 @@ mod tests {
             pending_delete: None,
             entries_query: None,
             grouped: true,
+            next_cursor: None,
+            paging: false,
         });
         a
     }

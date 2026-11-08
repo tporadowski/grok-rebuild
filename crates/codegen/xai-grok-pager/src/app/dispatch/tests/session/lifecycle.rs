@@ -4121,6 +4121,7 @@ mod welcome_workspace_mode {
                 seq: 0,
                 kind_filter: None,
                 headless_policy: Default::default(),
+                cursor: None,
             }],
             true
         ));

@@ -948,7 +948,7 @@ impl AgentView {
             ActiveModal::SessionPicker {
                 entries,
                 state,
-                loading: _,
+                loading,
                 previous_palette,
                 content_results,
                 content_loading,
@@ -956,6 +956,8 @@ impl AgentView {
                 source_filter,
                 pending_delete,
                 grouped,
+                next_cursor,
+                paging,
                 ..
             } => {
                 use crate::views::session_picker::{
@@ -1064,6 +1066,17 @@ impl AgentView {
                 let outcome = handle_picker_input(ev, state, entry_count, &config);
                 if pending_delete.is_some() && state.selected != selected_before {
                     *pending_delete = None;
+                }
+                if matches!(outcome, PickerOutcome::Changed | PickerOutcome::Unchanged)
+                    && !*loading
+                    && !*paging
+                    && next_cursor.is_some()
+                    && crate::views::session_picker::selection_is_last_loaded_row(
+                        state.selected,
+                        &entry_map,
+                    )
+                {
+                    return InputOutcome::Action(Action::ResumeOlderSessions);
                 }
                 match outcome {
                     PickerOutcome::Selected(i) => {
@@ -2457,6 +2470,8 @@ mod session_picker_delete_tests {
             source_filter: crate::views::session_picker::SourceFilter::default(),
             pending_delete: None,
             grouped: true,
+            next_cursor: None,
+            paging: false,
         });
     }
 
