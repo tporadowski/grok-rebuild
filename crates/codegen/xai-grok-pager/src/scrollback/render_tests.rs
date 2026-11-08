@@ -3238,6 +3238,60 @@ fn overlay_pretty_link_url_in_blockquote_wraps_correctly() {
     );
 }
 
+/// A bare URL that wraps inside a user prompt or a quote links to the whole address.
+/// The prompt indent and the quote bar are not part of that address.
+#[test]
+fn wrapped_url_in_prompt_and_quote_links_the_whole_address() {
+    use unicode_width::UnicodeWidthStr;
+    let url = "https://example.com/d/seg-00-wrap-seg-01-wrap-seg-02-wrap-seg-03-wrap-seg-04-wrap-seg-05-wrap-seg-06-wrap-seg-07-wrap-seg-08-wrap-seg-09-wrap-seg-10";
+    let cases = [
+        (
+            "prompt",
+            ScrollbackEntry::new(RenderBlock::user_prompt(url)),
+        ),
+        (
+            "quote",
+            ScrollbackEntry::new(RenderBlock::agent_message(format!("> {url}\n"))),
+        ),
+    ];
+    for (label, entry) in cases {
+        let result = render_with_scratch(&[entry], Rect::new(0, 0, 36, 16), 0, None);
+        let targets: Vec<String> = result
+            .link_overlay
+            .links()
+            .iter()
+            .filter_map(|link| {
+                resolve_link_target(&link.target)
+                    .and_then(|resolved| resolved.osc8_url)
+                    .map(|url| url.to_string())
+            })
+            .collect();
+        assert!(
+            targets.iter().any(|target| target == url),
+            "{label} must link the full address, got {targets:?}"
+        );
+        assert!(
+            targets.iter().all(|target| target == url),
+            "{label} must not link a cut fragment, got {targets:?}"
+        );
+        let group = url_overlay_group(&result, url);
+        assert!(
+            group.len() >= 2,
+            "{label} URL should wrap onto more than one row, got {}",
+            group.len()
+        );
+        let combined_width: u32 = group
+            .iter()
+            .map(|link| (link.col_end - link.col_start) as u32)
+            .sum();
+        assert_eq!(
+            combined_width as usize,
+            UnicodeWidthStr::width(url),
+            "{label} combined fragment widths must equal the address"
+        );
+    }
+}
+
 /// Long URL inside a list item. Same OSC-coverage invariant as the blockquote test above.
 #[test]
 fn overlay_pretty_link_url_in_list_wraps_correctly() {

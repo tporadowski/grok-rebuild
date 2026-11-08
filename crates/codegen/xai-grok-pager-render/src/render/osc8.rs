@@ -9,7 +9,7 @@ use std::sync::{Arc, OnceLock};
 
 use linkify::{LinkFinder, LinkKind};
 use ratatui::text::Line;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// Semantic destination of a pager link.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -390,12 +390,31 @@ struct RowSegment {
     screen_row: u16,
     start: usize,
     end: usize,
+    /// Display columns painted before this row's logical text (quote bar or prompt indent).
+    col_bias: usize,
 }
 
 /// Soft-wrapped rows (`Some` joiner) are re-joined before matching so a wrapped path is detected whole; styling boundaries must not truncate a match.
 /// Overlaps with existing markdown links are skipped. Relative paths link only on a unique `media_paths` match.
+/// Continuation rows have no indent (`indent_cols` is 0).
 pub fn scan_lines_for_url_overlays<'a>(
     lines: impl Iterator<Item = (u16, &'a Line<'static>, Option<&'a str>)>,
+    content_x: u16,
+    media_paths: &[PathBuf],
+    overlay: &mut LinkOverlay,
+) {
+    scan_lines_for_url_overlays_indented(
+        lines.map(|(screen_row, line, joiner)| (screen_row, line, joiner, 0)),
+        content_x,
+        media_paths,
+        overlay,
+    );
+}
+
+/// Like [`scan_lines_for_url_overlays`], but a continuation row's `indent_cols` are decoration, not part of the address.
+/// Those columns are left out of the joined text and added back when the link is placed.
+pub fn scan_lines_for_url_overlays_indented<'a>(
+    lines: impl Iterator<Item = (u16, &'a Line<'static>, Option<&'a str>, usize)>,
     content_x: u16,
     media_paths: &[PathBuf],
     overlay: &mut LinkOverlay,
@@ -405,29 +424,68 @@ pub fn scan_lines_for_url_overlays<'a>(
     let mut group_text = String::new();
     let mut group_rows: Vec<RowSegment> = Vec::new();
 
-    for (screen_row, line, joiner) in lines {
+    for (screen_row, line, joiner, indent_cols) in lines {
         // A `None` joiner is a hard break: flush the current group and start a new logical line
         // A `Some` joiner with no accumulated rows (e.g. a wrap continuation scrolled in at the top of the viewport) also starts a new group.
-        // Its fragment is scanned standalone
-        match joiner {
-            Some(j) if !group_rows.is_empty() => group_text.push_str(j),
+        // Its fragment is scanned standalone, indent included, because there is no previous row to join it to
+        let col_bias = match joiner {
+            Some(j) if !group_rows.is_empty() => {
+                group_text.push_str(j);
+                indent_cols
+            }
             _ => {
                 scan_logical_line(&group_text, &group_rows, content_x, media_paths, overlay);
                 group_text.clear();
                 group_rows.clear();
+                0
             }
-        }
+        };
         let start = group_text.len();
-        for span in &line.spans {
-            group_text.push_str(span.content.as_ref());
-        }
+        append_line_skipping_cols(&mut group_text, line, col_bias);
         group_rows.push(RowSegment {
             screen_row,
             start,
             end: group_text.len(),
+            col_bias,
         });
     }
     scan_logical_line(&group_text, &group_rows, content_x, media_paths, overlay);
+}
+
+/// Append `line`, dropping the first `skip_cols` display columns.
+/// A continuation's quote bar or prompt indent is not part of the wrapped address.
+fn append_line_skipping_cols(out: &mut String, line: &Line<'_>, skip_cols: usize) {
+    if skip_cols == 0 {
+        for span in &line.spans {
+            out.push_str(span.content.as_ref());
+        }
+        return;
+    }
+    let mut remaining = skip_cols;
+    for span in &line.spans {
+        let text = span.content.as_ref();
+        if remaining == 0 {
+            out.push_str(text);
+            continue;
+        }
+        let mut byte = 0;
+        for (idx, ch) in text.char_indices() {
+            let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if width > remaining {
+                byte = idx;
+                remaining = 0;
+                break;
+            }
+            remaining -= width;
+            byte = idx + ch.len_utf8();
+            if remaining == 0 {
+                break;
+            }
+        }
+        if remaining == 0 && byte < text.len() {
+            out.push_str(&text[byte..]);
+        }
+    }
 }
 
 /// Skip rows that already have an overlay individually so a continuation row is still linked. `false` if every row was skipped or a column exceeds `u16`.
@@ -454,7 +512,7 @@ fn push_link_segments(
         let Some(matched) = text.get(start..end) else {
             continue;
         };
-        let col_start = UnicodeWidthStr::width(before);
+        let col_start = row.col_bias + UnicodeWidthStr::width(before);
         let col_end = col_start + UnicodeWidthStr::width(matched);
         let (Some(cs), Some(ce)) = (
             to_overlay_col(content_x, col_start),
@@ -1514,6 +1572,53 @@ mod tests {
             nth_link(&overlay, 0).id.is_some(),
             "wrap fragments must share a nonempty OSC 8 id"
         );
+    }
+
+    #[test]
+    fn scan_wrapped_url_skips_continuation_indent() {
+        // A prompt indent or quote bar on the continuation is not part of the address
+        let row0 = make_line("❯ https://example.com/some/lo");
+        let row1 = make_line("  ng/path?key=val for details.");
+        let rows: Vec<(u16, &Line<'static>, Option<&str>, usize)> =
+            vec![(0, &row0, None, 0), (1, &row1, Some(""), 2)];
+        let mut overlay = LinkOverlay::new();
+        scan_lines_for_url_overlays_indented(rows.into_iter(), 0, &[], &mut overlay);
+
+        assert_eq!(overlay.links().len(), 2);
+        for link in overlay.links() {
+            assert_eq!(
+                &*resolve_link_target(&link.target)
+                    .and_then(|resolved| resolved.osc8_url)
+                    .expect("url"),
+                "https://example.com/some/long/path?key=val"
+            );
+        }
+        assert_eq!(nth_link(&overlay, 1).col_start, 2);
+        assert_eq!(
+            nth_link(&overlay, 1).col_end,
+            2 + UnicodeWidthStr::width("ng/path?key=val") as u16
+        );
+    }
+
+    #[test]
+    fn scan_wrapped_quote_url_skips_the_bar() {
+        let row0 = make_line("│ See https://example.com/some/lo");
+        let row1 = make_line("│ ng/path?key=val for details.");
+        let rows: Vec<(u16, &Line<'static>, Option<&str>, usize)> =
+            vec![(0, &row0, None, 2), (1, &row1, Some(""), 2)];
+        let mut overlay = LinkOverlay::new();
+        scan_lines_for_url_overlays_indented(rows.into_iter(), 0, &[], &mut overlay);
+
+        assert_eq!(overlay.links().len(), 2);
+        for link in overlay.links() {
+            assert_eq!(
+                &*resolve_link_target(&link.target)
+                    .and_then(|resolved| resolved.osc8_url)
+                    .expect("url"),
+                "https://example.com/some/long/path?key=val"
+            );
+        }
+        assert_eq!(nth_link(&overlay, 1).col_start, 2);
     }
 
     #[test]

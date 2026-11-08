@@ -413,6 +413,9 @@ impl UserPromptBlock {
                 } else {
                     wrap_joiner
                 };
+                // The continuation indent is painted, but it is not part of the prompt text.
+                // The URL scanner skips this many columns so a wrapped address stays whole.
+                let indent_width = if joiner.is_some() { prefix_width } else { 0 };
 
                 // Prefix spans for this visual line.
                 let line_prefix_spans: Vec<Span<'static>> = if is_first_line {
@@ -453,6 +456,7 @@ impl UserPromptBlock {
                         },
                         selection_range: Some(USER_PROMPT_BODY_RANGE),
                         joiner,
+                        indent_width,
                         ..Default::default()
                     });
                     all_lines.push(block_line);
@@ -475,6 +479,7 @@ impl UserPromptBlock {
                     },
                     selection_range: Some(USER_PROMPT_BODY_RANGE),
                     joiner,
+                    indent_width,
                     ..Default::default()
                 });
                 all_lines.push(block_line);

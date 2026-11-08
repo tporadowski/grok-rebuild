@@ -647,11 +647,16 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
                             return None;
                         }
                         let screen_row = first_visible_content_y + row_offset;
-                        Some((screen_row, &bl.content, bl.joiner.as_deref()))
+                        Some((
+                            screen_row,
+                            &bl.content,
+                            bl.joiner.as_deref(),
+                            bl.indent_width,
+                        ))
                     })
-                    .take_while(|(screen_row, _, _)| *screen_row < max_y);
+                    .take_while(|(screen_row, _, _, _)| *screen_row < max_y);
 
-                crate::render::osc8::scan_lines_for_url_overlays(
+                crate::render::osc8::scan_lines_for_url_overlays_indented(
                     visible_lines,
                     entry_row_layout.content.x,
                     media_paths,

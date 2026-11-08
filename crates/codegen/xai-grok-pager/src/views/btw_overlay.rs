@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Widget};
 use unicode_width::UnicodeWidthStr;
 
-use crate::render::osc8::{LinkOverlay, scan_lines_for_url_overlays};
+use crate::render::osc8::{LinkOverlay, scan_lines_for_url_overlays_indented};
 use crate::scrollback::blocks::markdown_content::MarkdownContent;
 use crate::scrollback::render::map_hyperlinks_to_overlay;
 use crate::scrollback::text_selection::{
@@ -440,10 +440,20 @@ pub fn render_btw_panel(
                     .map(|(idx, bl)| {
                         let visible_offset = (idx - content_skip) as u16;
                         let screen_row = body_y + visible_offset;
-                        (screen_row, &bl.content, bl.joiner.as_deref())
+                        (
+                            screen_row,
+                            &bl.content,
+                            bl.joiner.as_deref(),
+                            bl.indent_width,
+                        )
                     })
-                    .take_while(|(screen_row, _, _)| *screen_row < max_screen_y);
-                scan_lines_for_url_overlays(visible_lines, content_x, media_paths, overlay);
+                    .take_while(|(screen_row, _, _, _)| *screen_row < max_screen_y);
+                scan_lines_for_url_overlays_indented(
+                    visible_lines,
+                    content_x,
+                    media_paths,
+                    overlay,
+                );
             }
         }
         BtwOverlayState::Error { error, .. } => {
