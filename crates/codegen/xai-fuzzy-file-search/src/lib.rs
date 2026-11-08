@@ -577,6 +577,8 @@ pub struct FuzzyMatcherDaemonResults {
     pub num_items: usize,
     pub status: FuzzyMatcherStatus,
     pub generation: usize,
+    /// Query these hits were scored for. Empty when the snapshot is the empty-query browse list.
+    pub query: String,
 }
 
 impl AsRef<[FuzzyMatchResult]> for FuzzyMatcherDaemonResults {
@@ -616,6 +618,8 @@ impl FuzzyFileMatcherDaemon {
                 let results = res;
                 let mut done = false;
                 let mut generation = 0;
+                // A new query must not publish the previous query's hits under the new generation.
+                let mut pending_fresh = false;
                 loop {
                     let msg = if !done {
                         rx.recv_timeout(Duration::from_micros(250))
@@ -638,9 +642,22 @@ impl FuzzyFileMatcherDaemon {
                             done = false;
                         }
                         Ok(FuzzyMatcherDaemonMessage::SetQuery { query, dirs }) => {
+                            let previous = matcher.query.clone();
                             matcher.set_query(&query, dirs);
                             generation += 1;
                             done = false;
+                            if matcher.query != previous {
+                                pending_fresh = true;
+                                *results.lock().unwrap() = FuzzyMatcherDaemonResults {
+                                    query: matcher.query.clone(),
+                                    generation,
+                                    status: FuzzyMatcherStatus {
+                                        done: false,
+                                        changed: false,
+                                    },
+                                    ..Default::default()
+                                };
+                            }
                         }
                         Ok(FuzzyMatcherDaemonMessage::Stop)
                         | Err(RecvTimeoutError::Disconnected) => {
@@ -649,15 +666,20 @@ impl FuzzyFileMatcherDaemon {
                         Err(RecvTimeoutError::Timeout) => {
                             if !done {
                                 let status = matcher.tick(10);
+                                let ready = !pending_fresh || status.changed || status.done;
                                 done = status.done;
-                                let num_items = matcher.num_items();
-                                let topk: Arc<[_]> = matcher.get_top_k(topk).into();
-                                *results.lock().unwrap() = FuzzyMatcherDaemonResults {
-                                    topk,
-                                    num_items,
-                                    status,
-                                    generation,
-                                };
+                                if ready {
+                                    pending_fresh = false;
+                                    let num_items = matcher.num_items();
+                                    let topk: Arc<[_]> = matcher.get_top_k(topk).into();
+                                    *results.lock().unwrap() = FuzzyMatcherDaemonResults {
+                                        topk,
+                                        num_items,
+                                        status,
+                                        generation,
+                                        query: matcher.query.clone(),
+                                    };
+                                }
                                 generation += 1;
                             }
                         }

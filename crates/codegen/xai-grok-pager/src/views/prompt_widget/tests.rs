@@ -3311,6 +3311,32 @@
         );
     }
 
+    /// Typing the next character of an `@` query must not leave the previous query's file acceptable.
+    #[test]
+    fn typing_quickly_does_not_accept_the_earlier_file_match() {
+        let mut pw = PromptWidget::new();
+        seed_at_completion(&mut pw, "a", "alpha.rs", false);
+        assert!(pw.file_search_visible());
+        assert_eq!(
+            pw.handle_key(&key!('b').to_key_event()),
+            PromptEvent::Edited
+        );
+        assert_eq!(pw.textarea.text(), "@ab");
+        assert!(
+            !pw.file_search_visible(),
+            "the match for @a must leave when the query becomes @ab"
+        );
+        assert_eq!(
+            pw.handle_key(&key!(Tab).to_key_event()),
+            PromptEvent::Ignored
+        );
+        assert_eq!(
+            pw.textarea.text(),
+            "@ab",
+            "Tab must not insert the earlier query's file"
+        );
+    }
+
     /// Typing a draft across into a planning keyword raises the one-shot plan-nudge fire signal exactly once (rising edge).
     /// It then stays quiet while the keyword remains present.
     #[test]

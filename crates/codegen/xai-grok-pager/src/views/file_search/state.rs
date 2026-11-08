@@ -50,6 +50,23 @@ fn accept_text(path: &str, at_end: bool) -> String {
     text
 }
 
+/// Whether a daemon snapshot may replace the hits on screen.
+/// Non-empty hits must be scored for `current_query`. An empty snapshot is applied only once matching is done.
+fn accept_polled_results(
+    current_query: &str,
+    min_generation: usize,
+    incoming: &FuzzyMatcherDaemonResults,
+) -> bool {
+    if incoming.generation < min_generation {
+        return false;
+    }
+    // An untagged empty snapshot (a disabled daemon) may still clear the list. Any other query must match.
+    if incoming.query != current_query && !incoming.query.is_empty() {
+        return false;
+    }
+    !incoming.topk.is_empty() || incoming.status.done
+}
+
 /// File search state for @-completion.
 pub struct FileSearchState {
     /// Directory the matcher walks.
@@ -78,6 +95,9 @@ pub struct FileSearchState {
     /// Floor for accepted result generations: the stale-result fence. Rises monotonically and is never
     /// lowered.
     min_generation: usize,
+    /// Matcher query the displayed hits were scored for.
+    /// `None` after the query changes, until a snapshot for the new query arrives.
+    shown_query: Option<String>,
     /// Directory being drilled into; keeps the @-token alive when its name has whitespace (`my dir`).
     /// Self-validating: applies only while the path matches.
     drill_prefix: Option<String>,
@@ -99,6 +119,7 @@ impl FileSearchState {
             hovered: None,
             scroll_offset: 0,
             min_generation: 0,
+            shown_query: None,
             drill_prefix: None,
         }
     }
@@ -135,6 +156,12 @@ impl FileSearchState {
     ///
     /// The matcher never filters to directories only: a trailing `/` scopes the query to a folder without hiding that folder's files.
     fn start_query(&mut self, restart: RestartWalk, query: &str) {
+        let previous = self
+            .context
+            .as_ref()
+            .map(|ctx| ctx.matcher_query().to_owned());
+        let query_changed = previous.as_deref() != Some(query);
+        let restarting = matches!(restart, RestartWalk::Restart { .. });
         let daemon = self.ensure_daemon();
         if let RestartWalk::Restart { hidden } = restart {
             daemon.restart_walk(hidden);
@@ -142,6 +169,11 @@ impl FileSearchState {
         daemon.set_query(query, false);
         // Advance the stale-result fence past the prior query (see `min_generation`).
         self.min_generation += 1;
+        // A fast Tab must not commit the previous query's highlighted row.
+        if query_changed || restarting {
+            self.results = FuzzyMatcherDaemonResults::default();
+            self.shown_query = None;
+        }
         self.selected = 0;
         self.hovered = None;
         self.scroll_offset = 0;
@@ -149,7 +181,14 @@ impl FileSearchState {
 
     /// Whether the dropdown should be visible.
     pub fn is_visible(&self) -> bool {
-        self.context.is_some() && !self.results.topk.is_empty()
+        self.result_count() > 0
+    }
+
+    /// Displayed hits belong to the query currently in the `@` token.
+    fn hits_are_for_current_query(&self) -> bool {
+        self.context
+            .as_ref()
+            .is_some_and(|ctx| self.shown_query.as_deref() == Some(ctx.matcher_query()))
     }
 
     /// The current @-context, if any.
@@ -238,6 +277,7 @@ impl FileSearchState {
                 // Leaving @-mode: clear results and the drill anchor.
                 self.context = None;
                 self.drill_prefix = None;
+                self.shown_query = None;
                 self.results = FuzzyMatcherDaemonResults::default();
                 return;
             }
@@ -253,6 +293,7 @@ impl FileSearchState {
     pub fn clear_context(&mut self) {
         self.context = None;
         self.drill_prefix = None;
+        self.shown_query = None;
         self.results = FuzzyMatcherDaemonResults::default();
     }
 
@@ -278,20 +319,24 @@ impl FileSearchState {
             return false;
         }
 
-        // Avoid flickering: skip empty intermediate results unless matching is done.
-        if !results.topk.is_empty() || results.status.done {
-            // Skip stale generations (e.g., from a previous @-context).
-            if results.generation >= self.min_generation {
-                self.min_generation = results.generation;
-                self.results = results;
-                if !self.results.topk.is_empty() {
-                    self.selected = self.selected.min(self.results.topk.len() - 1);
-                }
-                return true;
-            }
+        let Some(current_query) = self
+            .context
+            .as_ref()
+            .map(|ctx| ctx.matcher_query().to_owned())
+        else {
+            return false;
+        };
+        if !accept_polled_results(&current_query, self.min_generation, &results) {
+            return false;
         }
 
-        false
+        self.min_generation = results.generation;
+        self.shown_query = Some(current_query);
+        self.results = results;
+        if !self.results.topk.is_empty() {
+            self.selected = self.selected.min(self.results.topk.len() - 1);
+        }
+        true
     }
 
     /// Move selection by `delta` items (negative is up, positive is down).
@@ -336,13 +381,20 @@ impl FileSearchState {
     }
 
     /// Get the currently selected fuzzy match result.
+    /// A hit scored for an earlier query is not selectable.
     pub fn selected_result(&self) -> Option<&FuzzyMatchResult> {
+        if !self.hits_are_for_current_query() {
+            return None;
+        }
         self.results.topk.get(self.selected)
     }
 
     /// A directory whose `/`-append matches text already present is committed (dismiss); otherwise the
     /// caller drills in and stays open.
     pub fn try_replace(&self, src: &str) -> Option<FileSearchReplacement> {
+        if !self.hits_are_for_current_query() {
+            return None;
+        }
         let ctx = self.context.as_ref()?;
         let res = self.results.topk.get(self.selected)?;
 
@@ -382,8 +434,11 @@ impl FileSearchState {
         })
     }
 
-    /// Number of result items.
+    /// Number of result items scored for the current query.
     pub fn result_count(&self) -> usize {
+        if !self.hits_are_for_current_query() {
+            return 0;
+        }
         self.results.topk.len()
     }
 
@@ -402,12 +457,15 @@ impl FileSearchState {
         results: Vec<FuzzyMatchResult>,
         selected: usize,
     ) {
+        let query = context.matcher_query().to_owned();
+        self.shown_query = Some(query.clone());
         self.context = Some(context);
         self.results = FuzzyMatcherDaemonResults {
             topk: Arc::from(results),
             num_items: 0,
             status: Default::default(),
             generation: self.min_generation,
+            query,
         };
         self.min_generation += 1;
         self.selected = selected;
@@ -435,6 +493,7 @@ impl FileSearchState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xai_grok_workspace::file_system::FuzzyMatcherStatus;
 
     fn dir_result(path: &str) -> FuzzyMatchResult {
         FuzzyMatchResult {
@@ -521,5 +580,86 @@ mod tests {
         state.update_context("@alpha_marker", "@alpha_marker".len());
         assert!(state.daemon_is_built());
         assert_eq!(state.daemon_build_count(), 1);
+    }
+
+    fn file_result(path: &str) -> FuzzyMatchResult {
+        FuzzyMatchResult {
+            path: nucleo::Utf32String::from(path),
+            is_dir: false,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn typing_a_longer_query_drops_the_earlier_match() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut state = FileSearchState::new(dir.path());
+        let src = "@a";
+        let ctx = context::detect(src, src.len()).expect("context");
+        state.set_test_state(ctx, vec![file_result("alpha.rs")], 0);
+        assert!(state.selected_result().is_some());
+
+        state.update_context("@ab", "@ab".len());
+        assert_eq!(state.result_count(), 0);
+        assert!(state.selected_result().is_none());
+        assert!(!state.is_visible());
+    }
+
+    #[test]
+    fn same_query_keeps_the_match_scored_for_it() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let mut state = FileSearchState::new(dir.path());
+        let src = "@ab";
+        let ctx = context::detect(src, src.len()).expect("context");
+        state.set_test_state(ctx, vec![file_result("ab.rs")], 0);
+
+        state.update_context(src, src.len());
+        assert_eq!(state.result_count(), 1);
+        let hit = state.selected_result().expect("same query keeps the hit");
+        assert_eq!(hit.path.to_string(), "ab.rs");
+    }
+
+    #[test]
+    fn poll_rejects_hits_scored_for_an_earlier_query() {
+        let stale = FuzzyMatcherDaemonResults {
+            topk: Arc::from([file_result("alpha.rs")]),
+            num_items: 1,
+            status: FuzzyMatcherStatus {
+                done: false,
+                changed: true,
+            },
+            generation: 5,
+            query: "a".to_owned(),
+        };
+        assert!(!accept_polled_results("ab", 4, &stale));
+
+        let fresh = FuzzyMatcherDaemonResults {
+            query: "ab".to_owned(),
+            ..stale.clone()
+        };
+        assert!(accept_polled_results("ab", 4, &fresh));
+        assert!(!accept_polled_results("ab", 6, &fresh));
+
+        let pending_empty = FuzzyMatcherDaemonResults {
+            query: "ab".to_owned(),
+            generation: 5,
+            status: FuzzyMatcherStatus {
+                done: false,
+                changed: false,
+            },
+            ..Default::default()
+        };
+        assert!(!accept_polled_results("ab", 4, &pending_empty));
+
+        let stale_done = FuzzyMatcherDaemonResults {
+            query: "a".to_owned(),
+            generation: 5,
+            status: FuzzyMatcherStatus {
+                done: true,
+                changed: false,
+            },
+            ..Default::default()
+        };
+        assert!(!accept_polled_results("ab", 4, &stale_done));
     }
 }

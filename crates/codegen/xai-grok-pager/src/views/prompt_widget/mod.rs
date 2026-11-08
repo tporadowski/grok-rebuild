@@ -1858,6 +1858,10 @@ impl PromptWidget {
                     // Fall through to normal key handling below.
                 }
             }
+        } else if self.file_search.context().is_some() && key!(Esc).matches(key) {
+            // The hit list is empty while a new query scores. Esc still leaves @-mode.
+            self.file_search.clear_context();
+            return PromptEvent::Edited;
         }
 
         // Esc/Tab: drop the highlight but decline the press so it still cancels or switches focus
