@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-101 — An aborted subagent task is cancelled
+
+A blocking subagent that the user aborts returns a cancelled tool error, not a failed call. The tool row that resume replays says cancelled, and a real crash still says failed (`cancelled_subagent_is_a_cancelled_tool_error`, `cancelled_subagent_task_says_cancelled`, `failed_subagent_returns_error`) (`v51-x36`).
+
 ### D-100 — The session picker footer lists each shortcut once
 
 The welcome resume footer takes `d:delete` from the picker action key, so that hint is not also written into the base list. A delete confirmation lists `y` only as confirm, and does not add `y:copy` beside it (`session_picker_footer_lists_each_shortcut_once`) (`v51-x24`).
@@ -456,7 +460,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 23 | 0 | 20 | 0 | 0 |
+| W8 | Sessions, resume, and dashboard | 22 | 0 | 21 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -467,9 +471,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 381. Skipped: 8. Done: 151. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 380. Skipped: 8. Done: 152. Already: 33. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: resumed sessions show aborted subagents as cancelled (`v51-x36`).
+**Next:** W8 sessions, resume, and dashboard. First open row: pinned dashboard sessions survive restarts (`v51-x49`).
 
 ## Waves
 
@@ -503,7 +507,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 23. Done: 20 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 22. Done: 21 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -699,7 +703,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x10 | done | W8 | Bug Fixes |  |  | Foreground subagent activity now appears correctly after resume.
 - v51-x22 | done | W8 | Bug Fixes |  |  | **Dashboard cursor and overlay counter** now correctly track the active grouping view.
 - v51-x24 | done | W8 | Bug Fixes |  |  | **Session picker footer** no longer lists the same shortcut twice.
-- v51-x36 | pending | W8 | Bug Fixes |  |  | **Resumed sessions** now correctly show aborted subagent tasks as cancelled instead of failed.
+- v51-x36 | done | W8 | Bug Fixes |  |  | **Resumed sessions** now correctly show aborted subagent tasks as cancelled instead of failed.
 - v51-x49 | pending | W8 | Bug Fixes |  |  | Pinned dashboard sessions now survive restarts and layout changes instead of disappearing from the saved list.
 - v51-x54 | pending | W8 | Bug Fixes |  |  | **Number-key picks in the dashboard peek** no longer leak to the wrong agent after Up/Down navigation.
 - v51-x97 | pending | W8 | Bug Fixes |  |  | The dashboard slash menu now shows skills from the home session even when opened early.

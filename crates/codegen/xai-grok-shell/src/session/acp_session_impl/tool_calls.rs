@@ -3282,12 +3282,8 @@ impl SessionActor {
             Some(rw) => rw.rewrite(&err.to_string()),
             None => err.to_string(),
         };
-        let message = match effective_tool_name {
-            Some(effective) if effective != requested_tool_name => {
-                format!("Tool `{effective}` failed via `{requested_tool_name}`: {err_str}")
-            }
-            _ => format!("Tool `{requested_tool_name}` failed: {err_str}"),
-        };
+        let (message, error_code) =
+            tool_execution_error_copy(requested_tool_name, effective_tool_name, err, &err_str);
         let message = mcp_argument_coercion::append_coercion_reminder(message, coercion_note);
         self.send_update(
             acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
@@ -3298,7 +3294,7 @@ impl SessionActor {
                         acp::ContentBlock::Text(acp::TextContent::new(message.clone())),
                     )]))
                     .raw_output(Some(json!({
-                        "error": "tool_execution_failed",
+                        "error": error_code,
                         "message": err_str,
                     }))),
             )),
@@ -3370,6 +3366,34 @@ fn execute_tool_call_parts(
     )
 }
 
+/// Model-facing sentence and raw-output code for a tool that returned [`Err`].
+/// A cancelled subagent task says cancelled. Other errors stay failed.
+fn tool_execution_error_copy(
+    requested_tool_name: &str,
+    effective_tool_name: Option<&str>,
+    err: &anyhow::Error,
+    err_str: &str,
+) -> (String, &'static str) {
+    let cancelled = err.chain().any(|source| {
+        source
+            .downcast_ref::<xai_tool_runtime::ToolError>()
+            .is_some_and(|tool_err| tool_err.kind == xai_tool_runtime::ToolErrorKind::Cancelled)
+    });
+    let verb = if cancelled { "cancelled" } else { "failed" };
+    let code = if cancelled {
+        "tool_cancelled"
+    } else {
+        "tool_execution_failed"
+    };
+    let message = match effective_tool_name {
+        Some(effective) if effective != requested_tool_name => {
+            format!("Tool `{effective}` {verb} via `{requested_tool_name}`: {err_str}")
+        }
+        _ => format!("Tool `{requested_tool_name}` {verb}: {err_str}"),
+    };
+    (message, code)
+}
+
 fn pre_tool_context_for_model(
     contexts: &[xai_grok_hooks::dispatcher::AdditionalContext],
 ) -> Vec<(&str, &str)> {
@@ -3377,6 +3401,35 @@ fn pre_tool_context_for_model(
         .iter()
         .map(|context| (context.hook_name.as_str(), context.text.as_str()))
         .collect()
+}
+
+#[cfg(test)]
+mod tool_execution_error_copy_tests {
+    use super::tool_execution_error_copy;
+
+    #[test]
+    fn cancelled_subagent_task_says_cancelled() {
+        let tool_err = xai_tool_runtime::ToolError::cancelled(
+            xai_tool_protocol::ToolId::new("task").expect("valid tool id"),
+            "Subagent turn was cancelled: aborted mid-turn",
+        );
+        let err = anyhow::Error::from(tool_err);
+        let (message, code) = tool_execution_error_copy("task", None, &err, &err.to_string());
+        assert_eq!(code, "tool_cancelled");
+        assert_eq!(
+            message,
+            "Tool `task` cancelled: Subagent turn was cancelled: aborted mid-turn"
+        );
+        assert!(!message.contains("failed"));
+    }
+
+    #[test]
+    fn ordinary_tool_error_says_failed() {
+        let err = anyhow::anyhow!("boom");
+        let (message, code) = tool_execution_error_copy("task", None, &err, "boom");
+        assert_eq!(code, "tool_execution_failed");
+        assert_eq!(message, "Tool `task` failed: boom");
+    }
 }
 
 #[cfg(test)]

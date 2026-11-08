@@ -744,7 +744,14 @@ impl xai_tool_runtime::Tool for TaskTool {
             return Ok(ToolOutput::Text(text.into()));
         }
 
-        // 6. Return result
+        // 6. Return result. A user abort is a cancellation, not a failed call the model should retry.
+        if result.cancelled {
+            let detail = result
+                .error
+                .unwrap_or_else(|| "Subagent was cancelled".to_string());
+            let tool_id = xai_tool_protocol::ToolId::new(TASK_TOOL_NAME).expect("valid tool id");
+            return Err(xai_tool_runtime::ToolError::cancelled(tool_id, detail));
+        }
         if result.success {
             let resume_from_hint = result.subagent_id.clone();
             let persona_hint: Option<String> = None;
@@ -1195,8 +1202,69 @@ mod tests {
         handle.await.unwrap();
 
         assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
+        let err = result.unwrap_err();
+        assert_ne!(err.kind, xai_tool_runtime::ToolErrorKind::Cancelled);
+        let err = err.to_string();
         assert!(err.contains("Child session crashed"), "error: {err}");
+    }
+
+    #[tokio::test]
+    async fn cancelled_subagent_is_a_cancelled_tool_error() {
+        let (backend, mut rx) = make_backend();
+        let mut resources = Resources::new();
+        resources.insert(backend);
+        resources.insert(SubagentDepthCounter(0));
+        resources.insert(SessionIdResource("parent-session".to_string()));
+        resources.insert(CurrentPromptIdResource("prompt-123".to_string()));
+
+        let tool = TaskTool;
+        let shared = resources.into_shared();
+
+        let handle = tokio::spawn(async move {
+            let request = unwrap_spawn(rx.recv().await.unwrap());
+            request
+                .respond_with(|_| SubagentResult {
+                    success: false,
+                    cancelled: true,
+                    error: Some("Subagent turn was cancelled: aborted mid-turn".to_string()),
+                    ..Default::default()
+                })
+                .unwrap();
+        });
+
+        let result = xai_tool_runtime::Tool::run(
+            &tool,
+            test_ctx(shared),
+            TaskToolInput {
+                description: "test task".into(),
+                prompt: "do something".into(),
+                subagent_type: "general-purpose".into(),
+                subagent_type_specified: false,
+                run_in_background: false,
+                capability_mode: None,
+                isolation: None,
+                resume_from: None,
+                cwd: None,
+                model: None,
+                workspace: None,
+                task_id: None,
+            },
+        )
+        .await;
+
+        handle.await.unwrap();
+
+        let err = result.expect_err("an aborted subagent is not a completed task");
+        assert_eq!(err.kind, xai_tool_runtime::ToolErrorKind::Cancelled);
+        let text = err.to_string();
+        assert!(
+            text.contains("aborted mid-turn"),
+            "the cancellation reason must stay on the tool error: {text}"
+        );
+        assert!(
+            !text.to_ascii_lowercase().contains("failed"),
+            "an abort must not be labelled a failure: {text}"
+        );
     }
 
     #[tokio::test]
