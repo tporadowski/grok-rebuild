@@ -74,6 +74,96 @@ async fn subagent_spawn_context_inherits_parent_permission_handle() {
         })
         .await;
 }
+
+/// A background child keeps the parent's permission actor after the parent turn ends.
+/// Always-approve is that actor's yolo flag, and a saved bash allow is its rule set.
+/// Neither is keyed to the parent prompt id.
+#[tokio::test]
+async fn subagent_inherited_handle_keeps_yolo_and_saved_allow() {
+    use xai_grok_workspace::permission::rules::parse_permission_rule;
+    use xai_grok_workspace::permission::types::{PermissionConfig, RuleAction};
+
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            // `cp` hits the write floor, so a prompt is the outcome unless yolo or the saved rule allows it.
+            let cases = [
+                ("parent-yolo", true, None, "cp src dst", "yolo"),
+                (
+                    "parent-saved-allow",
+                    false,
+                    Some("Bash(cp:*)"),
+                    "cp src dst",
+                    "policy_allow",
+                ),
+            ];
+            for (session, yolo, rule, command, reason) in cases {
+                let agent = build_minimal_agent_for_tests();
+                let sid = acp::SessionId::new(session);
+                let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+                let gateway = GatewaySender::new(tx);
+                let dir = tempfile::tempdir().expect("cwd");
+                let cwd = xai_grok_paths::AbsPathBuf::new(dir.path().to_path_buf())
+                    .expect("absolute cwd");
+                let config = rule.map(|rule| {
+                    PermissionConfig::new(vec![
+                        parse_permission_rule(rule, RuleAction::Allow).expect("rule"),
+                    ])
+                });
+                let (permission_handle, _events_rx) =
+                    xai_grok_workspace::permission::spawn_permission_manager(
+                        sid.clone(),
+                        gateway,
+                        cwd,
+                        xai_grok_workspace::permission::types::ClientType::Generic,
+                        config,
+                        Vec::new(),
+                        Vec::new(),
+                        yolo,
+                        None,
+                    );
+                let mut handle = make_test_handle("test-model", false, None);
+                handle.permission_handle = permission_handle;
+                agent.insert_resident(&sid, handle);
+                let inherited = agent
+                    .build_subagent_spawn_context(sid.0.as_ref())
+                    .permission_handle
+                    .expect("subagent context must inherit parent permission handle");
+                let resolution = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    inherited.request(xai_grok_workspace::permission::PermissionRequest {
+                        session_id: Some("child-session".to_owned()),
+                        subagent_type: Some("general-purpose".to_owned()),
+                        subagent_description: Some("still running after the parent turn".to_owned()),
+                        ..xai_grok_workspace::permission::PermissionRequest::new(
+                            xai_grok_workspace::permission::AccessKind::Bash(command.into()),
+                            acp::ToolCallUpdate::new(acp::ToolCallId::new("tc"), Default::default()),
+                        )
+                    }),
+                )
+                .await
+                .expect("inherited handle must not wait on a prompt");
+                assert!(
+                    matches!(
+                        resolution.decision,
+                        xai_grok_workspace::permission::Decision::Allow
+                    ),
+                    "{session} must allow `{command}` on the inherited handle, got {:?}",
+                    resolution.decision
+                );
+                assert_eq!(
+                    resolution
+                        .event
+                        .as_ref()
+                        .and_then(|event| event.decision_reason.as_deref()),
+                    Some(reason),
+                    "{session}"
+                );
+            }
+        })
+        .await;
+}
+
 #[tokio::test]
 async fn subagent_spawn_context_shares_active_message_parent_prompt_index() {
     let agent = build_minimal_agent_for_tests();
