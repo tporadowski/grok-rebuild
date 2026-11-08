@@ -628,10 +628,12 @@ fn maybe_show_send_now_tip(app: &mut AppView) {
     let Some(agent) = app.agents.get_mut(&id) else {
         return;
     };
-    // `dock_on` (dock enabled with room to paint), not `dock_shown`: the queue
-    // we just added flips `dock_shown` true only on the next render, but the
-    // dock will surface it, so the tip is redundant now.
-    if agent.dock_on {
+    // `dock_shows_queue` (dock enabled with room to paint, and not hidden), not
+    // `dock_shown`: the queue we just added flips `dock_shown` true only on the
+    // next render, but the dock will surface it, so the tip is redundant now.
+    // A Ctrl+G hide leaves the dock unpainted, so the tip comes back with the
+    // standalone queue pane.
+    if agent.dock_shows_queue() {
         return;
     }
     if agent.show_ephemeral_tip(

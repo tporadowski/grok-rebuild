@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-126 — A hidden dock gives the queue back to the queue pane
+
+Ctrl+G hides the dock but leaves it enabled. The queued prompts then show in the queue pane, and Ctrl+; toggles that pane. An enabled dock that is not hidden still owns the queue: Ctrl+; expands its Queued section, and an empty dock does not open the pane (`queue_pane_works_when_ctrl_g_hides_the_dock`, `toggle_queue_does_not_open_hidden_pane_when_dock_on_but_empty`) (`v50-x06`).
+
 ### D-125 — Command palette and model picker use the settings modal width
 
 Ctrl+P and the model picker (`/model` and `/m`) open at the settings modal's width, 70% of the terminal up to 110 columns. Other arg pickers, including the theme picker, stay on the narrower picker width (`command_palette_and_model_picker_match_settings_width`) (`v50-f09`).
@@ -557,7 +561,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 34 | 0 | 2 | 0 | 0 |
+| W9 | Prompt, mentions, and keyboard | 33 | 0 | 3 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -567,9 +571,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 356. Skipped: 8. Done: 174. Already: 35. Deferred: 10.
+Catalog rows: 583. Pending: 355. Skipped: 8. Done: 175. Already: 35. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: the queue pane and Ctrl+; work when the dock is hidden with Ctrl+G (`v50-x06`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: Ctrl+\ and modified digits no longer select permission or cancel options (`v50-x36`).
 
 ## Waves
 
@@ -607,7 +611,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 34. Done: 2 (`v50-f05`, D-124; `v50-f09`, D-125). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 33. Done: 3 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -839,7 +843,7 @@ id | status | wave | kind | flag | covered | note
 - v77-x05 | done | W8 | Bug Fixes |  |  | Rows in the `/resume` list now expand and collapse the same way they do inside a session.
 - v50-f05 | done | W9 | Features |  |  | **Compact mode** now hides the dock (or tasks pane) the same way Ctrl+G does.
 - v50-f09 | done | W9 | Features |  |  | **Command palette (Ctrl+P)** and model picker now open at the same width as the settings modal.
-- v50-x06 | pending | W9 | Bug Fixes |  |  | **Queue pane** and Ctrl+; now appear and work when the dock is hidden with Ctrl+G.
+- v50-x06 | done | W9 | Bug Fixes |  |  | **Queue pane** and Ctrl+; now appear and work when the dock is hidden with Ctrl+G.
 - v50-x36 | pending | W9 | Bug Fixes |  |  | **Ctrl+\** and other modified digits no longer accidentally select options on permission or cancel cards.
 - v51-f12 | pending | W9 | Features |  |  | **Shift+Enter, Ctrl+., Ctrl+/ and Ctrl+[ / ]** now work inside tmux when extended-keys are enabled.
 - v51-x11 | pending | W9 | Bug Fixes |  |  | Very large pasted prompts are now offloaded to a file instead of being sent inline.

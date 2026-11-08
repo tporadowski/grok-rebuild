@@ -474,3 +474,77 @@ fn compact_mode_hides_nothing_in_minimal_when_ctrl_g_is_the_editor() {
     assert!(agent.dock_shown && !agent.dock_hidden);
     assert!(dock_row_has_tasks(&buf, agent.pane_areas.dock));
 }
+fn rect_text(buf: &Buffer, rect: Rect) -> String {
+    let mut out = String::new();
+    for y in rect.y..rect.bottom() {
+        for x in rect.x..rect.right() {
+            if let Some(cell) = buf.cell((x, y)) {
+                out.push_str(cell.symbol());
+            }
+        }
+    }
+    out
+}
+fn ctrl_semicolon() -> Event {
+    Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char(';'),
+        KeyModifiers::CONTROL,
+    ))
+}
+/// Hiding the dock with Ctrl+G puts the queued prompts in the queue pane, and Ctrl+; toggles that pane.
+#[test]
+fn queue_pane_works_when_ctrl_g_hides_the_dock() {
+    crate::views::dock::set_enabled_for_test(true);
+    let mut agent = make_agent();
+    insert_running_task(&mut agent, "bg-1");
+    agent
+        .session
+        .pending_prompts
+        .push_back(crate::app::agent::QueuedPrompt::plain(
+            1,
+            "queued follow-up",
+            crate::app::agent::QueueEntryKind::Prompt,
+        ));
+    let area = Rect::new(0, 0, 80, 30);
+    let registry = ActionRegistry::defaults();
+    let buf = draw_frame(&mut agent, area);
+    assert!(agent.dock_shown && !agent.dock_hidden);
+    assert!(
+        rect_text(&buf, agent.pane_areas.dock).contains("queued follow-up"),
+        "a shown dock keeps the queued prompt in the dock"
+    );
+    assert!(matches!(
+        agent.handle_input(&ctrl_g_key(), &registry),
+        InputOutcome::Changed
+    ));
+    let buf = draw_frame(&mut agent, area);
+    assert!(agent.dock_hidden && !agent.dock_shown);
+    assert!(
+        agent.pane_areas.queue.height > 0,
+        "the queue pane must appear once Ctrl+G hides the dock"
+    );
+    let queued = rect_text(&buf, agent.pane_areas.queue);
+    assert!(
+        queued.contains("queued follow-up"),
+        "queue pane must show the queued prompt, got {queued:?}"
+    );
+    assert!(matches!(
+        agent.handle_input(&ctrl_semicolon(), &registry),
+        InputOutcome::Changed
+    ));
+    assert_eq!(agent.active_pane, super::AgentPane::Queue);
+    let hidden = agent.handle_input(&ctrl_semicolon(), &registry);
+    assert!(
+        !matches!(hidden, InputOutcome::Unchanged),
+        "Ctrl+; must hide the focused queue pane, got {hidden:?}"
+    );
+    let _ = draw_frame(&mut agent, area);
+    assert_eq!(agent.pane_areas.queue.height, 0);
+    assert!(matches!(
+        agent.handle_input(&ctrl_semicolon(), &registry),
+        InputOutcome::Changed
+    ));
+    let buf = draw_frame(&mut agent, area);
+    assert!(agent.pane_areas.queue.height > 0);
+    assert!(rect_text(&buf, agent.pane_areas.queue).contains("queued follow-up"));
+}

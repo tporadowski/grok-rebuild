@@ -1007,6 +1007,7 @@ impl AgentView {
             && area.height > agent::SHORT_TERMINAL_ROWS;
         self.dock_on = dock_on;
         self.apply_compact_ctrl_g_hide(appearance.prompt.compact, dock_on);
+        let queue_in_dock = self.dock_shows_queue();
         let tasks_height = if viewer_open || dock_on {
             0
         } else {
@@ -1018,7 +1019,7 @@ impl AgentView {
             self.todo.desired_height(area.height)
         };
         self.sync_queue_pane();
-        if dock_on {
+        if queue_in_dock {
             self.queue.overlay.visible =
                 self.dock_queued_expanded && self.visible_held_queue_len() > 0;
         }
@@ -1028,7 +1029,7 @@ impl AgentView {
         if dock_on && self.active_pane == ActivePane::Tasks {
             self.active_pane = ActivePane::Scrollback;
         }
-        let queue_height = if dock_on {
+        let queue_height = if queue_in_dock {
             0
         } else {
             self.queue.desired_height()
@@ -2060,8 +2061,12 @@ impl AgentView {
                     .goal_state
                     .as_ref()
                     .is_some_and(|g| g.verifying_completion);
-                let held_queue = if dock_on { 0 } else { self.held_queue_count() };
-                let held_queue_top_sendable = !dock_on && self.held_queue_top_sendable();
+                let held_queue = if queue_in_dock {
+                    0
+                } else {
+                    self.held_queue_count()
+                };
+                let held_queue_top_sendable = !queue_in_dock && self.held_queue_top_sendable();
                 let turn_output = turn_status::render_turn_status(
                     buf,
                     turn_area,

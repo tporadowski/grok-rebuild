@@ -1065,10 +1065,12 @@ impl AgentView {
             && registry.matches_id(ActionId::ToggleQueue, key)
             && (self.queue.is_visible() || !self.visible_queue_is_empty())
         {
-            if self.dock_shown {
-                self.dock_queued_expanded = !self.dock_queued_expanded;
-            } else if self.dock_on {
-                return InputOutcome::Unchanged;
+            if self.dock_shows_queue() {
+                if self.dock_shown {
+                    self.dock_queued_expanded = !self.dock_queued_expanded;
+                } else {
+                    return InputOutcome::Unchanged;
+                }
             } else {
                 self.toggle_queue_pane();
             }

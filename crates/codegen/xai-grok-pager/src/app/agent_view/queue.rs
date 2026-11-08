@@ -283,6 +283,12 @@ impl AgentView {
         dock_on && !self.dock_hidden
     }
 
+    /// The dock is painting its Queued section. Ctrl+G sets `dock_hidden` and the
+    /// standalone queue pane takes that section's place.
+    pub(crate) fn dock_shows_queue(&self) -> bool {
+        self.dock_on && !self.dock_hidden
+    }
+
     /// Live counts for the turn-status watching cue; see [`crate::views::turn_status::Watchers`].
     pub(crate) fn watchers(&self) -> crate::views::turn_status::Watchers {
         let mut watchers = crate::views::turn_status::Watchers::default();
@@ -530,7 +536,7 @@ impl AgentView {
             // Under the dock, Esc/dismiss collapses the sticky Queued section
             // (render enforces the overlay from this flag, so clearing only
             // `overlay.visible` would be re-opened next frame).
-            if !self.queue.overlay.visible && crate::views::dock::enabled() {
+            if !self.queue.overlay.visible && self.dock_shows_queue() {
                 self.dock_queued_expanded = false;
             }
             // Overlay dismiss skips hide_queue_pane; reset edge when queue is empty.
