@@ -50,6 +50,11 @@ impl PromptWidget {
         vim_editing_enabled().then(|| self.vim_prompt.mode.label())
     }
 
+    /// `Some(true)` in Normal, `Some(false)` in Insert, `None` when prompt vim editing is off.
+    pub(crate) fn vim_normal_for_cursor(&self) -> Option<bool> {
+        vim_editing_enabled().then(|| self.vim_prompt.mode == VimPromptMode::Normal)
+    }
+
     /// Push the vim mode onto the prompt info line. Bold is the minimal-mode row (`v71-f11`).
     pub(crate) fn append_vim_info_flag(&self, flags: &mut Vec<super::PromptFlag<'_>>) {
         if let Some(text) = self.vim_prompt_info_label() {
@@ -347,7 +352,10 @@ mod tests {
     use super::*;
     use crate::app::agent_view::test_fixtures::make_agent;
     use crate::appearance::VimKeys;
-    use crate::appearance::cache::{load_vim_keys, load_vim_mode, set_vim_keys};
+    use crate::appearance::cache::{
+        load_cursor_blink, load_vim_keys, load_vim_mode, set_cursor_blink, set_vim_keys,
+    };
+    use crate::render::draw::{HardwareCursorStyle, vim_prompt_cursor_style};
     use crate::views::prompt_widget::PromptInfo;
     use crossterm::event::KeyEvent;
     use ratatui::buffer::Buffer;
@@ -446,12 +454,50 @@ mod tests {
     }
 
     #[test]
+    fn vim_prompt_cursor_is_a_block_in_normal_and_a_bar_in_insert() {
+        let _guard = enable(VimKeys::All);
+        let _blink = BlinkGuard(load_cursor_blink());
+        set_cursor_blink(Some(false));
+        let mut agent = make_agent();
+        agent.active_pane = crate::views::agent::ActivePane::Prompt;
+        assert_eq!(agent.prompt.vim_normal_for_cursor(), Some(false));
+        assert_eq!(
+            vim_prompt_cursor_style(agent.prompt.vim_normal_for_cursor(), Some(false)),
+            HardwareCursorStyle::SteadyBar
+        );
+        let _ = agent.handle_prompt_key_for_test(&esc());
+        assert_eq!(agent.prompt.vim_normal_for_cursor(), Some(true));
+        assert_eq!(
+            vim_prompt_cursor_style(agent.prompt.vim_normal_for_cursor(), load_cursor_blink()),
+            HardwareCursorStyle::SteadyBlock
+        );
+        set_cursor_blink(Some(true));
+        assert_eq!(
+            vim_prompt_cursor_style(agent.prompt.vim_normal_for_cursor(), load_cursor_blink()),
+            HardwareCursorStyle::BlinkingBlock
+        );
+        set_cursor_blink(None);
+        assert_eq!(
+            vim_prompt_cursor_style(agent.prompt.vim_normal_for_cursor(), load_cursor_blink()),
+            HardwareCursorStyle::BlinkingBlock,
+            "unset blink still uses a blinking block in normal"
+        );
+    }
+
+    struct BlinkGuard(Option<bool>);
+    impl Drop for BlinkGuard {
+        fn drop(&mut self) {
+            set_cursor_blink(self.0);
+        }
+    }
+
     fn nav_does_not_enter_prompt_vim() {
         let _guard = enable(VimKeys::Nav);
         let mut agent = make_agent();
         agent.prompt.set_text("hello");
         agent.prompt.set_cursor(agent.prompt.text().len());
         assert!(load_vim_mode());
+        assert_eq!(agent.prompt.vim_normal_for_cursor(), None);
         assert_eq!(agent.prompt.vim_prompt_info_label(), None);
         let _ = agent.handle_prompt_key_for_test(&esc());
         let _ = agent.handle_prompt_key_for_test(&key('x'));

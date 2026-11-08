@@ -37,6 +37,7 @@
 //! Each frame is wrapped in `BeginSynchronizedUpdate` / `EndSynchronizedUpdate` so the terminal presents the cell diff, images, and cursor moves atomically.
 //! The wrapper is omitted when tmux is the immediate terminal (see [`crate::terminal::should_emit_synchronized_output`]): tmux repaints the whole pane when a block closes and already synchronizes its own output toward the outer terminal.
 use crate::terminal::{TerminalContext, should_emit_synchronized_output};
+use crossterm::cursor::SetCursorStyle;
 use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
 use crossterm::{QueueableCommand, cursor};
 use ratatui::Frame;
@@ -434,12 +435,56 @@ fn spawn_writer_thread_with(spawn: WriterThreadSpawn) -> std::io::Result<WriterT
         },
     ))
 }
+/// Hardware cursor shape. `Unchanged` leaves the terminal's cursor alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HardwareCursorStyle {
+    #[default]
+    Unchanged,
+    BlinkingBlock,
+    SteadyBlock,
+    BlinkingBar,
+    SteadyBar,
+}
+
+/// Prompt vim cursor: a block in Normal, a bar in Insert.
+/// `vim_normal` is `None` when prompt vim editing is off.
+/// `blink` is `[ui].cursor_blink`: `None` uses the blinking shape while vim editing is on, and leaves the cursor alone when it is off.
+pub fn vim_prompt_cursor_style(
+    vim_normal: Option<bool>,
+    blink: Option<bool>,
+) -> HardwareCursorStyle {
+    let steady = blink == Some(false);
+    match vim_normal {
+        Some(true) => {
+            if steady {
+                HardwareCursorStyle::SteadyBlock
+            } else {
+                HardwareCursorStyle::BlinkingBlock
+            }
+        }
+        Some(false) => {
+            if steady {
+                HardwareCursorStyle::SteadyBar
+            } else {
+                HardwareCursorStyle::BlinkingBar
+            }
+        }
+        None => match blink {
+            Some(true) => HardwareCursorStyle::BlinkingBlock,
+            Some(false) => HardwareCursorStyle::SteadyBlock,
+            None => HardwareCursorStyle::Unchanged,
+        },
+    }
+}
+
 /// Tracks the last cursor position written to the terminal, so each frame emits only the cursor escapes it needs.
 /// Redundant `Show`/`Hide`/`MoveTo` would reset the terminal's blink timer.
 #[derive(Debug, Default)]
 pub struct CursorState {
     /// `None` means the cursor is hidden; `Some((x, y))` means it is visible at (x, y).
     last_pos: Option<(u16, u16)>,
+    pending_style: HardwareCursorStyle,
+    emitted_style: HardwareCursorStyle,
 }
 /// What cursor commands to emit after a frame render.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -456,7 +501,20 @@ pub enum CursorAction {
 }
 impl CursorState {
     pub fn new() -> Self {
-        Self { last_pos: None }
+        Self {
+            last_pos: None,
+            pending_style: HardwareCursorStyle::Unchanged,
+            emitted_style: HardwareCursorStyle::Unchanged,
+        }
+    }
+
+    /// Style to emit with this frame. A repeat of the last emitted style sends nothing.
+    pub fn set_hardware_style(&mut self, style: HardwareCursorStyle) {
+        self.pending_style = style;
+    }
+
+    pub fn hardware_style_changed(&self) -> bool {
+        self.pending_style != self.emitted_style
     }
     /// Determine what cursor action to take for this frame.
     ///
@@ -478,6 +536,7 @@ impl CursorState {
     }
     /// `queue!` not `execute!`: cursor commands must batch with the frame and flush atomically on the writer thread.
     pub fn apply<W: Write>(&mut self, action: CursorAction, w: &mut W) {
+        self.emit_hardware_style(w);
         match action {
             CursorAction::None => {}
             CursorAction::Reposition(x, y) => {
@@ -494,6 +553,21 @@ impl CursorState {
                 self.last_pos = None;
             }
         }
+    }
+
+    fn emit_hardware_style<W: Write>(&mut self, w: &mut W) {
+        if self.pending_style == self.emitted_style {
+            return;
+        }
+        let cmd = match self.pending_style {
+            HardwareCursorStyle::Unchanged => SetCursorStyle::DefaultUserShape,
+            HardwareCursorStyle::BlinkingBlock => SetCursorStyle::BlinkingBlock,
+            HardwareCursorStyle::SteadyBlock => SetCursorStyle::SteadyBlock,
+            HardwareCursorStyle::BlinkingBar => SetCursorStyle::BlinkingBar,
+            HardwareCursorStyle::SteadyBar => SetCursorStyle::SteadyBar,
+        };
+        let _ = w.queue(cmd);
+        self.emitted_style = self.pending_style;
     }
 }
 /// Bypasses ratatui `try_draw()` so cursor management stays conditional. OSC 8 spans go out before the diff, in lockstep with cells.
@@ -561,7 +635,11 @@ fn render_and_present(
     terminal.swap_buffers();
     let post_flush_wrote_cursor = post_flush_escapes.is_some();
     let action = cursor.action(cursor_pos, has_changes || post_flush_wrote_cursor);
-    if !has_changes && !post_flush_wrote_cursor && action == CursorAction::None {
+    if !has_changes
+        && !post_flush_wrote_cursor
+        && action == CursorAction::None
+        && !cursor.hardware_style_changed()
+    {
         terminal.backend_mut().writer_mut().discard();
         return;
     }
@@ -931,12 +1009,65 @@ mod tests {
         assert_eq!(rx.recv().expect("payload").sequence, 1);
     }
     fn state_hidden() -> CursorState {
-        CursorState { last_pos: None }
+        CursorState::new()
     }
     fn state_at(x: u16, y: u16) -> CursorState {
         CursorState {
             last_pos: Some((x, y)),
+            ..CursorState::new()
         }
+    }
+
+    #[test]
+    fn vim_prompt_cursor_style_is_sent_once() {
+        assert_eq!(
+            vim_prompt_cursor_style(Some(true), Some(false)),
+            HardwareCursorStyle::SteadyBlock
+        );
+        assert_eq!(
+            vim_prompt_cursor_style(Some(false), Some(true)),
+            HardwareCursorStyle::BlinkingBar
+        );
+        assert_eq!(
+            vim_prompt_cursor_style(Some(false), None),
+            HardwareCursorStyle::BlinkingBar
+        );
+        assert_eq!(
+            vim_prompt_cursor_style(None, None),
+            HardwareCursorStyle::Unchanged
+        );
+
+        use crossterm::QueueableCommand;
+        use crossterm::cursor::SetCursorStyle;
+        let mut cursor = CursorState::new();
+        cursor.set_hardware_style(HardwareCursorStyle::BlinkingBar);
+        let mut buf = Vec::new();
+        cursor.apply(CursorAction::Show(1, 2), &mut buf);
+        let mut expected = Vec::new();
+        expected.queue(SetCursorStyle::BlinkingBar).unwrap();
+        assert!(
+            buf.windows(expected.len())
+                .any(|w| w == expected.as_slice()),
+            "insert sends a blinking bar, got {buf:?}"
+        );
+        let after_first = buf.len();
+        cursor.set_hardware_style(HardwareCursorStyle::BlinkingBar);
+        cursor.apply(CursorAction::None, &mut buf);
+        assert_eq!(
+            buf.len(),
+            after_first,
+            "the same style must not be sent again"
+        );
+
+        cursor.set_hardware_style(HardwareCursorStyle::SteadyBlock);
+        cursor.apply(CursorAction::None, &mut buf);
+        expected.clear();
+        expected.queue(SetCursorStyle::SteadyBlock).unwrap();
+        assert!(
+            buf.windows(expected.len())
+                .any(|w| w == expected.as_slice()),
+            "normal with blink off sends a steady block, got {buf:?}"
+        );
     }
     #[test]
     fn hidden_no_changes_stays_hidden() {

@@ -297,6 +297,32 @@ pub fn set_vim_keys(value: VimKeys) {
 }
 
 thread_local! {
+    static CURSOR_BLINK_CURRENT: Cell<Option<bool>> = const { Cell::new(None) };
+    static CURSOR_BLINK_LOADED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// `[ui].cursor_blink`. `None` inherits the terminal until prompt vim editing chooses a shape.
+pub fn load_cursor_blink() -> Option<bool> {
+    CURSOR_BLINK_LOADED.with(|loaded| {
+        if !loaded.get() {
+            CURSOR_BLINK_CURRENT.with(|c| c.set(read_cursor_blink_from_disk()));
+            loaded.set(true);
+        }
+    });
+    CURSOR_BLINK_CURRENT.with(|c| c.get())
+}
+
+fn read_cursor_blink_from_disk() -> Option<bool> {
+    let root = xai_grok_config::load_effective_config_disk_only().ok()?;
+    root.get("ui")?.get("cursor_blink")?.as_bool()
+}
+
+pub fn set_cursor_blink(value: Option<bool>) {
+    CURSOR_BLINK_CURRENT.with(|c| c.set(value));
+    CURSOR_BLINK_LOADED.with(|l| l.set(true));
+}
+
+thread_local! {
     static SHOW_THINKING_BLOCKS_CURRENT: Cell<bool> =
         const { Cell::new(SHOW_THINKING_BLOCKS_DEFAULT) };
     static SHOW_THINKING_BLOCKS_LOADED: Cell<bool> = const { Cell::new(false) };
@@ -704,6 +730,7 @@ pub fn prime(ui: &UiConfig) {
     let _ = load_prompt_suggestions();
     let _ = load_multiline_default();
     let _ = load_single_ctrl_c_quit();
+    let _ = load_cursor_blink();
     // `default_selected_permission` owns its own cache in `permission_cursor`.
     crate::appearance::permission_cursor::prime();
 }

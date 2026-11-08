@@ -4404,6 +4404,26 @@ impl AppView {
             }
         }
     }
+    /// Hardware cursor for this frame. Prompt vim uses a block in Normal and a bar in Insert.
+    pub fn hardware_cursor_style(&self) -> crate::render::draw::HardwareCursorStyle {
+        let blink = crate::appearance::cache::load_cursor_blink();
+        let vim_normal = self.prompt_vim_cursor_normal();
+        crate::render::draw::vim_prompt_cursor_style(vim_normal, blink)
+    }
+
+    fn prompt_vim_cursor_normal(&self) -> Option<bool> {
+        let ActiveView::Agent(id) = self.active_view else {
+            return None;
+        };
+        let agent = self.agents.get(&id)?;
+        if !self.screen_mode.is_minimal()
+            && agent.active_pane != crate::views::agent::ActivePane::Prompt
+        {
+            return None;
+        }
+        agent.prompt.vim_normal_for_cursor()
+    }
+
     /// Render the current view to the terminal.
     pub fn draw(&mut self, terminal: &mut PagerTerminal) {
         self.draw_inner(terminal);
@@ -4483,6 +4503,7 @@ impl AppView {
             }
             _ => None,
         };
+        let hardware_cursor = self.hardware_cursor_style();
         let Self {
             active_view,
             agents,
@@ -4505,6 +4526,7 @@ impl AppView {
                     })
             });
         let fps_frame_started = fps_overlay.as_ref().map(|_| std::time::Instant::now());
+        cursor.set_hardware_style(hardware_cursor);
         crate::render::draw::draw_frame(
             terminal,
             cursor,

@@ -97,6 +97,7 @@ pub fn draw_live(app: &mut AppView, terminal: &mut PagerTerminal, ctx: &Terminal
     };
     let transcript_progress = minimal_api::minimal_transcript_progress(app);
     let status_line_frame = minimal_api::status_line_frame(app);
+    let hardware_cursor = app.hardware_cursor_style();
     let AppView {
         cursor,
         agents,
@@ -104,6 +105,7 @@ pub fn draw_live(app: &mut AppView, terminal: &mut PagerTerminal, ctx: &Terminal
         appearance,
         ..
     } = app;
+    cursor.set_hardware_style(hardware_cursor);
     let agent_id = match active_view {
         ActiveView::Agent(id) => Some(*id),
         _ => None,
