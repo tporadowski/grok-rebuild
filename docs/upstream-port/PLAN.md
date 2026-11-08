@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-128 — Tmux extended-keys keeps Shift+Enter and the Ctrl chords
+
+On tmux 3.3 or newer, Kitty keyboard protocol stays on unless `extended-keys` is exactly `off`. Shift+Enter is not treated as a collapsed Enter, and Ctrl+. stays reliable. Ctrl+/, Ctrl+[, and Ctrl+] use that same protocol (`kitty_allowed_modern_tmux_extended_keys_non_off_values`, `ctrl_dot_reliable_on_iterm2_tmux_extended_keys_on`, `prefer_alt_enter_newline_false_on_local_windows_terminal_modern_tmux`) (`v51-f12`).
+
 ### D-127 — Modified digits do not answer permission or cancel cards
 
 A bare `1`–`9` still selects a permission option, and a bare `1`–`4` still selects a cancel-card option. Ctrl, Alt, or Shift on that digit does not, and neither does Ctrl+\. The usage modal's digit keys are unchanged (`modified_digits_and_ctrl_backslash_do_not_select_card_options`) (`v50-x36`).
@@ -565,7 +569,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
-| W9 | Prompt, mentions, and keyboard | 32 | 0 | 4 | 0 | 0 |
+| W9 | Prompt, mentions, and keyboard | 31 | 0 | 4 | 1 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
@@ -575,9 +579,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 354. Skipped: 8. Done: 176. Already: 35. Deferred: 10.
+Catalog rows: 583. Pending: 353. Skipped: 8. Done: 176. Already: 36. Deferred: 10.
 
-**Next:** W9 prompt, mentions, and keyboard. First open row: Shift+Enter, Ctrl+., Ctrl+/, and Ctrl+[ / ] work inside tmux when extended-keys are enabled (`v51-f12`).
+**Next:** W9 prompt, mentions, and keyboard. First open row: very large pasted prompts are offloaded to a file (`v51-x11`).
 
 ## Waves
 
@@ -615,7 +619,7 @@ Pending: 0. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 32. Done: 4 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 31. Done: 4 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127). Already: 1 (`v51-f12`, D-128). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -849,7 +853,7 @@ id | status | wave | kind | flag | covered | note
 - v50-f09 | done | W9 | Features |  |  | **Command palette (Ctrl+P)** and model picker now open at the same width as the settings modal.
 - v50-x06 | done | W9 | Bug Fixes |  |  | **Queue pane** and Ctrl+; now appear and work when the dock is hidden with Ctrl+G.
 - v50-x36 | done | W9 | Bug Fixes |  |  | **Ctrl+\** and other modified digits no longer accidentally select options on permission or cancel cards.
-- v51-f12 | pending | W9 | Features |  |  | **Shift+Enter, Ctrl+., Ctrl+/ and Ctrl+[ / ]** now work inside tmux when extended-keys are enabled.
+- v51-f12 | already | W9 | Features |  |  | **Shift+Enter, Ctrl+., Ctrl+/ and Ctrl+[ / ]** now work inside tmux when extended-keys are enabled.
 - v51-x11 | pending | W9 | Bug Fixes |  |  | Very large pasted prompts are now offloaded to a file instead of being sent inline.
 - v51-x14 | pending | W9 | Bug Fixes |  |  | The send-now shortcut no longer accidentally enables always-approve mode while a permission card is open.
 - v51-x19 | pending | W9 | Bug Fixes |  |  | Send-now (Ctrl+Enter) no longer accidentally answers an open question card.
