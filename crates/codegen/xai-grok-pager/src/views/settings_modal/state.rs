@@ -28,7 +28,7 @@ pub(super) const TITLE_LEADING_DECORATION_W: u16 = 2; // `─ `: 1 cell box-draw
 pub(super) const CONTENT_MIN_WIDTH: u16 = 10;
 
 /// Default max width for the modal. Keeps the row list compact on wide terminals.
-pub(super) const STANDARD_MAX_WIDTH: u16 = 110;
+pub(super) const STANDARD_MAX_WIDTH: u16 = crate::views::modal_window::SETTINGS_MODAL_MAX_WIDTH;
 
 /// Per-side margin when editing `max_thoughts_width` (modal widens to `terminal_width - 2*margin` so the wrap preview is useful).
 pub(super) const MAX_THOUGHTS_WIDTH_WIDENED_MARGIN: u16 = 8;

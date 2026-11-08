@@ -1755,16 +1755,7 @@ impl AgentView {
                     title: "Commands",
                     tabs: None,
                     shortcuts: &picker_shortcuts,
-                    sizing: ModalSizing {
-                        width_pct: 0.50,
-                        max_width: 80,
-                        min_width: 44,
-                        v_margin: 4,
-                        h_pad: 2,
-                        v_pad: 1,
-                        footer_lines: 2,
-                    }
-                    .with_compact(compact),
+                    sizing: ModalSizing::picker_at_settings_width(compact),
                     fold_info: None,
                 };
                 if let Some(mca) = mw::render_modal_window(buf, area, window, &modal_config, &theme)
@@ -1824,11 +1815,11 @@ impl AgentView {
                 let compact = self.scrollback.appearance().prompt.compact;
                 // Surface `i search` in the footer when vim nav mode is active.
                 mw::push_vim_nav_search_hint(&mut picker_shortcuts, state.search_active);
-                let modal_config = ModalWindowConfig {
-                    title,
-                    tabs: None,
-                    shortcuts: &picker_shortcuts,
-                    sizing: ModalSizing {
+                let model_picker = matches!(command.as_str(), "model" | "m");
+                let sizing = if model_picker {
+                    ModalSizing::picker_at_settings_width(compact)
+                } else {
+                    ModalSizing {
                         width_pct: 0.50,
                         max_width: 80,
                         min_width: 44,
@@ -1837,7 +1828,13 @@ impl AgentView {
                         v_pad: 1,
                         footer_lines: 2,
                     }
-                    .with_compact(compact),
+                    .with_compact(compact)
+                };
+                let modal_config = ModalWindowConfig {
+                    title,
+                    tabs: None,
+                    shortcuts: &picker_shortcuts,
+                    sizing,
                     fold_info: None,
                 };
                 if let Some(mca) = mw::render_modal_window(buf, area, window, &modal_config, &theme)
@@ -3420,5 +3417,121 @@ mod settings_memory_paste_routing_tests {
         };
         assert_eq!(state.query(), "a中b");
         assert_eq!(agent.prompt.text(), "hidden prompt");
+    }
+}
+
+#[cfg(test)]
+mod palette_width_tests {
+    use std::sync::Arc;
+
+    use agent_client_protocol as acp;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    use crate::actions::ActionRegistry;
+    use crate::app::agent_view::test_fixtures::make_agent;
+    use crate::app::agent_view::{AgentPane, AgentView};
+    use crate::settings::{PagerLocalSnapshot, SettingsRegistry};
+    use crate::theme::Theme;
+    use crate::views::modal::ActiveModal;
+    use crate::views::settings_modal::SettingsModalState;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use xai_grok_shell::agent::config::UiConfig;
+
+    fn ctrl(c: char) -> Event {
+        Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+    }
+
+    fn painted_width(agent: &mut AgentView, area: Rect) -> u16 {
+        let mut buf = Buffer::empty(area);
+        agent.draw_active_modal(area, &mut buf, Theme::current(), false);
+        let popup = match agent.active_modal.as_ref() {
+            Some(ActiveModal::Settings { state }) => state.window.popup_area,
+            Some(ActiveModal::CommandPalette { window, .. }) => window.popup_area,
+            Some(ActiveModal::ArgPicker { window, .. }) => window.popup_area,
+            _ => None,
+        };
+        popup.expect("modal must paint").width
+    }
+
+    fn open_settings(agent: &mut AgentView) {
+        agent.active_modal = Some(ActiveModal::Settings {
+            state: Box::new(SettingsModalState::new(
+                Arc::new(SettingsRegistry::defaults()),
+                UiConfig::default(),
+                PagerLocalSnapshot::default(),
+            )),
+        });
+    }
+
+    fn seed_model(agent: &mut AgentView) {
+        let id = acp::ModelId::new(Arc::from("test-model"));
+        agent.session.models.available.insert(
+            id.clone(),
+            acp::ModelInfo::new(id, "Test Model".to_string()),
+        );
+    }
+
+    /// Ctrl+P and the model picker (`model` and `/m`) paint the same width as Settings.
+    /// A non-model arg picker stays on the narrower picker width.
+    #[test]
+    fn command_palette_and_model_picker_match_settings_width() {
+        let registry = ActionRegistry::defaults();
+        for area in [Rect::new(0, 0, 200, 40), Rect::new(0, 0, 100, 30)] {
+            let mut agent = make_agent();
+            open_settings(&mut agent);
+            let settings_width = painted_width(&mut agent, area);
+
+            agent.active_modal = None;
+            agent.handle_input(&ctrl('p'), &registry);
+            assert!(
+                matches!(agent.active_modal, Some(ActiveModal::CommandPalette { .. })),
+                "Ctrl+P must open the command palette"
+            );
+            assert_eq!(
+                painted_width(&mut agent, area),
+                settings_width,
+                "command palette width must match settings at {} cols",
+                area.width
+            );
+
+            agent.active_modal = None;
+            agent.active_pane = AgentPane::Scrollback;
+            seed_model(&mut agent);
+            agent.handle_input(&ctrl('m'), &registry);
+            assert!(
+                matches!(
+                    agent.active_modal,
+                    Some(ActiveModal::ArgPicker { ref command, .. }) if command == "model"
+                ),
+                "Ctrl+M off the prompt must open the model picker"
+            );
+            assert_eq!(
+                painted_width(&mut agent, area),
+                settings_width,
+                "model picker width must match settings at {} cols",
+                area.width
+            );
+
+            if let Some(ActiveModal::ArgPicker { command, .. }) = agent.active_modal.as_mut() {
+                *command = "m".into();
+            }
+            assert_eq!(
+                painted_width(&mut agent, area),
+                settings_width,
+                "/m picker width must match settings at {} cols",
+                area.width
+            );
+
+            if let Some(ActiveModal::ArgPicker { command, .. }) = agent.active_modal.as_mut() {
+                *command = "theme".into();
+            }
+            let theme_width = painted_width(&mut agent, area);
+            assert!(
+                theme_width < settings_width,
+                "theme picker stays narrower than settings at {} cols (theme {theme_width}, settings {settings_width})",
+                area.width
+            );
+        }
     }
 }

@@ -85,6 +85,11 @@ pub struct ModalWindowConfig<'a> {
     pub fold_info: Option<FoldInfo>,
 }
 
+/// Width fraction of the settings modal. The command palette and model picker use it too.
+pub const SETTINGS_MODAL_WIDTH_PCT: f32 = 0.70;
+/// Column cap of the settings modal. The command palette and model picker use it too.
+pub const SETTINGS_MODAL_MAX_WIDTH: u16 = 110;
+
 /// Sizing parameters for the modal popup.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ModalSizing {
@@ -138,6 +143,20 @@ impl ModalSizing {
     /// Used by: import_claude_modal. Same as Default.
     pub fn large() -> Self {
         Self::default()
+    }
+
+    /// Picker chrome at the settings modal's width. Vertical margin stays the picker value.
+    pub fn picker_at_settings_width(compact: bool) -> Self {
+        Self {
+            width_pct: SETTINGS_MODAL_WIDTH_PCT,
+            max_width: SETTINGS_MODAL_MAX_WIDTH,
+            min_width: 44,
+            v_margin: 4,
+            h_pad: 2,
+            v_pad: 1,
+            footer_lines: 2,
+        }
+        .with_compact(compact)
     }
 
     /// Returns adjusted sizing for compact mode with *very little margins*.

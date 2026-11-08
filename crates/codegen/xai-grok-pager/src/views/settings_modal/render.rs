@@ -104,7 +104,10 @@ pub fn render_settings_modal(
         if widen_for_max_thoughts_width && widened_candidate > STANDARD_MAX_WIDTH {
             (widened_candidate, 1.0)
         } else {
-            (STANDARD_MAX_WIDTH, 0.70)
+            (
+                STANDARD_MAX_WIDTH,
+                crate::views::modal_window::SETTINGS_MODAL_WIDTH_PCT,
+            )
         };
     let sizing = ModalSizing {
         width_pct,
