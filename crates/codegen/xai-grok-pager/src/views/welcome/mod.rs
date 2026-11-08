@@ -928,7 +928,9 @@ fn startup_hint_height(message: &str, action: Option<&str>, width: u16) -> u16 {
         .lines()
         .map(|line| hero_box::wrapped_line_count(line, width).max(1))
         .sum();
-    let action_line = action.map_or(0, |action| hero_box::wrapped_line_count(action, width).max(1));
+    let action_line = action.map_or(0, |action| {
+        hero_box::wrapped_line_count(action, width).max(1)
+    });
     msg_lines + action_line + 1
 }
 
@@ -1805,7 +1807,9 @@ fn render_welcome_done(
             // The key string is right-aligned by render_menu, so [x] sits at the very end of the row
             items.push((key_i_with_x, "Import Claude settings"));
         }
-        items.push((key_w, "New worktree"));
+        if !crate::app::app_view::worktree_options_hidden() {
+            items.push((key_w, "New worktree"));
+        }
         items.push((key_resume, "Resume session"));
         // "Changelog" above Quit; no shortcut, opened by click (row or block)
         if show_changelog_action {
@@ -2503,7 +2507,7 @@ pub(crate) fn render_session_picker_body(
         HintItem::new(crate::key!(Esc), "back"),
         HintItem::new(crate::key!(Enter), "select"),
     ];
-    if !controls_hidden {
+    if !controls_hidden && !crate::app::app_view::worktree_options_hidden() {
         default_shortcuts.push(HintItem {
             keys: vec![],
             label: "worktree".into(),

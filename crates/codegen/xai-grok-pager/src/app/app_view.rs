@@ -2368,6 +2368,7 @@ impl AppView {
                             } else {
                                 0
                             }
+                            - usize::from(has_access && worktree_options_hidden())
                     },
                     prompt_rect: self.welcome_prompt_rect.as_ref(),
                     import_banner_rect: self.welcome_import_banner_rect.as_ref(),
@@ -3658,7 +3659,7 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     xai_grok_telemetry::events::AnnouncementCtaSurface::Keyboard,
                 ));
             }
-            if key!('w', CONTROL).matches(key) {
+            if key!('w', CONTROL).matches(key) && !worktree_options_hidden() {
                 if ctx.cwd_has_git_ancestor {
                     return InputOutcome::Action(Action::OpenNewWorktreeDialog);
                 }
@@ -3740,6 +3741,7 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     ctx.has_claude_import,
                     ctx.show_changelog_action,
                     ctx.changelog_markdown.as_deref(),
+                    worktree_options_hidden(),
                 );
             }
         }
@@ -3878,6 +3880,7 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                             ctx.has_claude_import,
                             ctx.show_changelog_action,
                             ctx.changelog_markdown.as_deref(),
+                            worktree_options_hidden(),
                         );
                     }
                 }
@@ -4125,27 +4128,51 @@ fn dispatch_access_gate_menu_action(index: usize) -> InputOutcome {
         _ => InputOutcome::Unchanged,
     }
 }
+/// True when the active sandbox profile cannot write a worktree directory, so the
+/// Welcome, `/new`, and `/fork` worktree options stay hidden.
+pub(crate) fn worktree_options_hidden_for(
+    profile: Option<&str>,
+    workspace: Option<&std::path::Path>,
+) -> bool {
+    match (profile, workspace) {
+        (Some(profile), Some(workspace)) => {
+            xai_grok_sandbox::worktree_create_refusal(profile, workspace).is_some()
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn worktree_options_hidden() -> bool {
+    worktree_options_hidden_for(
+        xai_grok_sandbox::requested_confinement_profile(),
+        xai_grok_sandbox::confinement_root(),
+    )
+}
+
 /// Dispatch an action for a welcome menu item by index.
 /// Menu order: `[Import]`, New worktree, Resume session, `[Changelog]`, Quit.
+/// The New worktree row is absent when `hide_worktree` is set.
 /// `show_changelog_action` is true when the Changelog row is rendered; release notes open only once `changelog_md` is available.
 fn dispatch_menu_action(
     index: usize,
     has_claude_import: bool,
     show_changelog_action: bool,
     changelog_md: Option<&str>,
+    hide_worktree: bool,
 ) -> InputOutcome {
     let base = if has_claude_import { 1 } else { 0 };
-    let worktree_idx = base;
-    let resume_idx = base + 1;
+    let worktree_idx = (!hide_worktree).then_some(base);
+    let after_worktree = usize::from(!hide_worktree);
+    let resume_idx = base + after_worktree;
     let (changelog_idx, quit_idx) = if show_changelog_action {
-        (Some(base + 2), base + 3)
+        (Some(base + after_worktree + 1), base + after_worktree + 2)
     } else {
-        (None, base + 2)
+        (None, base + after_worktree + 1)
     };
     if has_claude_import && index == 0 {
         return InputOutcome::Action(Action::ImportClaudeSettings);
     }
-    if index == worktree_idx {
+    if Some(index) == worktree_idx {
         return InputOutcome::Action(Action::OpenNewWorktreeDialog);
     }
     if index == resume_idx {

@@ -42,7 +42,7 @@ pub(in crate::app::dispatch) fn dispatch_fork(
         }
         Some(worktree) => dispatch_fork_resolved(app, worktree, args.directive),
         None => {
-            if in_git_repo {
+            if in_git_repo && !crate::app::app_view::worktree_options_hidden() {
                 use crate::app::app_view::WorktreeMode;
                 match app.fork_worktree_mode {
                     WorktreeMode::Always => dispatch_fork_resolved(app, true, args.directive),

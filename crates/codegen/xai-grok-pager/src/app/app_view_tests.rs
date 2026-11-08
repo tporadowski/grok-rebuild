@@ -3297,15 +3297,15 @@ fn welcome_ctrl_d_requires_confirmation() {
 #[test]
 fn menu_action_indices_without_changelog() {
     assert!(matches!(
-        dispatch_menu_action(0, false, false, None),
+        dispatch_menu_action(0, false, false, None, false),
         InputOutcome::Action(Action::OpenNewWorktreeDialog)
     ));
     assert!(matches!(
-        dispatch_menu_action(1, false, false, None),
+        dispatch_menu_action(1, false, false, None, false),
         InputOutcome::Action(Action::FetchSessionList)
     ));
     assert!(matches!(
-        dispatch_menu_action(2, false, false, None),
+        dispatch_menu_action(2, false, false, None, false),
         InputOutcome::Action(Action::Quit)
     ));
 }
@@ -3313,22 +3313,22 @@ fn menu_action_indices_without_changelog() {
 fn menu_action_changelog_sits_above_quit() {
     let md = Some("# notes");
     assert!(matches!(
-        dispatch_menu_action(1, false, true, md),
+        dispatch_menu_action(1, false, true, md, false),
         InputOutcome::Action(Action::FetchSessionList)
     ));
     assert!(matches!(
-        dispatch_menu_action(2, false, true, md),
+        dispatch_menu_action(2, false, true, md, false),
         InputOutcome::Action(Action::ShowReleaseNotes { .. })
     ));
     assert!(matches!(
-        dispatch_menu_action(3, false, true, md),
+        dispatch_menu_action(3, false, true, md, false),
         InputOutcome::Action(Action::Quit)
     ));
 }
 #[test]
 fn menu_action_changelog_before_fetch_is_noop() {
     assert!(matches!(
-        dispatch_menu_action(2, false, true, None),
+        dispatch_menu_action(2, false, true, None, false),
         InputOutcome::Unchanged
     ));
 }
@@ -3336,24 +3336,49 @@ fn menu_action_changelog_before_fetch_is_noop() {
 fn menu_action_indices_with_import_and_changelog() {
     let md = Some("# notes");
     assert!(matches!(
-        dispatch_menu_action(0, true, true, md),
+        dispatch_menu_action(0, true, true, md, false),
         InputOutcome::Action(Action::ImportClaudeSettings)
     ));
     assert!(matches!(
-        dispatch_menu_action(1, true, true, md),
+        dispatch_menu_action(1, true, true, md, false),
         InputOutcome::Action(Action::OpenNewWorktreeDialog)
     ));
     assert!(matches!(
-        dispatch_menu_action(2, true, true, md),
+        dispatch_menu_action(2, true, true, md, false),
         InputOutcome::Action(Action::FetchSessionList)
     ));
     assert!(matches!(
-        dispatch_menu_action(3, true, true, md),
+        dispatch_menu_action(3, true, true, md, false),
         InputOutcome::Action(Action::ShowReleaseNotes { .. })
     ));
     assert!(matches!(
-        dispatch_menu_action(4, true, true, md),
+        dispatch_menu_action(4, true, true, md, false),
         InputOutcome::Action(Action::Quit)
+    ));
+}
+#[test]
+fn menu_action_hides_new_worktree_when_the_sandbox_refuses() {
+    let workspace = std::env::current_dir().unwrap();
+    assert!(worktree_options_hidden_for(
+        Some("strict"),
+        Some(&workspace)
+    ));
+    assert!(!worktree_options_hidden_for(
+        Some("workspace"),
+        Some(&workspace)
+    ));
+    assert!(!worktree_options_hidden_for(None, Some(&workspace)));
+    assert!(matches!(
+        dispatch_menu_action(0, false, false, None, true),
+        InputOutcome::Action(Action::FetchSessionList)
+    ));
+    assert!(matches!(
+        dispatch_menu_action(1, false, false, None, true),
+        InputOutcome::Action(Action::Quit)
+    ));
+    assert!(matches!(
+        dispatch_menu_action(0, false, true, Some("# notes"), true),
+        InputOutcome::Action(Action::FetchSessionList)
     ));
 }
 #[test]

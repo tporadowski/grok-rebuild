@@ -160,8 +160,9 @@ pub(in crate::app::dispatch) fn dispatch_new_session(app: &mut AppView) -> Vec<E
             .map(|a| a.current_branch.is_some())
             .unwrap_or(app.cwd_has_git_ancestor)
     };
-    let always = in_git_repo && matches!(app.new_session_worktree_mode, WorktreeMode::Always);
-    effects.extend(if in_git_repo {
+    let offer_worktree = in_git_repo && !crate::app::app_view::worktree_options_hidden();
+    let always = offer_worktree && matches!(app.new_session_worktree_mode, WorktreeMode::Always);
+    effects.extend(if offer_worktree {
         match app.new_session_worktree_mode {
             WorktreeMode::Always => {
                 dispatch_new_worktree_session(app, None, None, None, None, None, None)
