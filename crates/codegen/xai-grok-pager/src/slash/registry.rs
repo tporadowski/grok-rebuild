@@ -194,7 +194,7 @@ impl CommandRegistry {
     /// fully-typed submission must still reach the pager's own handler rather than fall through as an unknown command.
     pub fn get_for_dispatch(&self, key: &str) -> Option<&Arc<dyn SlashCommand>> {
         self.key_to_index
-            .get(key)
+            .get(&folded_command_key(key))
             .and_then(|idx| self.commands.get(*idx))
             .filter(|cmd| !self.hidden.contains(cmd.name()))
             .filter(|cmd| !self.restricted_match(cmd))
@@ -205,7 +205,10 @@ impl CommandRegistry {
     pub(crate) fn mode_support(&self, key: &str) -> ModeSupport {
         self.commands
             .iter()
-            .find(|cmd| cmd.name() == key || cmd.aliases().contains(&key))
+            .find(|cmd| {
+                cmd.name().eq_ignore_ascii_case(key)
+                    || cmd.aliases().iter().any(|alias| alias.eq_ignore_ascii_case(key))
+            })
             .map_or(ModeSupport::Both, |cmd| cmd.mode_support())
     }
 
@@ -278,7 +281,7 @@ impl CommandRegistry {
     /// Returns true if the command (by canonical name or alias) is a builtin.
     pub fn is_builtin(&self, key: &str) -> bool {
         self.key_to_index
-            .get(key)
+            .get(&folded_command_key(key))
             .and_then(|idx| self.sources.get(*idx))
             .is_some_and(|s| *s == CommandSource::Builtin)
     }
@@ -537,8 +540,9 @@ impl CommandRegistry {
             // They keep their triggers/key entries so the dropdown, ghost completion, and palette show them like any other command (discoverability)
             // Execution is blocked by `get()`'s `restricted_match` filter; invoking one shows the SuperGrok upsell instead
 
-            // Insert canonical key.
-            self.key_to_index.insert(canonical.to_string(), idx);
+            // Insert canonical key. Lookup folds case, so `/COMPACT` and `/compact` hit the same row.
+            self.key_to_index
+                .insert(folded_command_key(canonical), idx);
             if !menu_only {
                 let trigger = CommandTrigger::new(command, None, canonical, idx, source);
                 self.triggers.extend(trigger.bare_suffix_sibling());
@@ -547,13 +551,14 @@ impl CommandRegistry {
 
             // Insert alias keys.
             for alias in command.aliases() {
-                if source == CommandSource::Builtin && self.key_to_index.contains_key(*alias) {
+                let alias_key = folded_command_key(alias);
+                if source == CommandSource::Builtin && self.key_to_index.contains_key(&alias_key) {
                     panic!(
                         "slash command alias '{}' is already registered (builtin collision)",
                         alias
                     );
                 }
-                self.key_to_index.insert(alias.to_string(), idx);
+                self.key_to_index.insert(alias_key, idx);
                 if !menu_only {
                     let trigger = CommandTrigger::new(command, Some(alias), canonical, idx, source);
                     self.triggers.extend(trigger.bare_suffix_sibling());
@@ -562,6 +567,11 @@ impl CommandRegistry {
             }
         }
     }
+}
+
+/// Command names and aliases compare case-insensitively. `/COMPACT` and `/Compact` run `/compact`.
+fn folded_command_key(key: &str) -> String {
+    key.to_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -621,6 +631,19 @@ mod tests {
         S: Into<String>,
     {
         names.into_iter().map(Into::into).collect()
+    }
+
+    #[test]
+    fn slash_commands_run_regardless_of_case() {
+        let registry = CommandRegistry::new(crate::slash::commands::builtin_commands());
+        for typed in ["/COMPACT", "/Compact", "/compact"] {
+            let invocation = crate::slash::parse_invocation(typed).expect(typed);
+            let cmd = registry
+                .get_for_dispatch(invocation.token)
+                .unwrap_or_else(|| panic!("{typed} should run compact"));
+            assert_eq!(cmd.name(), "compact", "{typed}");
+            assert!(registry.is_builtin(invocation.token), "{typed}");
+        }
     }
 
     #[test]

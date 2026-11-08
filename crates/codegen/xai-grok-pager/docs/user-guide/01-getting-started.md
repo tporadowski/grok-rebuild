@@ -180,7 +180,7 @@ Tools can be extended with [MCP servers](05-configuration.md#mcp-servers) for in
 
 ### Slash Commands
 
-Type `/` in the prompt to access commands. These provide quick actions without writing a full prompt:
+Type `/` in the prompt to access commands. Names are not case-sensitive: `/compact` and `/COMPACT` run the same command. These provide quick actions without writing a full prompt:
 
 ```
 /model grok-4.6                 # Switch model
