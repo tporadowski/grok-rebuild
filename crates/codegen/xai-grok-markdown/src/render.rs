@@ -1131,6 +1131,11 @@ impl<'a, 'b> ParsedMarkdown<'a, 'b> {
             &line_source_map,
             std::mem::take(&mut self.buffers.code_blocks),
         );
+        let quotes = crate::output::build_quote_spans(
+            text,
+            &line_source_map,
+            std::mem::take(&mut self.buffers.quotes),
+        );
 
         (
             MarkdownRenderOutput {
@@ -1138,6 +1143,7 @@ impl<'a, 'b> ParsedMarkdown<'a, 'b> {
                 line_source_map,
                 hyperlinks,
                 code_blocks,
+                quotes,
                 tables,
             },
             checkpoint,

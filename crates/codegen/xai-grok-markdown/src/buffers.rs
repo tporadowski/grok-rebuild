@@ -37,6 +37,15 @@ pub struct LinkTarget {
     pub id: u32,
 }
 
+/// Parse-time record of a closed top-level blockquote.
+#[derive(Debug, Clone)]
+pub struct QuoteMeta {
+    /// Quote body as Markdown, with this quote's `>` markers removed.
+    pub body: String,
+    /// Source byte range of the quote, including its `>` markers.
+    pub source_range: Range<usize>,
+}
+
 /// Parse-time record of a closed fenced code block.
 /// Only **closed** fences are recorded; an unterminated trailing fence yields no entry.
 #[derive(Debug, Clone)]
@@ -301,6 +310,8 @@ pub struct MarkdownBuffers {
     pub link_targets: Vec<LinkTarget>,
     /// Closed fenced code blocks, in document order (see [`CodeBlockMeta`]).
     pub code_blocks: Vec<CodeBlockMeta>,
+    /// Closed top-level blockquotes, in document order (see [`QuoteMeta`]).
+    pub quotes: Vec<QuoteMeta>,
 
     // Render scratch buffers (used only during render())
     pub render_events: Vec<RenderEvent>,
@@ -319,6 +330,7 @@ impl MarkdownBuffers {
             mermaid_replaces: Vec::new(),
             link_targets: Vec::new(),
             code_blocks: Vec::new(),
+            quotes: Vec::new(),
             render_events: Vec::new(),
             current_spans: Vec::new(),
             active_highlights: Vec::new(),
@@ -335,6 +347,7 @@ impl MarkdownBuffers {
         self.mermaid_replaces.clear();
         self.link_targets.clear();
         self.code_blocks.clear();
+        self.quotes.clear();
         self.render_events.clear();
         self.current_spans.clear();
         self.active_highlights.clear();

@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use ratatui::text::Line;
 
-use crate::buffers::{CodeBlockMeta, TableCopyMeta};
+use crate::buffers::{CodeBlockMeta, QuoteMeta, TableCopyMeta};
 
 /// A hyperlink target extracted from rendered markdown.
 /// The shared `id` enables OSC 8 hover-grouping across wrapped lines.
@@ -63,7 +63,20 @@ pub struct MarkdownRenderOutput {
     /// Fenced code blocks discovered during rendering, in document order.
     /// One entry per closed fenced block; see [`CodeBlockSpan`].
     pub code_blocks: Vec<CodeBlockSpan>,
+    /// Top-level blockquotes. [`QuoteSpan::body`] is the quote as Markdown with its `>` markers removed.
+    pub quotes: Vec<QuoteSpan>,
     pub tables: Vec<TableCopyMeta>,
+}
+
+/// A closed top-level blockquote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuoteSpan {
+    /// The quote as Markdown, without this quote's `>` markers.
+    pub body: String,
+    /// Pre-wrap rendered lines of the quote.
+    pub output_line_range: Range<usize>,
+    /// Byte range of the quote in the raw source, including its `>` markers.
+    pub source_byte_range: Range<usize>,
 }
 
 impl MarkdownRenderOutput {
@@ -78,6 +91,7 @@ impl MarkdownRenderOutput {
         self.line_source_map.clear();
         self.hyperlinks.clear();
         self.code_blocks.clear();
+        self.quotes.clear();
         self.tables.clear();
     }
 
@@ -88,6 +102,7 @@ impl MarkdownRenderOutput {
             line_source_map: &self.line_source_map,
             hyperlinks: &self.hyperlinks,
             code_blocks: &self.code_blocks,
+            quotes: &self.quotes,
             tables: &self.tables,
         }
     }
@@ -110,6 +125,7 @@ pub struct MarkdownRenderView<'a> {
     /// Fenced code blocks discovered during rendering, in document order.
     /// One entry per closed fenced block; see [`CodeBlockSpan`].
     pub code_blocks: &'a [CodeBlockSpan],
+    pub quotes: &'a [QuoteSpan],
     pub tables: &'a [TableCopyMeta],
 }
 
@@ -174,6 +190,54 @@ pub(crate) fn build_code_block_spans(
                 output_line_range,
                 source_byte_range: range,
             }
+        })
+        .collect()
+}
+
+/// Map parse-time blockquotes onto the rendered output. Metas ascend by source offset.
+pub(crate) fn build_quote_spans(
+    text: &str,
+    line_source_map: &[usize],
+    metas: Vec<QuoteMeta>,
+) -> Vec<QuoteSpan> {
+    if metas.is_empty() {
+        return Vec::new();
+    }
+    let bytes = text.as_bytes();
+    let mut cursor_pos = 0usize;
+    let mut cursor_newlines = 0usize;
+    let mut newlines_before = |pos: usize| -> usize {
+        let pos = pos.min(bytes.len());
+        while cursor_pos < pos {
+            if bytes.get(cursor_pos) == Some(&b'\n') {
+                cursor_newlines += 1;
+            }
+            cursor_pos += 1;
+        }
+        cursor_newlines
+    };
+    metas
+        .into_iter()
+        .filter_map(|meta| {
+            if meta.body.trim().is_empty() {
+                return None;
+            }
+            let range = meta.source_range;
+            if range.end <= range.start {
+                return None;
+            }
+            let src_first = newlines_before(range.start);
+            let src_last = newlines_before(range.end - 1);
+            let start = line_source_map.partition_point(|&src| src < src_first);
+            let end = line_source_map.partition_point(|&src| src <= src_last);
+            if start >= end {
+                return None;
+            }
+            Some(QuoteSpan {
+                body: meta.body,
+                output_line_range: start..end,
+                source_byte_range: range,
+            })
         })
         .collect()
 }
@@ -571,5 +635,29 @@ mod code_block_span_tests {
                 "pretty={pretty}: chunked stream must match full render",
             );
         }
+    }
+
+    #[test]
+    fn blockquote_span_is_markdown_without_its_markers() {
+        let src = "before\n\n> hello **world**\n> second line\n\nafter\n";
+        let (out, _) = render_markdown_ratatui_full(src, STYLE, true, None);
+        assert_eq!(out.quotes.len(), 1);
+        assert_eq!(
+            out.quotes[0].body.trim_end(),
+            "hello **world**\nsecond line"
+        );
+        assert!(!out.quotes[0].body.contains('>'));
+        let painted: Vec<String> = out.lines[out.quotes[0].output_line_range.clone()]
+            .iter()
+            .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect())
+            .collect();
+        assert!(
+            painted.iter().any(|line| line.contains("hello")),
+            "{painted:?}"
+        );
+        let nested = "> outer\n> > inner\n";
+        let (nested_out, _) = render_markdown_ratatui_full(nested, STYLE, true, None);
+        assert_eq!(nested_out.quotes.len(), 1, "only the outer quote is a button");
+        assert_eq!(nested_out.quotes[0].body.trim_end(), "outer\n> inner");
     }
 }

@@ -135,6 +135,41 @@ pub fn apply_code_copy_rows(
     affordances
 }
 
+/// Insert a non-selectable `[Copy]` row after each top-level quote.
+/// The row is not part of the message copy. `body` is the quote as Markdown without its `>` markers.
+pub fn apply_quote_copy_rows(
+    output: &mut BlockOutput,
+    quotes: &[xai_grok_markdown::QuoteSpan],
+) -> Vec<CodeCopyAffordance> {
+    if quotes.is_empty() || output.lines.is_empty() {
+        return Vec::new();
+    }
+    let ends = prewrap_end_rows(&output.lines);
+    let mut inserts: Vec<(usize, String)> = Vec::new();
+    for quote in quotes {
+        if quote.output_line_range.is_empty() || quote.body.trim().is_empty() {
+            continue;
+        }
+        let Some(&insert_at) = ends.get(quote.output_line_range.end - 1) else {
+            continue;
+        };
+        inserts.push((insert_at, quote.body.clone()));
+    }
+    let affordances = inserts
+        .iter()
+        .enumerate()
+        .map(|(index, (at, body))| CodeCopyAffordance {
+            row_offset: at.saturating_add(index) as u16,
+            label: "[Copy]".to_string(),
+            body: body.clone(),
+        })
+        .collect();
+    for (at, _) in inserts.iter().rev() {
+        output.lines.insert(*at, button_line("[Copy]"));
+    }
+    affordances
+}
+
 /// A visible code-copy row and the text its button copies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeCopyPlacement {

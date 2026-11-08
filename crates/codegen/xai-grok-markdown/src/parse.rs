@@ -204,6 +204,36 @@ pub struct MarkdownParser<'a, 'b, 'syn, 'oc> {
     collapse_soft_breaks: bool,
     /// In-progress fenced code block, set between its start and end events.
     pending_code_block: Option<PendingCodeBlock>,
+    /// Source start of the open top-level blockquote.
+    outer_quote_start: Option<usize>,
+}
+
+/// Drop one blockquote marker from each line: up to three leading spaces, a `>`, and one following space.
+/// A nested quote keeps its own marker. A line with no marker is left as written.
+fn strip_one_blockquote_level(source: &str) -> String {
+    let mut out = String::new();
+    for line in source.split_inclusive('\n') {
+        let (core, newline) = match line.strip_suffix('\n') {
+            Some(core) => (core, true),
+            None => (line, false),
+        };
+        let core = core.strip_suffix('\r').unwrap_or(core);
+        let bytes = core.as_bytes();
+        let mut spaces = 0usize;
+        while spaces < 3 && bytes.get(spaces) == Some(&b' ') {
+            spaces += 1;
+        }
+        let stripped = if let Some(rest) = core[spaces..].strip_prefix('>') {
+            rest.strip_prefix(' ').unwrap_or(rest)
+        } else {
+            core
+        };
+        out.push_str(stripped);
+        if newline {
+            out.push('\n');
+        }
+    }
+    out
 }
 
 /// Custom word separator for table cells.
@@ -482,6 +512,7 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
             link_id_counter: 0,
             collapse_soft_breaks: true,
             pending_code_block: None,
+            outer_quote_start: None,
         }
     }
 
@@ -525,6 +556,8 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
         self.buffers.clear();
         self.table_state = None;
         self.depth = 0;
+        self.bq_depth = 0;
+        self.outer_quote_start = None;
         self.last_checkpoint = None;
         self.pending_code_block = None;
 
@@ -877,6 +910,9 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
         }
         if matches!(&tag, Tag::BlockQuote(_)) {
             self.bq_depth += 1;
+            if self.bq_depth == 1 {
+                self.outer_quote_start = Some(range.start);
+            }
         }
 
         let mut more = Vec::new();
@@ -1340,6 +1376,19 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
             _ => {}
         }
         if matches!(&tag_end, TagEnd::BlockQuote(_)) {
+            if self.bq_depth == 1 {
+                let start = self.outer_quote_start.take().unwrap_or(range.start);
+                let end = range.end.max(start);
+                if let Some(src) = self.text.get(start..end) {
+                    let body = strip_one_blockquote_level(src);
+                    if !body.trim().is_empty() {
+                        self.buffers.quotes.push(crate::buffers::QuoteMeta {
+                            body,
+                            source_range: start..end,
+                        });
+                    }
+                }
+            }
             self.bq_depth = self.bq_depth.saturating_sub(1);
         }
 

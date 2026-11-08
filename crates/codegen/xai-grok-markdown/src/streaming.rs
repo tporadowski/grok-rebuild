@@ -270,6 +270,9 @@ impl StreamingMarkdownRenderer {
         self.output
             .code_blocks
             .retain(|cb| cb.output_line_range.end <= self.frozen.lines_len);
+        self.output
+            .quotes
+            .retain(|quote| quote.output_line_range.end <= self.frozen.lines_len);
 
         // Render the tail (unfrozen portion) using reusable buffers.
         // When the frozen source ends without a trailing newline (e.g., a thematic break `---` at the end of a chunk), the tail can start with `\n`
@@ -336,6 +339,15 @@ impl StreamingMarkdownRenderer {
                 cb.source_byte_range.start += tail_start;
                 cb.source_byte_range.end += tail_start;
                 cb
+            }));
+        self.output
+            .quotes
+            .extend(tail_output.quotes.into_iter().map(|mut quote| {
+                quote.output_line_range.start += frozen_lines;
+                quote.output_line_range.end += frozen_lines;
+                quote.source_byte_range.start += tail_start;
+                quote.source_byte_range.end += tail_start;
+                quote
             }));
 
         // Detect plain URLs` suffix in pretty-mode markdown links, bare URLs in prose).

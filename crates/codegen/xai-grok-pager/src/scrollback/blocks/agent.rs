@@ -239,14 +239,24 @@ impl AgentMessageBlock {
             shift_diagrams_below(&mut diagrams, tables.iter().map(|table| table.row_offset));
             tables
         };
-        let codes = if ctx.raw || content.is_raw() || !self.content.is_finished() {
-            Vec::new()
+        let show_copies = !ctx.raw && !content.is_raw() && self.content.is_finished();
+        let quotes = if show_copies {
+            let spans = content.quote_spans();
+            let quotes = crate::scrollback::code_copy::apply_quote_copy_rows(&mut out, &spans);
+            shift_diagrams_below(&mut diagrams, quotes.iter().map(|quote| quote.row_offset));
+            quotes
         } else {
+            Vec::new()
+        };
+        let mut codes = if show_copies {
             let spans = content.code_blocks();
             let codes = crate::scrollback::code_copy::apply_code_copy_rows(&mut out, &spans);
             shift_diagrams_below(&mut diagrams, codes.iter().map(|code| code.row_offset));
             codes
+        } else {
+            Vec::new()
         };
+        codes.extend(quotes);
         (out, diagrams, tables, codes)
     }
 }
@@ -376,7 +386,16 @@ impl BlockContent for AgentMessageBlock {
                     && !crate::scrollback::code_copy::is_mermaid_fence(&span.info)
             })
             .count() as u16;
-        diagrams.saturating_add(tables).saturating_add(codes)
+        let quotes = self
+            .content
+            .quote_spans()
+            .iter()
+            .filter(|span| !span.output_line_range.is_empty() && !span.body.trim().is_empty())
+            .count() as u16;
+        diagrams
+            .saturating_add(tables)
+            .saturating_add(codes)
+            .saturating_add(quotes)
     }
 
     fn accent(&self, _ctx: &BlockContext) -> Option<AccentStyle> {
@@ -620,6 +639,55 @@ mod tests {
         assert_eq!(finished.len(), 1);
         assert_eq!(finished[0].label, "[Copy] rust");
         assert!(finished[0].clipboard_text().contains("let y = 2;"));
+    }
+
+    #[test]
+    fn finished_reply_copies_a_quote_as_markdown_without_markers() {
+        let source = "before\n\n> hello **world**\n> second line\n\nafter\n";
+        let block = AgentMessageBlock::new(source);
+        let pretty = ctx(60, false);
+        let out = block.output(&pretty);
+        let affordances = block.code_copy_affordances(&pretty);
+        assert_eq!(affordances.len(), 1);
+        assert_eq!(affordances[0].label, "[Copy]");
+        let copied = affordances[0].clipboard_text();
+        assert_eq!(copied.trim_end(), "hello **world**\nsecond line");
+        assert!(!copied.contains('>'));
+        assert!(!copied.contains('\u{2502}'));
+        let texts: Vec<String> = out.lines.iter().map(line_text).collect();
+        let row = affordances[0].row_offset as usize;
+        assert_eq!(texts[row], "[Copy]");
+        assert!(
+            texts[..row].iter().any(|text| text.contains("hello")),
+            "the button sits under the quote: {texts:?}"
+        );
+        assert!(
+            texts[row + 1..].iter().any(|text| text.contains("after")),
+            "the text after the quote stays below the button: {texts:?}"
+        );
+        assert!(matches!(out.lines[row].selectable, Selectable::None));
+        assert!(!block.copy_text(false).contains("[Copy]"));
+        assert_eq!(block.estimate_extra_rows(), 1);
+        let narrow = block.code_copy_affordances(&ctx(12, false));
+        assert_eq!(narrow.len(), 1);
+        assert_eq!(
+            narrow[0].clipboard_text().trim_end(),
+            "hello **world**\nsecond line",
+            "a wrapped quote still copies the whole markdown"
+        );
+        let raw = block.output(&ctx(60, true));
+        assert!(
+            raw.lines.iter().all(|line| !line_text(line).contains("[Copy]")),
+            "raw mode shows the quote source, not the button"
+        );
+
+        let mut streaming = AgentMessageBlock::streaming();
+        streaming.push_chunk("> hidden **md**\n");
+        assert!(streaming.code_copy_affordances(&pretty).is_empty());
+        streaming.finish();
+        let finished = streaming.code_copy_affordances(&pretty);
+        assert_eq!(finished.len(), 1);
+        assert_eq!(finished[0].clipboard_text().trim_end(), "hidden **md**");
     }
 
     #[test]

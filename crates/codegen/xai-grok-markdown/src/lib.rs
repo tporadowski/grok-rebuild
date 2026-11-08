@@ -54,7 +54,9 @@ pub use colors::{
     polarity_safe_syntax, polarity_safe_syntax_ansi, set_color_level_cap, set_polarity_safe_syntax,
 };
 pub use latex_delimiters::{LatexDelimiterNormalizer, normalize_latex_delimiters};
-pub use output::{CodeBlockSpan, HyperlinkTarget, MarkdownRenderOutput, MarkdownRenderView};
+pub use output::{
+    CodeBlockSpan, HyperlinkTarget, MarkdownRenderOutput, MarkdownRenderView, QuoteSpan,
+};
 pub use parse::{MarkdownParser, ParsedMarkdown};
 pub use source_map::SourceMap;
 pub use streaming::StreamingMarkdownRenderer;

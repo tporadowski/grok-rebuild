@@ -171,6 +171,11 @@ impl MarkdownContent {
             .to_vec()
     }
 
+    /// Closed top-level quotes. Each body is Markdown with that quote's `>` markers removed.
+    pub fn quote_spans(&self) -> Vec<xai_grok_markdown::QuoteSpan> {
+        self.state.borrow().renderer.view().quotes.to_vec()
+    }
+
     /// Get the source markdown text.
     pub fn text(&self) -> String {
         self.state.borrow().renderer.source().to_string()
