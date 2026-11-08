@@ -1503,6 +1503,21 @@ impl DashboardState {
             .collect();
     }
 
+    /// Pins whose session is not in `resolver` stay in the saved list.
+    /// A session the resolver can see is kept only when [`Self::to_persisted`] already included it,
+    /// so an explicit unpin of a visible row is not put back.
+    pub(crate) fn merge_saved_pins(
+        persisted: &mut PersistedDashboard,
+        previous: &PersistedDashboard,
+        resolver: &SessionIdResolver,
+    ) {
+        for id in &previous.pinned {
+            if resolver.resolve(id).is_none() {
+                persisted.pinned.insert(id.clone());
+            }
+        }
+    }
+
     /// Snapshot back to a persistable form.
     /// Top-level rows whose underlying agent does not yet have a `session_id` are dropped (they can't be persisted yet; but they'll remain in the
     /// in-memory state for the rest of this process lifetime).
@@ -1573,6 +1588,9 @@ impl DashboardState {
                 }
             }
         }
+        let keep = |id: &DashboardRowId| rebind(id).unwrap_or_else(|| id.clone());
+        self.pinned = self.pinned.iter().map(keep).collect();
+        self.reorder = self.reorder.iter().map(keep).collect();
     }
 
     pub fn prepare_agent_unbind(

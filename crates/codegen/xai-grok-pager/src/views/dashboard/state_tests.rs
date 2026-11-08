@@ -6978,6 +6978,88 @@ fn workspace_identity_rebinds_selection_between_unloaded_and_loaded_rows() {
 }
 
 #[test]
+fn workspace_identity_rebind_keeps_a_pin_in_the_saved_list() {
+    let snapshot = xai_grok_dashboard_store::WorkspaceSnapshot {
+        grouping: xai_grok_dashboard_store::Grouping::State,
+        members: vec![xai_grok_dashboard_store::Member {
+            session_id: xai_grok_dashboard_store::SessionId::new("saved").unwrap(),
+            kind: xai_grok_dashboard_store::MemberKind::Build,
+            origin: xai_grok_dashboard_store::MemberOrigin::Local,
+            cwd: Some("/tmp".into()),
+            title: Some("Saved".into()),
+            model: None,
+            last_turn_summary: None,
+            is_worktree: false,
+            last_change_unix_ms: 1,
+            pin_rank: Some(1024),
+            order_rank: None,
+        }],
+        data_version: 1,
+    };
+    let mut agents = indexmap::IndexMap::new();
+    let workspace = workspace_view(&snapshot);
+    let unloaded = SessionIdResolver::from_agents_and_workspace(&agents, Some(&workspace));
+    let workspace_row = DashboardRowId::Workspace {
+        session_id: "saved".into(),
+    };
+    let mut dashboard = DashboardState::new();
+    dashboard.pinned.insert(workspace_row.clone());
+    dashboard.reorder.push(workspace_row);
+
+    let id = AgentId(7);
+    let mut agent = crate::test_util::make_agent_view(Some("saved"), "/tmp");
+    agent.session.session_id = Some(agent_client_protocol::SessionId::new("saved"));
+    agents.insert(id, agent);
+    let loaded = SessionIdResolver::from_agents_and_workspace(&agents, Some(&workspace));
+    dashboard.rebind_workspace_identities(&unloaded, &loaded, &mut agents);
+
+    let loaded_row = DashboardRowId::TopLevel(id);
+    assert!(dashboard.pinned.contains(&loaded_row));
+    assert_eq!(dashboard.reorder, vec![loaded_row]);
+    let saved = PersistedRowId::TopLevel {
+        session_id: "saved".into(),
+    };
+    assert!(
+        dashboard
+            .to_persisted(true, &loaded)
+            .pinned
+            .contains(&saved)
+    );
+
+    let old = loaded;
+    agents.clear();
+    let new = SessionIdResolver::from_agents_and_workspace(&agents, Some(&workspace));
+    dashboard.rebind_workspace_identities(&old, &new, &mut agents);
+    assert!(dashboard.to_persisted(true, &new).pinned.contains(&saved));
+}
+
+#[test]
+fn saved_pins_for_unloaded_sessions_survive_a_layout_write() {
+    let mut agents = indexmap::IndexMap::new();
+    let id = AgentId(1);
+    let mut agent = crate::test_util::make_agent_view(Some("live"), "/tmp");
+    agent.session.session_id = Some(agent_client_protocol::SessionId::new("live"));
+    agents.insert(id, agent);
+    let resolver = SessionIdResolver::from_agents(&agents);
+    let live = PersistedRowId::TopLevel {
+        session_id: "live".into(),
+    };
+    let offline = PersistedRowId::TopLevel {
+        session_id: "offline".into(),
+    };
+    let mut previous = PersistedDashboard::defaults();
+    previous.pinned.insert(live.clone());
+    previous.pinned.insert(offline.clone());
+    let mut persisted = PersistedDashboard::defaults();
+    DashboardState::merge_saved_pins(&mut persisted, &previous, &resolver);
+    assert!(persisted.pinned.contains(&offline));
+    assert!(
+        !persisted.pinned.contains(&live),
+        "a visible session that is no longer pinned must stay unpinned"
+    );
+}
+
+#[test]
 fn workspace_identity_keeps_removed_selection_as_repair_anchor() {
     let snapshot = xai_grok_dashboard_store::WorkspaceSnapshot {
         grouping: xai_grok_dashboard_store::Grouping::State,

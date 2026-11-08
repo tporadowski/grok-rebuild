@@ -2424,7 +2424,14 @@ fn dispatch_dashboard_persist(app: &mut AppView) -> Vec<Effect> {
         .map(|p| p.enabled)
         .unwrap_or(true);
     let resolver = crate::views::dashboard::SessionIdResolver::from_agents(&app.agents);
-    let persisted = d.to_persisted(enabled, &resolver);
+    let mut persisted = d.to_persisted(enabled, &resolver);
+    if let Some(previous) = app.dashboard_persisted.as_ref() {
+        crate::views::dashboard::DashboardState::merge_saved_pins(
+            &mut persisted,
+            previous,
+            &resolver,
+        );
+    }
     app.dashboard_persisted = Some(persisted.clone());
     vec![Effect::PersistDashboard(persisted)]
 }

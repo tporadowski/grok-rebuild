@@ -2319,6 +2319,37 @@ fn workspace_grouping_toggle_emits_sqlite_layout_write_not_config_write() {
     assert!(!dashboard.manual_scroll_active);
 }
 #[test]
+fn v1_grouping_toggle_keeps_pins_for_sessions_that_are_not_open() {
+    let mut app = test_app_with_agent();
+    app.workspace_dashboard_enabled = false;
+    let offline = crate::views::dashboard::PersistedRowId::TopLevel {
+        session_id: "offline-session".into(),
+    };
+    let live = crate::views::dashboard::PersistedRowId::TopLevel {
+        session_id: "test-session".into(),
+    };
+    let mut persisted = crate::views::dashboard::PersistedDashboard::defaults();
+    persisted.pinned.insert(offline.clone());
+    persisted.pinned.insert(live.clone());
+    app.dashboard_persisted = Some(persisted);
+    ensure_dashboard_state(&mut app);
+    let effects = dispatch(Action::DashboardToggleGrouping, &mut app);
+    let Effect::PersistDashboard(saved) = effects.first().expect("persist") else {
+        panic!("grouping toggle must save the dashboard, got {effects:?}");
+    };
+    assert!(
+        saved.pinned.contains(&offline),
+        "an unloaded pin must stay in the saved list, got {:?}",
+        saved.pinned
+    );
+    assert!(
+        saved.pinned.contains(&live),
+        "the open session's pin must stay in the saved list, got {:?}",
+        saved.pinned
+    );
+}
+
+#[test]
 fn v1_grouping_toggle_emits_config_write_not_sqlite_layout_write() {
     let mut app = test_app_with_agent();
     app.workspace_dashboard_enabled = false;
