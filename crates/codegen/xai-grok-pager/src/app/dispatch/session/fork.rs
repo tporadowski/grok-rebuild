@@ -402,7 +402,8 @@ pub(in crate::app::dispatch) fn handle_worktree_forked(
         app.restore_code = None;
         agent.prompt.file_search.retarget(&session_cwd);
         agent.scrollback.push_block(RenderBlock::system(format!(
-            "Worktree ready: {}",
+            "{} {}",
+            crate::scrollback::WORKTREE_CREATION_NOTE_PREFIX,
             worktree_path.display()
         )));
         if let Some(summary) = strategy_summary {

@@ -30,6 +30,10 @@ pub mod types;
 pub mod wrappers;
 
 // Re-exports for convenience
+/// Prefix of the system line pushed when a worktree session is ready.
+/// A queued prompt's page-flip keeps the system run that contains this line on screen.
+pub(crate) const WORKTREE_CREATION_NOTE_PREFIX: &str = "Worktree ready:";
+
 pub use block::{BlockContent, RenderBlock};
 pub use blocks::{
     AgentMessageBlock, SystemMessageBlock, ThinkingBlock, ToolCallBlock, UserPromptBlock,

@@ -1562,7 +1562,8 @@ pub(in crate::app::dispatch) fn handle_worktree_session_created(
         agent.apply_session_modes(modes);
         agent.prompt.file_search.retarget(&session_cwd);
         agent.scrollback.push_block(RenderBlock::system(format!(
-            "Worktree ready: {}",
+            "{} {}",
+            crate::scrollback::WORKTREE_CREATION_NOTE_PREFIX,
             worktree_path.display()
         )));
         if let Some(summary) = strategy_summary {

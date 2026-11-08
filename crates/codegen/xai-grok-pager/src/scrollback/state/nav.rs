@@ -543,12 +543,45 @@ impl ScrollbackState {
 
     /// Pin an entry at the viewport top with real trailing scroll extent.
     pub(crate) fn page_flip_to_entry(&mut self, idx: usize) {
+        self.page_flip_showing(idx, idx);
+    }
+
+    /// Scroll so `scroll_idx` is at the top, and pin follow to `pin_idx` (the prompt).
+    fn page_flip_showing(&mut self, scroll_idx: usize, pin_idx: usize) {
         self.arm_pin_reserve();
-        self.scroll_to_entry_top(idx);
+        self.scroll_to_entry_top(scroll_idx);
         self.pin_reserve_target = Some(self.scroll_offset);
-        self.pin_reserve_prompt_id = self.entries.get_index(idx).map(|(id, _)| *id);
+        self.pin_reserve_prompt_id = self.entries.get_index(pin_idx).map(|(id, _)| *id);
         self.compute_total_height_from_cache();
         self.enable_follow_with_preserve();
+    }
+
+    /// Index of the `Worktree ready` line in the system run directly above `prompt_idx`.
+    /// Other system lines in that run stay on screen because they sit between this line and the prompt.
+    /// A system line that is not part of a worktree-ready run does not move the anchor.
+    fn worktree_creation_note_anchor(&self, prompt_idx: usize) -> usize {
+        let mut anchor = prompt_idx;
+        let mut idx = prompt_idx;
+        while idx > 0 {
+            let prev = idx - 1;
+            let Some(text) = self.entries.get_index(prev).and_then(|(_, entry)| {
+                if let RenderBlock::System(message) = &entry.block {
+                    Some(message.text.as_str())
+                } else {
+                    None
+                }
+            }) else {
+                break;
+            };
+            if text
+                .trim_start()
+                .starts_with(crate::scrollback::WORKTREE_CREATION_NOTE_PREFIX)
+            {
+                anchor = prev;
+            }
+            idx = prev;
+        }
+        anchor
     }
 
     /// `page_flip` without a prompt (bash/synthetic): enable follow-with-preserve only. No `page_flip`, with a prompt:
@@ -560,7 +593,8 @@ impl ScrollbackState {
         }
         if page_flip {
             if let Some(idx) = prompt_idx {
-                self.page_flip_to_entry(idx);
+                let anchor = self.worktree_creation_note_anchor(idx);
+                self.page_flip_showing(anchor, idx);
             } else {
                 self.release_pin_reserve();
                 self.enable_follow_with_preserve();
@@ -1144,6 +1178,45 @@ mod tests {
         assert!(state.is_follow_mode());
         assert!(state.is_follow_preserve_scroll());
         assert_eq!(state.scroll_offset(), reading);
+    }
+
+    #[test]
+    fn queued_prompt_page_flip_keeps_the_worktree_creation_note_on_screen() {
+        let mut state = ScrollbackState::new();
+        for i in 0..30 {
+            state.push_block(agent_block(&format!("filler line {i}")));
+        }
+        state.push_block(RenderBlock::system(format!(
+            "{} /tmp/wt",
+            crate::scrollback::WORKTREE_CREATION_NOTE_PREFIX
+        )));
+        state.push_block(RenderBlock::system("copied with the workspace profile"));
+        state.push_block(user_block("queued prompt"));
+        let prompt_idx = state.len() - 1;
+        let note_idx = prompt_idx - 2;
+        state.prepare_layout(80, 8);
+        state.goto_bottom();
+        state.follow_new_turn(Some(prompt_idx), true);
+        let pinned = state.scroll_offset();
+        assert_eq!(state.selected(), Some(prompt_idx));
+        state.scroll_to_entry_top(note_idx);
+        assert_eq!(state.scroll_offset(), pinned);
+        state.scroll_to_entry_top(prompt_idx);
+        assert!(state.scroll_offset() > pinned);
+
+        let mut state = ScrollbackState::new();
+        for i in 0..30 {
+            state.push_block(agent_block(&format!("filler line {i}")));
+        }
+        state.push_block(RenderBlock::system("switched to another model"));
+        state.push_block(user_block("queued prompt"));
+        let prompt_idx = state.len() - 1;
+        state.prepare_layout(80, 8);
+        state.goto_bottom();
+        state.follow_new_turn(Some(prompt_idx), true);
+        let pinned = state.scroll_offset();
+        state.scroll_to_entry_top(prompt_idx);
+        assert_eq!(state.scroll_offset(), pinned);
     }
 
     #[test]
