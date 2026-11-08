@@ -248,7 +248,12 @@ impl BlockContent for OtherToolCallBlock {
                     // Try to render as structured Q&A (AskUserQuestion output).
                     let qa_lines = parse_ask_user_qa_pairs(output);
                     if !qa_lines.is_empty() {
+                        // A blank row separates answered questions. Compact mode keeps the pairs adjacent.
+                        let gap_between = !ctx.appearance.prompt.compact;
                         for (i, (question, answer)) in qa_lines.iter().enumerate() {
+                            if gap_between && i > 0 {
+                                lines.push(Line::from("").into());
+                            }
                             // "  1. question text"
                             let q_line = Line::from(vec![
                                 Span::styled(format!("  {}. ", i + 1), theme.muted()),
