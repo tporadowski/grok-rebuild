@@ -15,13 +15,17 @@ struct CachedOutput {
     theme: ThemeKind,
     is_selected: bool,
     cwd: Option<PathBuf>,
+    /// Minimal mode forces inline overlays off and drops the blank diagram row, which shifts table and code copy rows.
+    inline_overlay_off: bool,
     rendered: RenderedBlockOutput,
 }
 
 /// Caches truncated-mode line count so layout need not call `block.output()` (syntect or full wrap) on every redraw.
 /// Streaming invalidates the layout cache on each push; without this, every entry height is recomputed.
 /// `cwd` is keyed because Edit/Read header wrap can change between absolute and relative paths.
-type CachedTruncatedHeight = (u16, bool, ThemeKind, Option<PathBuf>, u16);
+/// The last `bool` is `inline_overlay_off`: minimal mode drops the diagram row, so the height changes with it.
+/// Tuple is `(content_width, raw, theme, cwd, inline_overlay_off, height)`.
+type CachedTruncatedHeight = (u16, bool, ThemeKind, Option<PathBuf>, bool, u16);
 
 /// Unique identifier for a scrollback entry.
 /// EntryIds are stable across mutations: they won't become invalid if other entries are added or removed.
@@ -331,6 +335,8 @@ impl ScrollbackEntry {
 
         let current_theme = theme_cache::current_kind();
         let cwd_key = cwd.map(|p| p.to_path_buf());
+        // Read at lookup time. A `/minimal` switch sets this without resizing or changing the theme.
+        let inline_overlay_off = crate::terminal::image::scrollback_inline_overlay_forced_off();
         {
             let cache = self.cached_output.borrow();
             if let Some(cached) = cache.as_ref()
@@ -339,6 +345,7 @@ impl ScrollbackEntry {
                 && cached.theme == current_theme
                 && cached.is_selected == effective_selected
                 && cached.cwd == cwd_key
+                && cached.inline_overlay_off == inline_overlay_off
             {
                 return; // cache hit
             }
@@ -362,6 +369,7 @@ impl ScrollbackEntry {
             theme: current_theme,
             is_selected: effective_selected,
             cwd: cwd_key,
+            inline_overlay_off,
             rendered,
         });
     }
@@ -387,7 +395,7 @@ impl ScrollbackEntry {
     }
 
     /// Without this cache, `block.output` runs uncached on every layout rebuild and re-highlights every entry on each streaming push.
-    /// Key is `(content_width, raw, theme, cwd)`; `is_selected` is excluded because line count never depends on selection.
+    /// Key is `(content_width, raw, theme, cwd, inline_overlay_off)`; `is_selected` is excluded because line count never depends on selection.
     /// Cleared together with `cached_output` by `invalidate_cache`.
     pub fn ensure_truncated_height_cached(
         &self,
@@ -397,14 +405,22 @@ impl ScrollbackEntry {
     ) -> u16 {
         let current_theme = theme_cache::current_kind();
         let cwd_key = cwd.map(|p| p.to_path_buf());
+        let inline_overlay_off = crate::terminal::image::scrollback_inline_overlay_forced_off();
         {
             let cache = self.cached_truncated_height.borrow();
-            if let Some(&(cached_width, cached_raw, cached_theme, ref cached_cwd, height)) =
-                cache.as_ref()
+            if let Some(&(
+                cached_width,
+                cached_raw,
+                cached_theme,
+                ref cached_cwd,
+                cached_overlay_off,
+                height,
+            )) = cache.as_ref()
                 && cached_width == content_width
                 && cached_raw == self.raw
                 && cached_theme == current_theme
                 && *cached_cwd == cwd_key
+                && cached_overlay_off == inline_overlay_off
             {
                 return height;
             }
@@ -418,8 +434,14 @@ impl ScrollbackEntry {
         let vpad = if has_vpad { 2 } else { 0 };
         let height = content_height + vpad;
 
-        *self.cached_truncated_height.borrow_mut() =
-            Some((content_width, self.raw, current_theme, cwd_key, height));
+        *self.cached_truncated_height.borrow_mut() = Some((
+            content_width,
+            self.raw,
+            current_theme,
+            cwd_key,
+            inline_overlay_off,
+            height,
+        ));
         height
     }
 
@@ -781,5 +803,130 @@ mod tests {
             "with_display_mode() should not clear created_at"
         );
         assert_eq!(entry.display_mode, DisplayMode::Collapsed);
+    }
+
+    /// Restores the process-wide minimal-mode overlay flag when the test ends.
+    struct OverlayGuard(bool);
+
+    impl Drop for OverlayGuard {
+        fn drop(&mut self) {
+            crate::terminal::image::set_inline_overlay_force_off(self.0);
+        }
+    }
+
+    struct MermaidGuard(crate::appearance::RenderMermaid);
+
+    impl Drop for MermaidGuard {
+        fn drop(&mut self) {
+            crate::appearance::cache::set_render_mermaid(self.0);
+        }
+    }
+
+    struct Painted {
+        lines: Vec<String>,
+        blank_rows: usize,
+    }
+
+    fn paint_cached(entry: &ScrollbackEntry, appearance: &AppearanceConfig) -> Painted {
+        entry.ensure_cached(80, appearance, false, None);
+        let output = entry.cached_output_ref();
+        let mut lines = Vec::with_capacity(output.lines.len());
+        let mut blank_rows = 0usize;
+        for line in &output.lines {
+            let text: String = line
+                .content
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect();
+            if matches!(line.selectable, crate::scrollback::types::Selectable::None)
+                && text.trim().is_empty()
+            {
+                blank_rows += 1;
+            }
+            lines.push(text);
+        }
+        Painted { lines, blank_rows }
+    }
+
+    fn has_label(painted: &Painted, label: &str) -> bool {
+        painted.lines.iter().any(|line| line.contains(label))
+    }
+
+    #[test]
+    fn copy_rows_follow_the_screen_mode_through_the_output_cache() {
+        // Same lock the mode-switch test holds while it flips this process-wide flag.
+        let _theme = theme_cache::pin_theme();
+        let _overlay = OverlayGuard(crate::terminal::image::scrollback_inline_overlay_forced_off());
+        let _mermaid = MermaidGuard(crate::appearance::cache::load_render_mermaid());
+        crate::appearance::cache::set_render_mermaid(crate::appearance::RenderMermaid::Auto);
+        crate::terminal::image::set_inline_overlay_force_off(false);
+
+        let entry = ScrollbackEntry::new(RenderBlock::agent_message(concat!(
+            "intro\n\n",
+            "| Name | Note |\n| --- | --- |\n| Ada | note |\n\n",
+            "```rust\nfn main() {}\n```\n\n",
+            "```mermaid\nflowchart TD\n  A --> B\n```\n\n",
+            "outro\n",
+        )));
+        let appearance = AppearanceConfig::default();
+
+        let fullscreen = paint_cached(&entry, &appearance);
+        let fullscreen_height = entry.ensure_truncated_height_cached(80, &appearance, None);
+        assert!(
+            has_label(&fullscreen, "[TSV]"),
+            "fullscreen keeps the table copy row: {:?}",
+            fullscreen.lines
+        );
+        assert!(
+            has_label(&fullscreen, "[Copy] rust"),
+            "fullscreen keeps the code copy row: {:?}",
+            fullscreen.lines
+        );
+        assert_eq!(
+            fullscreen.blank_rows, 1,
+            "fullscreen reserves one blank diagram row: {:?}",
+            fullscreen.lines
+        );
+
+        crate::terminal::image::set_inline_overlay_force_off(true);
+        let minimal = paint_cached(&entry, &appearance);
+        let minimal_height = entry.ensure_truncated_height_cached(80, &appearance, None);
+        assert!(
+            has_label(&minimal, "[TSV]"),
+            "minimal keeps the table copy row: {:?}",
+            minimal.lines
+        );
+        assert!(
+            has_label(&minimal, "[Copy] rust"),
+            "minimal keeps the code copy row: {:?}",
+            minimal.lines
+        );
+        assert_eq!(
+            minimal.blank_rows, 0,
+            "minimal drops the blank diagram row: {:?}",
+            minimal.lines
+        );
+        assert_eq!(
+            fullscreen.lines.len(),
+            minimal.lines.len() + 1,
+            "only the diagram row disappears"
+        );
+        assert_eq!(fullscreen_height, minimal_height + 1);
+
+        crate::terminal::image::set_inline_overlay_force_off(false);
+        let restored = paint_cached(&entry, &appearance);
+        let restored_height = entry.ensure_truncated_height_cached(80, &appearance, None);
+        assert!(
+            has_label(&restored, "[TSV]") && has_label(&restored, "[Copy] rust"),
+            "switching back keeps both copy rows: {:?}",
+            restored.lines
+        );
+        assert_eq!(
+            restored.blank_rows, 1,
+            "switching back restores the diagram row: {:?}",
+            restored.lines
+        );
+        assert_eq!(restored_height, fullscreen_height);
     }
 }
