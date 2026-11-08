@@ -95,6 +95,10 @@ pub(crate) struct InlineMediaHitAreas {
     )>,
     /// Cell text for each visible table copy row. [`table_buttons`] index into this.
     pub table_payloads: Vec<(Vec<String>, usize)>,
+    /// Code-block `[Copy]` buttons: `(rect, payload index)`.
+    pub code_buttons: Vec<(ratatui::layout::Rect, usize)>,
+    /// Fence body for each visible code-copy row. [`code_buttons`] index into this.
+    pub code_payloads: Vec<String>,
 }
 /// Inline video playback state for scrollback media entries.
 /// Created when the user clicks or presses Enter on a video poster frame.

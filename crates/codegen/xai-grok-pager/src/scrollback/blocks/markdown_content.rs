@@ -43,6 +43,8 @@ struct RenderState {
 pub struct MarkdownContent {
     state: RefCell<RenderState>,
     current_raw: bool,
+    /// Set for a complete document and after [`Self::finish`]. Streaming replies stay false until then.
+    finished: bool,
     generation: u64,
 }
 
@@ -100,6 +102,7 @@ impl MarkdownContent {
                 frozen_wrapped_count: 0,
             }),
             current_raw: false,
+            finished: true,
             generation: 1,
         }
     }
@@ -118,6 +121,7 @@ impl MarkdownContent {
                 frozen_wrapped_count: 0,
             }),
             current_raw: false,
+            finished: false,
             generation: 0,
         }
     }
@@ -148,7 +152,23 @@ impl MarkdownContent {
         // finish() does a full re-render; reset frozen tracking so the next ensure_wrapped re-wraps everything from the new output
         state.frozen_pre_wrap_count = 0;
         state.frozen_wrapped_count = 0;
+        self.finished = true;
         self.generation += 1;
+    }
+
+    /// A one-shot document, or a stream after [`Self::finish`].
+    pub fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    /// Closed fences in the current render. An open fence at the end of a stream is absent.
+    pub fn code_blocks(&self) -> Vec<xai_grok_markdown::CodeBlockSpan> {
+        self.state
+            .borrow()
+            .renderer
+            .view()
+            .code_blocks
+            .to_vec()
     }
 
     /// Get the source markdown text.

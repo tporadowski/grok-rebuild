@@ -118,8 +118,8 @@ impl AgentMessageBlock {
         )
     }
 
-    /// Markdown body, then Mermaid rows, then one copy-button row under each table.
-    /// Table inserts that land above a diagram shift that diagram's row.
+    /// Markdown body, then Mermaid rows, then copy-button rows under tables and code blocks.
+    /// Inserts that land above a diagram shift that diagram's row.
     fn compose(
         &self,
         ctx: &BlockContext,
@@ -127,13 +127,14 @@ impl AgentMessageBlock {
         BlockOutput,
         Vec<mermaid_content::DiagramAffordance>,
         Vec<crate::scrollback::table_copy::TableCopyAffordance>,
+        Vec<crate::scrollback::code_copy::CodeCopyAffordance>,
     ) {
         let mut out = self.content.output(ctx.width as usize);
         let mut diagrams = Vec::new();
-        if !ctx.raw
+        let show_diagrams = !ctx.raw
             && !self.mermaid.is_empty()
-            && self.mermaid_display_mode() == mermaid_content::MermaidDisplay::Affordances
-        {
+            && self.mermaid_display_mode() == mermaid_content::MermaidDisplay::Affordances;
+        if show_diagrams {
             let ranges = self.content.mermaid_block_ranges();
             diagrams = mermaid_content::apply_affordance_rows(&mut out, &ranges, |idx| {
                 self.mermaid.source(idx).unwrap_or_default().to_string()
@@ -144,22 +145,35 @@ impl AgentMessageBlock {
         } else {
             let metas = self.content.table_copy_metas();
             let tables = crate::scrollback::table_copy::apply_table_copy_rows(&mut out, &metas);
-            shift_diagrams_for_table_rows(&mut diagrams, &tables);
+            shift_diagrams_below(
+                &mut diagrams,
+                tables.iter().map(|table| table.row_offset),
+            );
             tables
         };
-        (out, diagrams, tables)
+        let codes = if ctx.raw || self.content.is_raw() || !self.content.is_finished() {
+            Vec::new()
+        } else {
+            let spans = self.content.code_blocks();
+            let codes =
+                crate::scrollback::code_copy::apply_code_copy_rows(&mut out, &spans);
+            shift_diagrams_below(&mut diagrams, codes.iter().map(|code| code.row_offset));
+            codes
+        };
+        (out, diagrams, tables, codes)
     }
 }
 
-/// A table button inserted above a diagram pushes that diagram down by one row.
-fn shift_diagrams_for_table_rows(
+/// A button row inserted above a diagram pushes that diagram down by one row.
+fn shift_diagrams_below(
     diagrams: &mut [mermaid_content::DiagramAffordance],
-    tables: &[crate::scrollback::table_copy::TableCopyAffordance],
+    final_offsets: impl Iterator<Item = u16>,
 ) {
+    let offsets: Vec<u16> = final_offsets.collect();
     for diagram in diagrams {
         let mut shift = 0u16;
-        for (index, table) in tables.iter().enumerate() {
-            let original_at = (table.row_offset as usize).saturating_sub(index);
+        for (index, offset) in offsets.iter().enumerate() {
+            let original_at = (*offset as usize).saturating_sub(index);
             if original_at <= diagram.row_offset as usize {
                 shift = shift.saturating_add(1);
             }
@@ -193,9 +207,19 @@ impl BlockContent for AgentMessageBlock {
         self.compose(ctx).2
     }
 
+    fn code_copy_affordances(
+        &self,
+        ctx: &BlockContext,
+    ) -> Vec<crate::scrollback::code_copy::CodeCopyAffordance> {
+        if ctx.raw || self.content.is_raw() || !self.content.is_finished() {
+            return Vec::new();
+        }
+        self.compose(ctx).3
+    }
+
     fn estimate_extra_rows(&self) -> u16 {
-        // Diagram treatment rows and the table copy-button row are not in the source-text estimate.
-        if self.content.is_raw() {
+        // Diagram treatment rows and the copy-button rows are not in the source-text estimate.
+        if self.content.is_raw() || !self.content.is_finished() {
             return 0;
         }
         let tables = self.content.table_count() as u16;
@@ -206,7 +230,16 @@ impl BlockContent for AgentMessageBlock {
         } else {
             self.mermaid.len() as u16
         };
-        diagrams.saturating_add(tables)
+        let codes = self
+            .content
+            .code_blocks()
+            .iter()
+            .filter(|span| {
+                !span.output_line_range.is_empty()
+                    && !crate::scrollback::code_copy::is_mermaid_fence(&span.info)
+            })
+            .count() as u16;
+        diagrams.saturating_add(tables).saturating_add(codes)
     }
 
     fn accent(&self, _ctx: &BlockContext) -> Option<AccentStyle> {
@@ -377,6 +410,79 @@ mod tests {
             block.copy_text(false),
             block.content().rendered_plain_text()
         );
+    }
+
+    fn line_text(line: &crate::scrollback::types::BlockLine) -> String {
+        line.content
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn finished_reply_puts_a_labeled_copy_button_under_each_code_block() {
+        let block = AgentMessageBlock::new(
+            "intro\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n\n```10:12:src/lib.rs\nlet x = 1;\n```\n\n```\nplain\n```\n\noutro\n",
+        );
+        let pretty = ctx(60, false);
+        let out = block.output(&pretty);
+        let affordances = block.code_copy_affordances(&pretty);
+        assert_eq!(affordances.len(), 3);
+        assert_eq!(affordances[0].label, "[Copy] rust");
+        assert!(affordances[0].clipboard_text().contains("fn main()"));
+        assert_eq!(affordances[1].label, "[Copy] lib.rs");
+        assert!(affordances[1].clipboard_text().contains("let x = 1;"));
+        assert_eq!(affordances[2].label, "[Copy]");
+        assert!(affordances[2].clipboard_text().contains("plain"));
+        let texts: Vec<String> = out.lines.iter().map(line_text).collect();
+        let rust_row = affordances[0].row_offset as usize;
+        let file_row = affordances[1].row_offset as usize;
+        let plain_row = affordances[2].row_offset as usize;
+        assert_eq!(texts[rust_row], "[Copy] rust");
+        assert_eq!(texts[file_row], "[Copy] lib.rs");
+        assert_eq!(texts[plain_row], "[Copy]");
+        assert!(
+            texts[..rust_row].iter().any(|text| text.contains("fn main()")),
+            "the rust button sits under its code: {texts:?}"
+        );
+        assert!(
+            texts[rust_row + 1..]
+                .iter()
+                .any(|text| text.contains("let x = 1;")),
+            "the next block stays below the rust button"
+        );
+        assert!(matches!(
+            out.lines[rust_row].selectable,
+            Selectable::None
+        ));
+        assert!(!block.copy_text(false).contains("[Copy]"));
+        assert_eq!(block.estimate_extra_rows(), 3);
+        let raw = block.output(&ctx(60, true));
+        assert!(
+            raw.lines.iter().all(|line| !line_text(line).contains("[Copy]")),
+            "raw mode shows the fence, not the button"
+        );
+
+        let mut streaming = AgentMessageBlock::streaming();
+        streaming.push_chunk("```rust\nlet y = 2;\n```\n");
+        assert!(
+            !streaming.content().is_finished(),
+            "a stream is not a finished reply"
+        );
+        assert!(
+            streaming
+                .output(&pretty)
+                .lines
+                .iter()
+                .all(|line| !line_text(line).contains("[Copy]")),
+            "the button waits until the reply finishes"
+        );
+        streaming.finish();
+        let finished = streaming.code_copy_affordances(&pretty);
+        assert_eq!(finished.len(), 1);
+        assert_eq!(finished[0].label, "[Copy] rust");
+        assert!(finished[0].clipboard_text().contains("let y = 2;"));
     }
 
     #[test]

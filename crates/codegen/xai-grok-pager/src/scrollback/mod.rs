@@ -13,6 +13,7 @@
 
 pub mod block;
 pub mod blocks;
+pub mod code_copy;
 pub mod entry;
 pub mod export;
 pub mod layout;

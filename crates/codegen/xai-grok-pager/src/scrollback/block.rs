@@ -190,6 +190,15 @@ pub trait BlockContent {
         Vec::new()
     }
 
+    /// `[Copy]` rows under code blocks in this block's `output()`.
+    /// Default: none (finished agent messages override this).
+    fn code_copy_affordances(
+        &self,
+        _ctx: &BlockContext,
+    ) -> Vec<crate::scrollback::code_copy::CodeCopyAffordance> {
+        Vec::new()
+    }
+
     /// Rows this block inserts into `output()` that the source-text height *estimate* cannot see.
     /// The off-screen estimate adds them so it never under-reserves.
     /// The only such rows today are Mermaid treatment rows (one affordance row or fallback caption per detected diagram). Default: `0`.
@@ -504,6 +513,13 @@ impl BlockContent for RenderBlock {
         ctx: &BlockContext,
     ) -> Vec<crate::scrollback::table_copy::TableCopyAffordance> {
         delegate_block!(self, table_copy_affordances(ctx))
+    }
+
+    fn code_copy_affordances(
+        &self,
+        ctx: &BlockContext,
+    ) -> Vec<crate::scrollback::code_copy::CodeCopyAffordance> {
+        delegate_block!(self, code_copy_affordances(ctx))
     }
 
     fn estimate_extra_rows(&self) -> u16 {

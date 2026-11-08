@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-175 — Finished replies get a labeled copy button under each code block
+
+A finished agent reply draws `[Copy]` under each fenced code block. The label is the fence language, or the file name of a `start:end:path` citation. A fence with no info is just `[Copy]`. The button copies the fence body and is not part of the message copy. A reply that is still streaming does not draw it. A mermaid fence keeps the diagram buttons instead. Raw mode shows the fence (`finished_reply_puts_a_labeled_copy_button_under_each_code_block`, `code_copy_label_uses_the_language_or_the_file_name`) (`v59-f03`).
+
 ### D-174 — A wrapped shell command copies as one line
 
 A shell command that wraps because the row is narrow copies back as the original line. The spaces the wrap skipped are put back. A command that really contains a newline still copies with that newline, in the tool row and in a background task's command (`wrapped_shell_command_copies_as_one_line_and_keeps_a_real_newline`, `preamble_long_command_stays_one_line_for_copy`) (`v53-f01`).
@@ -762,7 +766,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
-| W10 | Transcript, density, and copy | 28 | 0 | 15 | 2 | 0 |
+| W10 | Transcript, density, and copy | 27 | 0 | 16 | 2 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
@@ -771,9 +775,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 305. Skipped: 8. Done: 220. Already: 40. Deferred: 10.
+Catalog rows: 583. Pending: 304. Skipped: 8. Done: 221. Already: 40. Deferred: 10.
 
-**Next:** W10 transcript, density, and copy. First open row: copy buttons under code blocks in finished replies (`v59-f03`).
+**Next:** W10 transcript, density, and copy. First open row: copy rows under code blocks, tables, and diagrams stay correct after switching minimal and fullscreen (`v59-x06`).
 
 ## Waves
 
@@ -815,7 +819,7 @@ Pending: 0. Done: 33 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 28. Done: 15 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174). Already: 2 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 27. Done: 16 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175). Already: 2 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: implement `v74-f01` (left-aligned). Do not build the centered rows skipped under D-007. Folding of consecutive inter-agent messages from the skipped 1.0.71 notes stays, unless it cannot fit the left-aligned row; record that choice. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1094,7 +1098,7 @@ id | status | wave | kind | flag | covered | note
 - v52-x05 | done | W10 | Bug Fixes |  |  | Approval cards for background subagents no longer disappear when the parent turn ends.
 - v52-x14 | done | W10 | Bug Fixes |  |  | **Wrapped URLs** in prompts and quotes now link to the complete address instead of being cut at the wrap.
 - v53-f01 | done | W10 | Features |  |  | **Wrapped shell commands** in tool and background-task rows copy back as one line.
-- v59-f03 | pending | W10 | Features |  |  | **`[Copy]` buttons** appear under code blocks in finished replies, labeled with the code's language or file name.
+- v59-f03 | done | W10 | Features |  |  | **`[Copy]` buttons** appear under code blocks in finished replies, labeled with the code's language or file name.
 - v59-x06 | pending | W10 | Bug Fixes |  |  | **Copy rows** under code blocks, tables, and diagrams display correctly after switching between minimal and fullscreen modes.
 - v60-f02 | pending | W10 | Features |  |  | **Shift+Y** in the fullscreen markdown viewer copies the code block under the cursor.
 - v67-x01 | pending | W10 | Bug Fixes |  |  | **Headless `grok -p` runs** exit when their work is done instead of hanging when a background task or subagent finishes and its output is read in the same turn.

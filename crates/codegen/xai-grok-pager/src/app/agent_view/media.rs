@@ -264,6 +264,32 @@ impl AgentView {
         }
     }
 
+    /// Register the click rect for each code-block `[Copy]` label. The label is already in the block text.
+    pub(super) fn register_code_copy_hits(
+        &mut self,
+        placements: Vec<crate::scrollback::code_copy::CodeCopyPlacement>,
+    ) {
+        use unicode_width::UnicodeWidthStr;
+
+        for placement in placements {
+            let width = UnicodeWidthStr::width(placement.label.as_str()) as u16;
+            if width == 0 || width > placement.screen_rect.width {
+                continue;
+            }
+            let idx = self.inline_media_hits.code_payloads.len();
+            self.inline_media_hits.code_payloads.push(placement.body);
+            self.inline_media_hits.code_buttons.push((
+                ratatui::layout::Rect {
+                    x: placement.screen_rect.x,
+                    y: placement.screen_rect.y,
+                    width,
+                    height: 1,
+                },
+                idx,
+            ));
+        }
+    }
+
     /// Paint each visible Mermaid affordance row (`◇ mermaid [Open Image] [Copy Image Path] [Copy Source]`) and register its click hit-rects.
     /// Every button is always clickable (`[Open]`/`[Copy path]` render lazily on click).
     /// The painted labels and the hit-rects therefore can't drift.
@@ -593,6 +619,20 @@ impl AgentView {
                 .map(|(cells, n_cols)| {
                     crate::scrollback::table_copy::export_table(cells, *n_cols, format)
                 });
+            if let Some(text) = text {
+                self.copy_to_clipboard(&text);
+            }
+            return Some(InputOutcome::Changed);
+        }
+
+        let code_hit = self
+            .inline_media_hits
+            .code_buttons
+            .iter()
+            .find(|(rect, _)| rect.contains(pos))
+            .map(|&(_, idx)| idx);
+        if let Some(idx) = code_hit {
+            let text = self.inline_media_hits.code_payloads.get(idx).cloned();
             if let Some(text) = text {
                 self.copy_to_clipboard(&text);
             }

@@ -155,6 +155,8 @@ pub struct ScrollRenderResult {
     pub diagram_affordances: Vec<DiagramAffordancePlacement>,
     /// Table copy-button rows. The labels are already in the block text. These rects register the clicks.
     pub table_copy_rows: Vec<crate::scrollback::table_copy::TableCopyPlacement>,
+    /// Code-block `[Copy]` rows. The label is already in the block text. The rect registers the click.
+    pub code_copy_rows: Vec<crate::scrollback::code_copy::CodeCopyPlacement>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -774,6 +776,29 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
                         },
                         cells: aff.cells,
                         n_cols: aff.n_cols,
+                    },
+                );
+            }
+        }
+        let code_copy_rows = if is_group_header {
+            Vec::new()
+        } else {
+            entry.block.code_copy_affordances(&ctx)
+        };
+        for aff in code_copy_rows {
+            let virtual_y = entry_start + aff.row_offset as usize;
+            let viewport_bottom = viewport_start + viewport.height as usize;
+            if virtual_y >= viewport_start && virtual_y < viewport_bottom {
+                result.code_copy_rows.push(
+                    crate::scrollback::code_copy::CodeCopyPlacement {
+                        screen_rect: ratatui::layout::Rect {
+                            x: entry_row_layout.content.x,
+                            y: viewport.y + (virtual_y - viewport_start) as u16,
+                            width: content_width,
+                            height: 1,
+                        },
+                        label: aff.label,
+                        body: aff.body,
                     },
                 );
             }
