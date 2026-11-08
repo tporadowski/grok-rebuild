@@ -7427,25 +7427,27 @@ fn overlay_esc_does_not_exit_with_plan_draft() {
         "Esc with a plan feedback draft must NOT back out, got {outcome:?}",
     );
 }
-/// Graduated back-out: in the Q&A Navigation surface with nothing selected, a bare Esc backs out to the dashboard instead of dead-ending.
-/// (Its only job there is to unselect.)
+/// Esc on the first question of a dashboard-opened session parks on the scrollback.
+/// It does not return to the dashboard. The question stays pending.
 #[test]
 fn overlay_esc_exits_when_question_nav_unselected() {
     let (mut app, id) = neutral_overlay_app();
     install_question_overlay(&mut app, id, 1);
     let outcome = app.handle_input(&key_event(KeyCode::Esc, KeyModifiers::NONE));
     assert!(
-        matches!(outcome, InputOutcome::Action(Action::DashboardOverlayExit)),
-        "Esc with nothing selected must back out, got {outcome:?}",
+        !matches!(outcome, InputOutcome::Action(Action::DashboardOverlayExit)),
+        "Esc on the first question must focus the scrollback, got {outcome:?}",
     );
-    assert!(
-        app.agents.get(&id).unwrap().question_view.is_some(),
-        "backing out must leave the question overlay pending",
+    let agent = app.agents.get(&id).unwrap();
+    assert!(agent.question_view.is_some());
+    assert_eq!(
+        agent.active_pane,
+        crate::app::agent_view::AgentPane::Scrollback
     );
+    assert!(matches!(app.active_view, ActiveView::Agent(agent_id) if agent_id == id));
 }
 /// Multi-question Q&A: on question 2+ a bare `Esc` must NOT back out.
-/// The flow isn't at its top, so `Esc` stays in-flow (the question view handles it) and `Left` can still walk back.
-/// Only `active_tab == 0` is the back-out top.
+/// It stays in the card, and `Left` can still walk back to the previous question.
 #[test]
 fn overlay_esc_does_not_exit_on_later_multi_question() {
     let (mut app, id) = neutral_overlay_app();
@@ -7474,19 +7476,22 @@ fn overlay_esc_does_not_exit_on_later_multi_question() {
         "Esc on question 2+ of a multi-question Q&A must stay in-flow, got {outcome:?}",
     );
 }
-/// ...but from question 1 (the top of a multi-question flow) with nothing selected, a bare `Esc` still backs out, leaving the Q&A pending.
+/// The first question of a multi-question flow parks on the scrollback too.
+/// The question stays pending, and the view stays on the session.
 #[test]
 fn overlay_esc_exits_at_first_multi_question() {
     let (mut app, id) = neutral_overlay_app();
     install_question_overlay(&mut app, id, 2);
     let outcome = app.handle_input(&key_event(KeyCode::Esc, KeyModifiers::NONE));
     assert!(
-        matches!(outcome, InputOutcome::Action(Action::DashboardOverlayExit)),
-        "Esc at question 1 of a multi-question Q&A must back out, got {outcome:?}",
+        !matches!(outcome, InputOutcome::Action(Action::DashboardOverlayExit)),
+        "Esc at question 1 must focus the scrollback, got {outcome:?}",
     );
-    assert!(
-        app.agents.get(&id).unwrap().question_view.is_some(),
-        "backing out must leave the question overlay pending",
+    let agent = app.agents.get(&id).unwrap();
+    assert!(agent.question_view.is_some());
+    assert_eq!(
+        agent.active_pane,
+        crate::app::agent_view::AgentPane::Scrollback
     );
 }
 /// With an option selected, Esc has something to clear, so it must NOT back out (the first Esc unselects; a second, now-unselected Esc would exit).

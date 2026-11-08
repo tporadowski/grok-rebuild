@@ -426,13 +426,13 @@ fn the_overlay_owns_the_park_rung_and_the_bar_says_so() {
     open_question(&mut agent);
     agent.in_dashboard_overlay = true;
 
-    assert_eq!(agent.card_esc(), Some(EscStep::BackOutOverlay));
+    assert_eq!(agent.card_esc(), Some(EscStep::ParkFocus));
     assert!(
-        agent.overlay_esc_backs_out(),
-        "the overlay cascade and the ladder must agree"
+        !agent.overlay_esc_backs_out(),
+        "the first question parks on the scrollback instead of leaving the overlay"
     );
     assert!(
-        hint_labels(&agent).contains(&"dashboard".to_string()),
+        hint_labels(&agent).contains(&"scrollback".to_string()),
         "the bar names where Esc actually goes, got {:?}",
         hint_labels(&agent)
     );
@@ -747,6 +747,37 @@ fn a_bare_overlay_scrollback_esc_still_belongs_to_the_esc_policy() {
     assert!(
         !agent.overlay_esc_backs_out(),
         "with nothing pending there is nothing parked, so Esc keeps its policy meaning"
+    );
+}
+
+#[test]
+fn esc_on_the_first_dashboard_question_focuses_the_scrollback() {
+    let mut standalone = make_agent();
+    open_question(&mut standalone);
+    assert_eq!(standalone.card_esc(), Some(EscStep::ParkFocus));
+    let _ =
+        standalone.handle_question_key_for_test(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(standalone.active_pane, AgentPane::Scrollback);
+    assert!(standalone.question_view.is_some());
+
+    let mut agent = make_agent();
+    open_question(&mut agent);
+    agent.in_dashboard_overlay = true;
+    assert_eq!(
+        agent.card_esc(),
+        Some(EscStep::ParkFocus),
+        "a session opened from the dashboard parks Esc the same way"
+    );
+    assert!(!agent.overlay_esc_backs_out());
+    let _ = agent.handle_question_key_for_test(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(agent.active_pane, AgentPane::Scrollback);
+    assert!(
+        agent.question_view.is_some(),
+        "parking must leave the question pending"
+    );
+    assert!(
+        agent.overlay_esc_backs_out(),
+        "the next Esc, from the scrollback, still leaves the overlay"
     );
 }
 

@@ -4,7 +4,7 @@ use super::paste::paste_key_tests;
 #[cfg(test)]
 use super::test_fixtures;
 use super::{
-    AgentPane, AgentView, BlockingCard, ComposerRoute, CtaPhase, EscStep, InputMode, KeyOwner,
+    AgentPane, AgentView, BlockingCard, ComposerRoute, CtaPhase, InputMode, KeyOwner,
     MULTI_CLICK_TIMEOUT_MS, PromptInputMode, ViewSurface, active_contexts_for_pane,
     format_key_for_log, is_link_modifier_for_key, is_mouse_reporting_toggle_chord, resolve_action,
 };
@@ -154,8 +154,8 @@ impl AgentView {
             && !self.session.state.is_cancelling()
             && !self.wake_turn_active()
     }
-    /// True when a pending plan / Q&A overlay is at its top navigation state (nothing left for `Esc` to clear).
-    /// The next `Esc` then backs out of the dashboard overlay instead of dead-ending.
+    /// True when a pending plan overlay is at its top navigation state, or a parked card is behind a bare scrollback.
+    /// The next `Esc` then backs out of the dashboard overlay. A focused question parks on the scrollback first.
     /// Dashboard-overlay only; the overlay stays pending (no answer sent).
     pub(crate) fn overlay_esc_backs_out(&self) -> bool {
         if !self.in_dashboard_overlay {
@@ -173,7 +173,7 @@ impl AgentView {
         if self.plan_approval_view.is_some() {
             return self.plan_overlay_at_back_out_top();
         }
-        self.card_esc() == Some(EscStep::BackOutOverlay)
+        false
     }
     /// Whether the pending plan-approval overlay is at a state where `Esc` / `Left` have nothing else to do, so they back out to the dashboard:
     /// `Preview` line viewer: no-ops once the input bar, accepted search matcher, and visual selection are all cleared
