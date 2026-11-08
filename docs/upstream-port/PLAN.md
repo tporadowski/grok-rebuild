@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-114 — Update cleanup keeps a binary a live session is executing
+
+Download cleanup removes old versioned binaries but skips one a running process is still executing, including a hard link to that inode. A running session keeps its binary when a newer install is cleaned up (`cleanup_keeps_an_older_binary_marked_in_use`, `executable_is_in_use_detects_this_test_process`, `executable_is_in_use_matches_hardlink`) (`v68-x02`).
+
 ### D-113 — `/theme` restores the previous theme unless Enter confirms
 
 Highlighting a theme previews it. Esc, Ctrl+U, Tab then Esc, opening Settings, and opening the dashboard put the previous theme back. Enter keeps the preview (`theme_picker_esc_restores_the_previous_theme`, `theme_picker_ctrl_u_restores_the_previous_theme`, `theme_picker_tab_then_esc_restores_the_previous_theme`, `theme_picker_enter_keeps_the_preview`, `theme_picker_settings_restores_the_previous_theme`, `theme_picker_dashboard_restores_the_previous_theme`) (`v66-x01`).
@@ -508,7 +512,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 10 | 0 | 33 | 0 | 0 |
+| W8 | Sessions, resume, and dashboard | 9 | 0 | 33 | 1 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
 | W11 | Headless mode and tools | 38 | 0 | 3 | 0 | 0 |
@@ -519,9 +523,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 368. Skipped: 8. Done: 164. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 367. Skipped: 8. Done: 164. Already: 34. Deferred: 10.
 
-**Next:** W8 sessions, resume, and dashboard. First open row: running sessions survive an update that replaces their binary (`v68-x02`).
+**Next:** W8 sessions, resume, and dashboard. First open row: dashboard directory grouping shows a folder header with the path and agent count (`v69-f01`).
 
 ## Waves
 
@@ -555,7 +559,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 10. Done: 33 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
+Pending: 9. Done: 33 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113). Already: 1 (`v68-x02`, D-114). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first.
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -774,7 +778,7 @@ id | status | wave | kind | flag | covered | note
 - v65-x01 | done | W8 | Bug Fixes |  |  | **`/resume` search** keeps a single typed character literal and matches each typed word at the start of a word, so `log fix` no longer matches "Blog prefix cleanup".
 - v66-x01 | done | W8 | Bug Fixes |  |  | **`/theme`** restores your previous theme when you leave the picker any way other than `Enter`, such as `Esc`, `Ctrl+U`, `Tab` then `Esc`, or opening Settings or the dashboard.
 - v68-f05 | done | W8 | Features |  |  | **Change-directory picker** (`Ctrl+L` on the dashboard) opens with the path field unfocused, like the `/resume` search.
-- v68-x02 | pending | W8 | Bug Fixes |  |  | **Running Grok sessions** are no longer broken when an update deletes their binary.
+- v68-x02 | already | W8 | Bug Fixes |  |  | **Running Grok sessions** are no longer broken when an update deletes their binary.
 - v68-x03 | done | W8 | Bug Fixes |  |  | **Dashboard model picks** now keep their selected context window when spawning the next session.
 - v69-f01 | pending | W8 | Features |  |  | **Dashboard directory grouping** now shows a header with the folder path and agent count above each folder's agents.
 - v69-f02 | pending | W8 | Features |  |  | **Dashboard location** (branch and folder) now sits on the dispatch box's top border instead of its own header row.
