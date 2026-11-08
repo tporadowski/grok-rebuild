@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-094 — Restore-code records the stash it just created
+
+`--restore-code` puts a unique token in the stash message and reads that commit back from `git stash list`, so a newer stash from another worktree is not reported as this restore's. When `git checkout` exits non-zero but HEAD is already the target, a post-checkout hook failed after the switch: the checkout still counts and the stash stays (`v73-x13`, `stash_sha_from_list_finds_its_own_commit_when_a_later_stash_is_tip`, `checkout_session_commit_keeps_the_stash_when_the_post_checkout_hook_fails`).
+
 ### D-093 — A worktree-ready line stays above a queued prompt
 
 Page-flip still selects the prompt. When the system lines directly above it include `Worktree ready:`, the viewport top is that line, so the note and the strategy line under it stay on screen. A system line that is not in that run still scrolls away (`v73-x08`, `queued_prompt_page_flip_keeps_the_worktree_creation_note_on_screen`).
@@ -427,7 +431,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 23 | 6 | 0 |
-| W7 | Worktrees | 2 | 0 | 36 | 3 | 0 |
+| W7 | Worktrees | 1 | 0 | 37 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 28 | 0 | 15 | 0 | 0 |
 | W9 | Prompt, mentions, and keyboard | 36 | 0 | 0 | 0 | 0 |
 | W10 | Transcript, density, and copy | 45 | 0 | 0 | 0 | 0 |
@@ -439,9 +443,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 388. Skipped: 8. Done: 144. Already: 33. Deferred: 10.
+Catalog rows: 583. Pending: 387. Skipped: 8. Done: 145. Already: 33. Deferred: 10.
 
-**Next:** W7 worktrees. First open row: `--restore-code` restores its own stash (`v73-x13`).
+**Next:** W7 worktrees. First open row: notes above a queued prompt stay on screen (`v75-x01`).
 
 ## Waves
 
@@ -471,7 +475,7 @@ Pending: 0. Done: 23. Already: 6. Look first: `xai-workflow` and the `/workflow`
 
 ### W7 — Worktrees
 
-Pending: 2. Done: 36 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086; `v64-x05`, D-087; `v64-x06`, D-088; `v67-f01`, D-089; `v68-f01`, D-090; `v68-x01`, D-091; `v69-f04`, D-092; `v73-x08`, D-093). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 1. Done: 37 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086; `v64-x05`, D-087; `v64-x06`, D-088; `v67-f01`, D-089; `v68-f01`, D-090; `v68-x01`, D-091; `v69-f04`, D-092; `v73-x08`, D-093; `v73-x13`, D-094). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -664,7 +668,7 @@ id | status | wave | kind | flag | covered | note
 - v68-x01 | done | W7 | Bug Fixes |  |  | **Worktree create** now fails cleanly instead of falling back when it cannot copy tracked files or runs out of disk space.
 - v69-f04 | done | W7 | Features |  |  | **Welcome menu** now lists Resume session (`Ctrl+R`) above New worktree (`Ctrl+W`).
 - v73-x08 | done | W7 | Bug Fixes |  |  | **Worktree creation notes** stay on screen when a queued prompt starts.
-- v73-x13 | pending | W7 | Bug Fixes |  |  | **`--restore-code`** restores its own stash even when another worktree changes the stash list meanwhile, and keeps your changes stashed when a post-checkout hook fails after the checkout.
+- v73-x13 | done | W7 | Bug Fixes |  |  | **`--restore-code`** restores its own stash even when another worktree changes the stash list meanwhile, and keeps your changes stashed when a post-checkout hook fails after the checkout.
 - v75-x01 | pending | W7 | Bug Fixes |  |  | **Notes above a queued prompt**, such as a model switch result or a ready worktree, stay on screen when the prompt starts instead of scrolling out of view.
 - v51-f11 | pending | W8 | Features |  |  | **Pinned sessions** on the dashboard now stay in the order you pinned or reordered them.
 - v51-f17 | pending | W8 | Features |  |  | **/exit** (and aliases) in a dashboard details view now closes only that session instead of quitting Grok.

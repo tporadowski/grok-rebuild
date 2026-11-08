@@ -2129,9 +2129,30 @@ fn in_progress_state_reason(git_root: &Path) -> Option<String> {
     }
     None
 }
+/// The commit SHA in a `git stash list --format=%H %s` line whose subject contains `token`.
+/// `stash@{0}` is the reflog tip, so another worktree's push can move it before we read it.
+/// The message token stays on the commit this call created.
+pub(crate) fn stash_sha_from_list(list: &str, token: &str) -> Option<String> {
+    if token.is_empty() {
+        return None;
+    }
+    for line in list.lines() {
+        let mut fields = line.trim().split_whitespace();
+        let Some(sha) = fields.next() else {
+            continue;
+        };
+        if !crate::restore_fetch::is_full_object_id(sha) {
+            continue;
+        }
+        // Match the subject only. A token that happens to sit inside another line's hash is not this stash.
+        if fields.any(|field| field.contains(token)) {
+            return Some(sha.to_owned());
+        }
+    }
+    None
+}
 /// Stash dirty working-tree state (including untracked files) before a destructive operation like `git checkout`.
-/// `stash push` then `rev-parse stash@{0}` is mostly atomic in practice (the only racer is another concurrent stash in the same repo).
-/// The truly atomic `git stash create` then `stash store` flow is not viable because `git stash create` does not support `--include-untracked`.
+/// `git stash create` cannot take `--include-untracked`, so this pushes and then finds the commit by the unique message token.
 pub async fn stash_before_destructive_op(
     git_root: &Path,
     label: &str,
@@ -2154,9 +2175,9 @@ pub async fn stash_before_destructive_op(
         );
         return StashOutcome::Skipped(reason);
     }
+    let token = uuid::Uuid::new_v4().simple().to_string();
     let message = format!(
-        "grok: pre-{label} {} {}",
-        session_id,
+        "grok: pre-{label} {session_id} {token} {}",
         chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
     );
     if let Err(e) = git_cli_mut(
@@ -2176,9 +2197,11 @@ pub async fn stash_before_destructive_op(
         );
         return StashOutcome::Skipped(reason);
     }
-    match git_cli(git_root, &["rev-parse", "stash@{0}"]).await {
-        Ok(s) if !s.trim().is_empty() => {
-            let stash_ref = s.trim().to_owned();
+    let list = git_cli(git_root, &["stash", "list", "--format=%H %s"])
+        .await
+        .unwrap_or_default();
+    match stash_sha_from_list(&list, &token) {
+        Some(stash_ref) => {
             tracing::info!(
                 target: RESTORE_CODE_LOG,
                 path = %git_root.display(),
@@ -2189,8 +2212,8 @@ pub async fn stash_before_destructive_op(
             );
             StashOutcome::Stashed(stash_ref)
         }
-        _ => {
-            let reason = "git rev-parse stash@{0} returned empty or failed".to_owned();
+        None => {
+            let reason = "could not find the stash this restore just created".to_owned();
             tracing::warn!(
                 target: RESTORE_CODE_LOG,
                 path = %git_root.display(),
@@ -2201,6 +2224,19 @@ pub async fn stash_before_destructive_op(
             StashOutcome::Skipped(reason)
         }
     }
+}
+/// `git checkout` runs the post-checkout hook after HEAD has moved. A failing hook makes the command exit non-zero even though the switch happened.
+async fn checkout_switched_to(git_root: &Path, target_sha: &str) -> bool {
+    if git_cli_mut(git_root, &["checkout", target_sha])
+        .await
+        .is_ok()
+    {
+        return true;
+    }
+    git_cli(git_root, &["rev-parse", "HEAD"])
+        .await
+        .ok()
+        .is_some_and(|current| current.trim() == target_sha)
 }
 /// Checkout a specific commit, optionally stashing dirty state first. Gracefully degrades: logs warnings but never returns an error.
 pub async fn checkout_session_commit(
@@ -2236,10 +2272,7 @@ pub async fn checkout_session_commit(
         stash_ref,
         stash_skipped_reason,
     };
-    if git_cli_mut(git_root, &["checkout", target_sha])
-        .await
-        .is_ok()
-    {
+    if checkout_switched_to(git_root, target_sha).await {
         tracing::info!(
             path = %git_root.display(),
             commit = %target_sha,
@@ -2300,10 +2333,7 @@ pub async fn checkout_session_commit(
             return outcome;
         }
     }
-    if git_cli_mut(git_root, &["checkout", target_sha])
-        .await
-        .is_ok()
-    {
+    if checkout_switched_to(git_root, target_sha).await {
         tracing::info!(
             path = %git_root.display(),
             commit = %target_sha,

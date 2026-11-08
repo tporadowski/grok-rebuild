@@ -124,6 +124,97 @@ async fn stash_before_destructive_op_detached_head_dirty_returns_ref() {
     let outcome = stash_before_destructive_op(tmp.path(), "test", "sess-detached").await;
     assert!(matches!(outcome, StashOutcome::Stashed(_)));
 }
+#[tokio::test]
+async fn stash_sha_from_list_finds_its_own_commit_when_a_later_stash_is_tip() {
+    if bazel_skip("stash_sha_from_list_finds_its_own_commit_when_a_later_stash_is_tip") {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    init_repo_with_commit(tmp.path()).await;
+    let token = "restoretoken11112222333344445555";
+    std::fs::write(tmp.path().join("README.md"), "own-dirty\n").unwrap();
+    git_cli_mut(
+        tmp.path(),
+        &[
+            "stash",
+            "push",
+            "--include-untracked",
+            "-m",
+            &format!("grok: pre-restore-code sess-own {token} 2026-01-01T00:00:00Z"),
+        ],
+    )
+    .await
+    .unwrap();
+    std::fs::write(tmp.path().join("README.md"), "later-dirty\n").unwrap();
+    git_cli_mut(tmp.path(), &["stash", "push", "-m", "other-worktree"])
+        .await
+        .unwrap();
+    let tip = git_cli(tmp.path(), &["rev-parse", "stash@{0}"])
+        .await
+        .unwrap();
+    let list = git_cli(tmp.path(), &["stash", "list", "--format=%H %s"])
+        .await
+        .unwrap();
+    let found = stash_sha_from_list(&list, token).expect("token must name its own stash commit");
+    assert_ne!(found, tip.trim(), "list:\n{list}");
+    assert!(crate::restore_fetch::is_full_object_id(&found), "{found}");
+    let subject = git_cli(tmp.path(), &["log", "-1", "--format=%s", &found])
+        .await
+        .unwrap();
+    assert!(
+        subject.contains("sess-own") && subject.contains(token),
+        "subject: {subject}"
+    );
+    assert_eq!(stash_sha_from_list(&list, ""), None);
+}
+#[tokio::test]
+async fn stash_before_destructive_op_keeps_its_commit_after_a_later_stash() {
+    if bazel_skip("stash_before_destructive_op_keeps_its_commit_after_a_later_stash") {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    init_repo_with_commit(tmp.path()).await;
+    std::fs::write(tmp.path().join("README.md"), "foreign\n").unwrap();
+    git_cli_mut(tmp.path(), &["stash", "push", "-m", "other-worktree"])
+        .await
+        .unwrap();
+    let foreign = git_cli(tmp.path(), &["rev-parse", "stash@{0}"])
+        .await
+        .unwrap();
+    std::fs::write(tmp.path().join("README.md"), "mine\n").unwrap();
+    std::fs::write(tmp.path().join("notes.txt"), "untracked\n").unwrap();
+    let outcome = stash_before_destructive_op(tmp.path(), "restore-code", "sess-own").await;
+    let own = match outcome {
+        StashOutcome::Stashed(sha) => sha,
+        other => panic!("expected Stashed, got {other:?}"),
+    };
+    assert!(crate::restore_fetch::is_full_object_id(&own), "{own}");
+    assert_ne!(own, foreign.trim());
+    let subject = git_cli(tmp.path(), &["log", "-1", "--format=%s", &own])
+        .await
+        .unwrap();
+    assert!(
+        subject.contains("grok: pre-restore-code") && subject.contains("sess-own"),
+        "subject: {subject}"
+    );
+    assert!(!tmp.path().join("notes.txt").exists());
+    std::fs::write(tmp.path().join("README.md"), "after\n").unwrap();
+    git_cli_mut(tmp.path(), &["stash", "push", "-m", "other-worktree-after"])
+        .await
+        .unwrap();
+    let tip = git_cli(tmp.path(), &["rev-parse", "stash@{0}"])
+        .await
+        .unwrap();
+    assert_ne!(
+        own,
+        tip.trim(),
+        "a later stash must not replace the recorded commit"
+    );
+    let subject_after = git_cli(tmp.path(), &["log", "-1", "--format=%s", &own])
+        .await
+        .unwrap();
+    assert!(subject_after.contains("sess-own"), "{subject_after}");
+}
 #[test]
 fn restore_code_checkout_allowed_worktree_cwd_is_allowed() {
     let worktrees = Path::new("/home/u/.grok/worktrees");
@@ -210,6 +301,71 @@ async fn checkout_session_commit_dirty_tree_stashes_and_checks_out() {
     assert!(outcome.stash_skipped_reason.is_none());
     let on_head = git_cli(tmp.path(), &["rev-parse", "HEAD"]).await.unwrap();
     assert_eq!(on_head.trim(), head);
+}
+#[tokio::test]
+async fn checkout_session_commit_keeps_the_stash_when_the_post_checkout_hook_fails() {
+    if bazel_skip("checkout_session_commit_keeps_the_stash_when_the_post_checkout_hook_fails") {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let first = init_repo_with_commit(tmp.path()).await;
+    std::fs::write(tmp.path().join("README.md"), "second-version\n").unwrap();
+    git_cli(tmp.path(), &["add", "."]).await.unwrap();
+    git_cli(tmp.path(), &["commit", "-q", "-m", "second"])
+        .await
+        .unwrap();
+    // Outside the work tree: `stash --include-untracked` would otherwise remove the hook before checkout.
+    let hooks = tmp.path().join(".git").join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let marker = tmp.path().join(".git").join("hook-ran");
+    let hook = hooks.join("post-checkout");
+    std::fs::write(
+        &hook,
+        format!("#!/bin/sh\necho ran > '{}'\nexit 1\n", marker.display()),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&hook).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&hook, perms).unwrap();
+    }
+    git_cli(
+        tmp.path(),
+        &["config", "core.hooksPath", &hooks.to_string_lossy()],
+    )
+    .await
+    .unwrap();
+    std::fs::write(tmp.path().join("README.md"), "dirty-hook\n").unwrap();
+    std::fs::write(tmp.path().join("notes.txt"), "keep-me\n").unwrap();
+    let outcome = checkout_session_commit(tmp.path(), &first, true, "sess-hook").await;
+    assert!(
+        marker.is_file(),
+        "post-checkout hook must run for the failing-hook case"
+    );
+    assert!(outcome.checked_out);
+    assert!(outcome.stash_skipped_reason.is_none());
+    let stash_ref = outcome.stash_ref.expect("dirty changes stay stashed");
+    assert!(
+        crate::restore_fetch::is_full_object_id(&stash_ref),
+        "{stash_ref}"
+    );
+    let on_head = git_cli(tmp.path(), &["rev-parse", "HEAD"]).await.unwrap();
+    assert_eq!(on_head.trim(), first);
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("README.md")).unwrap(),
+        "hello\n"
+    );
+    assert!(!tmp.path().join("notes.txt").exists());
+    let subject = git_cli(tmp.path(), &["log", "-1", "--format=%s", &stash_ref])
+        .await
+        .unwrap();
+    assert!(subject.contains("sess-hook"), "subject: {subject}");
+    let stash_list = git_cli(tmp.path(), &["stash", "list"]).await.unwrap();
+    assert!(
+        stash_list.contains("sess-hook"),
+        "stash must stay after the hook fails: {stash_list}"
+    );
 }
 #[tokio::test]
 async fn checkout_session_commit_already_at_target_sets_checked_out_true() {
