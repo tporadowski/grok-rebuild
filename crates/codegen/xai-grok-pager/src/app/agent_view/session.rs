@@ -125,6 +125,36 @@ impl AgentView {
         agent.post_turn_plan_review = app.post_turn_plan_review;
         agent
     }
+    /// Copy a delivered subagent send onto this session's transcript.
+    /// The row is left-aligned under the tool bullet and names the sender and the recipient.
+    /// A later delivery of the same pair, with nothing else after the row, folds into it.
+    /// The same tool-call id is ignored, so a completion update does not add a second row.
+    pub(crate) fn record_inter_agent_exchange(
+        &mut self,
+        tool_call_id: &str,
+        sender: crate::scrollback::blocks::tool::SentMessageTarget,
+        mut block: crate::scrollback::blocks::tool::SentMessageToolCallBlock,
+    ) {
+        if !self.inter_agent_send_ids.insert(tool_call_id.to_owned()) {
+            return;
+        }
+        let recipient = block.exchange_recipient().cloned();
+        let text = block.exchange_text().to_owned();
+        if let Some(recipient) = recipient
+            && let Some(entry) = self.scrollback.last_mut()
+            && let crate::scrollback::block::RenderBlock::ToolCall(
+                crate::scrollback::blocks::tool::ToolCallBlock::SentMessage(existing),
+            ) = &mut entry.block
+            && existing.try_fold_exchange(&sender, &recipient, &text)
+        {
+            entry.invalidate_cache();
+            return;
+        }
+        block.set_exchange(sender);
+        self.scrollback.push_block(crate::scrollback::block::RenderBlock::ToolCall(
+            crate::scrollback::blocks::tool::ToolCallBlock::SentMessage(block),
+        ));
+    }
     /// Create a new agent view with default UI state.
     ///
     /// The prompt widget is initialized with the session's working directory.
@@ -442,6 +472,7 @@ impl AgentView {
             send_now_cancel_ids: Vec::new(),
             send_now_follow_ids: Vec::new(),
             send_now_armed_ids: Vec::new(),
+            inter_agent_send_ids: HashSet::new(),
             front_message_committed: true,
             optimistic_queue_ids: std::collections::HashSet::new(),
             send_now_awaiting_confirm: None,

@@ -419,6 +419,7 @@ fn handle_inner(msg: AcpClientMessage, app: &mut AppView) -> bool {
                         .expect("find_session_match returned an existing AgentId");
                     let child_key: &str = notif.request.session_id.0.as_ref();
                     record_child_usage_update(parent, child_key, &notif.request.update);
+                    let mut delivered_send = None;
                     let activity_label = {
                         let child_view = parent
                             .child_view_for_live_update_mut(child_key)
@@ -464,6 +465,10 @@ fn handle_inner(msg: AcpClientMessage, app: &mut AppView) -> bool {
                                     }
                                     backdate_child_turn_clock(child_view);
                                 }
+                                delivered_send = child_view
+                                    .session
+                                    .tracker
+                                    .preview_delivered_send(&notif.request.update);
                                 child_view.session.handle_update(
                                     notif.request.update,
                                     &meta,
@@ -476,6 +481,15 @@ fn handle_inner(msg: AcpClientMessage, app: &mut AppView) -> bool {
                         }
                         subagent_activity_label(child_view)
                     };
+                    if let Some((tool_call_id, block)) = delivered_send {
+                        let sender = parent
+                            .session
+                            .tracker
+                            .subagent_labels
+                            .borrow()
+                            .resolve(child_key.to_owned());
+                        parent.record_inter_agent_exchange(&tool_call_id, sender, block);
+                    }
                     sync_subagent_activity(parent, child_key, activity_label);
                     is_active
                 }

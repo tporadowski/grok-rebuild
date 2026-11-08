@@ -783,6 +783,49 @@ impl AcpUpdateTracker {
     pub fn take_pending_edit_hl(&mut self) -> Vec<EntryId> {
         std::mem::take(&mut self.pending_edit_hl)
     }
+    /// The tool call this update would install, merged with a pending base or an orphan update, when it is an
+    /// accepted `send_subagent_message`. Called before `handle_update` consumes that pending state. `None` for a
+    /// send that is still in flight or was not accepted.
+    pub(crate) fn preview_delivered_send(
+        &self,
+        update: &acp::SessionUpdate,
+    ) -> Option<(String, crate::scrollback::blocks::tool::SentMessageToolCallBlock)> {
+        let tc = match update {
+            acp::SessionUpdate::ToolCall(tc) => {
+                let mut tc = tc.clone();
+                if let Some(orphan) = self.orphan_updates.get(tc.tool_call_id.0.as_ref()) {
+                    tc = merge_tool_call_update(tc, orphan.clone());
+                }
+                tc
+            }
+            acp::SessionUpdate::ToolCallUpdate(update) => {
+                let base = self
+                    .pending_tools
+                    .get(update.tool_call_id.0.as_ref())?
+                    .base
+                    .clone();
+                merge_tool_call_update(base, update.clone())
+            }
+            _ => return None,
+        };
+        if !crate::acp::subagent_message::is_tool(&tc) {
+            return None;
+        }
+        let RenderBlock::ToolCall(ToolCallBlock::SentMessage(block)) = tool_call_to_block(
+            &tc,
+            self.session_cwd.as_deref(),
+            &self.subagent_labels.borrow(),
+        ) else {
+            return None;
+        };
+        if !matches!(
+            block.presentation,
+            crate::scrollback::blocks::tool::SentMessagePresentation::Sent
+        ) {
+            return None;
+        }
+        Some((tc.tool_call_id.0.to_string(), block))
+    }
     /// Whether `block` is a successful Edit with hunks (worth a full-file HL job).
     fn edit_wants_file_hl(block: &RenderBlock) -> bool {
         matches!(

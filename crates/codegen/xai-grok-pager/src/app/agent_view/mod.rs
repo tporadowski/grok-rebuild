@@ -1510,6 +1510,8 @@ pub struct AgentView {
     pub(crate) send_now_follow_ids: Vec<String>,
     /// Every send-now id armed since the last unrelated turn start. Adoption of one does not drop the others.
     pub(crate) send_now_armed_ids: Vec<String>,
+    /// Tool-call ids already copied onto this session as an inter-agent exchange row.
+    pub(crate) inter_agent_send_ids: std::collections::HashSet<String>,
     /// Cleared at turn start; set on the first live non-echo update. Defaults true.
     pub(crate) front_message_committed: bool,
     /// Latest send-now whose adoption should follow in place. The chain is [`Self::send_now_follow_ids`].

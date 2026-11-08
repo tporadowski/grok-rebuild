@@ -795,14 +795,16 @@ impl ToolCallBlock {
         }
     }
 
-    /// The bucket a row falls into for aggregated header LABELS. `None` is returned only for lifecycle rows, which are
-    /// never worth labeling. Variants are listed explicitly so a new `ToolCallBlock` variant must decide here too.
+    /// The bucket a row falls into for aggregated header LABELS. `None` is returned for lifecycle rows and for an
+    /// inter-agent exchange, which has to stay a named `sender → recipient` line. Variants are listed explicitly so a
+    /// new `ToolCallBlock` variant must decide here too.
     pub fn label_kind(&self) -> Option<VerbGroupKind> {
         match self {
             ToolCallBlock::Execute(_) => Some(VerbGroupKind::Command),
             ToolCallBlock::Edit(b) if b.is_memory_activity => Some(VerbGroupKind::MemorySearch),
             ToolCallBlock::Edit(_) => Some(VerbGroupKind::EditFile),
             ToolCallBlock::UseTool(_) => Some(VerbGroupKind::McpCall),
+            ToolCallBlock::SentMessage(b) if b.has_exchange() => None,
             ToolCallBlock::SentMessage(_) => Some(VerbGroupKind::Message),
             ToolCallBlock::Other(_) => Some(VerbGroupKind::OtherTool),
             ToolCallBlock::Read(_)
@@ -939,6 +941,22 @@ mod tests {
         crate::appearance::cache::set_tool_call_density(ToolCallDensity::CompactAllGrouped);
         assert_eq!(execute.eager_fold_kind(), Some(VerbGroupKind::Command));
         assert_eq!(edit.eager_fold_kind(), Some(VerbGroupKind::EditFile));
+        let mut exchange = SentMessageToolCallBlock::new(
+            SentMessagePresentation::Sent,
+            Some(SentMessageInput {
+                target: SentMessageTarget::Parent,
+                delivery: None,
+                text: "hi".into(),
+            }),
+        );
+        exchange.set_exchange(SentMessageTarget::Unresolved {
+            subagent_id: "child-a".into(),
+        });
+        assert_eq!(
+            ToolCallBlock::SentMessage(exchange).eager_fold_kind(),
+            None,
+            "an exchange row stays named instead of folding into Sent N messages"
+        );
 
         crate::appearance::cache::set_tool_call_density(ToolCallDensity::Detailed);
         assert_eq!(read.eager_fold_kind(), None);
@@ -974,6 +992,13 @@ mod tests {
             ))
             .label_kind(),
             Some(VerbGroupKind::Message)
+        );
+        let mut exchange = SentMessageToolCallBlock::new(SentMessagePresentation::Sent, None);
+        exchange.set_exchange(SentMessageTarget::Parent);
+        assert_eq!(
+            ToolCallBlock::SentMessage(exchange).label_kind(),
+            None,
+            "an exchange row is not a Sent N messages bucket"
         );
         assert_eq!(
             ToolCallBlock::Other(OtherToolCallBlock::new("todo_write", "update")).label_kind(),

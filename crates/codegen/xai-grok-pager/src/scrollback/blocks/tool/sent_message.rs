@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ratatui::layout::Alignment;
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
@@ -146,12 +147,22 @@ enum MessageDetailStyle {
     Warning,
 }
 
+/// A copy of a delivered send on the main session transcript. The sender's own tool row stays
+/// `Message <verb> <target>`. This row names both sides and stays left-aligned under the tool bullet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InterAgentExchange {
+    sender: SentMessageTarget,
+    count: u32,
+    extra_texts: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SentMessageToolCallBlock {
     pub presentation: SentMessagePresentation,
     pub input: Option<SentMessageInput>,
     pub started_at: Option<std::time::Instant>,
     pub elapsed_ms: Option<i64>,
+    exchange: Option<InterAgentExchange>,
 }
 
 impl SentMessageToolCallBlock {
@@ -161,11 +172,85 @@ impl SentMessageToolCallBlock {
             input,
             started_at: None,
             elapsed_ms: None,
+            exchange: None,
         }
     }
 
-    /// One line for export and search: label, verb, target. Never the text, the reason, or a raw id behind a label.
+    /// Mark this copy as the main-session row for a delivered message between subagents.
+    pub(crate) fn set_exchange(&mut self, sender: SentMessageTarget) {
+        self.exchange = Some(InterAgentExchange {
+            sender,
+            count: 1,
+            extra_texts: Vec::new(),
+        });
+    }
+
+    pub(crate) fn has_exchange(&self) -> bool {
+        self.exchange.is_some()
+    }
+
+    pub(crate) fn exchange_recipient(&self) -> Option<&SentMessageTarget> {
+        self.input.as_ref().map(|input| &input.target)
+    }
+
+    pub(crate) fn exchange_text(&self) -> &str {
+        self.input
+            .as_ref()
+            .map(|input| input.text.as_str())
+            .unwrap_or("")
+    }
+
+    /// Fold another delivered message into this row when it is the same pair. A different pair returns false:
+    /// one left-aligned line cannot name two pairs.
+    pub(crate) fn try_fold_exchange(
+        &mut self,
+        sender: &SentMessageTarget,
+        recipient: &SentMessageTarget,
+        text: &str,
+    ) -> bool {
+        let same = self
+            .exchange
+            .as_ref()
+            .is_some_and(|exchange| &exchange.sender == sender)
+            && self
+                .input
+                .as_ref()
+                .is_some_and(|input| &input.target == recipient);
+        if !same {
+            return false;
+        }
+        let exchange = self
+            .exchange
+            .as_mut()
+            .expect("same-pair check requires an exchange");
+        exchange.count = exchange.count.saturating_add(1);
+        if !text.is_empty() {
+            exchange.extra_texts.push(text.to_owned());
+        }
+        true
+    }
+
+    /// `sender → recipient`, plus ` · N` once consecutive deliveries have folded in.
+    fn exchange_header(&self) -> Option<String> {
+        let exchange = self.exchange.as_ref()?;
+        let recipient = self
+            .input
+            .as_ref()
+            .map(|input| input.target.noun())
+            .unwrap_or(Cow::Borrowed(FALLBACK_NOUN));
+        let mut header = format!("{} \u{2192} {recipient}", exchange.sender.noun());
+        if exchange.count > 1 {
+            header.push_str(&format!(" \u{00b7} {}", exchange.count));
+        }
+        Some(header)
+    }
+
+    /// One line for export and search: the exchange pair, or label, verb, and target.
+    /// Never the text, the reason, or a raw id behind a label.
     pub(crate) fn header_text(&self) -> String {
+        if let Some(header) = self.exchange_header() {
+            return header;
+        }
         format!("{HEADER_LABEL}{}", self.verb_and_target())
     }
 
@@ -202,9 +287,18 @@ impl SentMessageToolCallBlock {
 
     /// Bold label, muted verb and target, nothing else: the text and the reason wait for the expanded body. A very
     /// narrow pane clips the row at its edge, as the Subagent row does.
+    /// An exchange row is the pair names alone, left-aligned, so the tool bullet sits at the start of the line.
     fn collapsed_line(&self, ctx: &BlockContext, theme: &Theme) -> Line<'static> {
         let is_muted =
             ctx.mute_when_collapsed(ctx.appearance.scrollback.blocks.tool.muted_collapsed);
+        if let Some(header) = self.exchange_header() {
+            let style = if is_muted {
+                theme.muted()
+            } else {
+                theme.primary()
+            };
+            return Line::from(Span::styled(header, style)).alignment(Alignment::Left);
+        }
         let label_style = if is_muted {
             theme.muted()
         } else {
@@ -219,10 +313,14 @@ impl SentMessageToolCallBlock {
 
     /// Never muted. Suffixes name the requested delivery and, for a finished send that stalled, its admission time.
     fn expanded_header(&self, theme: &Theme) -> Line<'static> {
-        let mut spans = vec![
-            Span::styled(HEADER_LABEL, theme.primary().add_modifier(Modifier::BOLD)),
-            Span::styled(self.verb_and_target(), theme.primary()),
-        ];
+        let mut spans = if let Some(header) = self.exchange_header() {
+            vec![Span::styled(header, theme.primary())]
+        } else {
+            vec![
+                Span::styled(HEADER_LABEL, theme.primary().add_modifier(Modifier::BOLD)),
+                Span::styled(self.verb_and_target(), theme.primary()),
+            ]
+        };
         if let Some(delivery) = self.input.as_ref().and_then(|input| input.delivery) {
             let delivery = <&str>::from(delivery);
             spans.push(Span::styled(format!(" \u{00b7} {delivery}"), theme.muted()));
@@ -235,7 +333,12 @@ impl SentMessageToolCallBlock {
             let elapsed = format_duration(Duration::from_millis(elapsed.unsigned_abs()));
             spans.push(Span::styled(format!(" \u{00b7} {elapsed}"), theme.muted()));
         }
-        Line::from(spans)
+        let line = Line::from(spans);
+        if self.exchange.is_some() {
+            line.alignment(Alignment::Left)
+        } else {
+            line
+        }
     }
 
     pub fn is_success(&self) -> bool {
@@ -420,6 +523,24 @@ impl BlockContent for SentMessageToolCallBlock {
                     BlockLine::styled(Line::from(Span::styled("unavailable", theme.muted())));
                 line.selectable = Selectable::None;
                 lines.push(line);
+            }
+        }
+        if let Some(exchange) = &self.exchange {
+            for extra in &exchange.extra_texts {
+                lines.push(Line::from("").into());
+                let source_lines = extra
+                    .split('\n')
+                    .map(|line| Line::from(Span::styled(line.to_owned(), theme.muted())));
+                let (wrapped, joiners) = word_wrap_lines_with_joiners(source_lines, width);
+                for (line, joiner) in wrapped.into_iter().zip(joiners) {
+                    let selection_text = line_plain_text(&line);
+                    lines.push(
+                        BlockLine::styled(line)
+                            .with_selection_range(Some(SENT_MESSAGE_TEXT_RANGE))
+                            .with_selection_text(Some(selection_text))
+                            .with_joiner(joiner),
+                    );
+                }
             }
         }
 

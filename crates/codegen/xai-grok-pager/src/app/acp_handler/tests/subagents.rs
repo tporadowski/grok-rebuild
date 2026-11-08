@@ -2446,3 +2446,176 @@
             assert_eq!(Some(target), block.child_session_id(), "{sender} -> {target}");
         }
     }
+
+    /// A delivered send from one subagent to another is a left-aligned row on the main transcript,
+    /// under the tool bullet, naming both sides. The same pair folds into that row. A different pair
+    /// stays its own row. The sender's tool trace keeps `Message sent to …`.
+    #[test]
+    fn delivered_subagent_message_is_a_left_aligned_row() {
+        use crate::scrollback::blocks::tool::ToolCallBlock;
+        use crate::scrollback::types::{line_plain_text, BlockContext, DisplayMode};
+        use ratatui::layout::Alignment;
+        use xai_grok_tools::implementations::grok_build::send_subagent_message::{
+            SEND_SUBAGENT_MESSAGE_TOOL_NAME, SendSubagentMessageOutput,
+        };
+        use xai_grok_tools::types::output::ToolOutput;
+
+        let mut app = make_app_with_agent("sess-parent");
+        let spawn = |child: &str, description: &str| {
+            let mut update = test_subagent_spawned_for_attempt("sess-parent", child, Some("at1.one"));
+            let XaiSessionUpdate::SubagentSpawned { description: wire, .. } = &mut update else {
+                panic!("spawn fixture must be a SubagentSpawned update");
+            };
+            *wire = description.to_owned();
+            make_ext_session_notification("sess-parent", update)
+        };
+        assert!(handle(spawn("child-a", "scan src/"), &mut app));
+        assert!(handle(spawn("child-b", "index docs/"), &mut app));
+
+        let accepted = serde_json::to_value(ToolOutput::SendSubagentMessage(
+            SendSubagentMessageOutput::Accepted {
+                message_id: "message-1".into(),
+            },
+        ))
+        .unwrap();
+        let rejected = serde_json::to_value(ToolOutput::SendSubagentMessage(
+            SendSubagentMessageOutput::NotFoundOrNotOwned,
+        ))
+        .unwrap();
+        let send = |sender: &str, target: &str, tool_id: &str, text: &str, output: serde_json::Value| {
+            let (tx, _rx) = tokio::sync::oneshot::channel();
+            let call = acp::ToolCall::new(acp::ToolCallId::new(tool_id), SEND_SUBAGENT_MESSAGE_TOOL_NAME)
+                .kind(acp::ToolKind::Other)
+                .status(acp::ToolCallStatus::Completed)
+                .raw_input(Some(serde_json::json!({ "subagent_id": target, "text": text })))
+                .raw_output(Some(output));
+            AcpClientMessage::SessionNotification(xai_acp_lib::AcpArgs {
+                request: acp_fixtures::session_notification(
+                    sender,
+                    acp::SessionUpdate::ToolCall(call),
+                ),
+                response_tx: tx,
+            })
+        };
+
+        fn parent(app: &AppView) -> &AgentView {
+            app.agents.get(&AgentId(0)).unwrap()
+        }
+        let exchange_rows = |app: &AppView| -> Vec<RenderBlock> {
+            let agent = parent(app);
+            let len = agent.scrollback.len();
+            agent
+                .scrollback
+                .entries_in_range(0..len)
+                .iter()
+                .filter_map(|entry| match &entry.block {
+                    RenderBlock::ToolCall(ToolCallBlock::SentMessage(block)) if block.has_exchange() => {
+                        Some(entry.block.clone())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let painted = |block: &RenderBlock, mode: DisplayMode| {
+            let ctx = BlockContext {
+                mode,
+                is_running: false,
+                width: 120,
+                raw: false,
+                max_lines: None,
+                appearance: Default::default(),
+                is_selected: false,
+                cwd: None,
+            };
+            let output = block.output(&ctx);
+            let line = &output.lines[0].content;
+            let bullet = ctx
+                .appearance
+                .scrollback
+                .blocks
+                .tool
+                .bullet
+                .char()
+                .expect("default tool bullet");
+            let text = line_plain_text(line);
+            let body = text
+                .strip_prefix(bullet)
+                .unwrap_or_else(|| panic!("row {text:?} does not start with the bullet {bullet:?}"))
+                .strip_prefix(' ')
+                .unwrap_or_else(|| panic!("bullet in {text:?} is not followed by a space"));
+            (line.alignment, body.to_owned(), output)
+        };
+
+        let pair = "Subagent \u{201c}scan src/\u{201d} \u{2192} Subagent \u{201c}index docs/\u{201d}";
+        let flipped = "Subagent \u{201c}index docs/\u{201d} \u{2192} Subagent \u{201c}scan src/\u{201d}";
+
+        assert!(handle(
+            send("child-a", "child-b", "send-1", "follow up", accepted.clone()),
+            &mut app
+        ));
+        let rows = exchange_rows(&app);
+        assert_eq!(rows.len(), 1, "one delivered pair is one main-transcript row");
+        let (alignment, body, _) = painted(&rows[0], DisplayMode::Collapsed);
+        assert_eq!(alignment, Some(Alignment::Left));
+        assert_eq!(body, pair);
+        let child = test_subagent(parent(&app), "child-a");
+        let RenderBlock::ToolCall(ToolCallBlock::SentMessage(child_block)) =
+            &child.scrollback.get(0).expect("child tool row").block
+        else {
+            panic!("child transcript keeps the tool row");
+        };
+        assert_eq!(
+            child_block.header_text(),
+            "Message sent to Subagent \u{201c}index docs/\u{201d}"
+        );
+        assert!(!child_block.has_exchange());
+
+        assert!(handle(
+            send("child-a", "child-b", "send-2", "second note", accepted.clone()),
+            &mut app
+        ));
+        let rows = exchange_rows(&app);
+        assert_eq!(rows.len(), 1, "the same pair folds into the one row");
+        let (alignment, body, _) = painted(&rows[0], DisplayMode::Collapsed);
+        assert_eq!(alignment, Some(Alignment::Left));
+        assert_eq!(format!("{pair} \u{00b7} 2"), body);
+        let (expanded_alignment, _, expanded) = painted(&rows[0], DisplayMode::Expanded);
+        assert_eq!(expanded_alignment, Some(Alignment::Left));
+        let expanded_text = expanded
+            .lines
+            .iter()
+            .map(|line| line_plain_text(&line.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(expanded_text.contains("follow up"), "{expanded_text}");
+        assert!(expanded_text.contains("second note"), "{expanded_text}");
+
+        assert!(handle(
+            send("child-b", "child-a", "send-3", "other way", accepted.clone()),
+            &mut app
+        ));
+        let rows = exchange_rows(&app);
+        assert_eq!(rows.len(), 2, "a different pair cannot share the line");
+        let (_, body, _) = painted(&rows[1], DisplayMode::Collapsed);
+        assert_eq!(body, flipped);
+
+        let before_reject = exchange_rows(&app).len();
+        assert!(handle(
+            send("child-a", "child-b", "send-rejected", "nope", rejected),
+            &mut app
+        ));
+        assert_eq!(exchange_rows(&app).len(), before_reject);
+
+        assert!(handle(
+            send("child-a", "child-b", "send-1", "again", accepted),
+            &mut app
+        ));
+        let rows = exchange_rows(&app);
+        assert_eq!(rows.len(), 2);
+        let (_, body, _) = painted(&rows[0], DisplayMode::Collapsed);
+        assert_eq!(
+            body,
+            format!("{pair} \u{00b7} 2"),
+            "the same tool call must not fold a second time"
+        );
+    }
