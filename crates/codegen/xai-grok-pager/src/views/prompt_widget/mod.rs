@@ -679,6 +679,8 @@ pub struct PromptWidget {
     /// Stores the display text of the previously-active value so we can revert on Esc.
     /// `None` means no preview in progress.
     pub(crate) slash_preview_original: Option<String>,
+    /// Command token that started the preview. Cancel still finds it after the line is cleared.
+    slash_preview_command: Option<String>,
 
     /// Shell command suggestion controller (ghost text + progressive matching).
     pub(crate) suggestions: SuggestionController,
@@ -755,6 +757,7 @@ impl PromptWidget {
             slash_hovered: None,
             last_input_delta: crate::input_log::LastInputDelta::default(),
             slash_preview_original: None,
+            slash_preview_command: None,
             suggestions: SuggestionController::new(),
             prompt_suggestion: crate::views::prompt_suggestion::PromptSuggestionController::new(),
             prompt_suggestion_active: false,
@@ -1175,6 +1178,7 @@ impl PromptWidget {
                 .replace(crate::slash::SlashSnapshot::default());
             // Safety net: ensure preview state is cleared even if slash_cancel_preview was a no-op (e.g. command not found after registry changes).
             self.slash_preview_original = None;
+            self.slash_preview_command = None;
         } else if !chip_placeholder_regex().is_match(text) {
             // Non-empty replacement with no chip placeholder match: any retained `PastedImage` records are now orphans (no chip in the buffer references them)
             // Drop them to keep `drain_images()` honest and to release encoded bytes
@@ -1503,6 +1507,7 @@ impl PromptWidget {
         // Capture the original value on the first preview call via the command's preview_state() method (e.g., current theme name for /theme)
         if self.slash_preview_original.is_none() {
             self.slash_preview_original = command.preview_state();
+            self.slash_preview_command = Some(invocation.token.to_string());
         }
 
         // Preview the highlighted suggestion.
@@ -1516,13 +1521,19 @@ impl PromptWidget {
     /// Called when the user presses Esc on the dropdown or clears the input.
     pub fn slash_cancel_preview(&mut self) {
         let Some(original) = self.slash_preview_original.take() else {
+            self.slash_preview_command = None;
             return;
         };
+        let stored = self.slash_preview_command.take();
 
-        // Resolve the command to call cancel_preview.
+        // The line may already be gone (Ctrl+U). The token captured when the preview started still names the command.
         let text = self.textarea.text().to_string();
-        if let Some(invocation) = crate::slash::parse_invocation(&text)
-            && let Some(command) = self.slash_controller.registry().get(invocation.token)
+        let parsed =
+            crate::slash::parse_invocation(&text).map(|invocation| invocation.token.to_string());
+        let Some(token) = stored.as_deref().or(parsed.as_deref()) else {
+            return;
+        };
+        if let Some(command) = self.slash_controller.registry().get(token)
             && command.supports_preview()
         {
             command.cancel_preview(&original);
@@ -1531,9 +1542,10 @@ impl PromptWidget {
 
     /// Commit the preview (clear the saved original so cancel is a no-op).
     ///
-    /// Called when the user accepts the completion (Enter/Tab) to prevent a revert on the subsequent dropdown close.
+    /// Called when the user confirms with Enter. Tab only inserts the row, so a later Esc can still restore.
     pub fn slash_commit_preview(&mut self) {
         self.slash_preview_original = None;
+        self.slash_preview_command = None;
     }
 
     /// Poll the file search daemon for new results. Returns `true` if changed.

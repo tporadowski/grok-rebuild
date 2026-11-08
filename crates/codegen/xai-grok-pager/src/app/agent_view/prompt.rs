@@ -197,9 +197,8 @@ impl AgentView {
                     self.prompt.slash_preview_current_selection();
                     return InputOutcome::Changed;
                 }
-                // Tab: accept completion (text only, no execute).
+                // Tab inserts the highlighted row. It does not confirm a live preview; Esc still restores it.
                 KeyCode::Tab => {
-                    self.prompt.slash_commit_preview();
                     self.prompt.accept_slash_completion(&self.session.models);
                     return InputOutcome::Changed;
                 }
@@ -1117,6 +1116,116 @@ mod shift_tab_cycle_mode_tests {
         );
         assert!(matches!(outcome, InputOutcome::Changed));
         assert_eq!(agent.active_pane, super::AgentPane::Prompt);
+    }
+
+    fn with_night_theme(body: impl FnOnce()) {
+        let _guard = crate::theme::cache::test_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        crate::theme::cache::reset_for_test();
+        crate::theme::cache::set(crate::theme::ThemeKind::GrokNight);
+        body();
+        crate::theme::cache::reset_for_test();
+    }
+
+    fn open_theme_picker(agent: &mut super::AgentView) {
+        agent.prompt.set_text("/theme ");
+        agent.prompt.set_cursor(agent.prompt.text().len());
+        agent.prompt.refresh_slash(&agent.session.models);
+        assert!(agent.prompt.slash_open(), "theme picker should be open");
+        assert!(
+            !agent.prompt.slash_snapshot().cursor_in_command,
+            "the picker should be on theme names"
+        );
+    }
+
+    /// Move until the live preview is Grok Day. The first row is often `auto`.
+    fn preview_grok_day(agent: &mut super::AgentView) {
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        for _ in 0..=agent.prompt.slash_snapshot().matches.len() {
+            if crate::theme::Theme::current_kind() == crate::theme::ThemeKind::GrokDay {
+                return;
+            }
+            let outcome = agent.handle_prompt_key_for_test(&down);
+            assert!(matches!(outcome, InputOutcome::Changed), "{outcome:?}");
+        }
+        panic!(
+            "theme picker never previewed Grok Day, kind={:?}",
+            crate::theme::Theme::current_kind()
+        );
+    }
+
+    #[test]
+    fn theme_picker_esc_restores_the_previous_theme() {
+        with_night_theme(|| {
+            let mut agent = super::test_fixtures::make_agent();
+            open_theme_picker(&mut agent);
+            preview_grok_day(&mut agent);
+            let outcome =
+                agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            assert!(matches!(outcome, InputOutcome::Changed), "{outcome:?}");
+            assert_eq!(
+                crate::theme::Theme::current_kind(),
+                crate::theme::ThemeKind::GrokNight
+            );
+        });
+    }
+
+    #[test]
+    fn theme_picker_ctrl_u_restores_the_previous_theme() {
+        with_night_theme(|| {
+            let mut agent = super::test_fixtures::make_agent();
+            open_theme_picker(&mut agent);
+            preview_grok_day(&mut agent);
+            let outcome = agent.handle_prompt_key_for_test(&KeyEvent::new(
+                KeyCode::Char('u'),
+                KeyModifiers::CONTROL,
+            ));
+            assert!(matches!(outcome, InputOutcome::Changed), "{outcome:?}");
+            assert!(agent.prompt.text().is_empty(), "ctrl+u clears the line");
+            assert_eq!(
+                crate::theme::Theme::current_kind(),
+                crate::theme::ThemeKind::GrokNight
+            );
+        });
+    }
+
+    #[test]
+    fn theme_picker_tab_then_esc_restores_the_previous_theme() {
+        with_night_theme(|| {
+            let mut agent = super::test_fixtures::make_agent();
+            open_theme_picker(&mut agent);
+            preview_grok_day(&mut agent);
+            let tab =
+                agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+            assert!(matches!(tab, InputOutcome::Changed), "{tab:?}");
+            let esc =
+                agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            assert!(matches!(esc, InputOutcome::Changed), "{esc:?}");
+            assert_eq!(
+                crate::theme::Theme::current_kind(),
+                crate::theme::ThemeKind::GrokNight
+            );
+        });
+    }
+
+    #[test]
+    fn theme_picker_enter_keeps_the_preview() {
+        with_night_theme(|| {
+            let mut agent = super::test_fixtures::make_agent();
+            open_theme_picker(&mut agent);
+            preview_grok_day(&mut agent);
+            let outcome = agent
+                .handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+            assert!(
+                matches!(outcome, InputOutcome::Action(Action::SendPrompt(_))),
+                "enter confirms the theme row, got {outcome:?}"
+            );
+            assert_eq!(
+                crate::theme::Theme::current_kind(),
+                crate::theme::ThemeKind::GrokDay
+            );
+        });
     }
 }
 

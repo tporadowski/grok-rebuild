@@ -161,6 +161,7 @@ pub(in crate::app::dispatch) fn dispatch_open_settings(
     app: &mut AppView,
     focus_key: Option<&'static str>,
 ) -> Vec<Effect> {
+    super::super::ctx::cancel_uncommitted_slash_previews(app);
     use crate::views::modal::ActiveModal;
     use crate::views::settings_modal::{RowVisibility, SettingsModalState};
 

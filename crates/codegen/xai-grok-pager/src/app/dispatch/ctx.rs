@@ -11,6 +11,18 @@ use agent_client_protocol as acp;
 /// Every path in this module tree that says exactly this uses it; the action-specific variants ("No active session to delete") stay separate.
 pub(super) const NO_SESSION_NOTICE: &str = "No active session";
 
+/// Drop an unconfirmed slash preview (the `/theme` picker) on every composer.
+/// Enter is the only confirmation. Settings, the dashboard, and a cleared line restore the previous value.
+pub(in crate::app::dispatch) fn cancel_uncommitted_slash_previews(app: &mut AppView) {
+    app.welcome_prompt.slash_cancel_preview();
+    if let Some(dashboard) = app.dashboard.as_mut() {
+        dashboard.dispatch.slash_cancel_preview();
+    }
+    for agent in app.agents.values_mut() {
+        agent.prompt.slash_cancel_preview();
+    }
+}
+
 /// The active agent's root session id, if any.
 /// Used to scope server-queue edit Effects to the foregrounded session.
 /// Root-only by construction, even under a subagent takeover: the read-only child queue pane keeps child actions out.

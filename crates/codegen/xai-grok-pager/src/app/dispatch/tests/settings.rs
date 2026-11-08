@@ -642,6 +642,41 @@ fn set_simple_mode_emits_persist_setting_with_correct_payload() {
     }
     assert_eq!(app.current_ui.simple_mode, Some(false));
 }
+/// Opening settings leaves the `/theme` picker, so the unconfirmed preview is restored.
+#[test]
+fn theme_picker_settings_restores_the_previous_theme() {
+    let _guard = crate::theme::cache::test_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    crate::theme::cache::reset_for_test();
+    crate::theme::cache::set(crate::theme::ThemeKind::GrokNight);
+    let mut app = test_app_with_agent();
+    {
+        let agent = get_active_agent_mut(&mut app).unwrap();
+        agent.prompt.set_text("/theme ");
+        agent.prompt.set_cursor(agent.prompt.text().len());
+        agent.prompt.refresh_slash(&agent.session.models);
+        for _ in 0..=agent.prompt.slash_snapshot().matches.len() {
+            if crate::theme::Theme::current_kind() == crate::theme::ThemeKind::GrokDay {
+                break;
+            }
+            agent.prompt.slash_move_selection(1);
+            agent.prompt.slash_preview_current_selection();
+        }
+        assert_eq!(
+            crate::theme::Theme::current_kind(),
+            crate::theme::ThemeKind::GrokDay,
+            "the picker must preview another theme before settings opens"
+        );
+    }
+    let _ = dispatch(Action::OpenSettings, &mut app);
+    assert_eq!(
+        crate::theme::Theme::current_kind(),
+        crate::theme::ThemeKind::GrokNight
+    );
+    crate::theme::cache::reset_for_test();
+}
+
 /// `dispatch_open_settings` runs once: the modal opens on the active agent.
 /// A second dispatch (only structurally reachable if input routing breaks) closes the modal defensively; debug_assert guards this in dev builds.
 #[test]

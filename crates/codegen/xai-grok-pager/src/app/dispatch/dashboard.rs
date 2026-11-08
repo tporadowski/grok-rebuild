@@ -187,6 +187,7 @@ fn configure_dashboard_state(app: &mut AppView) {
 /// The dashboard is independent of leader mode: it renders local sessions from `app.agents`.
 /// When connected via a leader it also polls the leader roster (see the roster-poll gate in the event loop).
 pub(super) fn dispatch_open_dashboard(app: &mut AppView) -> Vec<Effect> {
+    super::ctx::cancel_uncommitted_slash_previews(app);
     use crate::views::dashboard::dashboard_enabled;
     if !dashboard_enabled() {
         app.show_toast("Agent dashboard is disabled in this configuration");
