@@ -346,7 +346,7 @@ When a subagent is spawned, a compact lifecycle block is added to the *parent's*
 
 While running, the block shows a live activity suffix (e.g. "Running: cargo test", "Compacting", "Retrying (2/3)") pulled from the child's turn tracker. The bullet animates (or is colored) according to state.
 
-Press **Enter** (or Ctrl-F) on the block to open the subagent's full transcript.
+Press **Enter** (or Ctrl-F) on the block to open the subagent's full transcript. A finished reply that names a subagent is a link. A plain click opens it, without Ctrl or Cmd, so the link still works over SSH from macOS.
 
 For blocking subagents the single entry updates its bullet color when the child finishes. For background ones, a follow-up `Subagent completed/failed/cancelled in Xs: "..."` block is appended.
 

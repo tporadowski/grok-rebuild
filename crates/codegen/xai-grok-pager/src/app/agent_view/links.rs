@@ -8,6 +8,13 @@ use super::paste::paste_key_tests;
 #[cfg(test)]
 use super::{AgentPane, PromptMode, test_fixtures};
 use super::{AgentView, app_should_open_link_on_click, has_native_link_hover};
+
+fn is_subagent_link(link: &crate::scrollback::VisibleLink) -> bool {
+    matches!(
+        link.target,
+        crate::render::osc8::LinkTarget::Subagent(_)
+    )
+}
 #[cfg(test)]
 use crate::actions::{ActionId, ActionRegistry, When};
 #[cfg(test)]
@@ -163,40 +170,49 @@ impl AgentView {
             });
         }
     }
+    /// A named subagent link opens on a plain click. A modified click does not arrive over SSH from macOS.
+    pub(in crate::app) fn plain_subagent_link_at(&self, col: u16, row: u16) -> bool {
+        self.visible_link_map
+            .link_at(col, row)
+            .is_some_and(|link| is_subagent_link(link))
+    }
     /// Hit-test `(col, row)` and arm [`Self::pending_link_click`] when the app opens links itself.
     /// Returns `true` when a link was hit so the caller can skip text-drag even when the terminal opens links (pending stays unset).
+    /// A subagent link is armed even when the terminal owns ordinary URL clicks.
     pub(in crate::app) fn try_arm_link_click(&mut self, col: u16, row: u16) -> bool {
-        if has_native_link_hover() || self.pos_occluded(col, row) {
+        if self.pos_occluded(col, row) {
             return false;
         }
         let Some(link) = self.visible_link_map.link_at(col, row) else {
             return false;
         };
+        if has_native_link_hover() && !is_subagent_link(link) {
+            return false;
+        }
         self.pending_link_click =
             app_should_open_link_on_click(link).then(|| (col, row, link.target.clone()));
         true
     }
     /// Re-evaluate which link (if any) is under the cursor for the given modifier state.
+    /// A subagent link highlights without the modifier. Other links still wait for it.
     /// Returns `true` when `hovered_link_idx` changed.
     pub(in crate::app) fn update_hovered_link(&mut self, modifier_held: bool) -> bool {
-        if !modifier_held && self.hovered_link_idx.is_none() {
-            return false;
-        }
-        let new = if modifier_held
-            && !has_native_link_hover()
-            && !self.pos_occluded(self.last_mouse_pos.0, self.last_mouse_pos.1)
-        {
+        let new = if self.pos_occluded(self.last_mouse_pos.0, self.last_mouse_pos.1) {
+            None
+        } else {
             self.visible_link_map
                 .link_at(self.last_mouse_pos.0, self.last_mouse_pos.1)
-                .filter(|hit| app_should_open_link_on_click(hit))
+                .filter(|hit| {
+                    let subagent = is_subagent_link(hit);
+                    let modified = modifier_held && !has_native_link_hover();
+                    (subagent || modified) && app_should_open_link_on_click(hit)
+                })
                 .and_then(|hit| {
                     self.visible_link_map
                         .links()
                         .iter()
                         .position(|l| std::ptr::eq(l, hit))
                 })
-        } else {
-            None
         };
         if new != self.hovered_link_idx {
             self.hovered_link_idx = new;
@@ -616,6 +632,56 @@ mod link_click_tests {
             .expect("the label is the link");
         assert!(agent.open_transcript_mention(&link.target));
         assert_eq!(agent.active_subagent.as_deref(), Some(CHILD));
+    }
+
+    /// A plain click opens a named subagent link. Ctrl/Cmd never arrives over SSH from macOS.
+    /// A plain click on an ordinary URL still does not open it.
+    #[test]
+    fn plain_click_opens_a_named_subagent_link() {
+        use crate::render::osc8::LinkTarget;
+
+        const ID: &str = "019f972a-7c1b-7abc-a896-4f08f91b9999";
+        const CHILD: &str = "child1";
+
+        let mut agent = make_agent();
+        let mut info = super::test_fixtures::running_subagent_info(CHILD);
+        info.subagent_id = Arc::from(ID);
+        agent.subagent_sessions.insert(CHILD.into(), info);
+        agent.insert_test_child(CHILD.into(), Box::new(make_agent()));
+        setup_scrollback_area(&mut agent, Rect::new(0, 0, 80, 24));
+        add_visible_target(
+            &mut agent,
+            5,
+            10,
+            28,
+            LinkTarget::Subagent(Arc::from(ID)),
+        );
+
+        assert!(matches!(
+            agent.handle_mouse(&mouse_down(12, 5)),
+            InputOutcome::Changed
+        ));
+        assert!(agent.pending_link_click.is_some());
+        assert!(agent.pending_scrollback_click.is_none());
+        match agent.handle_mouse(&mouse_up(12, 5)) {
+            InputOutcome::Action(Action::OpenLink(target)) => {
+                assert!(agent.open_transcript_mention(&target));
+            }
+            other => panic!("expected a plain click to open the subagent, got {other:?}"),
+        }
+        assert_eq!(agent.active_subagent.as_deref(), Some(CHILD));
+
+        let mut url_agent = make_agent();
+        setup_scrollback_area(&mut url_agent, Rect::new(0, 0, 80, 24));
+        add_visible_link(&mut url_agent, 5, 10, 28, "https://example.com");
+        let _ = url_agent.handle_mouse(&mouse_down(12, 5));
+        assert!(
+            !matches!(
+                url_agent.handle_mouse(&mouse_up(12, 5)),
+                InputOutcome::Action(Action::OpenLink(_))
+            ),
+            "a plain click on a URL still needs the link modifier"
+        );
     }
 
     /// Set up the agent so clicks at (col, row) land in the scrollback pane.
