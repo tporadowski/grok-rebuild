@@ -3143,7 +3143,8 @@ fn render_group_header_leads_with_disclosure_glyph() {
     );
 }
 
-/// `Grouping::Directory` keeps cwd as the grouping primitive, so state headers are suppressed.
+/// `Grouping::Directory` groups by folder, so state headers stay off.
+/// Folder path headers are `directory_grouping_header_shows_folder_path_and_agent_count`.
 ///
 /// The `(count)` parenthesis pattern is the specific fingerprint for a state header.
 #[test]
@@ -3170,6 +3171,74 @@ fn render_rows_skips_headers_when_grouping_is_directory() {
     assert!(
         content.contains('a') && content.contains('b'),
         "rows must still render under Directory grouping, got: {content:?}",
+    );
+}
+
+/// Directory grouping paints the folder path and how many agents are in it, above those agents.
+#[test]
+fn directory_grouping_header_shows_folder_path_and_agent_count() {
+    let mut buf = Buffer::empty(Rect::new(0, 0, 80, 30));
+    let mut state = DashboardState::new();
+    state.grouping = Grouping::Directory;
+    let mut pinned = header_test_row(4, RowState::Idle, "pinned-proj");
+    pinned.pinned = true;
+    pinned.cwd_display = "~/proj".into();
+    let mut alpha = header_test_row(1, RowState::Working, "alpha");
+    alpha.cwd_display = "~/proj".into();
+    let mut beta = header_test_row(2, RowState::Idle, "beta");
+    beta.cwd_display = "~/proj".into();
+    let mut gamma = header_test_row(3, RowState::Working, "gamma");
+    gamma.cwd_display = "~/other".into();
+    let mut rows = vec![pinned, gamma, alpha, beta];
+    crate::views::dashboard::sort_rows(&mut rows, Grouping::Directory, &[]);
+    let theme = Theme::current();
+    render_rows(&mut buf, Rect::new(0, 0, 80, 30), &theme, &rows, &mut state);
+    let content = buf_to_text(&buf);
+    assert!(
+        content.contains("~/proj 2"),
+        "the proj folder header must show the path and the two unpinned agents, got: {content:?}",
+    );
+    assert!(
+        !content.contains("~/proj 3"),
+        "a pinned agent stays out of the folder count, got: {content:?}",
+    );
+    assert!(
+        content.contains("~/other 1"),
+        "the other folder header must show the path and its one agent, got: {content:?}",
+    );
+    assert!(
+        !content.contains("Working ") && !content.contains("Idle "),
+        "directory grouping must not paint state headers, got: {content:?}",
+    );
+    let pinned_at = content.find("pinned-proj").expect("pinned row");
+    let other_at = content.find("~/other").expect("other header");
+    let gamma_at = content.find("gamma").expect("gamma");
+    let proj_at = content.find("~/proj").expect("proj header");
+    let alpha_at = content.find("alpha").expect("alpha");
+    let beta_at = content.find("beta").expect("beta");
+    assert!(
+        pinned_at < other_at
+            && other_at < gamma_at
+            && gamma_at < proj_at
+            && proj_at < alpha_at
+            && alpha_at < beta_at,
+        "each folder header must sit above its agents, got: {content:?}",
+    );
+
+    let mut narrow = Buffer::empty(Rect::new(0, 0, 30, 20));
+    let mut narrow_state = DashboardState::new();
+    narrow_state.grouping = Grouping::Directory;
+    render_narrow_rows(
+        &mut narrow,
+        Rect::new(0, 0, 30, 20),
+        &theme,
+        &rows,
+        &mut narrow_state,
+    );
+    let narrow_text = buf_to_text(&narrow);
+    assert!(
+        narrow_text.contains("~/proj 2") && narrow_text.contains("~/other 1"),
+        "narrow directory headers must show the path and count, got: {narrow_text:?}",
     );
 }
 

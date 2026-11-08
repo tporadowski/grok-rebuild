@@ -770,6 +770,11 @@ enum DashboardLine<'a> {
         state: RowState,
         count: usize,
     },
+    /// Folder path and agent count, emitted above each directory group.
+    DirectoryHeader {
+        path: std::borrow::Cow<'a, str>,
+        count: usize,
+    },
     Row(&'a DashboardRow),
     /// The Idle group's "N more" overflow toggle row, emitted at the bottom of a capped Idle group.
     /// `hidden` is the number of folded agents.
@@ -829,6 +834,10 @@ fn build_dashboard_lines<'a>(
     }
 
     let rest = rows.get(pinned_end..).unwrap_or(&[]);
+    if matches!(grouping, Grouping::Directory) {
+        push_directory_groups(&mut out, rest);
+        return out;
+    }
     if !emit_state_headers {
         out.extend(rest.iter().map(DashboardLine::Row));
         return out;
@@ -900,6 +909,35 @@ fn build_dashboard_lines<'a>(
     out
 }
 
+/// The path shown on a directory header: the compacted display path, else the raw folder.
+fn directory_group_path(row: &DashboardRow) -> std::borrow::Cow<'_, str> {
+    if !row.cwd_display.is_empty() {
+        std::borrow::Cow::Borrowed(row.cwd_display.as_str())
+    } else if row.cwd.as_os_str().is_empty() {
+        std::borrow::Cow::Borrowed("unknown")
+    } else {
+        std::borrow::Cow::Owned(row.cwd.to_string_lossy().into_owned())
+    }
+}
+
+/// One header per contiguous folder, then that folder's agents. Rows are already sorted by path.
+fn push_directory_groups<'a>(out: &mut Vec<DashboardLine<'a>>, rest: &'a [DashboardRow]) {
+    let mut index = 0usize;
+    while index < rest.len() {
+        let path = directory_group_path(&rest[index]);
+        let mut end = index + 1;
+        while end < rest.len() && directory_group_path(&rest[end]) == path {
+            end += 1;
+        }
+        out.push(DashboardLine::DirectoryHeader {
+            path,
+            count: end - index,
+        });
+        out.extend(rest[index..end].iter().map(DashboardLine::Row));
+        index = end;
+    }
+}
+
 /// Maximum number of top-level Idle agents shown before the rest fold into the "N more" overflow row.
 /// The Idle group is sorted most-recent-first, so the folded tail is always the oldest.
 pub const MAX_VISIBLE_IDLE: usize = 8;
@@ -950,8 +988,8 @@ pub(crate) fn focusables(
 }
 
 /// The section header that owns `row_id` under the current grouping and filter. `None` when no
-/// headers are emitted (directory grouping, `s:state` filter) or the row isn't present in `rows` at
-/// all. A row hidden inside a collapsed section therefore still resolves to its owning header.
+/// headers are emitted (`s:state` filter) or the row isn't present in `rows` at
+/// all. Directory headers are labels, not collapsible sections. A row hidden inside a collapsed section therefore still resolves to its owning header.
 pub(crate) fn section_of_row(
     rows: &[DashboardRow],
     grouping: Grouping,
@@ -1016,6 +1054,7 @@ fn render_rows_with_grouping(
         .map(|l| match l {
             DashboardLine::Row(_) => ROW_HEIGHT,
             DashboardLine::Header { .. }
+            | DashboardLine::DirectoryHeader { .. }
             | DashboardLine::PinnedHeader { .. }
             | DashboardLine::IdleOverflow { .. }
             | DashboardLine::Divider => GROUP_HEADER_HEIGHT,
@@ -1039,7 +1078,7 @@ fn render_rows_with_grouping(
                     state.selected_section == Some(SectionKey::State(*rs))
                 }
                 DashboardLine::IdleOverflow { .. } => state.selected_idle_overflow,
-                DashboardLine::Divider => false,
+                DashboardLine::Divider | DashboardLine::DirectoryHeader { .. } => false,
             };
             if is_cursor {
                 selected_cell = Some((cum, h));
@@ -1128,6 +1167,19 @@ fn render_rows_with_grouping(
             }
             DashboardLine::Divider => {
                 render_divider(buf, line_rect, theme);
+                mark(&mut line_bg, 0, theme.bg_base);
+            }
+            DashboardLine::DirectoryHeader { path, count } => {
+                render_group_header(
+                    buf,
+                    line_rect,
+                    theme,
+                    path.as_ref(),
+                    *count,
+                    false,
+                    false,
+                    false,
+                );
                 mark(&mut line_bg, 0, theme.bg_base);
             }
             DashboardLine::Header { state: rs, count } => {
@@ -1811,7 +1863,7 @@ fn render_narrow_rows_with_grouping(
             state.selected_section == Some(SectionKey::State(*rs))
         }
         DashboardLine::IdleOverflow { .. } => state.selected_idle_overflow,
-        DashboardLine::Divider => false,
+        DashboardLine::Divider | DashboardLine::DirectoryHeader { .. } => false,
     });
     let offset = state.clamp_viewport(selected_line_idx, viewport_h, lines.len());
 
@@ -1868,6 +1920,20 @@ fn render_narrow_rows_with_grouping(
             }
             DashboardLine::Divider => {
                 render_divider(buf, line_rect, theme);
+                y += 1;
+                continue;
+            }
+            DashboardLine::DirectoryHeader { path, count } => {
+                render_group_header_narrow(
+                    buf,
+                    line_rect,
+                    theme,
+                    path.as_ref(),
+                    *count,
+                    false,
+                    false,
+                    false,
+                );
                 y += 1;
                 continue;
             }
