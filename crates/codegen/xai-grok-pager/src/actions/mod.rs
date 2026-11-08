@@ -1048,6 +1048,45 @@ mod tests {
         );
     }
 
+    #[test]
+    fn windows_shift_symbol_and_azerty_digit_match_the_shortcut() {
+        let mut actions = default_actions(crate::app::ScreenMode::Fullscreen, false);
+        for def in actions.iter_mut() {
+            if def.id == ActionId::OpenDashboard {
+                def.alt_keys = vec![key!('4', CONTROL)];
+            }
+            if def.id == ActionId::ToggleQueue {
+                def.default_key = key!(';', CONTROL);
+                def.alt_keys = vec![key!('\'', CONTROL)];
+            }
+        }
+        let registry = ActionRegistry::new(actions);
+        let shifted_symbol = KeyEvent::new(
+            KeyCode::Char('\\'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
+        let azerty_digit = KeyEvent::new(
+            KeyCode::Char('4'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
+        let shifted_semicolon = KeyEvent::new(
+            KeyCode::Char(';'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
+        assert_eq!(
+            registry.lookup(&shifted_symbol, When::Always),
+            Some(ActionId::OpenDashboard)
+        );
+        assert_eq!(
+            registry.lookup(&azerty_digit, When::Always),
+            Some(ActionId::OpenDashboard)
+        );
+        assert_eq!(
+            registry.lookup(&shifted_semicolon, When::AgentScreen),
+            Some(ActionId::ToggleQueue)
+        );
+    }
+
     // Mac VS Code pin: ToggleQueue's primary is Ctrl+4; OpenDashboard keeps Ctrl+\ only
     #[test]
     fn mac_vscode_ctrl_4_stays_toggle_queue_not_open_dashboard() {

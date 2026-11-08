@@ -57,12 +57,35 @@ impl KeyShortcut {
     }
 
     /// Normalizes the event's case before comparing, so both `Char('G') + NONE` and `Char('g') + SHIFT` match `key!('G')`.
+    /// A Ctrl/Alt/Super chord on a non-letter also matches when Shift is the only extra bit.
+    /// Windows reports that bit for a symbol that needs Shift, and AZERTY reports it for a digit.
     pub fn matches(&self, event: &KeyEvent) -> bool {
         if event.kind == KeyEventKind::Release {
             return false;
         }
         let normalized = Self::new(event.code, event.modifiers);
-        self.code == normalized.code && self.modifiers == normalized.modifiers
+        if self.code != normalized.code {
+            return false;
+        }
+        self.modifiers == normalized.modifiers
+            || self.shift_on_symbol_is_the_same_chord(normalized.modifiers)
+    }
+
+    /// Shift does not make a second chord when the binding already has Ctrl, Alt, or Super
+    /// and the key is not a letter. Bare `/` stays distinct from Shift+`/`, and Ctrl+C stays
+    /// distinct from Ctrl+Shift+C.
+    fn shift_on_symbol_is_the_same_chord(&self, event_modifiers: KeyModifiers) -> bool {
+        let KeyCode::Char(ch) = self.code else {
+            return false;
+        };
+        if ch.is_ascii_alphabetic() {
+            return false;
+        }
+        let chord = KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER;
+        if !self.modifiers.intersects(chord) {
+            return false;
+        }
+        without_shift(self.modifiers) == without_shift(event_modifiers)
     }
 
     /// Build a KeyEvent (Press) for tests.
@@ -246,6 +269,10 @@ impl KeyShortcut {
         let mods = self.modifiers;
         mods.is_empty() || mods == KeyModifiers::SHIFT
     }
+}
+
+fn without_shift(modifiers: KeyModifiers) -> KeyModifiers {
+    modifiers.difference(KeyModifiers::SHIFT)
 }
 
 pub fn is_paste_key(key: &KeyEvent) -> bool {
@@ -516,6 +543,44 @@ mod tests {
     fn function_key() {
         let k = key!(F(5));
         assert_eq!(k.code, KeyCode::F(5));
+    }
+
+    #[test]
+    fn windows_shift_symbol_and_azerty_digit_match_the_shortcut() {
+        let ctrl_slash = key!('/', CONTROL);
+        assert!(
+            ctrl_slash.matches(&KeyEvent::new(
+                KeyCode::Char('/'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            )),
+            "a shifted symbol still is Ctrl+/"
+        );
+        let ctrl_dot = key!('.', CONTROL);
+        assert!(ctrl_dot.matches(&KeyEvent::new(
+            KeyCode::Char('.'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        )));
+        let ctrl_4 = key!('4', CONTROL);
+        assert!(
+            ctrl_4.matches(&KeyEvent::new(
+                KeyCode::Char('4'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            )),
+            "an AZERTY digit arrives with Shift"
+        );
+        assert!(
+            !key!('/').matches(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::SHIFT)),
+            "a bare slash is not Shift+/"
+        );
+        assert!(
+            !key!('c', CONTROL).matches(&KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            )),
+            "Ctrl+Shift+C stays a different letter chord"
+        );
+        assert!(!key!(Up).matches(&KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)));
+        assert!(key!(Up, SHIFT).matches(&KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)));
     }
 
     #[test]
