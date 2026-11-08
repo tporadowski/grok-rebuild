@@ -841,6 +841,9 @@ pub struct AgentView {
     pub dock_shown: bool,
     /// Sticky: Ctrl+G hid the dock; paint stays off until the next Ctrl+G.
     pub dock_hidden: bool,
+    /// Ctrl+G showed the dock or tasks pane while compact mode was already on.
+    /// Compact keeps applying that hide until this is set, then leaves the surface alone.
+    ctrl_g_show_during_compact: bool,
     /// Current mode of the prompt widget (normal vs editing a queued prompt).
     pub prompt_mode: PromptMode,
     /// Current special prompt input mode (Normal/Bash/Remember).

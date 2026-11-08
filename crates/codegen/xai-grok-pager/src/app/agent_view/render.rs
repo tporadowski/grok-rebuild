@@ -1006,6 +1006,7 @@ impl AgentView {
             && !viewer_open
             && area.height > agent::SHORT_TERMINAL_ROWS;
         self.dock_on = dock_on;
+        self.apply_compact_ctrl_g_hide(appearance.prompt.compact, dock_on);
         let tasks_height = if viewer_open || dock_on {
             0
         } else {

@@ -374,3 +374,103 @@ fn ctrl_g_hides_and_shows_painted_dock() {
     assert!(agent.dock_shown && !agent.dock_hidden);
     assert!(dock_row_has_tasks(&buf, agent.pane_areas.dock));
 }
+fn set_prompt_compact(agent: &mut AgentView, compact: bool) {
+    let mut appearance = agent.scrollback.appearance().clone();
+    appearance.prompt.compact = compact;
+    agent.scrollback.set_appearance(appearance);
+    agent.prompt.set_compact(compact);
+}
+fn ctrl_g_key() -> Event {
+    Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('g'),
+        KeyModifiers::CONTROL,
+    ))
+}
+/// Compact mode hides the painted dock with the same sticky flag Ctrl+G sets.
+/// Ctrl+G shows it again while compact stays on. Turning compact off leaves that
+/// choice, and turning it back on hides the dock again.
+#[test]
+fn compact_mode_hides_the_dock_like_ctrl_g() {
+    crate::views::dock::set_enabled_for_test(true);
+    let mut agent = make_agent();
+    insert_running_task(&mut agent, "bg-1");
+    let area = Rect::new(0, 0, 80, 30);
+    let registry = ActionRegistry::defaults();
+    let buf = draw_frame(&mut agent, area);
+    assert!(agent.dock_shown && !agent.dock_hidden);
+    assert!(dock_row_has_tasks(&buf, agent.pane_areas.dock));
+    set_prompt_compact(&mut agent, true);
+    let buf = draw_frame(&mut agent, area);
+    assert!(agent.dock_on && agent.dock_hidden);
+    assert!(!agent.dock_shown);
+    assert_eq!(agent.pane_areas.dock.height, 0);
+    assert!(!dock_row_has_tasks(&buf, agent.pane_areas.dock));
+    assert!(matches!(
+        agent.handle_input(&ctrl_g_key(), &registry),
+        InputOutcome::Changed
+    ));
+    let buf = draw_frame(&mut agent, area);
+    assert!(agent.dock_shown && !agent.dock_hidden);
+    assert!(dock_row_has_tasks(&buf, agent.pane_areas.dock));
+    let buf = draw_frame(&mut agent, area);
+    assert!(
+        agent.dock_shown && !agent.dock_hidden,
+        "Ctrl+G while compact stays on must keep the dock painted"
+    );
+    assert!(dock_row_has_tasks(&buf, agent.pane_areas.dock));
+    set_prompt_compact(&mut agent, false);
+    let _ = draw_frame(&mut agent, area);
+    assert!(
+        agent.dock_shown && !agent.dock_hidden,
+        "leaving compact mode keeps the dock Ctrl+G showed"
+    );
+    set_prompt_compact(&mut agent, true);
+    let buf = draw_frame(&mut agent, area);
+    assert!(agent.dock_hidden && !agent.dock_shown);
+    assert_eq!(agent.pane_areas.dock.height, 0);
+    assert!(!dock_row_has_tasks(&buf, agent.pane_areas.dock));
+}
+/// With the dock feature off, compact mode closes the tasks pane the way Ctrl+G's
+/// hide leaves it, and Ctrl+G can open that pane again while compact stays on.
+#[test]
+fn compact_mode_hides_the_tasks_pane_like_ctrl_g() {
+    crate::views::dock::set_enabled_for_test(false);
+    let mut agent = make_agent();
+    insert_running_task(&mut agent, "bg-1");
+    let area = Rect::new(0, 0, 80, 30);
+    let registry = ActionRegistry::defaults();
+    let _ = draw_frame(&mut agent, area);
+    assert!(agent.tasks.is_visible());
+    assert!(agent.pane_areas.tasks.height > 0);
+    set_prompt_compact(&mut agent, true);
+    let _ = draw_frame(&mut agent, area);
+    assert!(!agent.tasks.is_visible());
+    assert_eq!(agent.pane_areas.tasks.height, 0);
+    assert_ne!(agent.active_pane, super::AgentPane::Tasks);
+    assert!(matches!(
+        agent.handle_input(&ctrl_g_key(), &registry),
+        InputOutcome::Changed
+    ));
+    let _ = draw_frame(&mut agent, area);
+    assert!(
+        agent.tasks.is_visible() && agent.pane_areas.tasks.height > 0,
+        "Ctrl+G while compact stays on must open the tasks pane again"
+    );
+}
+/// Minimal mode uses Ctrl+G for the external editor, so compact mode does not hide the dock.
+#[test]
+fn compact_mode_hides_nothing_in_minimal_when_ctrl_g_is_the_editor() {
+    crate::views::dock::set_enabled_for_test(true);
+    let mut agent = make_agent();
+    agent
+        .prompt
+        .set_screen_mode(crate::app::ScreenMode::Minimal);
+    insert_running_task(&mut agent, "bg-1");
+    let area = Rect::new(0, 0, 80, 30);
+    let _ = draw_frame(&mut agent, area);
+    assert!(agent.dock_shown);
+    set_prompt_compact(&mut agent, true);
+    let buf = draw_frame(&mut agent, area);
+    assert!(agent.dock_shown && !agent.dock_hidden);
+    assert!(dock_row_has_tasks(&buf, agent.pane_areas.dock));
+}

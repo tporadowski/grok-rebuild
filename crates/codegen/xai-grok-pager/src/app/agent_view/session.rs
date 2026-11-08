@@ -179,6 +179,7 @@ impl AgentView {
             dock_on: false,
             dock_shown: false,
             dock_hidden: false,
+            ctrl_g_show_during_compact: false,
             prompt_mode: PromptMode::Normal,
             prompt_input_mode: PromptInputMode::Normal,
             multiline_mode: crate::appearance::cache::load_multiline_default(),

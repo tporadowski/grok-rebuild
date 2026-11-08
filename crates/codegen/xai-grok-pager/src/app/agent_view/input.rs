@@ -1032,19 +1032,20 @@ impl AgentView {
             if self.dock_on {
                 if self.dock_hidden {
                     self.dock_hidden = false;
+                    self.note_ctrl_g_shown_during_compact();
                     return InputOutcome::Changed;
                 }
                 if self.dock_shown {
-                    self.dock_hidden = true;
-                    if self.active_pane == AgentPane::Dock {
-                        self.set_active_pane(AgentPane::Scrollback, false);
-                    }
+                    self.hide_shown_dock();
                     return InputOutcome::Changed;
                 }
                 return InputOutcome::Unchanged;
             }
             self.tasks.overlay.toggle();
             self.tasks.on_state_change();
+            if self.tasks.overlay.visible {
+                self.note_ctrl_g_shown_during_compact();
+            }
             if self.tasks.overlay.focused {
                 self.set_active_pane(AgentPane::Tasks, false);
             } else if self.active_pane == AgentPane::Tasks {
@@ -1326,6 +1327,53 @@ impl AgentView {
     fn open_session_picker(&mut self) -> InputOutcome {
         self.active_modal = Some(crate::views::modal::session_picker_modal(None));
         InputOutcome::Action(Action::FetchSessionList)
+    }
+    /// Hide the painted dock the same way Ctrl+G does: sticky `dock_hidden`, and
+    /// focus leaves the dock.
+    pub(crate) fn hide_shown_dock(&mut self) {
+        self.dock_hidden = true;
+        if self.active_pane == AgentPane::Dock {
+            self.set_active_pane(AgentPane::Scrollback, false);
+        }
+    }
+    /// Hide an open tasks pane. Compact uses the hidden end state, including a
+    /// pane Ctrl+G would focus before the next press closed it.
+    pub(crate) fn hide_tasks_pane(&mut self) {
+        if !self.tasks.is_visible() {
+            return;
+        }
+        self.tasks.overlay.hide();
+        self.tasks.on_state_change();
+        if self.active_pane == AgentPane::Tasks {
+            self.set_active_pane(AgentPane::Scrollback, false);
+        }
+    }
+    /// Compact mode keeps the Ctrl+G hide in force until Ctrl+G shows the surface.
+    /// Minimal mode is left alone: there Ctrl+G opens the external editor.
+    pub(crate) fn apply_compact_ctrl_g_hide(&mut self, compact: bool, dock_on: bool) {
+        let compact_hides = compact && !self.is_minimal_mode();
+        if !compact_hides {
+            self.ctrl_g_show_during_compact = false;
+            return;
+        }
+        if self.ctrl_g_show_during_compact {
+            return;
+        }
+        if dock_on && !self.dock_hidden {
+            self.hide_shown_dock();
+        }
+        self.hide_tasks_pane();
+    }
+    pub(crate) fn note_ctrl_g_shown_during_compact(&mut self) {
+        if self.scrollback.appearance().prompt.compact && !self.is_minimal_mode() {
+            self.ctrl_g_show_during_compact = true;
+        }
+    }
+    pub(crate) fn clear_compact_ctrl_g_show(&mut self) {
+        self.ctrl_g_show_during_compact = false;
+        for child in self.subagent_views.values_mut() {
+            child.clear_compact_ctrl_g_show();
+        }
     }
     /// Returns `true` if the switch happened immediately, `false` if blocked.
     /// The one chokepoint for focusing the composer: with no route for its text (a child view) the prompt

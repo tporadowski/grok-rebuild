@@ -2133,6 +2133,10 @@ impl AppView {
         self.set_appearance(config);
         for agent in self.agents.values_mut() {
             agent.prompt.set_compact(derived);
+            // A new compact period hides again. Showing with Ctrl+G during the
+            // previous period does not carry over, and turning compact off
+            // forgets that show so the next on hides.
+            agent.clear_compact_ctrl_g_show();
         }
     }
     /// Viewport height (rows) of the surface a scroll would move.

@@ -972,6 +972,9 @@ impl AgentView {
         if registry.matches_id(ActionId::ToggleTasks, key) {
             self.tasks.overlay.toggle();
             self.tasks.on_state_change();
+            if self.tasks.overlay.visible {
+                self.note_ctrl_g_shown_during_compact();
+            }
             if !self.tasks.overlay.focused {
                 return InputOutcome::Action(Action::FocusScrollback);
             }
