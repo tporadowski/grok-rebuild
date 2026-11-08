@@ -23,6 +23,10 @@ use crate::theme::Theme;
 /// Synthetic entry index for btw overlay selection (never collides with real scrollback).
 pub const BTW_OVERLAY_ENTRY_IDX: usize = usize::MAX;
 
+/// Selection range for the question in the panel title. Distinct from the answer body, so a drag
+/// on the title copies the question and does not pull in the answer lines.
+const BTW_QUESTION_RANGE_ID: u16 = u16::MAX - 1;
+
 #[derive(Debug, Clone)]
 pub enum BtwOverlayState {
     /// Waiting for the shell to respond.
@@ -121,6 +125,45 @@ impl BtwOverlayState {
         }
         model
     }
+}
+
+/// The title paints ` /btw {question} `, truncated with an ellipsis. Only the visible question
+/// characters are selectable: the `/btw ` label, the padding, and the ellipsis are chrome.
+fn push_btw_question_title(
+    model: &mut ResolvedSelectionModel,
+    question: &str,
+    truncated_title: &str,
+    title_x: u16,
+    title_y: u16,
+) {
+    const PREFIX: &str = "/btw ";
+    let body = truncated_title
+        .strip_suffix('\u{2026}')
+        .unwrap_or(truncated_title);
+    let Some(shown) = body.strip_prefix(PREFIX) else {
+        return;
+    };
+    if shown.is_empty() || !question.starts_with(shown) {
+        return;
+    }
+    let width = UnicodeWidthStr::width(shown) as u16;
+    if width == 0 {
+        return;
+    }
+    let screen_x = title_x
+        .saturating_add(1)
+        .saturating_add(UnicodeWidthStr::width(PREFIX) as u16);
+    model.push_line(ResolvedSelectableLine {
+        entry_idx: BTW_OVERLAY_ENTRY_IDX,
+        range_id: BTW_QUESTION_RANGE_ID,
+        block_line_idx: 0,
+        screen_y: title_y,
+        screen_x,
+        selectable_cols: 0..width,
+        text: shown.to_string(),
+        painted_region: Some(shown.to_string()),
+        joiner_to_previous: None,
+    });
 }
 
 /// Push one `/btw` row in the same column space scrollback uses for copy. `col_within_range` is an
@@ -353,6 +396,7 @@ pub fn render_btw_panel(
         full_title
     };
     let title_text = format!(" {truncated} ");
+    push_btw_question_title(selection_model, question, &truncated, title_x, area.y);
     let title_line = Line::from(Span::styled(title_text.clone(), title_style));
     // Clamp the paint width so the title can never bleed into the hint region, even in degenerate narrow layouts
     let title_render_w = (title_text.width() as u16).min(title_limit_x.saturating_sub(title_x));

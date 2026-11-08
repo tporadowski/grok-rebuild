@@ -3780,6 +3780,58 @@ mod tests {
         assert_eq!(agent.scrollback.scroll_info().0, transcript_before);
     }
 
+    /// Dragging the question in the panel title copies that question on release, the same way as the answer.
+    #[test]
+    fn btw_question_title_copies_on_release() {
+        let _capture = TitleCopyCapture::arm();
+        let mut agent = make_agent();
+        let question = "retry the loop";
+        agent.btw_state = Some(crate::views::btw_overlay::BtwOverlayState::done(
+            question.into(),
+            "the answer body".into(),
+        ));
+        let area = Rect::new(2, 10, 60, 8);
+        agent.last_btw_area = area;
+        paint_btw(&mut agent, area);
+
+        let line = agent
+            .last_btw_selection_model
+            .ranges
+            .iter()
+            .flat_map(|range| range.lines.iter())
+            .find(|line| line.text == question)
+            .expect("the question is a selectable title line");
+        let start = line.screen_x;
+        let end = line
+            .screen_x
+            .saturating_add(line.selectable_cols.end.saturating_sub(1));
+        let row = line.screen_y;
+        assert_ne!(row, area.y + 1, "the question sits on the title row, not the answer");
+
+        agent.handle_mouse(&mouse_down(start, row));
+        agent.handle_mouse(&mouse_drag(end, row));
+        agent.handle_mouse(&mouse_up(end, row));
+
+        assert_eq!(
+            crate::clipboard::take_captured_copy().as_deref(),
+            Some(question),
+            "releasing the drag copies the question"
+        );
+    }
+
+    struct TitleCopyCapture;
+    impl TitleCopyCapture {
+        fn arm() -> Self {
+            crate::clipboard::set_copy_capture(true);
+            Self
+        }
+    }
+    impl Drop for TitleCopyCapture {
+        fn drop(&mut self) {
+            crate::clipboard::set_copy_capture(false);
+        }
+    }
+
     fn paint_btw(agent: &mut AgentView, area: Rect) {
         use crate::views::btw_overlay::render_btw_panel;
         use ratatui::buffer::Buffer;
