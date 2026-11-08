@@ -1018,10 +1018,13 @@ pub(crate) async fn persist_setting(
                 .map_err(|e| e.to_string())
         }
         "show_timestamps" => {
-            let SettingValue::Bool(b) = value else {
-                return Err(kind_mismatch("show_timestamps", "Bool", &value));
+            let SettingValue::Enum(mode) = value else {
+                return Err(kind_mismatch("show_timestamps", "Enum", &value));
             };
-            xai_grok_shell::util::config::set_show_timestamps(b)
+            let Some(mode) = xai_grok_shell::agent::config::TimestampMode::parse(mode) else {
+                return Err(format!("persist_setting(show_timestamps) unknown mode {mode}"));
+            };
+            xai_grok_shell::util::config::set_show_timestamps(mode)
                 .await
                 .map_err(|e| e.to_string())
         }

@@ -53,16 +53,13 @@ pub fn media_open_button_col(content_width: u16, is_video: bool) -> u16 {
 ///
 /// Matches the constant in `EntryRenderer::timestamp_reserved()`.
 fn timestamp_reserved_for_block(block: &RenderBlock, appearance: &AppearanceConfig) -> u16 {
-    if appearance.show_timestamps
-        && matches!(
+    crate::scrollback::timestamp::message_timestamp_reserved(
+        appearance.show_timestamps,
+        matches!(
             block,
             RenderBlock::UserPrompt(_) | RenderBlock::AgentMessage(_) | RenderBlock::Btw(_)
-        )
-    {
-        10
-    } else {
-        0
-    }
+        ),
+    )
 }
 
 /// Reusable scratch `Buffer` so clipped-entry rendering is greppable and not reallocated every frame.

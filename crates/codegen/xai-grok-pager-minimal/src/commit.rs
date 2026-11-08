@@ -182,7 +182,7 @@ pub fn commit_leading_run(
 /// The header diamond then stays flush at column 0 like every other block's, and the gutter reads as one consistent treatment.
 pub(crate) fn committed_appearance(base: &AppearanceConfig) -> AppearanceConfig {
     let mut a = base.clone();
-    a.show_timestamps = false;
+    a.show_timestamps = xai_grok_pager::appearance::TimestampMode::Off;
     a.scrollback.layout.block_pad_left = 0;
     a.scrollback.layout.block_pad_right = 0;
     a.scrollback.blocks.thinking.body_dim_italic = true;

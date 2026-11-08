@@ -258,7 +258,7 @@ mod tests {
 
         let mut state = ScrollbackState::new();
         state.set_appearance(AppearanceConfig {
-            show_timestamps: false,
+            show_timestamps: crate::appearance::TimestampMode::Off,
             ..Default::default()
         });
         state.begin_batch();

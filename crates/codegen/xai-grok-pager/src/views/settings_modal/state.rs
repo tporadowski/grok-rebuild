@@ -912,7 +912,7 @@ fn build_rows(registry: &SettingsRegistry, visibility: RowVisibility) -> Vec<Row
 pub(super) fn action_for_bool(key: SettingKey, new: bool) -> Option<Action> {
     match key {
         "compact_mode" => Some(Action::SetCompactMode(new)),
-        "show_timestamps" => Some(Action::SetTimestamps(new)),
+
         "show_timeline" => Some(Action::SetTimeline(new)),
         "simple_mode" => Some(Action::SetSimpleMode(new)),
         "contextual_hints.undo" => Some(Action::SetContextualHintUndo(new)),
@@ -1019,6 +1019,9 @@ pub(super) fn action_for_enum_commit(key: SettingKey, choice: &'static str) -> O
         }
         "follow_up_behavior" => crate::appearance::FollowUpBehavior::from_canonical(choice)
             .map(Action::SetFollowUpBehavior),
+        "show_timestamps" => {
+            crate::appearance::TimestampMode::parse(choice).map(Action::SetTimestamps)
+        }
         "default_selected_permission" => {
             Some(Action::SetDefaultSelectedPermission(choice.to_string()))
         }

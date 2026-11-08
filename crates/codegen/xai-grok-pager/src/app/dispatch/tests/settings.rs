@@ -729,7 +729,10 @@ fn compact_mode_collapses_recaps_and_keeps_inner_spacing_on_a_tall_terminal() {
 fn set_timestamps_emits_persist_setting_with_correct_payload() {
     use crate::settings::SettingValue;
     let mut app = test_app_with_agent();
-    let effects = dispatch(Action::SetTimestamps(false), &mut app);
+    let effects = dispatch(
+        Action::SetTimestamps(crate::appearance::TimestampMode::Off),
+        &mut app,
+    );
     assert_eq!(effects.len(), 1);
     match effects.first() {
         Some(Effect::PersistSetting {
@@ -738,12 +741,15 @@ fn set_timestamps_emits_persist_setting_with_correct_payload() {
             rollback_value,
         }) => {
             assert_eq!(*key, "show_timestamps");
-            assert_eq!(value, &SettingValue::Bool(false));
-            assert_eq!(rollback_value, &SettingValue::Bool(true));
+            assert_eq!(value, &SettingValue::Enum("off"));
+            assert_eq!(rollback_value, &SettingValue::Enum("on"));
         }
         other => panic!("expected PersistSetting, got {other:?}"),
     }
-    assert_eq!(app.current_ui.show_timestamps, Some(false));
+    assert_eq!(
+        app.current_ui.show_timestamps,
+        Some(crate::appearance::TimestampMode::Off)
+    );
 }
 #[test]
 fn set_timeline_emits_persist_setting_with_correct_payload() {
@@ -1881,7 +1887,10 @@ fn move_setting_away_from_default(app: &mut AppView, key: crate::settings::Setti
             let _ = dispatch(Action::SetCompactMode(true), app);
         }
         "show_timestamps" => {
-            let _ = dispatch(Action::SetTimestamps(false), app);
+            let _ = dispatch(
+                Action::SetTimestamps(crate::appearance::TimestampMode::Off),
+                app,
+            );
         }
         "show_timeline" => {
             let away = !app.current_ui.show_timeline_enabled();
@@ -2225,9 +2234,13 @@ fn set_x_propagates_to_thread_local_cache() {
             !crate::appearance::cache::load(),
             "set_compact_mode(false) must update the cache"
         );
-        let _ = dispatch(Action::SetTimestamps(false), &mut app);
-        assert!(
-            !crate::appearance::cache::load_timestamps(),
+        let _ = dispatch(
+            Action::SetTimestamps(crate::appearance::TimestampMode::Off),
+            &mut app,
+        );
+        assert_eq!(
+            crate::appearance::cache::load_timestamps(),
+            crate::appearance::TimestampMode::Off,
             "set_timestamps must update the cache"
         );
         let _ = dispatch(Action::SetSimpleMode(false), &mut app);

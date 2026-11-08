@@ -693,7 +693,7 @@ dashboard_preview = false
     let mut user = TomlMap::new();
     let mut config = load_config_from_toml(&TomlValue::Table(user.clone()));
     assert!(config.ui.dashboard_preview.is_none());
-    config.ui.show_timestamps = Some(false);
+    config.ui.show_timestamps = Some(crate::agent::config::TimestampMode::Off);
     merge_section(&mut user, "ui", &config.ui);
     assert!(
         user.get("ui")
@@ -703,7 +703,10 @@ dashboard_preview = false
     merge_toml_tables(managed.as_table_mut().unwrap(), user);
     let effective = load_config_from_toml(&managed);
     assert!(!effective.ui.dashboard_preview_enabled());
-    assert_eq!(effective.ui.show_timestamps, Some(false));
+    assert_eq!(
+        effective.ui.show_timestamps,
+        Some(crate::agent::config::TimestampMode::Off)
+    );
 }
 #[test]
 fn ui_config_round_trip_preserves_pager_fields() {
@@ -718,7 +721,10 @@ auto_light_theme = "grokday"
     let root: TomlValue = toml::from_str(toml_str).unwrap();
     let cfg = load_config_from_toml(&root);
     assert!(cfg.ui.yolo);
-    assert_eq!(cfg.ui.show_timestamps, Some(false));
+    assert_eq!(
+        cfg.ui.show_timestamps,
+        Some(crate::agent::config::TimestampMode::Off)
+    );
     assert!(!cfg.ui.dashboard_preview_enabled());
     assert_eq!(cfg.ui.auto_dark_theme.as_deref(), Some("tokyonight"));
     assert_eq!(cfg.ui.auto_light_theme.as_deref(), Some("grokday"));
@@ -1393,10 +1399,16 @@ fn settings_helpers_target_correct_ui_fields() {
     assert!(cfg.ui.compact_mode, "set_compact_mode must set bool field");
     let cfg = apply(|cfg| cfg.ui.compact_mode = false);
     assert!(!cfg.ui.compact_mode);
-    let cfg = apply(|cfg| cfg.ui.show_timestamps = Some(true));
-    assert_eq!(cfg.ui.show_timestamps, Some(true));
-    let cfg = apply(|cfg| cfg.ui.show_timestamps = Some(false));
-    assert_eq!(cfg.ui.show_timestamps, Some(false));
+    let cfg = apply(|cfg| cfg.ui.show_timestamps = Some(crate::agent::config::TimestampMode::On));
+    assert_eq!(
+        cfg.ui.show_timestamps,
+        Some(crate::agent::config::TimestampMode::On)
+    );
+    let cfg = apply(|cfg| cfg.ui.show_timestamps = Some(crate::agent::config::TimestampMode::Off));
+    assert_eq!(
+        cfg.ui.show_timestamps,
+        Some(crate::agent::config::TimestampMode::Off)
+    );
     let cfg = apply(|cfg| cfg.ui.simple_mode = Some(true));
     assert_eq!(cfg.ui.simple_mode, Some(true));
     let cfg = apply(|cfg| cfg.ui.simple_mode = Some(false));
@@ -1533,7 +1545,7 @@ custom_unknown_key = 42
 "#;
     let root: TomlValue = toml::from_str(original).unwrap();
     let mut cfg = load_config_from_toml(&root);
-    cfg.ui.show_timestamps = Some(false);
+    cfg.ui.show_timestamps = Some(crate::agent::config::TimestampMode::Off);
     cfg.ui.simple_mode = Some(false);
     let mut table = root.as_table().unwrap().clone();
     merge_section(&mut table, "ui", &cfg.ui);

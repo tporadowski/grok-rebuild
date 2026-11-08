@@ -1070,7 +1070,7 @@ pub(in crate::app::dispatch) fn set_compact_mode(app: &mut AppView, new: bool) -
 
 /// State-only mutation for `show_timestamps`.
 /// Idempotent fast path mirrors `set_compact_mode_inner`.
-pub(super) fn set_timestamps_inner(app: &mut AppView, new: bool) {
+pub(super) fn set_timestamps_inner(app: &mut AppView, new: crate::appearance::TimestampMode) {
     app.current_ui.show_timestamps = Some(new);
     if app.appearance.show_timestamps == new {
         crate::appearance::cache::set_timestamps(new);
@@ -1082,20 +1082,22 @@ pub(super) fn set_timestamps_inner(app: &mut AppView, new: bool) {
     crate::appearance::cache::set_timestamps(new);
 }
 
-pub(in crate::app::dispatch) fn set_timestamps(app: &mut AppView, new: bool) -> Vec<Effect> {
-    let prev = app.current_ui.show_timestamps.unwrap_or(true);
-    // Idempotency gate.
+pub(in crate::app::dispatch) fn set_timestamps(
+    app: &mut AppView,
+    new: crate::appearance::TimestampMode,
+) -> Vec<Effect> {
+    let prev = app.current_ui.timestamp_mode();
     if prev == new {
         return vec![];
     }
     set_timestamps_inner(app, new);
     refresh_open_settings_modals(app);
-    tracing::info!(target: "settings", key = "show_timestamps", value = new, "setting changed");
-    app.show_toast(&save_success_toast("Timestamps", new));
+    tracing::info!(target: "settings", key = "show_timestamps", value = new.as_str(), "setting changed");
+    app.show_toast(&format!("\u{2713} Timestamps: {}", new.as_str()));
     vec![Effect::PersistSetting {
         key: "show_timestamps",
-        value: crate::settings::SettingValue::Bool(new),
-        rollback_value: crate::settings::SettingValue::Bool(prev),
+        value: crate::settings::SettingValue::Enum(new.as_str()),
+        rollback_value: crate::settings::SettingValue::Enum(prev.as_str()),
     }]
 }
 

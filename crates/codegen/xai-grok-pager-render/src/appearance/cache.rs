@@ -12,7 +12,7 @@
 use std::cell::Cell;
 
 use xai_grok_shared::keys_config::VimKeys;
-use xai_grok_shared::ui_config::UiConfig;
+use xai_grok_shared::ui_config::{TimestampMode, UiConfig};
 
 use super::follow_up_behavior::FollowUpBehavior;
 use super::render_mermaid::RenderMermaid;
@@ -20,7 +20,7 @@ use super::scroll_mode::ScrollMode;
 use super::text_selection::TextSelection;
 
 const COMPACT_DEFAULT: bool = false;
-const TIMESTAMPS_DEFAULT: bool = true;
+const TIMESTAMPS_DEFAULT: TimestampMode = TimestampMode::On;
 /// Aliased rather than hardcoded so [`UiConfig::SHOW_TIMELINE_DEFAULT`] stays the single source of truth.
 const TIMELINE_DEFAULT: bool = UiConfig::SHOW_TIMELINE_DEFAULT;
 const PAGE_FLIP_ON_SEND_DEFAULT: bool = UiConfig::PAGE_FLIP_ON_SEND_DEFAULT;
@@ -78,28 +78,40 @@ pub fn set(enabled: bool) {
 }
 
 thread_local! {
-    static TIMESTAMPS_CURRENT: Cell<bool> = const { Cell::new(TIMESTAMPS_DEFAULT) };
+    static TIMESTAMPS_CURRENT: Cell<TimestampMode> = const { Cell::new(TIMESTAMPS_DEFAULT) };
     static TIMESTAMPS_LOADED: Cell<bool> = const { Cell::new(false) };
 }
 
-pub fn load_timestamps() -> bool {
+pub fn load_timestamps() -> TimestampMode {
     TIMESTAMPS_LOADED.with(|loaded| {
         if !loaded.get() {
-            TIMESTAMPS_CURRENT.with(|c| {
-                c.set(load_bool_from_effective_config(
-                    "show_timestamps",
-                    TIMESTAMPS_DEFAULT,
-                ))
-            });
+            TIMESTAMPS_CURRENT.with(|c| c.set(load_timestamp_mode_from_effective_config()));
             loaded.set(true);
         }
     });
     TIMESTAMPS_CURRENT.with(|c| c.get())
 }
 
-pub fn set_timestamps(enabled: bool) {
-    TIMESTAMPS_CURRENT.with(|c| c.set(enabled));
+pub fn set_timestamps(mode: TimestampMode) {
+    TIMESTAMPS_CURRENT.with(|c| c.set(mode));
     TIMESTAMPS_LOADED.with(|l| l.set(true));
+}
+
+/// Absent, or a value this build does not understand, stays on.
+fn load_timestamp_mode_from_effective_config() -> TimestampMode {
+    let Ok(root) = xai_grok_config::load_effective_config_disk_only() else {
+        return TIMESTAMPS_DEFAULT;
+    };
+    let Some(value) = root.get("ui").and_then(|ui| ui.get("show_timestamps")) else {
+        return TIMESTAMPS_DEFAULT;
+    };
+    if let Some(enabled) = value.as_bool() {
+        return TimestampMode::from_bool(enabled);
+    }
+    value
+        .as_str()
+        .and_then(TimestampMode::parse)
+        .unwrap_or(TIMESTAMPS_DEFAULT)
 }
 
 thread_local! {
@@ -813,7 +825,7 @@ mod tests {
     fn cache_initial_defaults_match_ui_config_default() {
         let ui = UiConfig::default();
         assert_eq!(COMPACT_DEFAULT, ui.compact_mode);
-        assert_eq!(TIMESTAMPS_DEFAULT, ui.show_timestamps.unwrap_or(true));
+        assert_eq!(TIMESTAMPS_DEFAULT, ui.timestamp_mode());
         assert_eq!(TIMELINE_DEFAULT, ui.show_timeline_enabled());
         assert_eq!(PAGE_FLIP_ON_SEND_DEFAULT, ui.page_flip_on_send_enabled());
         assert_eq!(
@@ -890,10 +902,12 @@ mod tests {
     #[test]
     fn set_then_load_round_trips_timestamps() {
         std::thread::spawn(|| {
-            set_timestamps(false);
-            assert!(!load_timestamps());
-            set_timestamps(true);
-            assert!(load_timestamps());
+            set_timestamps(TimestampMode::Off);
+            assert_eq!(load_timestamps(), TimestampMode::Off);
+            set_timestamps(TimestampMode::Minimal);
+            assert_eq!(load_timestamps(), TimestampMode::Minimal);
+            set_timestamps(TimestampMode::On);
+            assert_eq!(load_timestamps(), TimestampMode::On);
         })
         .join()
         .unwrap();
@@ -1107,11 +1121,12 @@ mod tests {
     fn caches_are_independent() {
         std::thread::spawn(|| {
             set(false);
-            set_timestamps(true);
+            set_timestamps(TimestampMode::On);
             set_simple_mode(true);
             assert!(!load(), "compact toggled");
-            assert!(
+            assert_eq!(
                 load_timestamps(),
+                TimestampMode::On,
                 "timestamps must NOT toggle when compact changed"
             );
             assert!(
@@ -1120,21 +1135,22 @@ mod tests {
             );
 
             set(true);
-            set_timestamps(false);
+            set_timestamps(TimestampMode::Off);
             set_simple_mode(true);
             assert!(load(), "compact must NOT toggle when timestamps changed");
-            assert!(!load_timestamps(), "timestamps toggled");
+            assert_eq!(load_timestamps(), TimestampMode::Off, "timestamps toggled");
             assert!(
                 load_simple_mode(),
                 "simple_mode must NOT toggle when timestamps changed"
             );
 
             set(true);
-            set_timestamps(true);
+            set_timestamps(TimestampMode::On);
             set_simple_mode(false);
             assert!(load(), "compact must NOT toggle when simple_mode changed");
-            assert!(
+            assert_eq!(
                 load_timestamps(),
+                TimestampMode::On,
                 "timestamps must NOT toggle when simple_mode changed"
             );
             assert!(!load_simple_mode(), "simple_mode toggled");
@@ -1178,14 +1194,14 @@ mod tests {
         std::thread::spawn(|| {
             let ui = UiConfig {
                 compact_mode: true,
-                show_timestamps: Some(false),
+                show_timestamps: Some(TimestampMode::Off),
                 simple_mode: Some(false),
                 keep_text_selection: Some("hold".into()),
                 ..UiConfig::default()
             };
             prime(&ui);
             assert!(load());
-            assert!(!load_timestamps());
+            assert_eq!(load_timestamps(), TimestampMode::Off);
             assert!(!load_simple_mode());
             assert_eq!(load_keep_text_selection(), TextSelection::Hold);
         })

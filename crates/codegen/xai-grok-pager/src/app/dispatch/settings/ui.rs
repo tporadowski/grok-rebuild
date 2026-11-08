@@ -484,8 +484,7 @@ pub(in crate::app::dispatch) fn dispatch_toggle_vim_mode(app: &mut AppView) -> V
 /// Toggle timestamps (Ctrl+? keybinding path).
 /// Delegates to the registry-driven `set_timestamps` so persistence, the cache, and UI reconciliation all flow through a single code path.
 pub(in crate::app::dispatch) fn dispatch_toggle_timestamps(app: &mut AppView) -> Vec<Effect> {
-    let show = !app.appearance.show_timestamps;
-    set_timestamps(app, show)
+    set_timestamps(app, app.appearance.show_timestamps.next())
 }
 
 /// Toggle terminal mouse reporting (crossterm mouse capture) at the user's discretion.
@@ -654,7 +653,9 @@ pub(in crate::app::dispatch) fn action_for_reset(
     use crate::settings::SettingValue;
     match (key, value) {
         ("compact_mode", SettingValue::Bool(b)) => Some(Action::SetCompactMode(*b)),
-        ("show_timestamps", SettingValue::Bool(b)) => Some(Action::SetTimestamps(*b)),
+        ("show_timestamps", SettingValue::Enum(s)) => {
+            crate::appearance::TimestampMode::parse(s).map(Action::SetTimestamps)
+        }
         ("show_timeline", SettingValue::Bool(b)) => Some(Action::SetTimeline(*b)),
         ("page_flip_on_send", SettingValue::Bool(b)) => Some(Action::SetPageFlipOnSend(*b)),
         ("dashboard_preview", SettingValue::Bool(enabled)) => {
@@ -838,7 +839,11 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
     let mut companion_effects: Vec<Effect> = Vec::new();
     match (key, rollback_value) {
         ("compact_mode", SettingValue::Bool(b)) => set_compact_mode_inner(app, *b),
-        ("show_timestamps", SettingValue::Bool(b)) => set_timestamps_inner(app, *b),
+        ("show_timestamps", SettingValue::Enum(s)) => {
+            if let Some(mode) = crate::appearance::TimestampMode::parse(s) {
+                set_timestamps_inner(app, mode);
+            }
+        }
         ("show_timeline", SettingValue::Bool(b)) => set_timeline_inner(app, *b),
         ("page_flip_on_send", SettingValue::Bool(b)) => set_page_flip_on_send_inner(app, *b),
         ("dashboard_preview", SettingValue::Bool(enabled)) => {

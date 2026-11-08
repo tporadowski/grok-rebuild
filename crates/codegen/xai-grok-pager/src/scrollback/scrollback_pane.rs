@@ -599,15 +599,13 @@ impl ScrollbackPane {
 
         // When timestamps are shown on message blocks, reserve right margin in the block's content width
         // Wrapped text then doesn't collide with the overlaid timestamp (matches EntryRenderer for normal content)
-        let ts_reserved = if appearance.show_timestamps
-            && matches!(
+        let ts_reserved = crate::scrollback::timestamp::message_timestamp_reserved(
+            appearance.show_timestamps,
+            matches!(
                 &entry.block,
                 RenderBlock::UserPrompt(_) | RenderBlock::AgentMessage(_) | RenderBlock::Btw(_)
-            ) {
-            10
-        } else {
-            0
-        };
+            ),
+        );
         let content_width_for_block = layout.content_width().saturating_sub(ts_reserved);
 
         let ctx = entry.context_with_mode_and_budget(
@@ -816,25 +814,26 @@ impl ScrollbackPane {
         // Overlay timestamp on the first content line for message blocks in sticky headers (pinned/pushed user prompts, agent messages, etc.)
         // Mirrors the overlay in EntryRenderer but adapted for the header render path and the clip (scratch buffer) case
         // Hover expansion works for pinned (absolute coords); pushed headers always get the short format
-        if ctx.appearance.show_timestamps
-            && !output.lines.is_empty()
+        if !output.lines.is_empty()
             && matches!(
                 &entry.block,
                 RenderBlock::UserPrompt(_) | RenderBlock::AgentMessage(_) | RenderBlock::Btw(_)
             )
             && let Some(ts) = entry.created_at
+            && let Some(ts_str) = crate::scrollback::timestamp::message_timestamp_text(
+                ctx.appearance.show_timestamps,
+                {
+                    let first_content_y = content_area.y + if use_vpad { 1 } else { 0 };
+                    mouse_pos.is_some_and(|(mx, my)| {
+                        my == first_content_y
+                            && mx >= content_area.x + content_area.width.saturating_sub(10)
+                            && mx < content_area.x + content_area.width
+                    })
+                },
+                ts,
+            )
         {
             let first_content_y = content_area.y + if use_vpad { 1 } else { 0 };
-            let ts_hovered = mouse_pos.is_some_and(|(mx, my)| {
-                my == first_content_y
-                    && mx >= content_area.x + content_area.width.saturating_sub(10)
-                    && mx < content_area.x + content_area.width
-            });
-            let ts_str = if ts_hovered {
-                ts.format("  %H:%M:%S | %b %d").to_string()
-            } else {
-                ts.format("  %-I:%M %p").to_string()
-            };
             let ts_width = ts_str.len() as u16;
             if content_area.width > ts_width + 1
                 && first_content_y < content_area.y + content_area.height

@@ -1059,7 +1059,7 @@ fn resolve_subagent_permission_mode(
 pub use xai_grok_agent::config::AgentDefinition;
 pub use xai_grok_agent::config::Effort;
 pub use xai_grok_agent::config::PermissionMode;
-pub use xai_grok_shared::ui_config::{ContextualHints, UiConfig};
+pub use xai_grok_shared::ui_config::{ContextualHints, TimestampMode, UiConfig};
 
 /// `[keys]` table. `vim` stays a string so an unrecognized value does not fail the whole file.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]

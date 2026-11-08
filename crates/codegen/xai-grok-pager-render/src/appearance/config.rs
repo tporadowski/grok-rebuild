@@ -5,7 +5,7 @@ use documented::{Documented, DocumentedFields};
 use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
 use toml_edit::{DocumentMut, Item, RawString};
-use xai_grok_shared::ui_config::UiConfig;
+use xai_grok_shared::ui_config::{TimestampMode, UiConfig};
 
 /// Background style for block content area.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -22,8 +22,8 @@ pub struct AppearanceConfig {
     pub prompt: PromptViewConfig,
     pub scrollback: ScrollbackConfig,
     pub turn_status: TurnStatusConfig,
-    /// Show timestamps on user/agent messages. Toggled via `/timestamps`.
-    pub show_timestamps: bool,
+    /// Clock next to user and agent messages. `/timestamps` and Settings choose off, minimal, or on.
+    pub show_timestamps: TimestampMode,
     /// Timeline sidebar (per-turn tick rail). Toggled via `/timeline`.
     pub show_timeline: bool,
     /// Whether hooks & plugins UI is disabled (hides /hooks, /plugins commands and scrollback annotations). `false` by default (plugins enabled).
@@ -46,6 +46,12 @@ pub struct AppearanceConfig {
 impl Default for AppearanceConfig {
     fn default() -> Self {
         RawAppearanceConfig::default().into()
+    }
+}
+
+impl AppearanceConfig {
+    pub fn shows_timestamps(&self) -> bool {
+        self.show_timestamps.shows()
     }
 }
 
@@ -1267,7 +1273,7 @@ impl From<RawAppearanceConfig> for AppearanceConfig {
                 },
             },
             turn_status: TurnStatusConfig::default(),
-            show_timestamps: true, // runtime-only, loaded from config.toml via persist
+            show_timestamps: TimestampMode::On, // runtime-only, loaded from config.toml via persist
             // Single source: UiConfig::SHOW_TIMELINE_DEFAULT (loaded from config.toml via persist).
             show_timeline: UiConfig::SHOW_TIMELINE_DEFAULT,
             disable_plugins: raw.disable_plugins,

@@ -983,7 +983,7 @@ async fn persist_setting_type_mismatch_errors_show_timestamps() {
         .await;
     let err = r.expect_err("show_timestamps with String payload must return Err");
     assert!(
-            err.contains("persist_setting(show_timestamps) expected Bool"),
+            err.contains("persist_setting(show_timestamps) expected Enum"),
             "error message must mention key + expected kind, got: {err}",
         );
 }

@@ -319,11 +319,10 @@ impl<'a> EntryRenderer<'a> {
     ///
     /// When non-zero, content is wrapped at `content_width - reserved` so text never collides with the timestamp overlay.
     fn timestamp_reserved(&self) -> u16 {
-        if self.appearance().show_timestamps && self.should_show_timestamp() {
-            10 // max short format: "  12:30 PM"
-        } else {
-            0
-        }
+        crate::scrollback::timestamp::message_timestamp_reserved(
+            self.appearance().show_timestamps,
+            self.should_show_timestamp(),
+        )
     }
 
     /// Thinking entries take no rows when the Appearance toggle is off.
@@ -818,26 +817,25 @@ impl Renderable for EntryRenderer<'_> {
         }
 
         // Overlay timestamp on the first content line for message blocks.
-        // Short format (h:mm AM/PM) by default; expands to full format (HH:mm:ss | MMM DD) when the mouse hovers over the timestamp area
-        // Gated on appearance.show_timestamps (toggled via /timestamps).
-        if self.appearance().show_timestamps
-            && content_skip == 0
+        // Minimal is the short clock. On expands to HH:mm:ss | MMM DD when the pointer is on it.
+        if content_skip == 0
             && !output.is_empty()
             && self.should_show_timestamp()
             && let Some(ts) = self.entry.created_at
+            && let Some(ts_str) = crate::scrollback::timestamp::message_timestamp_text(
+                self.appearance().show_timestamps,
+                {
+                    let first_content_y = content_area.y + if vpad_top_visible { 1 } else { 0 };
+                    self.mouse_pos.is_some_and(|(mx, my)| {
+                        my == first_content_y
+                            && mx >= content_area.x + content_area.width.saturating_sub(10)
+                            && mx < content_area.x + content_area.width
+                    })
+                },
+                ts,
+            )
         {
             let first_content_y = content_area.y + if vpad_top_visible { 1 } else { 0 };
-            // Check if mouse is hovering the timestamp zone (rightmost 10 cols of the first content row)
-            let ts_hovered = self.mouse_pos.is_some_and(|(mx, my)| {
-                my == first_content_y
-                    && mx >= content_area.x + content_area.width.saturating_sub(10)
-                    && mx < content_area.x + content_area.width
-            });
-            let ts_str = if ts_hovered {
-                ts.format("  %H:%M:%S | %b %d").to_string()
-            } else {
-                ts.format("  %-I:%M %p").to_string()
-            };
             let ts_width = ts_str.len() as u16;
             if content_area.width > ts_width + 1 && first_content_y < max_row {
                 let ts_x = content_area.x + content_area.width - ts_width;
@@ -1597,7 +1595,7 @@ mod tests {
         // This proves the estimate is genuinely an approximation (so the viewport-exact measurement path is actually doing work)
         let theme = Theme::current();
         let appearance = AppearanceConfig {
-            show_timestamps: false,
+            show_timestamps: crate::appearance::TimestampMode::Off,
             ..Default::default()
         };
         let entry = ScrollbackEntry::new(RenderBlock::agent_message(

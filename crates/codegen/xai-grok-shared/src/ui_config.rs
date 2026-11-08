@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Deserializer, Visitor};
+use serde::{Deserialize, Serialize, Serializer};
 use xai_grok_config::DisplayRefreshSettings;
 
 use xai_grok_status_line::StatusLineConfig;
@@ -42,9 +43,10 @@ pub struct UiConfig {
     /// unset, the first prompt preselects the "Always allow on all sessions" (enable-always-approve) row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_selected_permission: Option<String>,
-    /// Written by the pager's appearance persist module.
+    /// Clock next to messages. Absent means on. A bool still loads: `false` is off, `true` is on.
+    /// `minimal` is the short clock. Written by the pager's settings modal and `/timestamps`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub show_timestamps: Option<bool>,
+    pub show_timestamps: Option<TimestampMode>,
     /// Timeline sidebar (per-turn tick rail in place of the scrollbar).
     /// `None` means off (client default; opt-in). Written by the pager's settings modal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -250,6 +252,93 @@ impl ContextualHints {
 
 const DEFAULT_MAX_THOUGHTS_WIDTH: u16 = 120;
 
+/// Clock next to user and agent messages. Old config files store a bool: `false` is [`Off`](Self::Off), `true` is [`On`](Self::On).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimestampMode {
+    Off,
+    /// Short clock only. Hover does not expand it.
+    Minimal,
+    /// Short clock, and the full date when the pointer is on the clock.
+    #[default]
+    On,
+}
+
+impl TimestampMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Minimal => "minimal",
+            Self::On => "on",
+        }
+    }
+
+    /// `off` / `false`, `minimal`, `on` / `true`. Anything else is not a mode.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "off" | "false" | "no" => Some(Self::Off),
+            "minimal" | "min" => Some(Self::Minimal),
+            "on" | "true" | "yes" => Some(Self::On),
+            _ => None,
+        }
+    }
+
+    pub fn from_bool(value: bool) -> Self {
+        if value { Self::On } else { Self::Off }
+    }
+
+    pub fn shows(self) -> bool {
+        self != Self::Off
+    }
+
+    /// `/timestamps` with no argument walks off → minimal → on → off.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Minimal,
+            Self::Minimal => Self::On,
+            Self::On => Self::Off,
+        }
+    }
+}
+
+impl Serialize for TimestampMode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            // Keep the historical bool so an existing `true` / `false` round-trips.
+            Self::Off => serializer.serialize_bool(false),
+            Self::On => serializer.serialize_bool(true),
+            Self::Minimal => serializer.serialize_str("minimal"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TimestampMode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ModeVisitor;
+
+        impl Visitor<'_> for ModeVisitor {
+            type Value = TimestampMode;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a bool or one of off, minimal, on")
+            }
+
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(TimestampMode::from_bool(value))
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                TimestampMode::parse(value).ok_or_else(|| {
+                    E::custom(format!(
+                        "unknown timestamp mode {value:?} (expected off, minimal, or on)"
+                    ))
+                })
+            }
+        }
+
+        deserializer.deserialize_any(ModeVisitor)
+    }
+}
+
 fn deserialize_keep_text_selection<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -328,6 +417,11 @@ impl Default for UiConfig {
 impl UiConfig {
     pub fn dashboard_preview_enabled(&self) -> bool {
         self.dashboard_preview.unwrap_or(true)
+    }
+
+    /// Absent `[ui].show_timestamps` is on, matching the old bool default.
+    pub fn timestamp_mode(&self) -> TimestampMode {
+        self.show_timestamps.unwrap_or_default()
     }
 
     /// The single source of truth for the timeline-sidebar default (opt-in). TODO: migrate the other boolean UI settings
@@ -546,5 +640,35 @@ mod tests {
         assert!(DisplayRefreshSettings::default().is_default());
         let ui = UiConfig::default();
         assert!(ui.display_refresh.is_default());
+    }
+
+    #[test]
+    fn show_timestamps_accepts_the_old_bool_and_the_three_modes() {
+        let off: UiConfig = serde_json::from_str(r#"{"show_timestamps": false}"#).unwrap();
+        assert_eq!(off.timestamp_mode(), TimestampMode::Off);
+        let on: UiConfig = serde_json::from_str(r#"{"show_timestamps": true}"#).unwrap();
+        assert_eq!(on.timestamp_mode(), TimestampMode::On);
+        let minimal: UiConfig = serde_json::from_str(r#"{"show_timestamps": "minimal"}"#).unwrap();
+        assert_eq!(minimal.timestamp_mode(), TimestampMode::Minimal);
+        let word_off: UiConfig = serde_json::from_str(r#"{"show_timestamps": "off"}"#).unwrap();
+        assert_eq!(word_off.timestamp_mode(), TimestampMode::Off);
+        assert_eq!(UiConfig::default().timestamp_mode(), TimestampMode::On);
+        assert!(UiConfig::default().show_timestamps.is_none());
+
+        assert_eq!(
+            serde_json::to_value(TimestampMode::Off).unwrap(),
+            serde_json::json!(false)
+        );
+        assert_eq!(
+            serde_json::to_value(TimestampMode::On).unwrap(),
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            serde_json::to_value(TimestampMode::Minimal).unwrap(),
+            serde_json::json!("minimal")
+        );
+        assert_eq!(TimestampMode::Off.next(), TimestampMode::Minimal);
+        assert_eq!(TimestampMode::Minimal.next(), TimestampMode::On);
+        assert_eq!(TimestampMode::On.next(), TimestampMode::Off);
     }
 }

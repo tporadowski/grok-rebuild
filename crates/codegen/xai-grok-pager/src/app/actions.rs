@@ -542,8 +542,8 @@ pub enum Action {
     ToggleCompactMode,
     /// Set compact mode (reduce user message padding).
     SetCompactMode(bool),
-    /// Set timestamp display on messages.
-    SetTimestamps(bool),
+    /// Set the clock next to messages (`off`, `minimal`, or `on`).
+    SetTimestamps(crate::appearance::TimestampMode),
     /// Set timeline sidebar visibility (per-turn tick rail).
     SetTimeline(bool),
     /// This action saves `[ui].dashboard_preview`.

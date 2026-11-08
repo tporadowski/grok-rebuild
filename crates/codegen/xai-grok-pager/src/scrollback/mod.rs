@@ -25,6 +25,7 @@ pub mod state;
 pub mod sticky;
 pub mod sticky_edit;
 pub mod table_geometry;
+pub mod timestamp;
 pub mod text_selection;
 pub mod types;
 pub mod wrappers;

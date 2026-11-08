@@ -162,6 +162,24 @@ const PLAN_MODE_CHOICES: &[EnumChoice] = &[
 
 // Mid-turn follow-up routing. SHARED-owned, persisted to `[ui].follow_up_behavior`.
 // Canonicals match `FollowUpBehavior::as_canonical`
+const TIMESTAMP_MODE_CHOICES: &[EnumChoice] = &[
+    EnumChoice {
+        canonical: "off",
+        display: "Off",
+        description: "Hide the clock.",
+    },
+    EnumChoice {
+        canonical: "minimal",
+        display: "Minimal",
+        description: "Show the time. Hover does not expand it.",
+    },
+    EnumChoice {
+        canonical: "on",
+        display: "On",
+        description: "Show the time, and the date when you hover the clock.",
+    },
+];
+
 const FOLLOW_UP_BEHAVIOR_CHOICES: &[EnumChoice] = &[
     EnumChoice {
         canonical: "queue",
@@ -521,12 +539,14 @@ pub fn default_settings() -> Vec<SettingMeta> {
             key: "show_timestamps",
             category: SettingCategory::Appearance,
             owner: SettingOwner::Shared,
-            label: "Show timestamps",
-            description: "Show clock time next to user messages and agent responses.",
-            keywords: &["timestamps", "time", "clock", "date"],
-            kind: SettingKind::Bool {
-                // `Option<bool>`: `None` is treated as `true`
-                default: ui_default.show_timestamps.unwrap_or(true),
+            label: "Timestamps",
+            description: "Show a clock next to user messages and agent responses. \
+                          Off hides it. Minimal shows the time. On also shows the date when you hover the time.",
+            keywords: &["timestamps", "time", "clock", "date", "show"],
+            kind: SettingKind::Enum {
+                default: ui_default.timestamp_mode().as_str(),
+                choices: TIMESTAMP_MODE_CHOICES,
+                supports_preview: false,
             },
             restart_required: false,
             hidden_in_minimal: false,

@@ -186,6 +186,24 @@ fn navigate_to(state: &mut SettingsModalState, target: &str) {
     }
 }
 
+fn assert_timestamps_picker(state: &SettingsModalState, outcome: SettingsKeyOutcome) {
+    assert!(
+        matches!(outcome, SettingsKeyOutcome::Changed),
+        "opening the timestamps picker must change the modal, got {outcome:?}"
+    );
+    match state.mode() {
+        SettingsModalMode::PickingEnum {
+            key,
+            original_value,
+            ..
+        } => {
+            assert_eq!(key, "show_timestamps");
+            assert_eq!(original_value, SettingValue::Enum("on"));
+        }
+        other => panic!("expected the timestamps picker, got {other:?}"),
+    }
+}
+
 /// Assert that `outcome` is the typed setter Action for the given bool key.
 fn assert_set_bool_action(outcome: SettingsKeyOutcome, key: &str, expected: bool) {
     let action = match outcome {
@@ -199,9 +217,6 @@ fn assert_set_bool_action(outcome: SettingsKeyOutcome, key: &str, expected: bool
     match (key, action) {
         ("compact_mode", Action::SetCompactMode(b)) => {
             assert_eq!(b, expected, "SetCompactMode value differs from expected")
-        }
-        ("show_timestamps", Action::SetTimestamps(b)) => {
-            assert_eq!(b, expected, "SetTimestamps value differs from expected")
         }
         ("show_timeline", Action::SetTimeline(b)) => {
             assert_eq!(b, expected, "SetTimeline value differs from expected")
@@ -384,11 +399,27 @@ fn space_on_compact_mode_dispatches_typed_setter() {
 }
 
 #[test]
-fn space_on_show_timestamps_dispatches_typed_setter() {
+fn enter_on_show_timestamps_opens_the_mode_picker() {
     let mut s = make_state();
     navigate_to(&mut s, "show_timestamps");
-    let outcome = handle_settings_key(&mut s, &press(KeyCode::Char(' ')));
-    assert_set_bool_action(outcome, "show_timestamps", false);
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    assert_timestamps_picker(&s, outcome);
+}
+
+#[test]
+fn timestamps_picker_enter_on_minimal_dispatches_that_mode() {
+    let mut s = make_state();
+    navigate_to(&mut s, "show_timestamps");
+    let _ = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    // Default on is the last choice. Up moves to minimal.
+    let _ = handle_settings_key(&mut s, &press(KeyCode::Up));
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    match outcome {
+        SettingsKeyOutcome::Action(Action::SetTimestamps(mode)) => {
+            assert_eq!(mode, xai_grok_pager::appearance::TimestampMode::Minimal);
+        }
+        other => panic!("expected SetTimestamps(Minimal), got {other:?}"),
+    }
 }
 
 #[test]
@@ -707,14 +738,14 @@ fn mouse_click_on_show_timestamps_two_stage_select_then_toggle() {
         "first click on a different row body should only select, got: {outcome:?}"
     );
 
-    // Second click on the SAME row should now toggle (already focused).
+    // Second click on the SAME row opens the mode picker (already focused).
     let outcome = handle_settings_mouse(
         &mut s,
         MouseEventKind::Down(crossterm::event::MouseButton::Left),
         10,
         row_y,
     );
-    assert_set_bool_action(outcome, "show_timestamps", false);
+    assert_timestamps_picker(&s, outcome);
 }
 
 /// Value-column click toggles `show_timeline` in one click.
@@ -1302,9 +1333,9 @@ fn filter_enter_commits_and_preserves_query() {
     );
     assert_eq!(s.selected, show_ts_idx);
 
-    // And now the user can toggle directly without re-navigating.
-    let outcome = handle_settings_key(&mut s, &press(KeyCode::Char(' ')));
-    assert_set_bool_action(outcome, "show_timestamps", false);
+    // And now the user can open the mode picker without re-navigating.
+    let outcome = handle_settings_key(&mut s, &press(KeyCode::Enter));
+    assert_timestamps_picker(&s, outcome);
 }
 
 /// Backspace in Browse continues editing the preserved query.
@@ -1692,7 +1723,7 @@ fn mouse_click_on_visible_filtered_row_toggles() {
         10,
         y_in_filter,
     );
-    assert_set_bool_action(outcome, "show_timestamps", false);
+    assert_timestamps_picker(&s, outcome);
 }
 
 /// Click at a filtered-out row position is a no-op.
@@ -1880,7 +1911,6 @@ fn registry_kind_membership_through_pr_14() {
             "respect_manual_folds",
             "show_thinking_blocks",
             "show_timeline",
-            "show_timestamps",
             "page_flip_on_send",
             "dashboard_preview",
             "confirm_before_rewind",
@@ -1926,6 +1956,7 @@ fn registry_kind_membership_through_pr_14() {
             "render_mermaid",
             "screen_mode",
             "scroll_mode",
+            "show_timestamps",
             "theme",
             "voice_capture_mode",
             "voice_stt_language",
@@ -1996,6 +2027,7 @@ fn enum_settings_membership_through_pr_14() {
             "render_mermaid",
             "screen_mode",
             "scroll_mode",
+            "show_timestamps",
             "theme",
             "voice_capture_mode",
             "voice_stt_language",
@@ -2036,7 +2068,7 @@ fn defaults_round_trip_through_registry() {
         match key {
             "compact_mode" => SettingValue::Bool(false),
             "screen_mode" => SettingValue::Enum("fullscreen"),
-            "show_timestamps" => SettingValue::Bool(true),
+            "show_timestamps" => SettingValue::Enum("on"),
             "show_timeline" => SettingValue::Bool(false),
             "page_flip_on_send" => SettingValue::Bool(true),
             "dashboard_preview" => SettingValue::Bool(true),

@@ -1,5 +1,5 @@
 use super::persist::update_config;
-use crate::agent::config::Feature;
+use crate::agent::config::{Feature, TimestampMode};
 use anyhow::{Context, Result};
 use std::path::Path;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
@@ -82,13 +82,13 @@ pub async fn set_compact_mode(value: bool) -> Result<()> {
 }
 
 /// Persist `[ui].show_timestamps` via `update_config`.
-/// `UiConfig::show_timestamps` is `Option<bool>` (pager-side `None` means "use default"), so we wrap.
-pub async fn set_show_timestamps(value: bool) -> Result<()> {
+/// Absent means on. `false` is off, `true` is on, and `"minimal"` is the short clock.
+pub async fn set_show_timestamps(value: TimestampMode) -> Result<()> {
     update_config(|cfg| cfg.ui.show_timestamps = Some(value)).await
 }
 
 /// Persist `[ui].show_timeline` via `update_config`.
-/// The `Option<bool>` shape matches `show_timestamps`.
+/// `None` means the client default.
 pub async fn set_show_timeline(value: bool) -> Result<()> {
     update_config(|cfg| cfg.ui.show_timeline = Some(value)).await
 }

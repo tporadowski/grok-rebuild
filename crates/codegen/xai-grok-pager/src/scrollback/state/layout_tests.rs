@@ -509,7 +509,7 @@ fn lazy_resumed_pinned_prompt_collapses_to_real_height() {
     use crate::appearance::AppearanceConfig;
     let mut state = ScrollbackState::new();
     let mut appearance = AppearanceConfig {
-        show_timestamps: false,
+        show_timestamps: crate::appearance::TimestampMode::Off,
         ..Default::default()
     };
     appearance.scrollback.blocks.prompt.vpad = false;
@@ -610,7 +610,7 @@ fn bulk_load_wrapping(n: usize) -> ScrollbackState {
     use crate::appearance::AppearanceConfig;
     let mut state = ScrollbackState::new();
     let appearance = AppearanceConfig {
-        show_timestamps: false,
+        show_timestamps: crate::appearance::TimestampMode::Off,
         ..Default::default()
     };
     state.set_appearance(appearance);
@@ -1024,7 +1024,7 @@ fn resize_anchor_state() -> ScrollbackState {
     use crate::appearance::AppearanceConfig;
     let mut state = ScrollbackState::new();
     state.set_appearance(AppearanceConfig {
-        show_timestamps: false,
+        show_timestamps: crate::appearance::TimestampMode::Off,
         ..Default::default()
     });
     state.begin_batch();
@@ -1118,7 +1118,7 @@ fn no_vpad_no_sticky_state() -> ScrollbackState {
     use crate::appearance::AppearanceConfig;
     let mut state = ScrollbackState::new();
     let mut appearance = AppearanceConfig {
-        show_timestamps: false,
+        show_timestamps: crate::appearance::TimestampMode::Off,
         ..Default::default()
     };
     appearance.scrollback.blocks.prompt.vpad = false;
@@ -1881,7 +1881,7 @@ fn lazy_fold_anchor_settles_visible_region_on_estimated_session() {
     // estimates. (Load-bearing: verified to fail when the settle at fold_selected_impl is removed.).
     let mut state = ScrollbackState::new();
     let appearance = crate::appearance::AppearanceConfig {
-        show_timestamps: false,
+        show_timestamps: crate::appearance::TimestampMode::Off,
         ..Default::default()
     };
     state.set_appearance(appearance);
@@ -2080,7 +2080,7 @@ fn lazy_fold_no_anchor_does_not_jump_on_estimated_session() {
     // The top entry must stay put
     let mut state = ScrollbackState::new();
     let mut appearance = crate::appearance::AppearanceConfig {
-        show_timestamps: false,
+        show_timestamps: crate::appearance::TimestampMode::Off,
         ..Default::default()
     };
     appearance.scrollback.scroll.anchor_on_fold = false;
@@ -2126,7 +2126,7 @@ fn lazy_single_turn_center_measures_sticky_prompt() {
     // The sticky-header height in the centering math is therefore exact
     let mut state = ScrollbackState::new();
     let appearance = crate::appearance::AppearanceConfig {
-        show_timestamps: false,
+        show_timestamps: crate::appearance::TimestampMode::Off,
         ..Default::default()
     };
     state.set_appearance(appearance);
