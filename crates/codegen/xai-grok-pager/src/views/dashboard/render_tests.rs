@@ -1979,6 +1979,75 @@ fn rename_hover_selection_and_delete_geometry_stay_consistent() {
     }
 }
 
+/// The branch and folder sit on the dispatch box top border, not on a header row and not in the input line.
+#[test]
+fn dispatch_top_border_shows_branch_and_folder() {
+    let cwd = std::path::PathBuf::from("/grok-border-marker");
+    crate::git_info::set_cwd_git_info_for_test(
+        &cwd,
+        Some(crate::git_info::CwdGitInfo {
+            branch: Some("main".into()),
+            is_worktree: false,
+            main_repo: Some("~/grok".into()),
+            worktree_label: None,
+        }),
+    );
+    let area = Rect::new(0, 0, 80, 3);
+    let mut buf = Buffer::empty(area);
+    let theme = Theme::current();
+    let mut state = DashboardState::new();
+    state.cwd = cwd;
+    state.location_hit.hovered = true;
+    let _ = render_dispatch(
+        &mut buf,
+        area,
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    );
+    let top: String = (0..area.width)
+        .map(|x| buf_cell(&buf, x, 0).symbol())
+        .collect();
+    let input: String = (0..area.width)
+        .map(|x| buf_cell(&buf, x, 1).symbol())
+        .collect();
+    let folder = crate::util::display_location_path(state.cwd.as_path());
+    assert!(
+        top.contains("main") && top.contains(&folder),
+        "the top border must show the branch and folder, got: {top:?}",
+    );
+    assert!(
+        top.contains("[Choose"),
+        "the location hint stays with the border label, got: {top:?}",
+    );
+    assert!(
+        !input.contains(&folder),
+        "the folder must not drop into the input line, got: {input:?}",
+    );
+    let hit = state
+        .location_hit
+        .rect
+        .expect("the border label is the location click target");
+    assert_eq!(hit.y, 0, "the click target is the top border");
+    let path_at = top.find(&folder).expect("folder on the border");
+    let underlined = buf
+        .cell((path_at as u16, 0))
+        .expect("path cell")
+        .style()
+        .add_modifier
+        .contains(ratatui::style::Modifier::UNDERLINED);
+    assert!(underlined, "hover underlines the folder on the border");
+    let hint_at = top.find("[Choose").expect("hint");
+    let hint_underlined = buf
+        .cell((hint_at as u16, 0))
+        .expect("hint cell")
+        .style()
+        .add_modifier
+        .contains(ratatui::style::Modifier::UNDERLINED);
+    assert!(!hint_underlined, "hover does not underline the choose hint");
+}
+
 /// On a 3-row rect the dispatch input paints a rounded-box chrome so it reads as a real input field.
 /// The text row contains the `❯` prefix.
 #[test]
@@ -1986,7 +2055,14 @@ fn render_dispatch_paints_rounded_box_chrome() {
     let mut buf = Buffer::empty(Rect::new(0, 0, 60, 3));
     let theme = Theme::current();
     let mut state = DashboardState::new();
-    let cursor = render_dispatch(&mut buf, Rect::new(0, 0, 60, 3), &theme, &mut state, None);
+    let cursor = render_dispatch(
+        &mut buf,
+        Rect::new(0, 0, 60, 3),
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    );
     assert!(cursor.is_some(), "dispatch must return a cursor position");
     let content = buf_to_text(&buf);
     for corner in ['\u{256d}', '\u{2570}', '\u{256e}', '\u{256f}'] {
@@ -2011,8 +2087,15 @@ fn render_search_mode_uses_textarea_cursor_not_text_end() {
     state.dispatch.set_text("abcdef");
     state.dispatch.set_cursor(2);
 
-    let cursor = render_dispatch(&mut buffer, area, &theme, &mut state, None)
-        .expect("focused search cursor");
+    let cursor = render_dispatch(
+        &mut buffer,
+        area,
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    )
+    .expect("focused search cursor");
     let prefix_x = (0..area.width)
         .find(|x| buf_cell(&buffer, *x, cursor.1).symbol() == "S")
         .expect("Search prefix");
@@ -2032,7 +2115,15 @@ fn render_search_mode_hides_the_caret_while_the_list_is_focused() {
     state.search_mode = true;
     state.list_focused = true;
     assert!(
-        render_dispatch(&mut buffer, area, &theme, &mut state, None).is_none(),
+        render_dispatch(
+            &mut buffer,
+            area,
+            &theme,
+            &mut state,
+            &crate::actions::ActionRegistry::defaults(),
+            None
+        )
+        .is_none(),
         "a list-focused search field must not park the caret"
     );
 }
@@ -2050,8 +2141,15 @@ fn render_search_mode_clips_prefix_and_cursor_at_widths_one_through_nine() {
         state.dispatch.set_text("abcdef");
         state.dispatch.set_cursor(2);
 
-        let cursor = render_dispatch(&mut buffer, area, &theme, &mut state, None)
-            .expect("focused narrow search cursor");
+        let cursor = render_dispatch(
+            &mut buffer,
+            area,
+            &theme,
+            &mut state,
+            &crate::actions::ActionRegistry::defaults(),
+            None,
+        )
+        .expect("focused narrow search cursor");
         assert!(cursor.0 >= area.x && cursor.0 < area.x + area.width);
         for x in 0..full.width {
             if x < area.x || x >= area.x + area.width {
@@ -2073,7 +2171,14 @@ fn render_dispatch_keeps_generic_paste_preview_but_suppresses_image_preview() {
     let mut state = DashboardState::new();
     state.dispatch.handle_paste("alpha\nbeta\ngamma\ndelta");
     let mut buf = Buffer::empty(Rect::new(0, 0, 80, 20));
-    let _ = render_dispatch(&mut buf, area, &theme, &mut state, Some(overlay));
+    let _ = render_dispatch(
+        &mut buf,
+        area,
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        Some(overlay),
+    );
     let text = buf_to_text(&buf);
     assert!(text.contains("alpha"));
     assert!(text.contains("delta"));
@@ -2089,7 +2194,14 @@ fn render_dispatch_keeps_generic_paste_preview_but_suppresses_image_preview() {
         ))
         .unwrap();
     let mut buf = Buffer::empty(Rect::new(0, 0, 80, 20));
-    let _ = render_dispatch(&mut buf, area, &theme, &mut state, Some(overlay));
+    let _ = render_dispatch(
+        &mut buf,
+        area,
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        Some(overlay),
+    );
     let text = buf_to_text(&buf);
     assert!(text.contains("Image #1"));
     assert!(!text.contains("Format:"));
@@ -2102,7 +2214,14 @@ fn render_dispatch_falls_back_to_single_line_on_short_area() {
     let mut buf = Buffer::empty(Rect::new(0, 0, 60, 1));
     let theme = Theme::current();
     let mut state = DashboardState::new();
-    let cursor = render_dispatch(&mut buf, Rect::new(0, 0, 60, 1), &theme, &mut state, None);
+    let cursor = render_dispatch(
+        &mut buf,
+        Rect::new(0, 0, 60, 1),
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    );
     assert!(
         cursor.is_some(),
         "single-line fallback must return a cursor"
@@ -2129,7 +2248,14 @@ fn render_dispatch_placeholder_paints_only_when_unfocused() {
     let theme = Theme::current();
     let mut state = DashboardState::new();
     state.list_focused = true;
-    let _ = render_dispatch(&mut buf, Rect::new(0, 0, 80, 3), &theme, &mut state, None);
+    let _ = render_dispatch(
+        &mut buf,
+        Rect::new(0, 0, 80, 3),
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    );
     let content = buf_to_text(&buf);
     assert!(
         content.contains("Dispatch a new agent"),
@@ -2144,7 +2270,14 @@ fn render_dispatch_placeholder_hidden_when_focused() {
     let theme = Theme::current();
     let mut state = DashboardState::new();
     assert!(!state.list_focused, "fresh state must focus the input");
-    let cursor = render_dispatch(&mut buf, Rect::new(0, 0, 80, 3), &theme, &mut state, None);
+    let cursor = render_dispatch(
+        &mut buf,
+        Rect::new(0, 0, 80, 3),
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    );
     let content = buf_to_text(&buf);
     assert!(
         !content.contains("Dispatch a new agent"),
@@ -2171,7 +2304,14 @@ fn render_dispatch_placeholder_stays_new_session_when_row_selected() {
     ));
     // Unfocus the input (the placeholder only paints while unfocused)
     state.list_focused = true;
-    let _ = render_dispatch(&mut buf, Rect::new(0, 0, 80, 3), &theme, &mut state, None);
+    let _ = render_dispatch(
+        &mut buf,
+        Rect::new(0, 0, 80, 3),
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    );
     let content = buf_to_text(&buf);
     assert!(
         content.contains("Dispatch a new agent"),
@@ -2194,7 +2334,14 @@ fn render_dispatch_paints_feedback_badge_on_top_border() {
     // Unfocus the input so the placeholder assertion below stays meaningful (the placeholder only paints while unfocused)
     state.list_focused = true;
     state.error_toast = Some("Too short — describe the task (4+ chars)".to_string());
-    let _ = render_dispatch(&mut buf, Rect::new(0, 0, 80, 3), &theme, &mut state, None);
+    let _ = render_dispatch(
+        &mut buf,
+        Rect::new(0, 0, 80, 3),
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    );
 
     // Toast text lands on the TOP border row (y == 0).
     let top_row: String = (0..80)
@@ -2228,7 +2375,14 @@ fn feedback_badge_renders_verbatim_in_neutral_color() {
     let mut state = DashboardState::new();
     let check = crate::glyphs::check_mark();
     state.error_toast = Some(format!("{check} Theme: Grok Day"));
-    let _ = render_dispatch(&mut buf, Rect::new(0, 0, 80, 3), &theme, &mut state, None);
+    let _ = render_dispatch(
+        &mut buf,
+        Rect::new(0, 0, 80, 3),
+        &theme,
+        &mut state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+    );
 
     let top_row: String = (0..80)
         .map(|x| buf_cell(&buf, x, 0).symbol().to_string())

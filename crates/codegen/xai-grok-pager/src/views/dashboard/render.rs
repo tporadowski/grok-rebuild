@@ -237,6 +237,7 @@ pub(crate) fn render_dashboard(
         };
         // Peek auto-opens for the selected row, so a toast from a row action would otherwise never be painted.
         paint_dispatch_feedback_badge(buf, layout.dispatch, &theme, state.error_toast.as_deref());
+        paint_dispatch_location(buf, layout.dispatch, &theme, state, registry);
         state.peek_reply_rect = render.reply_rect;
         let cursor = render.caret;
         state.record_peek_body(render.body_lines, render.body_rect);
@@ -270,6 +271,7 @@ pub(crate) fn render_dashboard(
             layout.dispatch,
             &theme,
             state,
+            registry,
             Some(layout.list).filter(|r| r.area() > 0),
         );
         // Completion dropdowns paint ABOVE the dispatch box
@@ -2109,6 +2111,47 @@ fn render_empty_state(buf: &mut Buffer, area: Rect, theme: &Theme, loading: bool
 /// On a 1-row rect (very short terminals) we fall back to the bare `❯ {text}` line so the input
 /// stays usable. Examples: `✗ Session no longer exists`, `✓ Theme: Grok Day`. The badge therefore
 /// neither prepends a glyph nor forces a colour.
+/// Branch and folder on the dispatch box top border, in place of a location header row.
+fn paint_dispatch_location(
+    buf: &mut Buffer,
+    area: Rect,
+    theme: &Theme,
+    state: &mut DashboardState,
+    registry: &crate::actions::ActionRegistry,
+) {
+    if area.height < 3 || area.width < 8 {
+        state.location_hit.set(None);
+        return;
+    }
+    let mut x = area.x + 2;
+    if state.voice_listening {
+        x = x.saturating_add(UnicodeWidthStr::width(" \u{25CF} rec ") as u16);
+    }
+    let right_reserve = state.error_toast.as_deref().map_or(2, |err| {
+        let label = format!(" {err} ");
+        UnicodeWidthStr::width(label.as_str()) as u16 + 2
+    });
+    let end = area.x + area.width.saturating_sub(right_reserve);
+    let budget = end.saturating_sub(x) as usize;
+    if budget < 4 {
+        state.location_hit.set(None);
+        return;
+    }
+    let (line, width) = super::chrome::location_line(theme, state, registry, budget);
+    let painted = width.min(budget as u16);
+    if painted == 0 {
+        state.location_hit.set(None);
+        return;
+    }
+    buf.set_line(x, area.y, &line, painted);
+    state.location_hit.set(Some(Rect {
+        x,
+        y: area.y,
+        width: painted,
+        height: 1,
+    }));
+}
+
 fn paint_dispatch_feedback_badge(
     buf: &mut Buffer,
     area: Rect,
@@ -2231,6 +2274,7 @@ fn render_dispatch(
     area: Rect,
     theme: &Theme,
     state: &mut DashboardState,
+    registry: &crate::actions::ActionRegistry,
     overlay_area: Option<Rect>,
 ) -> Option<(u16, u16)> {
     use ratatui::widgets::{Block, BorderType, Borders, Widget};
@@ -2267,6 +2311,7 @@ fn render_dispatch(
         // Show dispatch-validation feedback (e.g. "Too short") as a right-aligned badge on the box's top border.
         // It stays visible even while the rejected text is still in the input
         paint_dispatch_feedback_badge(buf, area, theme, state.error_toast.as_deref());
+        paint_dispatch_location(buf, area, theme, state, registry);
         // Bottom-right model and mode indicator, painted through the shared prompt info-line renderer
         // Its style, spacing, and position match the chat prompt's info line exactly
         // Always shows the model the next agent will use (the `/model`-staged choice, else the current default), plus the staged mode as a flag

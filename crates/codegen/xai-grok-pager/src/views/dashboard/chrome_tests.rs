@@ -434,6 +434,7 @@ fn render_header_paints_label_and_state_chips() {
     let area = Rect::new(0, 0, 400, 1);
     let mut buf = Buffer::empty(area);
     let mut state = DashboardState::new();
+    state.cwd = std::path::PathBuf::from("/grok-header-has-no-location");
     let rows = vec![
         header_test_row(1, RowState::NeedsInput, "a"),
         header_test_row(2, RowState::NeedsInput, "b"),
@@ -442,10 +443,9 @@ fn render_header_paints_label_and_state_chips() {
     ];
     render_header_only(&mut buf, area, &theme, &rows, &mut state);
     let content = buf_to_text(&buf);
-    let basename = cwd_basename();
     assert!(
-        content.contains(&basename),
-        "header must show the current location (`{basename}`), got: {content:?}",
+        !content.contains("grok-header-has-no-location"),
+        "the folder sits on the dispatch border, not the header, got: {content:?}",
     );
     let row: String = (0..area.width)
         .map(|x| buf_cell(&buf, x, 0).symbol())
@@ -532,51 +532,36 @@ fn render_header_paints_every_state_chip_in_its_colour() {
         search_from = at + chip.len();
     }
 }
-/// The header records a click target for the location label so the mouse handler can open the location picker.
+/// The header no longer owns the location click target. The dispatch border does.
 #[test]
-fn render_header_sets_location_click_target() {
+fn render_header_does_not_own_the_location_click_target() {
     let theme = Theme::current();
     let area = Rect::new(0, 0, 120, 1);
     let mut buf = Buffer::empty(area);
     let mut state = DashboardState::new();
     render_header_only(&mut buf, area, &theme, &[], &mut state);
     assert!(
-        state.location_hit.rect.is_some(),
-        "render_header must record a click target for the location label",
+        state.location_hit.rect.is_none(),
+        "the header must not record a location click target",
     );
 }
-/// On hover the location text (branch and path) is underlined; the `[Choose …]` hint that follows it is not.
+/// The header row no longer paints the folder. That label moved to the dispatch border.
 #[test]
-fn render_header_hover_underlines_only_location_text() {
+fn render_header_does_not_paint_the_location() {
     let theme = Theme::current();
     let area = Rect::new(0, 0, 400, 1);
     let mut buf = Buffer::empty(area);
     let mut state = DashboardState::new();
     state.cwd = std::path::PathBuf::from("/grok-hover-marker");
-    state.location_hit.hovered = true;
     render_header_only(&mut buf, area, &theme, &[], &mut state);
     let text = buf_to_text(&buf);
-    let underlined = |x: usize| {
-        buf.cell((x as u16, 0))
-            .unwrap()
-            .style()
-            .add_modifier
-            .contains(Modifier::UNDERLINED)
-    };
-    let path_start = text.find("/grok-hover-marker").expect("path painted");
-    let path_end = path_start + "/grok-hover-marker".len();
     assert!(
-        underlined(path_start) && underlined(path_end - 1),
-        "the path is underlined"
+        !text.contains("grok-hover-marker"),
+        "header must not paint the folder, got: {text:?}"
     );
     assert!(
-        !underlined(path_end),
-        "the space before the hint is not underlined"
-    );
-    let hint_start = text.find("[Choose").expect("hint painted");
-    assert!(
-        !underlined(hint_start) && !underlined(hint_start + 1),
-        "the hint is not underlined"
+        !text.contains("[Choose"),
+        "the choose hint moved with the location, got: {text:?}"
     );
 }
 /// Hover underlines the branch and the path; the whitespace separator between them stays bare.
@@ -644,32 +629,9 @@ fn render_header_has_no_inactive_chip() {
         "no chip for Inactive rows, got: {content:?}"
     );
 }
-/// The left title is the current location (cwd display), shown with and without agent rows, mirroring the session views' top-bar location line.
+/// Chips stay on the header. A long folder path cannot cover them, because the path is not on this row.
 #[test]
-fn render_header_shows_location_label() {
-    let theme = Theme::current();
-    let area = Rect::new(0, 0, 400, 1);
-    let mut state = DashboardState::new();
-    let basename = cwd_basename();
-    let mut buf = Buffer::empty(area);
-    render_header_only(&mut buf, area, &theme, &[], &mut state);
-    let c = buf_to_text(&buf);
-    assert!(
-        c.contains(&basename),
-        "0-agent header must show the location (`{basename}`), got: {c:?}"
-    );
-    let mut buf = Buffer::empty(area);
-    let rows = vec![header_test_row(1, RowState::Idle, "x")];
-    render_header_only(&mut buf, area, &theme, &rows, &mut state);
-    let c = buf_to_text(&buf);
-    assert!(
-        c.contains(&basename),
-        "header must show the location (`{basename}`), got: {c:?}"
-    );
-}
-/// On a narrow header the location label truncates against a 3-cell blank gutter before the leftmost chip and never paints over the chips.
-#[test]
-fn render_header_location_label_never_overlaps_chips() {
+fn render_header_chips_ignore_the_folder_path() {
     let theme = Theme::current();
     let area = Rect::new(0, 0, 60, 1);
     let mut buf = Buffer::empty(area);
@@ -684,34 +646,14 @@ fn render_header_location_label_never_overlaps_chips() {
     ];
     render_header_only(&mut buf, area, &theme, &rows, &mut state);
     let content = buf_to_text(&buf);
-    for chunk in ["1 awaiting", "1 working", "1 idle", "…"] {
+    for chunk in ["1 awaiting", "1 working", "1 idle"] {
         assert!(
             content.contains(chunk),
-            "`{chunk}` must not be overpainted by the location label, got: {content:?}",
+            "`{chunk}` must still render, got: {content:?}",
         );
     }
     assert!(
-        !content.contains("Choose"),
-        "the hint goes before the path is cut"
+        !content.contains("grok-overlap"),
+        "the folder path must not be on the header, got: {content:?}",
     );
-    let row: String = (0..area.width)
-        .map(|x| buf_cell(&buf, x, 0).symbol())
-        .collect();
-    let ellipsis_at = row.find('…').expect("truncated label ends in an ellipsis");
-    let Some(after) = row.get(ellipsis_at + '…'.len_utf8()..) else {
-        panic!("ellipsis not on a char boundary: {row:?}");
-    };
-    assert!(
-        after.starts_with(&format!("   {}", crate::glyphs::diamond_filled())),
-        "expected a 3-cell gutter then the awaiting glyph after the ellipsis, got: {after:?}",
-    );
-}
-/// Basename of the test process's cwd, the one deterministic fragment of the header's location label.
-/// The full label depends on global git caches (`git_info::*`) that parallel tests may touch.
-/// Every fallback path still renders a cwd display ending in the current directory's basename.
-fn cwd_basename() -> String {
-    std::env::current_dir()
-        .ok()
-        .and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .expect("test process must have a cwd with a basename")
 }

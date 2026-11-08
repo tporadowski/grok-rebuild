@@ -1,4 +1,5 @@
-//! Dashboard chrome above the row list: the header row (location label, `[Choose …]` hint, state chips, promo CTA)
+//! Dashboard chrome above the row list: the header row (state chips, promo CTA).
+//! The branch and folder sit on the dispatch box top border, not on this row.
 //! and the primary actions row (`+ New Agent`, `Open Previous /resume`, `Worktree Ctrl+w`).
 //! Both paint into rects from [`crate::views::dashboard::layout::DashboardLayout`] and register their click targets on [`DashboardState`].
 use crate::render::line_utils::truncate_line;
@@ -30,14 +31,13 @@ pub(super) fn render_header(
     theme: &Theme,
     rows: &[DashboardRow],
     state: &mut DashboardState,
-    registry: &crate::actions::ActionRegistry,
+    _registry: &crate::actions::ActionRegistry,
     upgrade_cta: Option<HeaderUpgradeCta<'_>>,
 ) {
     if area.area() == 0 {
         return;
     }
     let bg = Style::default().bg(theme.bg_base);
-    let dim = theme.dim().bg(theme.bg_base);
     buf.set_style(area, bg);
     let mut awaiting = 0usize;
     let mut working = 0usize;
@@ -111,59 +111,10 @@ pub(super) fn render_header(
     let upgrade_reserve = upgrade_cta.map_or(0usize, |cta| {
         1 + crate::views::announcements::upgrade_cta_reserve(cta.label, upgrade_caption) as usize
     });
-    let label_budget = full_label_budget.saturating_sub(upgrade_reserve);
-    let LocationParts {
-        branch,
-        is_worktree,
-        cwd_display,
-    } = location_parts(&state.cwd);
-    let mut location_spans: Vec<Span<'static>> = Vec::new();
-    if let Some(branch) = branch {
-        location_spans.push(Span::styled(branch, dim));
-        location_spans.push(Span::styled(" ", bg));
-    }
-    if is_worktree {
-        location_spans.push(worktree_badge(theme).patch_style(bg));
-    }
-    location_spans.push(Span::styled(cwd_display, bg.fg(theme.text_secondary)));
-    let picks_folder = true;
-    let mut location = truncate_line(Line::from(location_spans), label_budget);
-    if state.location_hit.hovered {
-        location.spans = underline_location_on_hover(std::mem::take(&mut location.spans));
-    }
-    let location_w = location.width() as u16;
-    buf.set_line(area.x, area.y, &location, location_w);
-    let mut choose_hint = hint_line(
-        Span::styled("Choose", dim),
-        chord_hint(
-            theme,
-            registry,
-            crate::actions::ActionId::DashboardOpenLocationPicker,
-        ),
-    );
-    choose_hint.spans.insert(0, Span::styled(" [", dim));
-    choose_hint.spans.push(Span::styled("]", dim));
-    let choose_hint_w = choose_hint.width() as u16;
-    let hint_w = if picks_folder && (location_w + choose_hint_w) as usize <= label_budget {
-        buf.set_line(area.x + location_w, area.y, &choose_hint, choose_hint_w);
-        choose_hint_w
-    } else {
-        0
-    };
-    let label_w = location_w + hint_w;
-    let hit_w = label_w.min(label_budget as u16);
-    if picks_folder && hit_w > 0 {
-        state.location_hit.set(Some(Rect {
-            x: area.x,
-            y: area.y,
-            width: hit_w,
-            height: 1,
-        }));
-    }
     if let Some(HeaderUpgradeCta { label, .. }) = upgrade_cta {
-        let avail = full_label_budget.saturating_sub(label_w as usize);
+        let avail = full_label_budget;
         if avail > 1 {
-            let cta_x = area.x + label_w;
+            let cta_x = area.x;
             buf.set_span(cta_x, area.y, &Span::styled(" ", bg), 1);
             let painted = crate::views::announcements::render_cta_button(
                 buf,
@@ -199,6 +150,51 @@ fn chord_hint(
         .key_for(id)
         .map(|key| Span::styled(key.display(), key_hint_style(theme)))
 }
+pub(super) fn location_line(
+    theme: &Theme,
+    state: &DashboardState,
+    registry: &crate::actions::ActionRegistry,
+    budget: usize,
+) -> (Line<'static>, u16) {
+    let bg = Style::default().bg(theme.bg_base);
+    let dim = theme.dim().bg(theme.bg_base);
+    let LocationParts {
+        branch,
+        is_worktree,
+        cwd_display,
+    } = location_parts(&state.cwd);
+    let mut location_spans: Vec<Span<'static>> = Vec::new();
+    if let Some(branch) = branch {
+        location_spans.push(Span::styled(branch, dim));
+        location_spans.push(Span::styled(" ", bg));
+    }
+    if is_worktree {
+        location_spans.push(worktree_badge(theme).patch_style(bg));
+    }
+    location_spans.push(Span::styled(cwd_display, bg.fg(theme.text_secondary)));
+    let mut location = truncate_line(Line::from(location_spans), budget);
+    if state.location_hit.hovered {
+        location.spans = underline_location_on_hover(std::mem::take(&mut location.spans));
+    }
+    let location_w = location.width() as u16;
+    let mut choose_hint = hint_line(
+        Span::styled("Choose", dim),
+        chord_hint(
+            theme,
+            registry,
+            crate::actions::ActionId::DashboardOpenLocationPicker,
+        ),
+    );
+    choose_hint.spans.insert(0, Span::styled(" [", dim));
+    choose_hint.spans.push(Span::styled("]", dim));
+    let choose_hint_w = choose_hint.width() as u16;
+    if (location_w + choose_hint_w) as usize <= budget {
+        location.spans.extend(choose_hint.spans);
+    }
+    let width = location.width() as u16;
+    (location, width)
+}
+
 fn underline_location_on_hover(spans: Vec<Span<'static>>) -> Vec<Span<'static>> {
     spans
         .into_iter()

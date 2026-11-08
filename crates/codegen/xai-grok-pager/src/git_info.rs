@@ -106,6 +106,14 @@ fn is_cwd_worktree(main_repo: Option<&str>, worktree_label: Option<&str>) -> boo
 /// Per-cwd git info for render paths that display many directories (the dashboard agent list, each agent's status
 /// bar). Never blocks and never spawns `git` subprocesses (uses `git2`). Keyed per directory, so each agent shows
 /// the branch/worktree of its own location rather than the process cwd's.
+/// Seed one cwd's cached git info so a render test can show a branch without spawning git.
+#[cfg(test)]
+pub(crate) fn set_cwd_git_info_for_test(cwd: &Path, info: Option<CwdGitInfo>) {
+    if let Ok(mut cache) = CWD_GIT_CACHE.lock() {
+        cwd_cache_insert(&mut cache, cwd.to_path_buf(), (info, Instant::now()));
+    }
+}
+
 pub fn cwd_git_info_lazy(cwd: &Path) -> Option<CwdGitInfo> {
     let mut cache = CWD_GIT_CACHE.lock().ok()?;
     let (cached, needs_refresh) = match cache.get(cwd) {

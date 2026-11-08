@@ -3926,8 +3926,8 @@ impl DashboardState {
                 ));
             }
 
-            // A click on the header location label opens the location picker
-            // Checked after the actions-row buttons; the label lives on the header row above them
+            // A click on the location label opens the location picker.
+            // The label sits on the dispatch box top border.
             if self.location_hit.contains(mouse.column, mouse.row) {
                 return InputOutcome::Action(Action::DashboardOpenLocationPicker);
             }
