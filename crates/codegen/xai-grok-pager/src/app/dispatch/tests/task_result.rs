@@ -95,6 +95,59 @@ fn doctor_planning_promotes_initial_session_binding() {
     );
 }
 
+/// The confirmation card opens on Cancel. Enter does not apply the shell or tmux edit.
+#[test]
+fn doctor_fix_confirmation_opens_on_cancel() {
+    use crate::app::actions::Action;
+    use crate::app::app_view::InputOutcome;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    let target = doctor_target(&app, id);
+    dispatch_task_result(
+        TaskResult::DoctorFixPlanned {
+            target,
+            result: Ok(crate::app::actions::DoctorPlanningOutcome::Plan(Box::new(
+                crate::diagnostics::test_fix_plan(temp.path()),
+            ))),
+        },
+        &mut app,
+    );
+    {
+        let question = test_agent(&app, id)
+            .question_view
+            .as_ref()
+            .expect("planning opens the confirmation card");
+        assert_eq!(question.cursor(), 1, "the card opens on Cancel");
+        let label = question
+            .questions
+            .first()
+            .and_then(|q| q.options.get(1))
+            .map(|option| option.label.as_str());
+        assert_eq!(label, Some("Cancel"));
+    }
+    let outcome = app
+        .agents
+        .get_mut(&id)
+        .unwrap()
+        .handle_question_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let InputOutcome::Action(action) = outcome else {
+        panic!("Enter on Cancel must answer the card");
+    };
+    assert!(
+        matches!(action, Action::DoctorFixCancelled(_)),
+        "Enter must not apply the fix, got {action:?}"
+    );
+    let effects = dispatch(action, &mut app);
+    assert!(
+        effects.is_empty(),
+        "cancelling must not apply the fix, got {effects:?}"
+    );
+    assert!(test_agent(&app, id).question_view.is_none());
+}
+
 #[test]
 fn doctor_planning_rejects_bind_replace_and_unbind_rebind() {
     let temp = tempfile::tempdir().unwrap();

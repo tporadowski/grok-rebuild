@@ -167,9 +167,11 @@ pub(super) fn open_doctor_fix_question(
         id: None,
     };
     let stashed = agent.prompt.stash();
-    let state = QuestionViewState::new("doctor-fix".to_owned(), vec![question], stashed)
+    let mut state = QuestionViewState::new("doctor-fix".to_owned(), vec![question], stashed)
         .with_local_kind(LocalQuestionKind::DoctorFix { target, plan })
         .with_no_freeform();
+    // Apply is the first row. Open on Cancel so Enter does not edit shell or tmux config.
+    state.set_cursor(1);
     agent.install_local_question(state);
     agent.prompt.set_text("");
 }
