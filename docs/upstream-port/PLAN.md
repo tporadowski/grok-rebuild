@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-200 — Live preview pins are not in this tree
+
+Searched `preview_supervisor.rs`, the dashboard peek (`views/dashboard/preview.rs`), and the pager for a pin that records an app behind a URL. The supervisor only restarts `/usr/local/bin/xai-grok-preview-proxy` and forwards its CLI flags. There is no pin type, and no field for whether an app was observed. Adding one would invent the proxy's protocol (`v50-f08`).
+
 ### D-199 — A targeted cancel stops one response
 
 `ActorState::cancel` removes only the named in-flight request and cancels its token. Another request stays registered and is not cancelled (`cancel_one_request_leaves_the_other`). A session cancel aborts the running turn, which drops that turn's sampler request, and leaves a later queued prompt (`cancel_resolves_front_when_running_task_is_none`). Searched `session/cancel` `_meta` (`promptId` names the rewind target), `SamplerHandle::cancel`, and `ActorState::cancel` (`v50-f04`).
@@ -866,14 +870,14 @@ Refresh these numbers at the end of a session.
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 39 | 12 | 8 |
 | W13 | Update, install, and sign-in | 0 | 0 | 22 | 5 | 0 |
-| W14 | Pager and remaining bug fixes | 141 | 0 | 5 | 1 | 0 |
+| W14 | Pager and remaining bug fixes | 140 | 0 | 5 | 1 | 1 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 161. Skipped: 8. Done: 332. Already: 64. Deferred: 18.
+Catalog rows: 583. Pending: 160. Skipped: 8. Done: 332. Already: 64. Deferred: 19.
 
-**Next:** W14 Pager and remaining bug fixes. First open row: Live preview pins now include whether an app was observed behind the URL (`v50-f08`).
+**Next:** W14 Pager and remaining bug fixes. First open row: Long error messages in the /usage and /session-info modals now wrap instead of being truncated (`v50-x03`).
 
 ## Waves
 
@@ -931,7 +935,7 @@ Pending: 0. Done: 22. Already: 5. Look first: `xai-grok-update` and login in `xa
 
 ### W14 — Pager and remaining bug fixes
 
-Pending: 141. Done: 5. Already: 1 (`v50-f04`, D-199). Look first: Everything that did not match a feature wave. A cancel names one in-flight response and leaves the others running (`v50-f04`, `cancel_one_request_leaves_the_other`, D-199). A long branch on a narrow header abbreviates with an ellipsis and a click still copies the full name (`v50-f03`, `long_branch_names_abbreviate_on_a_narrow_header`). Clicking the git branch in the header copies the full name, including the part the row clips (`v50-f02`, `clicking_the_git_branch_copies_the_full_name`). `/rewind` lists the prompts you typed and skips automatic runtime turns (`v48-x01`, `rewind_points_list_only_prompts_the_user_typed`). A model-switch response refreshes the displayed model list and sets the context window from that response (`v47-f01`, `reported_model_state_updates_the_displayed_list_and_window`). Client rules from session start stay in the rebuilt system prompt (`v46-x03`, `rebuilt_prompt_keeps_client_rules_from_session_start`). Work in version order. Many items are one behavior in `xai-grok-pager`. If an item clearly belongs in an earlier wave, move its wave field, record a decision, and leave it pending for that wave if the wave is already finished; otherwise do it now.
+Pending: 140. Done: 5. Already: 1 (`v50-f04`, D-199). Deferred: 1 (`v50-f08`, D-200). Look first: Everything that did not match a feature wave. Live preview pins that record an app behind a URL are not in this tree (`v50-f08`, D-200). A cancel names one in-flight response and leaves the others running (`v50-f04`, `cancel_one_request_leaves_the_other`, D-199). A long branch on a narrow header abbreviates with an ellipsis and a click still copies the full name (`v50-f03`, `long_branch_names_abbreviate_on_a_narrow_header`). Clicking the git branch in the header copies the full name, including the part the row clips (`v50-f02`, `clicking_the_git_branch_copies_the_full_name`). `/rewind` lists the prompts you typed and skips automatic runtime turns (`v48-x01`, `rewind_points_list_only_prompts_the_user_typed`). A model-switch response refreshes the displayed model list and sets the context window from that response (`v47-f01`, `reported_model_state_updates_the_displayed_list_and_window`). Client rules from session start stay in the rebuilt system prompt (`v46-x03`, `rebuilt_prompt_keeps_client_rules_from_session_start`). Work in version order. Many items are one behavior in `xai-grok-pager`. If an item clearly belongs in an earlier wave, move its wave field, record a decision, and leave it pending for that wave if the wave is already finished; otherwise do it now.
 
 ### W15 — Performance
 
@@ -1355,7 +1359,7 @@ id | status | wave | kind | flag | covered | note
 - v50-f02 | done | W14 | Features |  |  | **Clicking the git branch** in the header now copies the full branch name.
 - v50-f03 | done | W14 | Features |  |  | **Long branch names** now abbreviate on narrow terminals while remaining copyable.
 - v50-f04 | already | W14 | Features |  |  | **Targeted cancels** now stop only the specific response when requested by clients.
-- v50-f08 | pending | W14 | Features |  |  | **Live preview pins** now include whether an app was observed behind the URL.
+- v50-f08 | deferred | W14 | Features |  |  | **Live preview pins** now include whether an app was observed behind the URL.
 - v50-x03 | pending | W14 | Bug Fixes |  |  | **Long error messages** in the /usage and /session-info modals now wrap instead of being truncated.
 - v50-x05 | pending | W14 | Bug Fixes |  |  | **Stalled model calls** during turns now retry before failing the turn.
 - v50-x07 | pending | W14 | Bug Fixes |  |  | **Long sessions** no longer disconnect when the conversation exceeds 4 MiB.
