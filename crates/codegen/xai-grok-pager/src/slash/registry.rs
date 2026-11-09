@@ -1232,16 +1232,22 @@ mod tests {
         assert!(skill.is_skill());
         assert_eq!(skill.description(), "imagine skill");
         assert!(!reg.is_builtin("imagine"));
+        let upper = reg.get("IMAGINE").expect("capitalized /IMAGINE stands in");
+        assert!(upper.is_skill());
+        assert!(!reg.is_builtin("IMAGINE"));
 
         reg.set_available_tools(tool_set(["image_gen"]));
         let builtin = reg.get("imagine").expect("builtin returns with the tool");
         assert!(reg.is_builtin("imagine"));
         assert!(!builtin.is_skill());
         assert_eq!(builtin.description(), "tool-gated");
+        assert!(reg.is_builtin("Imagine"));
+        assert!(reg.get("IMAGINE").is_some_and(|cmd| !cmd.is_skill()));
 
         reg.set_available_tools(tool_set(["read_file"]));
         assert!(reg.get("imagine").is_some_and(|cmd| cmd.is_skill()));
         assert!(!reg.is_builtin("imagine"));
+        assert!(reg.get("ImAgInE").is_some_and(|cmd| cmd.is_skill()));
     }
 
     fn command_without_required_tools_is_always_visible() {
