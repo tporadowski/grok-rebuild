@@ -146,8 +146,17 @@ fn scan_path_from(path_var: &str) -> Vec<String> {
         };
 
         for entry in entries.filter_map(Result::ok) {
-            let meta = match entry.metadata() {
-                Ok(m) => m,
+            // `DirEntry::metadata` does not follow symlinks, so a Homebrew or
+            // alternatives binary looks like "not a file" and is dropped.
+            let meta = match entry.file_type() {
+                Ok(kind) if kind.is_symlink() => match std::fs::metadata(entry.path()) {
+                    Ok(meta) => meta,
+                    Err(_) => continue,
+                },
+                Ok(_) => match entry.metadata() {
+                    Ok(meta) => meta,
+                    Err(_) => continue,
+                },
                 Err(_) => continue,
             };
 
@@ -382,6 +391,37 @@ mod tests {
 
         let result = scan_path_from(bin.to_str().unwrap());
         assert_eq!(result, vec!["my_exec"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_includes_executable_symlinks() {
+        use std::fs;
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let bin = dir.path().join("bin");
+        let cellar = dir.path().join("cellar");
+        fs::create_dir(&bin).unwrap();
+        fs::create_dir(&cellar).unwrap();
+
+        let real = cellar.join("rg");
+        fs::write(&real, "").unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&real, bin.join("rg")).unwrap();
+
+        let linked_dir = dir.path().join("not-a-command");
+        fs::create_dir(&linked_dir).unwrap();
+        symlink(&linked_dir, bin.join("cellar-dir")).unwrap();
+
+        let plain = bin.join("plain");
+        fs::write(&plain, "").unwrap();
+        fs::set_permissions(&plain, fs::Permissions::from_mode(0o644)).unwrap();
+        symlink(&plain, bin.join("plain-link")).unwrap();
+
+        let result = scan_path_from(bin.to_str().unwrap());
+        assert_eq!(result, vec!["rg".to_string()]);
     }
 
     #[test]
