@@ -90,6 +90,73 @@ fn synth_server_id(prompt_id: &str) -> u64 {
 /// Suffix on a row the pane cannot edit, delete, reorder, or send.
 const PROTECTED_MARKER: &str = " · protected";
 
+/// `[Image #N]` in a queued line. The path form is found by `extract_placeholders`.
+fn chip_image_placeholder_regex() -> &'static regex::Regex {
+    use std::sync::LazyLock;
+    static RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"\[Image #(\d+)\]").expect("image chip pattern compiles")
+    });
+    &RE
+}
+
+/// Spans of `[Image #N: path]` and `[Image #N]` in `text`.
+fn image_chip_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    for placeholder in xai_grok_shell::session::placeholder_images::extract_placeholders(text) {
+        ranges.push(placeholder.span.0..placeholder.span.1);
+    }
+    for capture in chip_image_placeholder_regex().captures_iter(text) {
+        let Some(whole) = capture.get(0) else {
+            continue;
+        };
+        let bytes = whole.start()..whole.end();
+        if ranges
+            .iter()
+            .any(|range| bytes.start < range.end && range.start < bytes.end)
+        {
+            continue;
+        }
+        ranges.push(bytes);
+    }
+    ranges.sort_by_key(|range| range.start);
+    ranges
+}
+
+/// Body text keeps `base`. An image chip uses the prompt's green on the paste background.
+fn spans_with_image_chips(text: String, base: Style) -> Vec<Span<'static>> {
+    let ranges = image_chip_ranges(&text);
+    if ranges.is_empty() {
+        return vec![Span::styled(text, base)];
+    }
+    let theme = Theme::current();
+    let chip = Style::default()
+        .fg(theme.accent_success)
+        .bg(theme.paste_bg);
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+    for range in ranges {
+        if range.start > cursor
+            && let Some(plain) = text.get(cursor..range.start)
+            && !plain.is_empty()
+        {
+            spans.push(Span::styled(plain.to_string(), base));
+        }
+        if let Some(chip_text) = text.get(range.clone()) {
+            spans.push(Span::styled(chip_text.to_string(), chip));
+        }
+        cursor = range.end;
+    }
+    if let Some(tail) = text.get(cursor..)
+        && !tail.is_empty()
+    {
+        spans.push(Span::styled(tail.to_string(), base));
+    }
+    if spans.is_empty() {
+        spans.push(Span::styled(text, base));
+    }
+    spans
+}
+
 /// Map a shared-queue wire `kind` string to the local display kind only.
 /// Server-only capabilities are projected separately by [`ServerRowCapabilities`].
 /// Unknown kinds fall back to a plain prompt.
@@ -223,10 +290,10 @@ impl QueuedPromptEntry {
                     first_line.to_string()
                 };
 
-                let mut spans = vec![Span::styled(
+                let mut spans = spans_with_image_chips(
                     display_text,
                     Style::default().fg(theme.accent_user),
-                )];
+                );
 
                 if !suffix.is_empty() {
                     spans.push(Span::styled(suffix, Style::default().fg(theme.gray)));
@@ -247,15 +314,20 @@ impl QueuedPromptEntry {
 
                 let mut spans = if let Some(space_idx) = truncated.find(' ') {
                     let (cmd, args) = truncated.split_at(space_idx);
-                    vec![
-                        Span::styled(cmd.to_string(), Style::default().fg(theme.accent_assistant)),
-                        Span::styled(args.to_string(), Style::default().fg(theme.gray_bright)),
-                    ]
+                    let mut spans = spans_with_image_chips(
+                        cmd.to_string(),
+                        Style::default().fg(theme.accent_assistant),
+                    );
+                    spans.extend(spans_with_image_chips(
+                        args.to_string(),
+                        Style::default().fg(theme.gray_bright),
+                    ));
+                    spans
                 } else {
-                    vec![Span::styled(
+                    spans_with_image_chips(
                         truncated,
                         Style::default().fg(theme.accent_assistant),
-                    )]
+                    )
                 };
 
                 if !suffix.is_empty() {
@@ -273,10 +345,11 @@ impl QueuedPromptEntry {
                     first_line.to_string()
                 };
 
-                let mut spans = vec![
-                    Span::styled("! ", Style::default().fg(theme.command)),
-                    Span::styled(display_text, Style::default().fg(theme.command)),
-                ];
+                let mut spans = vec![Span::styled("! ", Style::default().fg(theme.command))];
+                spans.extend(spans_with_image_chips(
+                    display_text,
+                    Style::default().fg(theme.command),
+                ));
 
                 if !suffix.is_empty() {
                     spans.push(Span::styled(suffix, Style::default().fg(theme.gray)));
@@ -1618,6 +1691,73 @@ mod tests {
         assert_eq!(digit_count(99), 2);
         assert_eq!(digit_count(100), 3);
         assert_eq!(digit_count(999), 3);
+    }
+
+    /// Foreground and background of the first run of `needle` in the buffer.
+    fn colors_of(buf: &Buffer, needle: &str) -> Vec<(ratatui::style::Color, ratatui::style::Color)> {
+        let area = *buf.area();
+        for y in area.top()..area.bottom() {
+            let mut row = String::new();
+            for x in area.left()..area.right() {
+                let symbol = buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or(" ");
+                row.push_str(symbol);
+            }
+            let Some(start) = row.find(needle) else {
+                continue;
+            };
+            return (0..needle.len())
+                .map(|offset| {
+                    buf.cell((area.left() + (start + offset) as u16, y))
+                        .map(|cell| (cell.fg, cell.bg))
+                        .unwrap_or((
+                            ratatui::style::Color::Reset,
+                            ratatui::style::Color::Reset,
+                        ))
+                })
+                .collect();
+        }
+        panic!("buffer does not contain {needle:?}");
+    }
+
+    #[test]
+    fn queued_image_chip_uses_the_prompt_green() {
+        let _guard = crate::theme::cache::pin_theme();
+        let theme = Theme::current();
+        assert_ne!(
+            theme.accent_success, theme.accent_user,
+            "the pinned theme must distinguish an image chip from queue text"
+        );
+        let mut pane = QueuePane::new();
+        let mut local = std::collections::VecDeque::new();
+        local.push_back(local_prompt(
+            1,
+            "look [Image #1] and [Image #2: /tmp/pic.png]",
+        ));
+        pane.sync_from_merged(&local, &[], None, None, &Default::default());
+
+        let area = Rect::new(0, 0, 80, 1);
+        let mut buf = Buffer::empty(area);
+        let layout_cfg = crate::appearance::LayoutConfig::default();
+        pane.render(area, &mut buf, false, &layout_cfg, None, false);
+
+        let chip = colors_of(&buf, "[Image #1]");
+        assert!(
+            chip.iter()
+                .all(|(fg, bg)| *fg == theme.accent_success && *bg == theme.paste_bg),
+            "a queued image chip is green on the paste background, got {chip:?}"
+        );
+        let path_chip = colors_of(&buf, "[Image #2: /tmp/pic.png]");
+        assert!(
+            path_chip
+                .iter()
+                .all(|(fg, bg)| *fg == theme.accent_success && *bg == theme.paste_bg),
+            "a queued path chip stays one green chip, got {path_chip:?}"
+        );
+        let body = colors_of(&buf, "look");
+        assert!(
+            body.iter().all(|(fg, _)| *fg == theme.accent_user),
+            "text around a queued chip stays the queue color, got {body:?}"
+        );
     }
 
     #[test]
