@@ -1637,6 +1637,31 @@ pub async fn install_internal_from_base(
         .map_err(|e| InstallPhaseError::Activate(e).into())
 }
 
+/// Where a reinstall writes, and what a failed check may delete.
+/// A live binary is never the delete target: the download lands beside it until checks pass.
+struct ReinstallPaths {
+    download_to: std::path::PathBuf,
+    delete_on_failure: std::path::PathBuf,
+    /// `Some` when `download_to` must be renamed onto the live path after checks pass.
+    promote_to: Option<std::path::PathBuf>,
+}
+
+fn reinstall_paths(dest: &std::path::Path, dest_exists: bool) -> ReinstallPaths {
+    if !dest_exists {
+        return ReinstallPaths {
+            download_to: dest.to_path_buf(),
+            delete_on_failure: dest.to_path_buf(),
+            promote_to: None,
+        };
+    }
+    let stage = unique_temp_sibling(dest, "incoming");
+    ReinstallPaths {
+        delete_on_failure: stage.clone(),
+        download_to: stage,
+        promote_to: Some(dest.to_path_buf()),
+    }
+}
+
 /// A downloaded and smoke-tested binary in `~/.grok/downloads/`, not yet
 /// activated as the managed `grok`/`agent`.
 struct VerifiedDownload {
@@ -1676,11 +1701,12 @@ async fn download_verified_from_base(
 
     let binary_name = format!("grok-{}-{}", version, platform);
     let binary_path = download_dir.join(&binary_name);
+    let staged = reinstall_paths(&binary_path, binary_path.exists());
 
     eprintln!("  Downloading grok v{} ({})...", version, platform);
 
     // The downloaded binary is already +x (see `publish_downloaded_artifact`)
-    download_cli_artifact_from_gcs(gcs_base_url, &binary_name, &binary_path, true).await?;
+    download_cli_artifact_from_gcs(gcs_base_url, &binary_name, &staged.download_to, true).await?;
 
     // Smoke-test: run the binary before activating it
     // A truncated or corrupt download is caught here and never becomes the active grok
@@ -1689,15 +1715,18 @@ async fn download_verified_from_base(
         elapsed_ms = tracing::field::Empty,
     ));
     let smoke_started = Instant::now();
-    let smoke_result = smoke_test_binary(&binary_path).await;
+    let smoke_result = smoke_test_binary(&staged.download_to).await;
     smoke_span
         .span()
         .record("elapsed_ms", smoke_started.elapsed().as_millis() as i64);
     smoke_span.close();
     if let Err(fail) = smoke_result {
-        let _ = tokio::fs::remove_file(&binary_path).await;
+        let _ = tokio::fs::remove_file(&staged.delete_on_failure).await;
         // No prefix: run_install_script's wrap adds "Auto-update failed:".
         return Err(fail.into());
+    }
+    if let Some(live) = staged.promote_to.as_deref() {
+        publish_downloaded_artifact(&staged.download_to, live).await?;
     }
 
     // Best-effort and base-dependent, so it belongs to this phase; a miss never fails the install.

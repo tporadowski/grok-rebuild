@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn failed_same_version_reinstall_keeps_the_live_binary() {
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("grok-1.0.45-linux-x86_64");
+    std::fs::write(&dest, b"live").unwrap();
+
+    let staged = reinstall_paths(&dest, true);
+    assert_ne!(staged.delete_on_failure, dest);
+    assert_ne!(staged.download_to, dest);
+    assert_eq!(staged.promote_to.as_deref(), Some(dest.as_path()));
+    let _ = std::fs::remove_file(&staged.delete_on_failure);
+    assert_eq!(std::fs::read(&dest).unwrap(), b"live");
+
+    let fresh = reinstall_paths(&dir.path().join("missing"), false);
+    assert_eq!(fresh.download_to, fresh.delete_on_failure);
+    assert!(fresh.promote_to.is_none());
+}
+
+#[test]
 fn test_tmp_download_path_is_unique_per_version_and_per_attempt() {
     // The old `with_extension("tmp")` collapsed every 0.1.x versioned name onto a single `grok-0.1.tmp`
     // The helper must keep distinct versions distinct AND make repeated attempts (same process, e.g. concurrent tokio tasks) unique.
