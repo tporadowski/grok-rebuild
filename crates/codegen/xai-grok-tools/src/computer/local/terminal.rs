@@ -33,6 +33,8 @@ struct SpawnResult {
     process_group: crate::util::ProcessGroup,
     /// Handle for reading the state dump from fd 4 (persistent shell only).
     state_dump_handle: Option<tokio::task::JoinHandle<std::io::Result<String>>>,
+    /// Warning when the requested workspace directory was gone and the command ran elsewhere.
+    spawn_notice: Option<String>,
 }
 
 const READ_BUFFER_SIZE: usize = 8192;
@@ -74,6 +76,74 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 const REAP_GRACE: Duration = Duration::from_secs(5);
 /// Post-exit output-file retention cap so snapshots don't materialize huge strings.
 const MAX_RETAINED_OUTPUT_FILE_BYTES: u64 = 64 * 1024 * 1024;
+/// In-memory tool output stays under this even when the configured limit is enormous.
+const MAX_MEMORY_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+/// Bytes one poll may copy before yielding, so the output-size guard can run.
+const POLL_READ_BUDGET: usize = 1024 * 1024;
+
+/// Bytes retained in the ring. A configured limit above [`MAX_MEMORY_OUTPUT_BYTES`] cannot force a huge allocation.
+fn memory_output_limit(requested: usize) -> usize {
+    requested.min(MAX_MEMORY_OUTPUT_BYTES)
+}
+
+/// Drop the middle of `buf` once it passes `limit`, keeping the head and the tail.
+/// A tool call that prints without bound must not grow this buffer without a ceiling.
+fn bound_front_and_back(buf: &mut Vec<u8>, limit: usize) -> bool {
+    if buf.len() <= limit {
+        return false;
+    }
+    if limit == 0 {
+        buf.clear();
+        return true;
+    }
+    let half = limit / 2;
+    let tail_len = limit - half;
+    let tail_start = buf.len() - tail_len;
+    let front = buf.get(..half).unwrap_or(&[]).to_vec();
+    let tail = buf.get(tail_start..).unwrap_or(&[]).to_vec();
+    buf.clear();
+    buf.extend_from_slice(&front);
+    buf.extend_from_slice(&tail);
+    true
+}
+
+fn missing_directory_notice(missing: &std::path::Path, fallback: &std::path::Path) -> String {
+    format!(
+        "warning: shell working directory {} no longer exists; this command ran in {} instead\n",
+        missing.display(),
+        fallback.display()
+    )
+}
+
+async fn path_is_dir(path: &std::path::Path) -> bool {
+    match tokio::fs::metadata(path).await {
+        Ok(meta) => meta.is_dir(),
+        Err(_) => false,
+    }
+}
+
+fn fallback_directory_candidates() -> Vec<PathBuf> {
+    let mut candidates = vec![std::env::temp_dir()];
+    #[cfg(unix)]
+    candidates.push(PathBuf::from("/"));
+    candidates
+}
+
+/// A directory the child can start in. A deleted workspace falls back instead of failing the tool call.
+async fn living_spawn_directory(requested: &std::path::Path) -> (PathBuf, Option<String>) {
+    if path_is_dir(requested).await {
+        return (requested.to_path_buf(), None);
+    }
+    for candidate in fallback_directory_candidates() {
+        if candidate != requested && path_is_dir(&candidate).await {
+            return (
+                candidate.clone(),
+                Some(missing_directory_notice(requested, &candidate)),
+            );
+        }
+    }
+    (requested.to_path_buf(), None)
+}
 /// Tombstones are metadata-only, so 100 entries is ~10 KB.
 const MAX_COMPLETED_TASK_SNAPSHOTS: usize = 100;
 
@@ -419,6 +489,30 @@ impl ProcessState {
         self.truncated = true;
     }
 
+    /// Record one output chunk. The file keeps the bytes; the in-memory ring stays within the limit.
+    async fn absorb_output_chunk(&mut self, chunk: &[u8]) {
+        if chunk.is_empty() {
+            return;
+        }
+        self.total_bytes = self.total_bytes.saturating_add(chunk.len());
+        if let Some(file) = self.file_handle.as_mut() {
+            let _ = file.write_all(chunk).await;
+        }
+        self.output_buffer.extend_from_slice(chunk);
+        let limit = memory_output_limit(self.output_byte_limit);
+        if self.output_buffer.len() > limit {
+            let saved = self.output_byte_limit;
+            self.output_byte_limit = limit;
+            self.maybe_truncate();
+            self.output_byte_limit = saved;
+            if self.output_buffer.len() > limit {
+                if bound_front_and_back(&mut self.output_buffer, limit) {
+                    self.truncated = true;
+                }
+            }
+        }
+    }
+
     async fn flush_and_truncate_output_file(&mut self) {
         if let Some(ref mut file) = self.file_handle {
             let _ = file.flush().await;
@@ -690,12 +784,18 @@ impl LocalTerminalActor {
                 .await;
         }
 
+        // A deleted workspace must not fail the tool call. Run in a directory that still exists.
+        let (cwd_owned, notice) = living_spawn_directory(cwd).await;
+        let cwd = cwd_owned.as_path();
+
         #[cfg(unix)]
         if self.login_shell_capture && login_env_capture_enabled() {
             self.ensure_static_shell_initialized(cwd).await;
-            return self
+            let mut spawned = self
                 .spawn_static_command(command, cwd, env, tool_call_id)
-                .await;
+                .await?;
+            spawned.spawn_notice = notice;
+            return Ok(spawned);
         }
 
         #[cfg(unix)]
@@ -724,6 +824,7 @@ impl LocalTerminalActor {
             child,
             process_group,
             state_dump_handle: None,
+            spawn_notice: notice,
         })
     }
 
@@ -816,6 +917,7 @@ impl LocalTerminalActor {
             child,
             process_group,
             state_dump_handle: None,
+            spawn_notice: None,
         })
     }
 
@@ -867,10 +969,12 @@ impl LocalTerminalActor {
                 std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
             ),
         };
+        let request_alive = path_is_dir(cwd).await;
+        let mut owned_fallback: Option<PathBuf> = None;
         let (cwd_override, spawn_notice): (Option<&std::path::Path>, Option<String>) =
             if tracked_cwd_alive {
                 (None, None)
-            } else {
+            } else if request_alive {
                 tracing::warn!(
                     tracked_cwd = %shell_state.cwd.display(),
                     fallback = %cwd.display(),
@@ -878,13 +982,19 @@ impl LocalTerminalActor {
                 );
                 (
                     Some(cwd),
-                    Some(format!(
-                        "warning: shell working directory {} no longer exists; this command ran in {} instead\n",
-                        shell_state.cwd.display(),
-                        cwd.display()
-                    )),
+                    Some(missing_directory_notice(&shell_state.cwd, cwd)),
                 )
+            } else {
+                let (fallback, notice) = living_spawn_directory(cwd).await;
+                tracing::warn!(
+                    requested = %cwd.display(),
+                    fallback = %fallback.display(),
+                    "workspace directory no longer exists; shell tool call will run in the fallback"
+                );
+                owned_fallback = Some(fallback);
+                (None, notice)
             };
+        let cwd_override = cwd_override.or(owned_fallback.as_deref());
         let prep = shell_state
             .prepare_command(
                 command,
@@ -946,6 +1056,7 @@ impl LocalTerminalActor {
             child,
             process_group,
             state_dump_handle: Some(dump_handle),
+            spawn_notice: None,
         })
     }
 
@@ -1017,11 +1128,7 @@ impl LocalTerminalActor {
                     return;
                 };
                 if !output.is_empty() {
-                    process.output_buffer.extend_from_slice(&output);
-                    process.total_bytes += output.len();
-                    if let Some(ref mut file) = process.file_handle {
-                        let _ = file.write_all(&output).await;
-                    }
+                    process.absorb_output_chunk(&output).await;
                     process.maybe_truncate();
                 }
                 process.draining = false;
@@ -1207,6 +1314,7 @@ impl LocalTerminalActor {
             child,
             process_group,
             state_dump_handle,
+            spawn_notice,
         } = match self
             .spawn_command(
                 &request.command,
@@ -1229,7 +1337,7 @@ impl LocalTerminalActor {
             tracing::debug!("Failed to add pid {pid} to cgroup (non-fatal): {e}");
         }
 
-        let file_handle = match open_output_file(&request.output_file).await {
+        let mut file_handle = match open_output_file(&request.output_file).await {
             Ok(file) => Some(file),
             Err(e) => {
                 tracing::warn!(
@@ -1240,14 +1348,21 @@ impl LocalTerminalActor {
                 None
             }
         };
+        let notice_bytes = spawn_notice.unwrap_or_default().into_bytes();
+        if !notice_bytes.is_empty()
+            && let Some(file) = file_handle.as_mut()
+        {
+            let _ = file.write_all(&notice_bytes).await;
+        }
+        let notice_len = notice_bytes.len();
 
         let process_state = ProcessState {
             child,
             process_group: Some(self.enroll_spawned(process_group)),
-            output_buffer: Vec::new(),
+            output_buffer: notice_bytes,
             front_buffer: None,
             truncated: false,
-            total_bytes: 0,
+            total_bytes: notice_len,
             lifecycle: Lifecycle::Running,
             draining: false,
             bg_status: BackgroundStatus::Foreground {
@@ -1357,6 +1472,7 @@ impl LocalTerminalActor {
             child,
             process_group,
             state_dump_handle,
+            spawn_notice,
         } = match self
             .spawn_command(
                 &request.command,
@@ -1379,7 +1495,7 @@ impl LocalTerminalActor {
             tracing::debug!("Failed to add pid {pid} to cgroup (non-fatal): {e}");
         }
 
-        let file_handle = match open_output_file(&request.output_file).await {
+        let mut file_handle = match open_output_file(&request.output_file).await {
             Ok(file) => Some(file),
             Err(e) => {
                 tracing::warn!(
@@ -1390,16 +1506,23 @@ impl LocalTerminalActor {
                 None
             }
         };
+        let notice_bytes = spawn_notice.unwrap_or_default().into_bytes();
+        if !notice_bytes.is_empty()
+            && let Some(file) = file_handle.as_mut()
+        {
+            let _ = file.write_all(&notice_bytes).await;
+        }
+        let notice_len = notice_bytes.len();
 
         let task_id = uuid::Uuid::now_v7().to_string();
 
         let process_state = ProcessState {
             child,
             process_group: Some(self.enroll_spawned(process_group)),
-            output_buffer: Vec::new(),
+            output_buffer: notice_bytes,
             front_buffer: None,
             truncated: false,
-            total_bytes: 0,
+            total_bytes: notice_len,
             lifecycle: Lifecycle::Running,
             draining: false,
             bg_status: BackgroundStatus::Backgrounded {
@@ -1873,23 +1996,29 @@ impl LocalTerminalActor {
                     // Off-actor like fresh exits: the handler keeps the recorded
                     // status and this drain only contributes the output tail.
                     process.draining = true;
+                    let output_limit = process.output_byte_limit;
                     spawn_detached_drain(
                         self.self_tx.clone(),
                         terminal_id.to_owned(),
                         process.child.stdout.take(),
                         process.child.stderr.take(),
                         recorded_status,
+                        output_limit,
                     );
                 }
             }
             return;
         }
 
+        // Read until the pipe would block, but stop at a byte budget so a fast writer cannot
+        // hold this poll forever. The size guard runs between polls and must get a turn.
         let mut new_bytes: Vec<u8> = Vec::new();
-
         let mut stdout_eof = false;
         if let Some(stdout) = process.child.stdout.as_mut() {
             loop {
+                if new_bytes.len() >= POLL_READ_BUDGET {
+                    break;
+                }
                 let mut buf = [0u8; READ_BUFFER_SIZE];
                 match try_read_nonblocking(stdout, &mut buf) {
                     Some(Ok(0)) => {
@@ -1913,6 +2042,9 @@ impl LocalTerminalActor {
         let mut stderr_eof = false;
         if let Some(stderr) = process.child.stderr.as_mut() {
             loop {
+                if new_bytes.len() >= POLL_READ_BUDGET {
+                    break;
+                }
                 let mut buf = [0u8; READ_BUFFER_SIZE];
                 match try_read_nonblocking(stderr, &mut buf) {
                     Some(Ok(0)) => {
@@ -1934,13 +2066,18 @@ impl LocalTerminalActor {
         }
 
         // Flush so readers (`read_file` on the output file) see output promptly.
+        // The file keeps this burst. The ring keeps only the head and tail.
         if !new_bytes.is_empty() {
-            process.output_buffer.extend_from_slice(&new_bytes);
-            process.total_bytes += new_bytes.len();
-            if let Some(ref mut file) = process.file_handle {
+            process.total_bytes = process.total_bytes.saturating_add(new_bytes.len());
+            if let Some(file) = process.file_handle.as_mut() {
                 let _ = file.write_all(&new_bytes).await;
                 let _ = file.flush().await;
             }
+            let limit = memory_output_limit(process.output_byte_limit);
+            if new_bytes.len() > limit {
+                bound_front_and_back(&mut new_bytes, limit);
+            }
+            process.output_buffer.extend_from_slice(&new_bytes);
         }
 
         process.maybe_truncate();
@@ -2007,12 +2144,14 @@ impl LocalTerminalActor {
         match process.child.try_wait() {
             Ok(Some(status)) => {
                 process.draining = true;
+                let output_limit = process.output_byte_limit;
                 spawn_detached_drain(
                     self.self_tx.clone(),
                     terminal_id.to_owned(),
                     process.child.stdout.take(),
                     process.child.stderr.take(),
                     extract_exit_status(status),
+                    output_limit,
                 );
             }
             Ok(None) if process_done => {
@@ -2022,6 +2161,7 @@ impl LocalTerminalActor {
             // An erroring `try_wait` is no proof the child was collected; keep polling.
             Err(e) => {
                 process.draining = true;
+                let output_limit = process.output_byte_limit;
                 spawn_detached_drain(
                     self.self_tx.clone(),
                     terminal_id.to_owned(),
@@ -2031,6 +2171,7 @@ impl LocalTerminalActor {
                         exit_code: None,
                         signal: Some(format!("error: {}", e)),
                     },
+                    output_limit,
                 );
             }
         }
@@ -2942,12 +3083,24 @@ fn send_sigkill_to_group(process: &mut ProcessState) {
 
 /// Drains the taken pipes off the actor, then hands the output and the
 /// already-determined exit status back as a [`TerminalCommand::DrainedOutput`].
+fn retain_bounded(buf: &mut Vec<u8>, chunk: &[u8], limit: usize) {
+    if chunk.is_empty() {
+        return;
+    }
+    let limit = memory_output_limit(limit);
+    buf.extend_from_slice(chunk);
+    if buf.len() > limit {
+        bound_front_and_back(buf, limit);
+    }
+}
+
 fn spawn_detached_drain(
     self_tx: mpsc::WeakSender<TerminalCommand>,
     task_id: String,
     stdout: Option<tokio::process::ChildStdout>,
     stderr: Option<tokio::process::ChildStderr>,
     status: ExitStatus,
+    output_limit: usize,
 ) {
     tokio::spawn(async move {
         let mut output = Vec::new();
@@ -2957,7 +3110,11 @@ fn spawn_detached_drain(
                 loop {
                     match stdout.read(&mut buf).await {
                         Ok(0) | Err(_) => break,
-                        Ok(n) => output.extend_from_slice(buf.get(..n).unwrap_or(&[])),
+                        Ok(n) => {
+                            if let Some(read) = buf.get(..n) {
+                                retain_bounded(&mut output, read, output_limit);
+                            }
+                        }
                     }
                 }
             }
@@ -2966,7 +3123,11 @@ fn spawn_detached_drain(
                 loop {
                     match stderr.read(&mut buf).await {
                         Ok(0) | Err(_) => break,
-                        Ok(n) => output.extend_from_slice(buf.get(..n).unwrap_or(&[])),
+                        Ok(n) => {
+                            if let Some(read) = buf.get(..n) {
+                                retain_bounded(&mut output, read, output_limit);
+                            }
+                        }
                     }
                 }
             }
@@ -2988,39 +3149,37 @@ fn spawn_detached_drain(
 /// must not block the actor loop indefinitely.
 async fn drain_remaining_output(process: &mut ProcessState) {
     let timed_out = tokio::time::timeout(DRAIN_TIMEOUT, async {
-        if let Some(stdout) = process.child.stdout.as_mut() {
-            let mut buf = [0u8; READ_BUFFER_SIZE];
-            loop {
+        loop {
+            let chunk = {
+                let Some(stdout) = process.child.stdout.as_mut() else {
+                    break;
+                };
+                let mut buf = [0u8; READ_BUFFER_SIZE];
                 match stdout.read(&mut buf).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        process
-                            .output_buffer
-                            .extend_from_slice(buf.get(..n).unwrap_or(&[]));
-                        process.total_bytes += n;
-                        if let Some(ref mut file) = process.file_handle {
-                            let _ = file.write_all(buf.get(..n).unwrap_or(&[])).await;
-                        }
-                    }
+                    Ok(0) | Err(_) => None,
+                    Ok(n) => buf.get(..n).filter(|b| !b.is_empty()).map(|b| b.to_vec()),
                 }
+            };
+            match chunk {
+                Some(chunk) => process.absorb_output_chunk(&chunk).await,
+                None => break,
             }
         }
 
-        if let Some(stderr) = process.child.stderr.as_mut() {
-            let mut buf = [0u8; READ_BUFFER_SIZE];
-            loop {
+        loop {
+            let chunk = {
+                let Some(stderr) = process.child.stderr.as_mut() else {
+                    break;
+                };
+                let mut buf = [0u8; READ_BUFFER_SIZE];
                 match stderr.read(&mut buf).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        process
-                            .output_buffer
-                            .extend_from_slice(buf.get(..n).unwrap_or(&[]));
-                        process.total_bytes += n;
-                        if let Some(ref mut file) = process.file_handle {
-                            let _ = file.write_all(buf.get(..n).unwrap_or(&[])).await;
-                        }
-                    }
+                    Ok(0) | Err(_) => None,
+                    Ok(n) => buf.get(..n).filter(|b| !b.is_empty()).map(|b| b.to_vec()),
                 }
+            };
+            match chunk {
+                Some(chunk) => process.absorb_output_chunk(&chunk).await,
+                None => break,
             }
         }
     })
@@ -3044,12 +3203,13 @@ async fn drain_remaining_output(process: &mut ProcessState) {
 /// Never waits: a live pipe would hold the single-threaded actor for the full
 /// drain timeout, so this is safe on a process that is still running.
 async fn take_available_output(process: &mut ProcessState) {
+    let limit = memory_output_limit(process.output_byte_limit);
     let mut collected = Vec::new();
     if let Some(stdout) = process.child.stdout.as_mut() {
-        read_available(stdout, &mut collected);
+        read_available(stdout, &mut collected, limit);
     }
     if let Some(stderr) = process.child.stderr.as_mut() {
-        read_available(stderr, &mut collected);
+        read_available(stderr, &mut collected, limit);
     }
     process.child.stdout.take();
     process.child.stderr.take();
@@ -3057,20 +3217,24 @@ async fn take_available_output(process: &mut ProcessState) {
     if collected.is_empty() {
         return;
     }
-    process.output_buffer.extend_from_slice(&collected);
-    process.total_bytes += collected.len();
-    if let Some(file) = process.file_handle.as_mut() {
-        let _ = file.write_all(&collected).await;
-    }
+    process.absorb_output_chunk(&collected).await;
     process.maybe_truncate();
 }
 
-fn read_available(reader: &mut (impl tokio::io::AsyncRead + Unpin), out: &mut Vec<u8>) {
+fn read_available(
+    reader: &mut (impl tokio::io::AsyncRead + Unpin),
+    out: &mut Vec<u8>,
+    limit: usize,
+) {
     let mut buf = [0u8; READ_BUFFER_SIZE];
     loop {
         match try_read_nonblocking(reader, &mut buf) {
             Some(Ok(0)) | Some(Err(_)) | None => return,
-            Some(Ok(n)) => out.extend_from_slice(buf.get(..n).unwrap_or(&[])),
+            Some(Ok(n)) => {
+                if let Some(read) = buf.get(..n) {
+                    retain_bounded(out, read, limit);
+                }
+            }
         }
     }
 }
@@ -5250,7 +5414,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_persistent_shell_spawn_error_names_missing_cwd() {
+    async fn test_persistent_shell_deleted_workspace_still_runs() {
         let backend = LocalTerminalBackend::with_persistent_shell();
 
         let scratch = tempfile::TempDir::new().unwrap();
@@ -5267,14 +5431,99 @@ mod tests {
         let mut req = make_request("pwd");
         req.working_directory = gone_path.clone();
 
-        let Err(err) = backend.run(req).await else {
-            panic!("spawn must fail when both directories are missing");
-        };
-        let msg = err.to_string();
+        let result = backend.run(req).await.unwrap_or_else(|err| {
+            panic!("a deleted workspace must not fail the tool call, got: {err}")
+        });
+        assert_eq!(result.exit_code, Some(0), "{:?}", result.combined_output);
+        let output = &result.combined_output;
         assert!(
-            msg.contains("spawn shell in") && msg.contains(&gone_path.display().to_string()),
-            "error must name the spawn directory, got: {msg}"
+            output.contains("no longer exists"),
+            "fallback warning must name the missing directory, got: {output:?}"
         );
+        assert!(
+            output.contains(&gone_path.display().to_string()),
+            "warning must name the deleted workspace, got: {output:?}"
+        );
+        let pwd = output.lines().last().unwrap_or_default().trim();
+        assert_ne!(
+            pwd,
+            gone_path.to_string_lossy().as_ref(),
+            "command must not claim it ran in the deleted directory"
+        );
+        assert!(
+            std::path::Path::new(pwd).is_dir(),
+            "command must run in a directory that exists, got: {pwd:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_shell_tool_call_runs_when_the_workspace_directory_is_gone() {
+        let backend = LocalTerminalBackend::new();
+        let gone = tempfile::TempDir::new().unwrap();
+        let gone_path = gone.path().to_path_buf();
+        drop(gone);
+        let mut req = make_request("pwd");
+        req.working_directory = gone_path.clone();
+
+        let result = backend.run(req).await.unwrap_or_else(|err| {
+            panic!("a deleted workspace must not fail the tool call, got: {err}")
+        });
+        assert_eq!(result.exit_code, Some(0), "{:?}", result.combined_output);
+        assert!(
+            result.combined_output.contains("no longer exists"),
+            "warning missing: {:?}",
+            result.combined_output
+        );
+        assert!(
+            result
+                .combined_output
+                .contains(&gone_path.display().to_string()),
+            "warning must name the deleted workspace: {:?}",
+            result.combined_output
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_directory_resolves_to_a_live_fallback() {
+        let gone = tempfile::TempDir::new().unwrap();
+        let path = gone.path().to_path_buf();
+        drop(gone);
+        let (dir, notice) = living_spawn_directory(&path).await;
+        assert!(dir.is_dir(), "fallback must exist: {}", dir.display());
+        assert_ne!(dir, path);
+        let notice = notice.expect("warning");
+        assert!(notice.contains("no longer exists"));
+        assert!(notice.contains(&path.display().to_string()));
+        assert!(notice.contains(&dir.display().to_string()));
+    }
+
+    #[test]
+    fn huge_output_stays_within_the_memory_ceiling() {
+        let mut buf = b"HEAD-".to_vec();
+        let mut chunk = vec![b'm'; 200];
+        chunk.extend_from_slice(b"-TAIL");
+        retain_bounded(&mut buf, &chunk, 16);
+        assert!(buf.len() <= 16, "first burst grew to {}", buf.len());
+        assert!(
+            buf.starts_with(b"HEAD"),
+            "front of a huge burst must survive: {buf:?}"
+        );
+        assert!(
+            buf.ends_with(b"TAIL"),
+            "tail of a huge burst must survive: {buf:?}"
+        );
+
+        retain_bounded(&mut buf, &vec![b'z'; 10_000], 16);
+        assert!(buf.len() <= 16, "later burst grew to {}", buf.len());
+        assert!(
+            buf.starts_with(b"HEAD"),
+            "a later burst must not drop the retained front: {buf:?}"
+        );
+        assert!(
+            buf.ends_with(b"zzzz"),
+            "a later burst must keep the new tail: {buf:?}"
+        );
+        assert_eq!(memory_output_limit(usize::MAX), MAX_MEMORY_OUTPUT_BYTES);
     }
 
     #[tokio::test]
