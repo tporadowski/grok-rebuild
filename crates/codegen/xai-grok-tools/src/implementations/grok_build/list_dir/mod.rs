@@ -585,6 +585,15 @@ impl xai_tool_runtime::Tool for ListDirTool {
                 )),
             });
         }
+        if let Some(error) = crate::util::source_probe::unreadable_directory(&path).await {
+            let message =
+                crate::util::source_probe::unreadable_directory_message(&display_path, &error);
+            return Ok(if error.kind() == std::io::ErrorKind::PermissionDenied {
+                ListDirOutput::PermissionDenied(message)
+            } else {
+                ListDirOutput::Error(message)
+            });
+        }
         let walk = if is_legacy {
             let max_output_bytes = resources
                 .lock()
@@ -1290,6 +1299,48 @@ mod tests {
                 assert!(msg.contains("does not exist"), "got: {msg}");
             }
             other => panic!("expected NotFound for nonexistent dir, got: {other:?}"),
+        }
+    }
+    /// A directory that exists but cannot be listed is an error, not an empty listing.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unreadable_directory_is_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let secret = tmp.path().join("secret");
+        fs::create_dir(&secret).unwrap();
+        File::create(secret.join("hit.txt")).unwrap();
+        let mut perms = fs::metadata(&secret).unwrap().permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&secret, perms).unwrap();
+        struct Unlock(std::path::PathBuf);
+        impl Drop for Unlock {
+            fn drop(&mut self) {
+                if let Ok(meta) = fs::metadata(&self.0) {
+                    let mut perms = meta.permissions();
+                    perms.set_mode(0o755);
+                    let _ = fs::set_permissions(&self.0, perms);
+                }
+            }
+        }
+        let _unlock = Unlock(secret);
+        let mut resources = Resources::new();
+        resources.insert(Cwd(tmp.path().to_path_buf()));
+        let output = xai_tool_runtime::Tool::run(
+            &ListDirTool,
+            test_ctx(resources.into_shared()),
+            ListDirInput {
+                target_directory: "secret".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        match output {
+            ListDirOutput::PermissionDenied(msg) => {
+                assert!(msg.contains("Permission denied"), "{msg}");
+                assert!(msg.contains("secret"), "{msg}");
+            }
+            other => panic!("expected PermissionDenied for an unreadable directory, got: {other:?}"),
         }
     }
     #[tokio::test]

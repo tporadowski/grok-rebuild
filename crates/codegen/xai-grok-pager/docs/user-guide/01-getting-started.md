@@ -170,7 +170,7 @@ Grok has built-in tools for:
 | `spawn_subagent` | Spawn parallel subagent sessions |
 | `memory_search` | Search cross-session memory |
 
-`read_file`, `search_replace`, and `grep` say why they stop on a pipe, socket, or device, on a file over 5 MB, and on binary content.
+`read_file`, `search_replace`, and `grep` say why they stop on a pipe, socket, or device, on a file over 5 MB, and on binary content. If a `grep` search root or a `list_dir` directory cannot be read, the tool reports that error instead of an empty result.
 
 Stopping one running shell tool call stops that command. Shell commands started by the other calls in the same parallel batch keep running. Cancelling the turn still stops every foreground command of that turn.
 

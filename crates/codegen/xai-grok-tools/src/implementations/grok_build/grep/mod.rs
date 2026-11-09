@@ -687,6 +687,25 @@ async fn prepare_grep(
             file_matches: Vec::new(),
         }));
     }
+    if input.path.is_some()
+        && let Some(Err(error)) = &root_metadata
+        && error.kind() == std::io::ErrorKind::PermissionDenied
+    {
+        let display_path = if let Ok(suffix) = workdir.strip_prefix(&cwd) {
+            display_base.join(suffix)
+        } else {
+            workdir.clone()
+        };
+        let message =
+            crate::util::source_probe::unreadable_directory_message(&display_path, error);
+        return Ok(GrepStep::Early(GrepSearchOutput {
+            stdout: message.into_bytes(),
+            stderr: Vec::new(),
+            exit_code: 2,
+            match_count: 0,
+            file_matches: Vec::new(),
+        }));
+    }
 
     let root_kind = match &root_metadata {
         Some(Ok(metadata)) if metadata.is_dir() => RootKind::Directory,
@@ -733,6 +752,26 @@ async fn prepare_grep(
                 file_matches: Vec::new(),
             }));
         }
+    }
+    // An unreadable directory makes ripgrep report that nothing was searched.
+    // Say why, instead of an empty result. A file root is searched as a file.
+    if (root_kind == RootKind::Directory || root_metadata.is_none())
+        && let Some(error) = crate::util::source_probe::unreadable_directory(&workdir).await
+    {
+        let display_path = if let Ok(suffix) = workdir.strip_prefix(&cwd) {
+            display_base.join(suffix)
+        } else {
+            workdir.clone()
+        };
+        let message =
+            crate::util::source_probe::unreadable_directory_message(&display_path, &error);
+        return Ok(GrepStep::Early(GrepSearchOutput {
+            stdout: message.into_bytes(),
+            stderr: Vec::new(),
+            exit_code: 2,
+            match_count: 0,
+            file_matches: Vec::new(),
+        }));
     }
 
     let output_mode = input.output_mode.clone().unwrap_or(OutputMode::Content);
@@ -991,6 +1030,57 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("No matches found"));
         assert_eq!(output.match_count, 0);
+    }
+
+    /// A search root that exists but cannot be listed is an error, not an empty result.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unreadable_search_root_is_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let secret = tmp.path().join("secret");
+        fs::create_dir(&secret).unwrap();
+        fs::write(secret.join("hit.txt"), "needle\n").unwrap();
+        let mut perms = fs::metadata(&secret).unwrap().permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&secret, perms).unwrap();
+        struct Unlock(std::path::PathBuf);
+        impl Drop for Unlock {
+            fn drop(&mut self) {
+                if let Ok(meta) = fs::metadata(&self.0) {
+                    let mut perms = meta.permissions();
+                    perms.set_mode(0o755);
+                    let _ = fs::set_permissions(&self.0, perms);
+                }
+            }
+        }
+        let _unlock = Unlock(secret.clone());
+        assert!(
+            fs::read_dir(&secret).is_err(),
+            "the fixture directory must be unlistable"
+        );
+
+        let mut resources = Resources::new();
+        resources.insert(Cwd(tmp.path().to_path_buf()));
+        let mut input = make_grep_input("needle");
+        input.path = Some("secret".to_string());
+        let output = xai_tool_runtime::Tool::run(
+            &GrepTool,
+            test_ctx(resources.into_shared()),
+            input,
+        )
+        .await
+        .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("Permission denied"),
+            "unreadable root must name the error: {stdout}"
+        );
+        assert!(
+            !stdout.contains("No matches found"),
+            "unreadable root must not look empty: {stdout}"
+        );
+        assert!(output.exit_code > 1, "exit {}", output.exit_code);
     }
 
     #[tokio::test]

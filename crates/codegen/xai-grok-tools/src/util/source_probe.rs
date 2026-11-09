@@ -60,6 +60,33 @@ pub async fn text_source_prefix(path: &Path) -> Option<Vec<u8>> {
     Some(buf)
 }
 
+/// A directory that exists but cannot be listed.
+/// A missing path or a non-directory is `None`, so those callers keep their own errors.
+pub async fn unreadable_directory(path: &Path) -> Option<std::io::Error> {
+    match tokio::fs::read_dir(path).await {
+        Ok(_) => None,
+        Err(err)
+            if err.kind() == std::io::ErrorKind::NotFound
+                || err.kind() == std::io::ErrorKind::NotADirectory =>
+        {
+            None
+        }
+        Err(err) => Some(err),
+    }
+}
+
+/// The sentence `grep` and `list_dir` show instead of an empty result.
+pub fn unreadable_directory_message(display: &Path, err: &std::io::Error) -> String {
+    if err.kind() == std::io::ErrorKind::PermissionDenied {
+        format!("Permission denied: {}", display.display())
+    } else {
+        format!(
+            "Error: cannot read directory {}: {err}",
+            display.display()
+        )
+    }
+}
+
 pub fn binary_source_message(display: &Path, extension: &str, bytes: &[u8]) -> Option<String> {
     is_binary(extension, bytes)
         .then(|| format!("Cannot read binary file: {}", display.display()))
