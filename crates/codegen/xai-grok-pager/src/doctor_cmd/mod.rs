@@ -7,6 +7,7 @@ use crate::diagnostics::{DiagnosticReport, FixActivation, FixPlan, ShellKind};
 
 mod human;
 mod json;
+mod startup;
 
 pub const SCHEMA_VERSION: &str = "1";
 
@@ -66,7 +67,9 @@ pub fn collect_report() -> DiagnosticReport {
     ));
     let terminal = crate::terminal::standalone_terminal_context();
     let report = collect_report_with(crate::diagnostics::probes::collect_standalone(&terminal));
-    configured_report_for_terminal(report, &terminal)
+    let mut report = configured_report_for_terminal(report, &terminal);
+    startup::append_startup_config_findings(&mut report);
+    report
 }
 
 fn configured_report_for_terminal(

@@ -46,6 +46,7 @@ mod resolved;
 pub mod sandbox_mode;
 pub mod shell;
 pub mod signed_policy;
+mod startup_blockers;
 mod validation;
 pub mod version_overrides;
 
@@ -124,6 +125,7 @@ pub use remote_settings::{
     WorktreeKindMaxAge, deserialize_tolerant,
 };
 pub use resolved::{BoolFlag, ConfigSource, Resolved, resolve_string_flag};
+pub use startup_blockers::{StartupConfigBlocker, startup_config_blockers_at};
 pub use validation::{
     RequirementsError, RequirementsLayer, RequirementsSource, load_merged_requirements,
     requirements_layers, validate_requirements,

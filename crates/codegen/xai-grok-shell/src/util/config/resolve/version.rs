@@ -135,6 +135,76 @@ fn fold_bound(raws: Vec<String>, knob: VersionKnob) -> Option<Version> {
     best
 }
 
+/// One configured `cli.required_*` value and where it was set.
+pub struct VersionBoundSource<'a> {
+    pub location: &'a str,
+    pub raw: &'a str,
+}
+
+/// The startup refusal for a required version range, or `None` when this build may start.
+/// A contradictory range fails open, matching [`VersionPolicy::has_contradictory_required_range`].
+/// Invalid values are ignored. The message names every location that supplied the winning bound.
+pub fn required_version_startup_block(
+    current: &Version,
+    minimums: &[VersionBoundSource<'_>],
+    maximums: &[VersionBoundSource<'_>],
+) -> Option<String> {
+    let minimum = strictest_bound(minimums, Bound::Floor);
+    let maximum = strictest_bound(maximums, Bound::Ceiling);
+    if let (Some(low), Some(high)) = (&minimum, &maximum)
+        && low.version > high.version
+    {
+        return None;
+    }
+    if let Some(low) = minimum
+        && current < &low.version
+    {
+        return Some(format!(
+            "cli.required_minimum_version in {} is {}, which is newer than this Grok ({current}) and prevents it from starting",
+            low.locations.join(", "),
+            low.version
+        ));
+    }
+    if let Some(high) = maximum
+        && current > &high.version
+    {
+        return Some(format!(
+            "cli.required_maximum_version in {} is {}, which is older than this Grok ({current}) and prevents it from starting",
+            high.locations.join(", "),
+            high.version
+        ));
+    }
+    None
+}
+
+struct WinningBound {
+    version: Version,
+    locations: Vec<String>,
+}
+
+fn strictest_bound(sources: &[VersionBoundSource<'_>], bound: Bound) -> Option<WinningBound> {
+    let mut best: Option<Version> = None;
+    for source in sources {
+        let Ok(version) = Version::parse(source.raw.trim()) else {
+            continue;
+        };
+        best = Some(match best {
+            None => version,
+            Some(current) => match bound {
+                Bound::Floor => current.max(version),
+                Bound::Ceiling => current.min(version),
+            },
+        });
+    }
+    let version = best?;
+    let locations = sources
+        .iter()
+        .filter(|source| Version::parse(source.raw.trim()).ok().as_ref() == Some(&version))
+        .map(|source| source.location.to_string())
+        .collect();
+    Some(WinningBound { version, locations })
+}
+
 /// Env folds into the same max/min as the layers, so it can only tighten a managed bound.
 fn resolve_version_bound<E: Fn(&str) -> Option<String>>(
     layers: &crate::config::ConfigLayers,
@@ -287,6 +357,60 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    fn ver(raw: &str) -> Version {
+        Version::parse(raw).unwrap()
+    }
+
+    #[test]
+    fn required_version_block_names_the_winning_location() {
+        let current = ver("1.2.3");
+        let minimums = [
+            VersionBoundSource {
+                location: "/etc/grok/config.toml",
+                raw: "1.0.0",
+            },
+            VersionBoundSource {
+                location: "/home/user/.grok/config.toml",
+                raw: "9.0.0",
+            },
+            VersionBoundSource {
+                location: "$GROK_REQUIRED_MINIMUM_VERSION",
+                raw: "not-a-version",
+            },
+        ];
+        let message = required_version_startup_block(&current, &minimums, &[])
+            .expect("a newer required minimum blocks startup");
+        assert!(message.contains("cli.required_minimum_version"), "{message}");
+        assert!(message.contains("/home/user/.grok/config.toml"), "{message}");
+        assert!(!message.contains("/etc/grok/config.toml"), "{message}");
+        assert!(!message.contains("not-a-version"), "{message}");
+        assert!(message.contains("9.0.0"), "{message}");
+        assert!(message.contains("1.2.3"), "{message}");
+
+        assert!(required_version_startup_block(&ver("9.0.0"), &minimums, &[]).is_none());
+
+        let maximums = [VersionBoundSource {
+            location: "/home/user/.grok/requirements.toml",
+            raw: "1.0.0",
+        }];
+        let above = required_version_startup_block(&ver("1.2.3"), &[], &maximums)
+            .expect("a lower required maximum blocks startup");
+        assert!(above.contains("cli.required_maximum_version"), "{above}");
+        assert!(
+            above.contains("/home/user/.grok/requirements.toml"),
+            "{above}"
+        );
+
+        let contradictory_max = [VersionBoundSource {
+            location: "low ceiling",
+            raw: "0.1.0",
+        }];
+        assert!(
+            required_version_startup_block(&current, &minimums, &contradictory_max).is_none(),
+            "a contradictory required range fails open"
+        );
     }
 
     fn layers(managed: &str, user: &str, mdm: &str) -> crate::config::ConfigLayers {

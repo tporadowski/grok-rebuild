@@ -1073,3 +1073,40 @@ fn output_writer_errors_propagate() {
     assert!(write_report(&healthy_report(), false, &mut BrokenWriter).is_err());
     assert!(write_report(&healthy_report(), true, &mut BrokenWriter).is_err());
 }
+
+#[test]
+fn a_config_file_that_blocks_startup_is_an_issue() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, "not = [valid\n").unwrap();
+
+    let blockers = xai_grok_config::startup_config_blockers_at(None, Some(dir.path()));
+    let mut report = healthy_report();
+    report
+        .findings
+        .extend(super::startup::findings_from_blockers(&blockers));
+    let output = human::format(&report);
+
+    assert!(output.contains(&path.display().to_string()), "{output}");
+    assert!(output.contains("TOML parse error"), "{output}");
+    assert!(output.contains("config.startup"), "{output}");
+    assert!(output.contains("1 issue"), "{output}");
+    assert!(!output.contains("0 issues"), "{output}");
+}
+
+#[test]
+fn a_refused_shell_policy_names_the_setting_and_the_file() {
+    let path = "/home/user/.grok/config.toml".to_owned();
+    let raw: toml::Value =
+        toml::from_str("[shell_environment_policy]\nexclude = \"not-an-array\"\n").unwrap();
+    let message = super::startup::typed_startup_message(&raw, &[(path.clone(), raw.clone())])
+        .expect("a mistyped shell policy blocks startup");
+    let mut report = healthy_report();
+    report.findings.push(super::startup::startup_finding(message));
+    let output = human::format(&report);
+
+    assert!(output.contains("[shell_environment_policy]"), "{output}");
+    assert!(output.contains(&path), "{output}");
+    assert!(output.contains("1 issue"), "{output}");
+    assert!(!output.contains("0 issues"), "{output}");
+}

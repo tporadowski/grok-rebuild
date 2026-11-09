@@ -1357,6 +1357,12 @@ fn parse_auth_providers(
 }
 impl Config {
     /// Reject invalid glob patterns in the model-filter lists at config load, so a typo fails loudly instead of silently changing availability.
+    /// Model-filter check bootstrap runs after the TOML value has already parsed.
+    /// A mistyped `[shell_environment_policy]` fails in [`Self::new_from_toml_cfg`] instead.
+    pub fn startup_refusal(&self) -> Result<(), String> {
+        self.validate_model_filters()
+    }
+
     pub(crate) fn validate_model_filters(&self) -> Result<(), String> {
         for (field, list) in [
             ("allowed_models", &self.models.allowed_models),

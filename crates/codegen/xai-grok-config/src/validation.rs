@@ -205,6 +205,14 @@ fn validate_requirements_value(
     Ok(())
 }
 
+/// The MDM requirements error that stops startup, or `None` when that layer is absent or valid.
+pub(crate) fn mdm_requirements_startup_error() -> Option<String> {
+    let value = crate::macos_managed::managed_preferences_requirements()?;
+    validate_requirements_value(value, &RequirementsSource::Mdm)
+        .err()
+        .map(|err| err.to_string())
+}
+
 /// Validates all requirements layers (user and system files, and macOS MDM).
 /// Call once at startup from the binary's `main()`; exit on `Err`.
 pub fn validate_requirements() -> Result<(), RequirementsError> {
