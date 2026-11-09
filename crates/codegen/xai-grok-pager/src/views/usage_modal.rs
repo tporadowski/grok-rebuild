@@ -714,9 +714,9 @@ fn tab_content(
             TabContent::from_lines(context_tab_lines(state, theme, width))
         }
         UsageInfoTab::UsageLimit => {
-            TabContent::from_lines(usage_limit_lines(state, balance, theme))
+            TabContent::from_lines(usage_limit_lines(state, balance, theme, width))
         }
-        UsageInfoTab::SessionInfo => session_info_content(state, theme),
+        UsageInfoTab::SessionInfo => session_info_content(state, theme, width),
     }
 }
 
@@ -734,12 +734,62 @@ fn muted_line(theme: &Theme, s: impl Into<String>) -> Line<'static> {
     Line::from(Span::styled(s.into(), theme.muted()))
 }
 
+/// Wrap an error so a narrow modal shows every word instead of cutting the line.
+fn wrap_error_lines(theme: &Theme, text: &str, width: u16) -> Vec<Line<'static>> {
+    wrap_to_columns(text, width.max(1) as usize)
+        .into_iter()
+        .map(|line| muted_line(theme, line))
+        .collect()
+}
+
+fn wrap_to_columns(text: &str, width: usize) -> Vec<String> {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current = hard_break(word, width, &mut lines);
+        } else if current.width() + 1 + word.width() <= width {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current = hard_break(word, width, &mut lines);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+fn hard_break(word: &str, width: usize, lines: &mut Vec<String>) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let mut chunk = String::new();
+    let mut used = 0usize;
+    for ch in word.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if cw > 0 && used + cw > width && !chunk.is_empty() {
+            lines.push(std::mem::take(&mut chunk));
+            used = 0;
+        }
+        chunk.push(ch);
+        used += cw;
+    }
+    chunk
+}
+
 fn context_tab_lines(state: &UsageInfoModalState, theme: &Theme, width: u16) -> Vec<Line<'static>> {
     if let Some(error) = &state.context_error {
-        return vec![muted_line(
+        return wrap_error_lines(
             theme,
-            format!("Couldn't load context usage: {error}"),
-        )];
+            &format!("Couldn't load context usage: {error}"),
+            width,
+        );
     }
     if let Some(block) = &state.context {
         return block.lines_for_width(theme, width);
@@ -755,6 +805,7 @@ fn usage_limit_lines(
     state: &UsageInfoModalState,
     balance: Option<&CreditBalance>,
     theme: &Theme,
+    width: u16,
 ) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
@@ -767,7 +818,11 @@ fn usage_limit_lines(
     } else if let Some(bal) = balance {
         lines.extend(allowance_lines(state, bal, theme));
     } else if let Some(error) = &state.billing_error {
-        lines.push(muted_line(theme, format!("Couldn't load usage: {error}")));
+        lines.extend(wrap_error_lines(
+            theme,
+            &format!("Couldn't load usage: {error}"),
+            width,
+        ));
     } else if state.billing_loading {
         lines.push(muted_line(theme, "Loading usage\u{2026}"));
     } else {
@@ -855,12 +910,17 @@ fn allowance_lines(
     lines
 }
 
-fn session_info_content(state: &UsageInfoModalState, theme: &Theme) -> TabContent {
+fn session_info_content(
+    state: &UsageInfoModalState,
+    theme: &Theme,
+    width: u16,
+) -> TabContent {
     if let Some(error) = &state.session_error {
-        return TabContent::from_lines(vec![muted_line(
+        return TabContent::from_lines(wrap_error_lines(
             theme,
-            format!("Couldn't load session info: {error}"),
-        )]);
+            &format!("Couldn't load session info: {error}"),
+            width,
+        ));
     }
     let Some(fields) = state.session_fields.as_ref().filter(|f| !f.is_empty()) else {
         if state.ctx.session_id.is_none() {
@@ -1011,7 +1071,7 @@ mod tests {
             is_unified_billing_user: None,
         };
         let theme = Theme::current();
-        let lines = usage_limit_lines(&state, Some(&bal), &theme);
+        let lines = usage_limit_lines(&state, Some(&bal), &theme, 200);
         let text: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
         assert_eq!(
             text.first().map(String::as_str),
@@ -1039,7 +1099,7 @@ mod tests {
         let theme = Theme::current();
         let mut state = state_with_session();
         state.billing_loading = true;
-        let lines = usage_limit_lines(&state, None, &theme);
+        let lines = usage_limit_lines(&state, None, &theme, 200);
         assert!(
             lines
                 .first()
@@ -1047,7 +1107,7 @@ mod tests {
         );
 
         state.ctx.billing_redirect_url = Some("https://x.example/usage".to_string());
-        let lines = usage_limit_lines(&state, None, &theme);
+        let lines = usage_limit_lines(&state, None, &theme, 200);
         assert!(
             lines
                 .first()
@@ -1055,7 +1115,7 @@ mod tests {
         );
 
         state.ctx.usage_visible = false;
-        let lines = usage_limit_lines(&state, None, &theme);
+        let lines = usage_limit_lines(&state, None, &theme, 200);
         assert!(
             lines
                 .first()
@@ -1064,12 +1124,57 @@ mod tests {
 
         // Gateway chat sessions show no billing at all
         state.ctx.chat_kind = true;
-        let lines = usage_limit_lines(&state, None, &theme);
+        let lines = usage_limit_lines(&state, None, &theme, 200);
         assert!(
             lines
                 .first()
                 .is_some_and(|l| l.to_string().contains("Loading session usage"))
         );
+    }
+
+    #[test]
+    fn long_errors_wrap_in_usage_and_session_info() {
+        let theme = Theme::current();
+        let error = "the upstream billing service rejected this account token because it is no longer valid for the workspace";
+        let width = 20u16;
+        let mut state = state_with_session();
+        state.billing_error = Some(error.to_string());
+        let usage = usage_limit_lines(&state, None, &theme, width);
+        assert_wrapped(&usage, width, "Couldn't load usage", "no longer valid");
+
+        state.session_error = Some(error.to_string());
+        let info = session_info_content(&state, &theme, width);
+        assert_wrapped(
+            &info.lines,
+            width,
+            "Couldn't load session info",
+            "no longer valid",
+        );
+    }
+
+    fn assert_wrapped(lines: &[Line<'_>], width: u16, head: &str, tail: &str) {
+        use unicode_width::UnicodeWidthStr;
+        let text: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
+        let error_lines: Vec<&String> = text.iter().take_while(|line| !line.is_empty()).collect();
+        assert!(
+            error_lines.len() > 1,
+            "the error wraps onto more than one row: {text:?}"
+        );
+        let joined = error_lines.iter().map(|line| line.as_str()).collect::<Vec<_>>().join(" ");
+        assert!(
+            joined.contains(head),
+            "missing the error lead: {text:?}"
+        );
+        assert!(
+            joined.contains(tail),
+            "the tail was truncated: {text:?}"
+        );
+        for line in error_lines {
+            assert!(
+                line.width() <= width as usize,
+                "line wider than the modal: {line:?}"
+            );
+        }
     }
 
     #[test]
@@ -1461,7 +1566,7 @@ mod tests {
             field("Context", "1 / 2", true),
         ]);
         let theme = Theme::current();
-        let tab = session_info_content(&state, &theme);
+        let tab = session_info_content(&state, &theme, 200);
         let text: Vec<String> = tab.lines.iter().map(|l| l.to_string()).collect();
         assert_eq!(
             text,
