@@ -34,6 +34,7 @@ Grok also auto-compacts once the context window hits 85% (tune it with `[session
 
 Show the context window split into System prompt, Messages, Reasoning/overhead, and Free.
 Rows for Tool definitions, Skills, and MCP servers are already counted in those totals.
+The auto-compact line appears only when the session reports a threshold.
 
 ### `/session-info`
 

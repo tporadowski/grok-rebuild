@@ -402,7 +402,8 @@ impl ContextInfoBlock {
         // `threshold_tokens` uses `div_ceil` rather than truncating integer division. Without `div_ceil`, tiny totals
         // could produce `remaining == 0` while `usage_pct < threshold_percent`. That would show `~0 tokens remaining` for
         // a context window that isn't actually at the threshold.
-        if total > 0 {
+        // `0` means this snapshot did not report a threshold. Do not paint the historical 85% default.
+        if total > 0 && snapshot.auto_compact_threshold_percent > 0 {
             let threshold_percent = snapshot.auto_compact_threshold_percent;
             let threshold_tokens = total.saturating_mul(threshold_percent as u64).div_ceil(100);
             let remaining = threshold_tokens.saturating_sub(used);
@@ -437,7 +438,9 @@ impl ContextInfoBlock {
         // The tip about approaching auto-compact only shows in the gap between the "getting close" mark (80%) and the
         // actual auto-compact threshold. A second warning-styled tip suggesting a manual `/compact` would just stack
         // visually and contradict itself.
-        if (80..snapshot.auto_compact_threshold_percent).contains(&usage_pct) {
+        if snapshot.auto_compact_threshold_percent > 0
+            && (80..snapshot.auto_compact_threshold_percent).contains(&usage_pct)
+        {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "Tip: run /compact to free up context space.".to_string(),
@@ -691,6 +694,36 @@ mod tests {
         let theme = test_theme();
         let lines = block.build_lines(&theme, BarLayout::WIDE);
         assert!(!all_text(&lines).contains("/compact"));
+    }
+
+    #[test]
+    fn context_omits_an_auto_compact_line_when_the_agent_does_not_report_one() {
+        let from_old_agent: ContextInfo =
+            serde_json::from_str(r#"{"used":36700,"total":1000000,"usagePct":4}"#).unwrap();
+        assert_eq!(from_old_agent.auto_compact_threshold_percent, 0);
+        let partial = ContextInfo::from_notification(36_700, 1_000_000);
+        assert_eq!(partial.auto_compact_threshold_percent, 0);
+
+        let theme = test_theme();
+        for (label, snap) in [("wire", from_old_agent), ("partial", partial)] {
+            let lines = ContextInfoBlock::new(snap, "grok-4").build_lines(&theme, BarLayout::WIDE);
+            let all = all_text(&lines);
+            assert!(
+                !all.contains("Auto-compact"),
+                "{label} invented a threshold:\n{all}"
+            );
+        }
+
+        let reported: ContextInfo = serde_json::from_str(
+            r#"{"used":36700,"total":1000000,"usagePct":4,"autoCompactThresholdPercent":65}"#,
+        )
+        .unwrap();
+        let lines = ContextInfoBlock::new(reported, "grok-4").build_lines(&theme, BarLayout::WIDE);
+        let all = all_text(&lines);
+        assert!(
+            all.contains("Auto-compact at 65%"),
+            "a reported threshold stays on the row:\n{all}"
+        );
     }
 
     #[test]
