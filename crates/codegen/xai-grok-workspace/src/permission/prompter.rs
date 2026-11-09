@@ -1953,6 +1953,65 @@ mod tests {
         }
     }
 
+    /// Web search and image cards use the same client gate as every other prompt.
+    /// TUI, Pager, and Desktop put always-approve mode first. Other clients never see that row:
+    /// selecting it would allow this call without turning the mode on.
+    /// An image card has no separate always-allow row. Its only always-style choice is that gated mode.
+    #[test]
+    fn web_search_and_image_cards_gate_always_approve_by_client() {
+        let web = AccessKind::WebSearch("rust lang".to_owned());
+        let image = AccessKind::Tool("image_gen".to_owned());
+        let cases = [("web_search", &web), ("image_gen", &image)];
+        for ct in [
+            ClientType::GrokTUI,
+            ClientType::GrokPager,
+            ClientType::Desktop,
+        ] {
+            let p = prompter(ct);
+            for (label, access) in cases {
+                let opts = p.build_options(access);
+                assert_eq!(
+                    opts.keys().next().map(|k| k.0.as_ref()),
+                    Some(ENABLE_ALWAYS_APPROVE_OPTION_ID),
+                    "{ct:?} {label}: always-approve mode must be the first option",
+                );
+                let outcome = outcome_for(&opts, ENABLE_ALWAYS_APPROVE_OPTION_ID, None, access);
+                assert!(
+                    matches!(outcome, PromptOutcome::AllowOnce),
+                    "{ct:?} {label}: always-approve mode must allow this call once, got {outcome:?}",
+                );
+            }
+            let image_opts = p.build_options(&image);
+            let image_ids: Vec<&str> = image_opts.keys().map(|k| k.0.as_ref()).collect();
+            assert!(
+                image_ids
+                    .iter()
+                    .all(|id| !id.contains("always") || *id == ENABLE_ALWAYS_APPROVE_OPTION_ID),
+                "{ct:?} image card must not add another always-allow row: {image_ids:?}",
+            );
+        }
+        for ct in [
+            ClientType::Generic,
+            ClientType::GrokWeb,
+            ClientType::Nebula,
+            ClientType::Extension,
+        ] {
+            let p = prompter(ct);
+            for (label, access) in cases {
+                let opts = p.build_options(access);
+                assert!(
+                    !opts.contains_key(&enable_always_approve_id()),
+                    "{ct:?} {label}: must not offer always-approve mode",
+                );
+            }
+            let image_opts = p.build_options(&image);
+            assert!(
+                image_opts.keys().all(|id| !id.0.as_ref().contains("always")),
+                "{ct:?} image card must not offer an always row",
+            );
+        }
+    }
+
     /// The option has `kind = AllowAlways` (for default-focus / YOLO drain safety).
     /// `map_selected_outcome` must override that to `PromptOutcome::AllowOnce`; the shell never persists per-tool state for this id.
     /// Pin the override for every access kind.
