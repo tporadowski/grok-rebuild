@@ -244,7 +244,7 @@ Open the extensions modal on the Skills tab to view installed skills.
 
 ### `/imagine <description>`
 
-Generate an image from a text description.
+Generate an image from a text description. When image generation is not available in this session, `/imagine` runs the bundled imagine skill instead.
 
 ```
 /imagine a golden sunset over a calm ocean with silhouetted palm trees

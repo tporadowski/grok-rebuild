@@ -460,6 +460,21 @@ impl CommandRegistry {
                     .iter()
                     .any(|b| b.eq_ignore_ascii_case(name))
         };
+        // Builtins that name required tools. A skill with one of these names is
+        // kept so it can run while those tools are missing. `rebuild_triggers`
+        // prefers the builtin once its tools are back.
+        let tool_gated_names: HashSet<String> = self
+            .commands
+            .iter()
+            .filter(|cmd| !cmd.required_tools().is_empty())
+            .flat_map(|cmd| {
+                std::iter::once(cmd.name().to_ascii_lowercase()).chain(
+                    cmd.aliases()
+                        .iter()
+                        .map(|alias| alias.to_ascii_lowercase()),
+                )
+            })
+            .collect();
 
         // Shadowed builtins are by design; a shadowed skill or workflow breaks `PAGER_COMMAND_KEYS`
         let is_skill_or_workflow = |cmd: &agent_client_protocol::AvailableCommand| {
@@ -471,7 +486,11 @@ impl CommandRegistry {
         let mut duplicate: Vec<String> = Vec::new();
         for acp_cmd in commands {
             let name = acp_cmd.name.to_lowercase();
-            if is_reserved(&name) {
+            let skill_stand_in = matches!(
+                SkillMeta::parse(acp_cmd.meta.as_ref()),
+                SkillMeta::Skill(_)
+            ) && tool_gated_names.contains(&name);
+            if is_reserved(&name) && !skill_stand_in {
                 if is_skill_or_workflow(acp_cmd) {
                     reserved.push(name);
                 }
@@ -512,9 +531,27 @@ impl CommandRegistry {
     /// Regenerate trigger list and key-to-index map from the current commands.
     /// Called after any mutation (construction, ACP sync).
     /// Panics if two builtin commands share an alias (programmer error).
+    /// Names and aliases of builtins whose required tools are present.
+    fn live_builtin_names(&self) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for (idx, cmd) in self.commands.iter().enumerate() {
+            if self.sources.get(idx).copied() != Some(CommandSource::Builtin)
+                || !self.tools_satisfied(cmd)
+            {
+                continue;
+            }
+            names.insert(cmd.name().to_ascii_lowercase());
+            for alias in cmd.aliases() {
+                names.insert(alias.to_ascii_lowercase());
+            }
+        }
+        names
+    }
+
     fn rebuild_triggers(&mut self) {
         self.key_to_index.clear();
         self.triggers.clear();
+        let live_builtins = self.live_builtin_names();
 
         for (idx, command) in self.commands.iter().enumerate() {
             let Some(&source) = self.sources.get(idx) else {
@@ -524,6 +561,13 @@ impl CommandRegistry {
 
             // Skip commands gated by missing tools, using the same skip pattern as `hidden`
             if !self.tools_satisfied(command) {
+                continue;
+            }
+
+            // A skill kept as a stand-in stays out of lookup while its builtin can run.
+            if source == CommandSource::Acp
+                && live_builtins.contains(&canonical.to_ascii_lowercase())
+            {
                 continue;
             }
 
@@ -1169,6 +1213,37 @@ mod tests {
     }
 
     #[test]
+    fn missing_required_tool_runs_the_bundled_skill() {
+        let imagine: Arc<dyn SlashCommand> = Arc::new(ToolGatedCommand {
+            name: "imagine",
+            required: &["image_gen"],
+        });
+        let mut reg = CommandRegistry::new(vec![imagine]);
+        reg.set_available_tools(tool_set(["read_file"]));
+        reg.set_acp_commands(&[acp_skill(
+            "imagine",
+            serde_json::json!({
+                "scope": "bundled",
+                "path": "/bundled/skills/imagine/SKILL.md"
+            }),
+        )]);
+
+        let skill = reg.get("imagine").expect("bundled skill stands in");
+        assert!(skill.is_skill());
+        assert_eq!(skill.description(), "imagine skill");
+        assert!(!reg.is_builtin("imagine"));
+
+        reg.set_available_tools(tool_set(["image_gen"]));
+        let builtin = reg.get("imagine").expect("builtin returns with the tool");
+        assert!(reg.is_builtin("imagine"));
+        assert!(!builtin.is_skill());
+        assert_eq!(builtin.description(), "tool-gated");
+
+        reg.set_available_tools(tool_set(["read_file"]));
+        assert!(reg.get("imagine").is_some_and(|cmd| cmd.is_skill()));
+        assert!(!reg.is_builtin("imagine"));
+    }
+
     fn command_without_required_tools_is_always_visible() {
         let plain: Arc<dyn SlashCommand> = Arc::new(DummyCommand {
             name: "exit",
