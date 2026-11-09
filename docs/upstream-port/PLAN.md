@@ -828,16 +828,16 @@ Refresh these numbers at the end of a session.
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
-| W12 | MCP, web, images, and browser | 40 | 0 | 16 | 2 | 1 |
+| W12 | MCP, web, images, and browser | 39 | 0 | 16 | 2 | 2 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 229. Skipped: 8. Done: 287. Already: 48. Deferred: 11.
+Catalog rows: 583. Pending: 228. Skipped: 8. Done: 287. Already: 48. Deferred: 12.
 
-**Next:** W12 MCP, web, images, and browser. First open row: Workspace server sessions now share one Chrome instance for cookies and storage (`v51-f09`).
+**Next:** W12 MCP, web, images, and browser. First open row: Browser tabs can now be restored on demand instead of all at once when a session resumes (`v51-f31`).
 
 ## Waves
 
@@ -887,7 +887,7 @@ Pending: 0. Done: 35 (`v46-x05`, `v48-x03`, `v48-x05`, `v50-f07`, `v50-x02`, `v5
 
 ### W12 — MCP, web, images, and browser
 
-Pending: 40. Done: 16 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`, `v50-x20`, `v50-x21`, `v51-f03`). Already: 2 (`v49-x02`, `v51-f05`). Deferred: 1 (`v51-f08`). Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing. A folded run of tool searches says `Ran N tool searches`. The count is the searches, not the MCP tools they returned (`v46-x02`). Enter on a video card starts inline playback only when the terminal can show images and ffmpeg is available (`v46-x06`). Otherwise Enter opens the file in the default player, and a missing ffmpeg does not spawn a poster extract (`v46-x07`). An ask rule for a web search, or for a web fetch whose host is already allowed, prompts instead of running on its own (`v48-x04`). A web search still runs under `dontAsk`. An allowlisted fetch does too. A fetch that is not allowed, and image generation, follow `prompt_policy` and matching allow or deny rules before a prompt (`v49-x02`). Searching for a tool name that several MCP servers expose returns every server's copy (`v50-x20`). A settings save re-reads `config.toml` under the config-init lock, so MCP servers and permission rules written by another window stay in the file (`v50-x21`). `/imagine` runs the bundled skill of the same name when `image_gen` is not in the session tool list, and the builtin returns when the tool is (`v51-f03`). A web-fetch approval card already offers always-allow and never-allow for the prompted domain, and the choice is saved in the folder's permission state (`v51-f05`). Chrome profile directories are not in this tree: workspace browser hooks are empty stubs, `xai-grok-tools` has no `browser` feature, and there is no `xai-grok-browser-tools` crate (`v51-f08`).
+Pending: 40. Done: 16 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`, `v50-x20`, `v50-x21`, `v51-f03`). Already: 2 (`v49-x02`, `v51-f05`). Deferred: 2 (`v51-f08`, `v51-f09`). Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing. A folded run of tool searches says `Ran N tool searches`. The count is the searches, not the MCP tools they returned (`v46-x02`). Enter on a video card starts inline playback only when the terminal can show images and ffmpeg is available (`v46-x06`). Otherwise Enter opens the file in the default player, and a missing ffmpeg does not spawn a poster extract (`v46-x07`). An ask rule for a web search, or for a web fetch whose host is already allowed, prompts instead of running on its own (`v48-x04`). A web search still runs under `dontAsk`. An allowlisted fetch does too. A fetch that is not allowed, and image generation, follow `prompt_policy` and matching allow or deny rules before a prompt (`v49-x02`). Searching for a tool name that several MCP servers expose returns every server's copy (`v50-x20`). A settings save re-reads `config.toml` under the config-init lock, so MCP servers and permission rules written by another window stay in the file (`v50-x21`). `/imagine` runs the bundled skill of the same name when `image_gen` is not in the session tool list, and the builtin returns when the tool is (`v51-f03`). A web-fetch approval card already offers always-allow and never-allow for the prompted domain, and the choice is saved in the folder's permission state (`v51-f05`). Chrome profile directories are not in this tree: workspace browser hooks are empty stubs, `xai-grok-tools` has no `browser` feature, and there is no `xai-grok-browser-tools` crate (`v51-f08`). The same stubs are the only session browser path, so there is no shared Chrome process for cookies or storage (`v51-f09`).
 
 ### W13 — Update, install, and sign-in
 
@@ -1240,7 +1240,7 @@ id | status | wave | kind | flag | covered | note
 - v51-f03 | done | W12 | Features |  |  | **`/imagine`** and similar commands now run the matching bundled skill when the required tools are unavailable.
 - v51-f05 | already | W12 | Features |  |  | **Web fetch approval cards** now include "always allow" and "never allow" domain options that persist for the folder.
 - v51-f08 | deferred | W12 | Features |  |  | **Chrome profiles** can now be persisted across restarts using durable state directories.
-- v51-f09 | pending | W12 | Features |  |  | Workspace server sessions now share one Chrome instance for cookies and storage.
+- v51-f09 | deferred | W12 | Features |  |  | Workspace server sessions now share one Chrome instance for cookies and storage.
 - v51-f31 | pending | W12 | Features |  |  | Browser tabs can now be restored on demand instead of all at once when a session resumes.
 - v51-x16 | pending | W12 | Bug Fixes |  |  | Images from tools are now validated so bad files no longer break the current turn or future replays.
 - v51-x17 | pending | W12 | Bug Fixes |  |  | Screenshots and other image artifacts saved by the browser tool are now stored as real image files.
