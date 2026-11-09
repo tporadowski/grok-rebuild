@@ -1304,7 +1304,10 @@ impl AcpUpdateTracker {
         is_replay: bool,
     ) -> bool {
         self.finish_thinking(scrollback);
-        self.current_agent_msg = None;
+        // A tool call cuts the sentence off. Leave the message running and the pager keeps redrawing it.
+        if let Some(agent_id) = self.current_agent_msg.take() {
+            scrollback.finish_running(agent_id);
+        }
         if is_todo_tool(&tc)
             || is_bg_plumbing_tool(&tc)
             || is_task_tool(&tc)

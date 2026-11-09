@@ -2228,6 +2228,44 @@ fn stream_start_breaks_agent_msg_across_streams() {
     };
     assert_ne!(sb.get(*i0).unwrap().id, sb.get(*i1).unwrap().id,);
 }
+/// A tool call that cuts off a sentence must finish that agent message. Leaving it running keeps the pager redrawing.
+#[test]
+fn tool_call_finishes_the_interrupted_agent_sentence() {
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    tracker.handle_update(agent_chunk("I'll check the file"), &meta(), &mut sb);
+    {
+        let entry = sb.get(0).expect("agent sentence");
+        assert!(entry.is_running, "the sentence is still streaming");
+        let RenderBlock::AgentMessage(msg) = &entry.block else {
+            panic!("expected an agent message");
+        };
+        assert!(!msg.content().is_finished());
+    }
+    assert!(sb.needs_animation(), "streaming text asks for redraws");
+    tracker.handle_update(
+        tool_call_completed("read-1", acp::ToolKind::Read, "src/lib.rs"),
+        &meta(),
+        &mut sb,
+    );
+    let entry = sb.get(0).expect("agent sentence");
+    assert!(
+        !entry.is_running,
+        "the interrupted sentence is no longer running"
+    );
+    let RenderBlock::AgentMessage(msg) = &entry.block else {
+        panic!("expected an agent message");
+    };
+    assert!(
+        msg.content().is_finished(),
+        "the interrupted sentence is finalized"
+    );
+    assert!(
+        !sb.needs_animation(),
+        "a finished sentence and a completed tool do not keep redrawing"
+    );
+}
+
 /// Same stream_start_ms should NOT break messages: chunks append normally.
 #[test]
 fn same_stream_start_appends_normally() {
