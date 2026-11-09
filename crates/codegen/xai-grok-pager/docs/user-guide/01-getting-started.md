@@ -172,7 +172,7 @@ Grok has built-in tools for:
 
 `read_file`, `search_replace`, and `grep` say why they stop on a pipe, socket, or device, on a file over 5 MB, and on binary content. If a `grep` search root or a `list_dir` directory cannot be read, the tool reports that error instead of an empty result.
 
-Stopping one running shell tool call stops that command. Shell commands started by the other calls in the same parallel batch keep running. Cancelling the turn still stops every foreground command of that turn.
+Stopping one running shell tool call stops that command. Shell commands started by the other calls in the same parallel batch keep running. Cancelling the turn still stops every foreground command of that turn. A URL in a shell command's description stays one link to the full address on every row it wraps onto.
 
 A shell command's label says Running while it executes and Ran when it finishes. Cancelling the turn marks a tool call that has not answered yet as cancelled, so that label says Cancelled. If the workspace directory has been deleted, a foreground command still runs in a directory that exists, and its output says so. A background command fails immediately and does not start somewhere else.
 

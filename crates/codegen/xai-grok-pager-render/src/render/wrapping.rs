@@ -638,39 +638,56 @@ pub fn wrap_header_hanging(
     width: usize,
     extra_indent: usize,
 ) -> Vec<Line<'static>> {
+    wrap_header_hanging_with_joiners(header, width, extra_indent).0
+}
+
+/// Same wrap as [`wrap_header_hanging`], plus the soft-wrap joiner for each row and the continuation indent width.
+///
+/// The joiner is the text the wrap skipped (a space, or empty when a long token such as a URL broke). The indent width is painted on every row after the first and is not part of that token.
+pub fn wrap_header_hanging_with_joiners(
+    header: Line<'static>,
+    width: usize,
+    extra_indent: usize,
+) -> (Vec<Line<'static>>, Vec<Option<String>>, usize) {
     if header.spans.is_empty() {
-        return vec![header];
+        return (vec![header], vec![None], 0);
     }
 
     let Some(prefix_span) = header.spans.first().cloned() else {
-        return vec![header];
+        return (vec![header], vec![None], 0);
     };
     let prefix_width = unicode_width::UnicodeWidthStr::width(prefix_span.content.as_ref());
     let total_indent = extra_indent + prefix_width;
     let wrap_width = width.saturating_sub(total_indent);
 
     if wrap_width == 0 || header.spans.len() < 2 {
-        return word_wrap_lines(std::iter::once(header), width);
+        let (wrapped, joiners) = word_wrap_lines_with_joiners(std::iter::once(header), width);
+        return (wrapped, joiners, 0);
     }
 
     let Some(rest) = header.spans.get(1..) else {
-        return word_wrap_lines(std::iter::once(header), width);
+        let (wrapped, joiners) = word_wrap_lines_with_joiners(std::iter::once(header), width);
+        return (wrapped, joiners, 0);
     };
     let content_line = Line::from(rest.to_vec());
-    let mut wrapped = word_wrap_lines(std::iter::once(content_line), wrap_width);
+    let (mut wrapped, joiners) =
+        word_wrap_lines_with_joiners(std::iter::once(content_line), wrap_width);
 
     if let Some(first) = wrapped.first_mut() {
         first.spans.insert(0, prefix_span);
     }
-    if total_indent > 0 {
+    let continuation_indent = if total_indent > 0 {
         let indent_str: String = " ".repeat(total_indent);
         for line in wrapped.iter_mut().skip(1) {
             line.spans
                 .insert(0, ratatui::text::Span::raw(indent_str.clone()));
         }
-    }
+        total_indent
+    } else {
+        0
+    };
 
-    wrapped
+    (wrapped, joiners, continuation_indent)
 }
 
 /// Continuation lines indent to a fixed column (usually the bullet width), not under the content after the prefix.

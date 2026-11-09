@@ -36,6 +36,31 @@ pub struct ExecuteToolCallBlock {
     /// Peeled display form for the header; `command` stays the full source of truth.
     pub header_display: Option<String>,
 }
+/// Soft-wrap one header line. Continuation rows keep the wrap's real joiner and record the hanging indent so a URL split across rows still links to the whole address.
+fn push_wrapped_header(
+    lines: &mut Vec<BlockLine>,
+    line: Line<'static>,
+    width: usize,
+    extra_indent: usize,
+    prefix_spans: usize,
+) {
+    let (wrapped, joiners, continuation_indent) =
+        crate::render::wrapping::wrap_header_hanging_with_joiners(line, width, extra_indent);
+    for (i, wrapped_line) in wrapped.into_iter().enumerate() {
+        let total = wrapped_line.spans.len();
+        let start = if i == 0 { prefix_spans.min(total) } else { 0 };
+        let joiner = joiners.get(i).and_then(|joiner| joiner.clone());
+        lines.push(BlockLine {
+            selectable: Selectable::Spans(start..total),
+            selection_range: Some(TOOL_HEADER_RANGE),
+            joiner,
+            indent_width: if i == 0 { 0 } else { continuation_indent },
+            content: wrapped_line,
+            ..Default::default()
+        });
+    }
+}
+
 impl ExecuteToolCallBlock {
     /// Create a new execute block. Pre-completed blocks never get timing; they show `"-"`.
     pub fn new(command: impl Into<String>) -> Self {
@@ -436,19 +461,7 @@ impl ExecuteToolCallBlock {
         if !truncate_to_width && include_command && self.description_display(strip_run).is_some() {
             let headers = self.header_lines(theme, header_style, muted_command, false, running);
             for (line, prefix_spans) in headers {
-                let wrapped =
-                    crate::render::wrapping::wrap_header_hanging(line, width, extra_indent);
-                for (i, wrapped_line) in wrapped.into_iter().enumerate() {
-                    let total = wrapped_line.spans.len();
-                    let start = if i == 0 { prefix_spans.min(total) } else { 0 };
-                    lines.push(BlockLine {
-                        selectable: Selectable::Spans(start..total),
-                        selection_range: Some(TOOL_HEADER_RANGE),
-                        joiner: if i == 0 { None } else { Some(" ".to_string()) },
-                        content: wrapped_line,
-                        ..Default::default()
-                    });
-                }
+                push_wrapped_header(lines, line, width, extra_indent, prefix_spans);
             }
             // Secondary command line is always shell-style (`$ …`).
             self.push_command_soft_wrap(
@@ -477,20 +490,8 @@ impl ExecuteToolCallBlock {
                     ..Default::default()
                 });
             } else {
-                let wrapped =
-                    crate::render::wrapping::wrap_header_hanging(line, width, extra_indent);
-                for (i, wrapped_line) in wrapped.into_iter().enumerate() {
-                    let total = wrapped_line.spans.len();
-                    // Only the first wrapped segment of each logical header line has the prefix (`Run ` / `$ `); continuations are fully selectable
-                    let start = if i == 0 { prefix_spans.min(total) } else { 0 };
-                    lines.push(BlockLine {
-                        selectable: Selectable::Spans(start..total),
-                        selection_range: Some(TOOL_HEADER_RANGE),
-                        joiner: if i == 0 { None } else { Some(" ".to_string()) },
-                        content: wrapped_line,
-                        ..Default::default()
-                    });
-                }
+                // Only the first wrapped segment of each logical header line has the prefix (`Run ` / `$ `); continuations are fully selectable
+                push_wrapped_header(lines, line, width, extra_indent, prefix_spans);
             }
         }
     }
@@ -897,6 +898,62 @@ mod tests {
         assert_eq!(strip_leading_run_word("running checks"), "checks");
         assert_eq!(strip_leading_run_word("runtime config"), "runtime config");
         assert_eq!(strip_leading_run_word("Check status"), "Check status");
+    }
+
+    #[test]
+    fn wrapped_url_in_shell_command_description_links_every_row() {
+        const URL: &str = "https://example.com/some/very/long/path?key=value";
+        let description = format!("Fetch {URL}");
+        let theme = Theme::current();
+        for style in [ExecuteHeaderStyle::Shell, ExecuteHeaderStyle::Label] {
+            let mut lines = Vec::new();
+            ExecuteToolCallBlock::new("true")
+                .with_description(description.clone())
+                .push_header_lines(&mut lines, &theme, style, false, 22, 0, false, false, false);
+            assert!(
+                lines.len() >= 2,
+                "{style:?} description should wrap the URL, got {}",
+                lines.len()
+            );
+            let mut overlay = crate::render::osc8::LinkOverlay::new();
+            crate::render::osc8::scan_lines_for_url_overlays_indented(
+                lines.iter().enumerate().map(|(index, line)| {
+                    (
+                        index as u16,
+                        &line.content,
+                        line.joiner.as_deref(),
+                        line.indent_width,
+                    )
+                }),
+                0,
+                &[],
+                &mut overlay,
+            );
+            let links = overlay.links();
+            assert!(
+                links.len() >= 2,
+                "{style:?} wrapped URL must link on every row, got {}",
+                links.len()
+            );
+            let mut rows = std::collections::BTreeSet::new();
+            for link in links {
+                let url = crate::render::osc8::resolve_link_target(&link.target)
+                    .and_then(|resolved| resolved.osc8_url)
+                    .expect("url");
+                assert_eq!(&*url, URL, "{style:?} row {} links to {url}", link.screen_row);
+                rows.insert(link.screen_row);
+                let row = lines
+                    .get(usize::from(link.screen_row))
+                    .unwrap_or_else(|| panic!("link row {}", link.screen_row));
+                if link.screen_row > 0 {
+                    assert!(
+                        link.col_start >= row.indent_width as u16,
+                        "{style:?} continuation link must start after the hanging indent"
+                    );
+                }
+            }
+            assert!(rows.len() >= 2, "{style:?} links must cover more than one row");
+        }
     }
 
     #[test]
