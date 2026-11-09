@@ -48,6 +48,8 @@ pub enum ManagedConnectorsWaitOutcome {
     Dismiss,
     /// Open grok.com/connectors again; the overlay stays up.
     OpenConnectors,
+    /// Copy the sign-in URL. The caller writes the clipboard and sets [`ManagedConnectorsWaitState::url_copied`].
+    CopyUrl,
 }
 
 impl ManagedConnectorsWaitState {
@@ -66,13 +68,19 @@ impl ManagedConnectorsWaitState {
         self.url_rects.clear();
     }
 
-    /// Refresh and `Esc` leave the overlay; Ctrl+O reopens the URL and keeps it. Every other key,
-    /// including Tab, is swallowed on purpose: a tab switch clears the wait, and one stray
-    /// keystroke should not discard it silently. Keyboard users press Esc first, then Tab.
+    /// `c` copies the sign-in URL. Refresh and `Esc` leave the overlay; Ctrl+O reopens the URL.
+    /// Ctrl+C is not a copy. Every other key, including Tab, is swallowed on purpose: a tab
+    /// switch clears the wait, and one stray keystroke should not discard it silently.
     pub fn handle_key(&self, key: &KeyEvent) -> ManagedConnectorsWaitOutcome {
         match key.code {
             KeyCode::Char('o') if key.modifiers == KeyModifiers::CONTROL => {
                 ManagedConnectorsWaitOutcome::OpenConnectors
+            }
+            KeyCode::Char(c)
+                if c.eq_ignore_ascii_case(&'c')
+                    && !key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                ManagedConnectorsWaitOutcome::CopyUrl
             }
             KeyCode::Char(c) if c.eq_ignore_ascii_case(&MCP_SERVERS_REFRESH_KEY) => {
                 ManagedConnectorsWaitOutcome::Refresh

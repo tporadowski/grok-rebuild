@@ -59,6 +59,19 @@ fn key_r_refreshes_esc_dismisses_ctrl_o_reopens_everything_else_is_swallowed() {
         wait.handle_key(&KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
         ManagedConnectorsWaitOutcome::OpenConnectors
     );
+    assert_eq!(
+        wait.handle_key(&key(KeyCode::Char('c'))),
+        ManagedConnectorsWaitOutcome::CopyUrl
+    );
+    assert_eq!(
+        wait.handle_key(&key(KeyCode::Char('C'))),
+        ManagedConnectorsWaitOutcome::CopyUrl
+    );
+    assert_eq!(
+        wait.handle_key(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+        ManagedConnectorsWaitOutcome::Ignored,
+        "ctrl-c must not copy the url"
+    );
     for code in [
         KeyCode::Char('o'),
         KeyCode::Char(' '),

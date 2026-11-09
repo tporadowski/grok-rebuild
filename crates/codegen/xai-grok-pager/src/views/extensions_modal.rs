@@ -3669,6 +3669,11 @@ pub fn render_extensions_modal(
             id: 0,
         });
         shortcuts.push(Shortcut {
+            label: "c copy",
+            clickable: false,
+            id: 0,
+        });
+        shortcuts.push(Shortcut {
             label: "esc back",
             clickable: true,
             id: WAIT_BACK_SHORTCUT_ID,
@@ -7642,6 +7647,11 @@ mod tests {
             "wait footer must paint r refresh via modal shortcuts"
         );
         assert_eq!(
+            buffer_count(&buf, "c copy"),
+            1,
+            "wait footer must offer c to copy the sign-in url"
+        );
+        assert_eq!(
             buffer_count(&buf, "esc back"),
             1,
             "wait footer must paint esc back via modal shortcuts"
@@ -7659,8 +7669,8 @@ mod tests {
             .collect();
         assert_eq!(
             clickable,
-            [true, false, true],
-            "refresh and esc back take clicks; the ctrl-o hint is display only"
+            [true, false, false, true],
+            "refresh and esc back take clicks; the ctrl-o hint and c copy are display only"
         );
         let underlined: Vec<(u16, u16)> = (0..area.height)
             .flat_map(|y| (0..area.width).map(move |x| (x, y)))

@@ -628,12 +628,50 @@ impl AgentView {
                 self.log_extensions_modal_action("open_connectors", input_method);
                 InputOutcome::Action(Action::OpenManagedConnectors)
             }
+            ManagedConnectorsWaitOutcome::CopyUrl => {
+                self.copy_managed_connectors_url(crate::clipboard::SystemClipboard::try_set)
+            }
         }
+    }
+
+    /// Copy the sign-in URL shown when the browser cannot open it. `copy` is injected so tests
+    /// do not touch the system clipboard.
+    fn copy_managed_connectors_url(
+        &mut self,
+        copy: impl FnOnce(&str) -> crate::clipboard::ClipboardDelivery,
+    ) -> InputOutcome {
+        let url = self
+            .extensions_modal
+            .as_ref()
+            .and_then(|state| state.active_managed_connectors_wait())
+            .map(|wait| wait.url.clone());
+        if let Some(url) = url {
+            let copied = copy(&url).reported_success();
+            if let Some(wait) = self
+                .extensions_modal
+                .as_mut()
+                .and_then(|state| state.active_managed_connectors_wait_mut())
+            {
+                wait.url_copied = copied;
+            }
+        }
+        InputOutcome::Changed
     }
 
     pub(super) fn handle_extensions_modal_key(
         &mut self,
         key: &crossterm::event::KeyEvent,
+    ) -> InputOutcome {
+        self.handle_extensions_modal_key_with_copy(
+            key,
+            crate::clipboard::SystemClipboard::try_set,
+        )
+    }
+
+    pub(super) fn handle_extensions_modal_key_with_copy(
+        &mut self,
+        key: &crossterm::event::KeyEvent,
+        copy: impl FnOnce(&str) -> crate::clipboard::ClipboardDelivery,
     ) -> InputOutcome {
         if let Some(outcome) = self
             .extensions_modal
@@ -641,6 +679,9 @@ impl AgentView {
             .and_then(|s| s.active_managed_connectors_wait())
             .map(|wait| wait.handle_key(key))
         {
+            if outcome == ManagedConnectorsWaitOutcome::CopyUrl {
+                return self.copy_managed_connectors_url(copy);
+            }
             return self
                 .apply_managed_connectors_wait_outcome(outcome, ExtensionsInputMethod::Keyboard);
         }
@@ -4030,6 +4071,44 @@ mod connectors_url_click_tests {
             "paste must not reach the search bar hidden under the overlay"
         );
         assert!(state.is_managed_connectors_wait());
+    }
+
+    #[test]
+    fn managed_connectors_wait_c_copies_the_sign_in_url() {
+        let mut agent = super::test_fixtures::make_agent();
+        paint_managed_connectors_wait(&mut agent);
+        let expected = agent
+            .extensions_modal
+            .as_ref()
+            .unwrap()
+            .managed_connectors_wait
+            .as_ref()
+            .unwrap()
+            .url
+            .to_string();
+        let mut seen = None;
+        let outcome = agent.handle_extensions_modal_key_with_copy(
+            &crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char('c'),
+                crossterm::event::KeyModifiers::NONE,
+            ),
+            |text| {
+                seen = Some(text.to_owned());
+                crate::clipboard::ClipboardDelivery::Confirmed
+            },
+        );
+        assert!(matches!(outcome, InputOutcome::Changed));
+        assert_eq!(seen.as_deref(), Some(expected.as_str()));
+        assert!(
+            agent
+                .extensions_modal
+                .as_ref()
+                .unwrap()
+                .managed_connectors_wait
+                .as_ref()
+                .is_some_and(|wait| wait.url_copied)
+        );
+        assert!(agent.toast.is_none(), "copy feedback is [copied], not a toast");
     }
 
     #[test]
