@@ -999,6 +999,24 @@ pub mod system_prompt {
             None => agent_system_prompt.to_owned(),
         }
     }
+    /// Keep the `<human_rules>` block from session start when a later rebuild replaces the prompt.
+    pub(crate) fn preserve_client_rules(previous: &str, rebuilt: &str) -> String {
+        if rebuilt.contains("<human_rules>") {
+            return rebuilt.to_owned();
+        }
+        let Some(rules) = extract_human_rules(previous) else {
+            return rebuilt.to_owned();
+        };
+        format!("{rebuilt}\n\n<human_rules>\n{rules}\n</human_rules>")
+    }
+    fn extract_human_rules(prompt: &str) -> Option<&str> {
+        const OPEN: &str = "<human_rules>\n";
+        const CLOSE: &str = "\n</human_rules>";
+        let start = prompt.find(OPEN)? + OPEN.len();
+        let rest = prompt.get(start..)?;
+        let end = rest.find(CLOSE)?;
+        rest.get(..end).filter(|rules| !rules.is_empty())
+    }
     /// A non-blank `systemPromptOverride` wins over `rules`. Each key is read from `session_meta` first, then `init_meta`.
     pub fn requested_system_prompt<'a>(
         session_meta: Option<&'a acp::Meta>,

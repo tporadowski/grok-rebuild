@@ -1009,6 +1009,29 @@ fn system_prompt_override_from_meta_prefers_session_and_rejects_empty() {
     assert_eq!(system_prompt_override_from_meta(None, None), None);
 }
 #[test]
+fn rebuilt_prompt_keeps_client_rules_from_session_start() {
+    let started = build_spawn_system_prompt(
+        Some(
+            serde_json::json!({ "rules": "keep the marker" })
+                .as_object()
+                .unwrap(),
+        ),
+        None,
+        "agent prompt",
+    );
+    let rebuilt = system_prompt::preserve_client_rules(&started, "new agent prompt");
+    assert!(rebuilt.starts_with("new agent prompt"), "{rebuilt}");
+    assert!(rebuilt.contains("<human_rules>\nkeep the marker\n</human_rules>"), "{rebuilt}");
+    assert_eq!(
+        system_prompt::preserve_client_rules(&rebuilt, &rebuilt),
+        rebuilt
+    );
+    assert_eq!(
+        system_prompt::preserve_client_rules("agent prompt", "new agent prompt"),
+        "new agent prompt"
+    );
+}
+
 fn override_wins_over_rules() {
     let cases = [
         (

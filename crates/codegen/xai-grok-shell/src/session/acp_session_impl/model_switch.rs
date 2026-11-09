@@ -313,7 +313,19 @@ impl SessionActor {
                     "rebuild_agent: build failed for agent_type={new_agent_name}: {e}"
                 ))
             })?;
-        let new_system_prompt = new_agent.system_prompt().to_string();
+        let previous_prompt = {
+            let conversation = self.chat_state_handle.get_conversation().await;
+            conversation.first().and_then(|item| match item {
+                xai_grok_sampling_types::conversation::ConversationItem::System(system) => {
+                    Some(system.content.to_string())
+                }
+                _ => None,
+            })
+        };
+        let new_system_prompt = crate::agent::mvp_agent::system_prompt::preserve_client_rules(
+            previous_prompt.as_deref().unwrap_or(""),
+            new_agent.system_prompt(),
+        );
         let mut new_prompt_context = new_agent.prompt_context().clone();
         new_prompt_context.normalize_for_persistence();
         self.abort_and_clear_prefire().await;
