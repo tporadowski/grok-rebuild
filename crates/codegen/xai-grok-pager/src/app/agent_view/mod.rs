@@ -1093,6 +1093,10 @@ pub struct AgentView {
     pub hit_response_top_indicator: HitArea,
     /// CWD / worktree path in the status bar (click to copy).
     pub hit_cwd: HitArea,
+    /// Git branch in the status bar. A click copies the full name, including when the row clips it.
+    pub hit_branch: HitArea,
+    /// Full branch name last painted in [`Self::hit_branch`]. A detached head has no name to copy.
+    pub branch_click_text: Option<String>,
     /// `[Dashboard]` on the header row: opens the dashboard, or returns to it when this view is the dashboard's session overlay.
     pub hit_dashboard: HitArea,
     /// `‹` of the header's `‹ i/n ›` switcher; painted only inside the dashboard overlay with more than one agent to cycle.

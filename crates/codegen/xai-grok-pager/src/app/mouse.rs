@@ -260,6 +260,12 @@ impl AgentView {
                 if self.hit_overlay_next.contains(mouse.column, mouse.row) {
                     return InputOutcome::Action(Action::DashboardOverlayNext);
                 }
+                if self.hit_branch.contains(mouse.column, mouse.row) {
+                    if let Some(name) = self.branch_click_text.clone() {
+                        self.copy_to_clipboard(&name);
+                        return InputOutcome::Changed;
+                    }
+                }
                 if self.hit_cwd.contains(mouse.column, mouse.row) {
                     let path = self.location_path().display().to_string();
                     self.copy_to_clipboard(&path);
@@ -1128,6 +1134,7 @@ impl AgentView {
                 changed |= self.hit_goal_status.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_bg_close.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_cwd.update_hover(mouse.column, mouse.row);
+                changed |= self.hit_branch.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_dashboard.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_overlay_prev.update_hover(mouse.column, mouse.row);
                 changed |= self.hit_overlay_next.update_hover(mouse.column, mouse.row);

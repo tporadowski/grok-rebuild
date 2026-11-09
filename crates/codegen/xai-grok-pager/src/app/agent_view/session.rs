@@ -316,6 +316,8 @@ impl AgentView {
             hit_follow_indicator: Default::default(),
             hit_response_top_indicator: Default::default(),
             hit_cwd: Default::default(),
+            hit_branch: Default::default(),
+            branch_click_text: None,
             hit_dashboard: Default::default(),
             hit_overlay_prev: Default::default(),
             hit_overlay_next: Default::default(),

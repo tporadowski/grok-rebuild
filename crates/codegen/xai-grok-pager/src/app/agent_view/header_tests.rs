@@ -310,6 +310,47 @@ fn long_title_and_long_branch_leave_the_path_visible() {
         "the hit rect starts where the path is painted"
     );
 }
+/// A click on the branch copies the full name, including the part the row does not have room to paint.
+#[test]
+fn clicking_the_git_branch_copies_the_full_name() {
+    let _theme = crate::theme::cache::pin_theme();
+    let registry = ActionRegistry::defaults();
+    let full = "feature/very-long-branch-name-that-the-row-clips";
+    let mut agent = agent_at(48);
+    agent.current_branch = Some(full.into());
+    let buf = draw(&mut agent, &registry, false, OverlayHeader::default());
+    let hit = agent.hit_branch.rect.expect("the branch is clickable");
+    let painted = text_at(&buf, hit);
+    assert!(
+        painted.starts_with("feature/") && painted.chars().count() < full.chars().count(),
+        "the row clips the branch, painted={painted:?}"
+    );
+    struct Capture;
+    impl Capture {
+        fn arm() -> Self {
+            crate::clipboard::set_copy_capture(true);
+            Self
+        }
+    }
+    impl Drop for Capture {
+        fn drop(&mut self) {
+            crate::clipboard::set_copy_capture(false);
+        }
+    }
+    let _capture = Capture::arm();
+    agent.handle_input(&click(hit.x, hit.y), &registry);
+    assert_eq!(
+        crate::clipboard::take_captured_copy().as_deref(),
+        Some(full)
+    );
+
+    agent.current_branch = Some(String::new());
+    let _ = draw(&mut agent, &registry, false, OverlayHeader::default());
+    assert!(
+        agent.hit_branch.rect.is_none(),
+        "a detached head has no branch name to copy"
+    );
+}
 /// Hover brightens exactly the affordance under the pointer: `›` to `text_primary` while `‹` stays faint, and `[Dashboard]` from
 /// `gray` to `text_primary`.
 #[test]

@@ -1466,12 +1466,15 @@ impl AgentView {
         let lazy_git = probe_local_git
             .then(|| crate::git_info::cwd_git_info_lazy(&self.session.cwd))
             .flatten();
-        let branch = self
+        let raw_branch = self
             .current_branch
             .clone()
-            .or_else(|| lazy_git.as_ref().and_then(|i| i.branch.clone()))
-            .map(crate::views::location::branch_label);
+            .or_else(|| lazy_git.as_ref().and_then(|i| i.branch.clone()));
+        self.branch_click_text = raw_branch.clone().filter(|name| !name.is_empty());
+        let branch = raw_branch.map(crate::views::location::branch_label);
+        let mut branch_width = 0u16;
         if let Some(branch) = branch {
+            branch_width = branch.width() as u16;
             location.push(Span::styled(branch, dim));
             location.push(Span::styled(" ", bg));
         }
@@ -1531,6 +1534,19 @@ impl AgentView {
             width: visible_path_width,
             height: 1,
         });
+        let branch_x = layout.status_bar.x + path_offset.saturating_sub(prefix_width);
+        let visible_branch_width =
+            branch_width.min(cwd_width.saturating_sub(path_offset.saturating_sub(prefix_width)));
+        self.hit_branch.rect = (self.branch_click_text.is_some() && visible_branch_width > 0)
+            .then_some(Rect {
+                x: branch_x,
+                y: layout.status_bar.y,
+                width: visible_branch_width,
+                height: 1,
+            });
+        if self.hit_branch.rect.is_none() {
+            self.branch_click_text = None;
+        }
         let mut upgrade_cta_rect = None;
         if let Some((_owner, label, _url)) = upgrade_cta {
             let avail = left_budget.saturating_sub(cwd_width);
