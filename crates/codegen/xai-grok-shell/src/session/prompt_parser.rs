@@ -110,6 +110,7 @@ pub async fn parse_prompt(
         verbatim,
         is_cursor,
         String::new(),
+        &[],
     )
     .await
 }
@@ -122,6 +123,7 @@ pub(crate) async fn parse_prompt_with_skills(
     verbatim: bool,
     is_cursor: bool,
     skill_information: String,
+    deny_read_globs: &[String],
 ) -> Result<ParsedPrompt, acp::Error> {
     let parse_span =
         xai_grok_telemetry::region::Region::from_span(tracing::info_span!("prompt.parse"));
@@ -155,6 +157,7 @@ pub(crate) async fn parse_prompt_with_skills(
         Vec::new()
     };
     let mut file_ref_contents = Vec::new();
+    let deny_policy = read_deny_policy(deny_read_globs);
     let mut at_mention_bytes: usize = 0;
     let at_mention_span = (!file_ref_tokens.is_empty()).then(|| {
         xai_grok_telemetry::region::Region::from_span(tracing::info_span!(
@@ -173,6 +176,12 @@ pub(crate) async fn parse_prompt_with_skills(
             &working_directory,
             xai_dirs::home_dir().as_deref(),
         );
+        // A Read deny keeps the typed mention in the query and leaves the file body out of the prompt.
+        if let Some(policy) = deny_policy.as_ref()
+            && read_path_denied(policy, &file_ref.path, &working_directory)
+        {
+            continue;
+        }
         let rendered_file = render_file_reference(file_ref, is_cursor).await;
         let success = rendered_file.is_some();
         xai_grok_telemetry::event_span!("prompt.at_mention", mention_type = "file", success);
@@ -253,6 +262,91 @@ Below are some potentially helpful/relevant pieces of information for figuring o
     }
     (context, query)
 }
+/// Read-deny rules as the session stores them: glob patterns from Read, Grep, and Any denies.
+fn read_deny_policy(
+    globs: &[String],
+) -> Option<xai_grok_workspace::permission::CompiledPolicy> {
+    if globs.is_empty() {
+        return None;
+    }
+    use xai_grok_workspace::permission::types::{
+        PatternMode, PermissionConfig, PermissionRule, RuleAction, ToolFilter,
+    };
+    let rules = globs
+        .iter()
+        .map(|pattern| PermissionRule {
+            action: RuleAction::Deny,
+            tool: ToolFilter::Read,
+            pattern: Some(pattern.clone()),
+            pattern_mode: PatternMode::Glob,
+        })
+        .collect();
+    Some(xai_grok_workspace::permission::CompiledPolicy::new(
+        PermissionConfig::new(rules),
+    ))
+}
+
+fn read_path_denied(
+    policy: &xai_grok_workspace::permission::CompiledPolicy,
+    path: &std::path::Path,
+    cwd: &std::path::Path,
+) -> bool {
+    let path = path.to_string_lossy().into_owned();
+    matches!(
+        policy.evaluate_with_cwd(
+            &xai_grok_workspace::permission::AccessKind::Read(Some(path)),
+            Some(cwd),
+        ),
+        Some(xai_grok_workspace::permission::Decision::Reject(_))
+    )
+}
+
+/// Drop image placeholders and already-attached file images that a Read deny covers.
+/// The typed sentence stays. A placeholder whose path is denied is removed, and so is an image
+/// block whose `file://` URI or display number points at that path. Pasted images with no path stay.
+pub(crate) fn omit_read_denied_placeholders(
+    query: String,
+    images: &mut Vec<acp::ImageContent>,
+    cwd: &std::path::Path,
+    deny_read_globs: &[String],
+) -> String {
+    let Some(policy) = read_deny_policy(deny_read_globs) else {
+        return query;
+    };
+    let placeholders =
+        crate::session::placeholder_images::extract_placeholders(&query);
+    let mut denied_spans = Vec::new();
+    let mut denied_numbers = Vec::new();
+    for ph in placeholders {
+        if read_path_denied(&policy, std::path::Path::new(&ph.path), cwd) {
+            denied_spans.push(ph.span);
+            denied_numbers.push(ph.display_number);
+        }
+    }
+    images.retain(|img| {
+        let path_denied = img.uri.as_deref().is_some_and(|uri| {
+            crate::session::placeholder_images::canonical_from_file_uri(uri)
+                .is_some_and(|path| read_path_denied(&policy, &path, cwd))
+        });
+        let number_denied = crate::session::placeholder_images::display_number_from_meta(
+            img.meta.as_ref(),
+        )
+        .is_some_and(|number| denied_numbers.contains(&number));
+        !path_denied && !number_denied
+    });
+    if denied_spans.is_empty() {
+        return query;
+    }
+    denied_spans.sort_by_key(|span| std::cmp::Reverse(span.0));
+    let mut text = query;
+    for (start, end) in denied_spans {
+        if text.get(start..end).is_some() {
+            text.replace_range(start..end, "");
+        }
+    }
+    text
+}
+
 fn collect_file_references(message: &str) -> Vec<String> {
     let mut paths = Vec::new();
     let mut i = 0;
@@ -569,6 +663,7 @@ mod tests {
             false,
             false,
             String::new(),
+            &[],
         )
         .await
         .unwrap();
@@ -598,6 +693,7 @@ mod tests {
             false,
             false,
             String::new(),
+            &[],
         )
         .await
         .unwrap();
@@ -617,6 +713,122 @@ mod tests {
             );
         }
     }
+
+    /// A Read deny leaves the typed `@` mention in the query and keeps that file's body out of the prompt.
+    /// A mention the rules do not cover is still attached.
+    #[tokio::test]
+    async fn read_deny_omits_mentioned_file_body() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.txt"), "VISIBLE_NOTE").unwrap();
+        std::fs::write(dir.path().join("secret.env"), "SECRET_MARKER").unwrap();
+        let blocks = vec![acp::ContentBlock::Text(acp::TextContent::new(
+            "read @notes.txt and @secret.env",
+        ))];
+        let info = crate::session::info::Info {
+            id: agent_client_protocol::SessionId::new("test"),
+            cwd: dir.path().display().to_string(),
+        };
+        let parsed = parse_prompt_with_skills(
+            &blocks,
+            dir.path().to_path_buf(),
+            &info,
+            super::super::InputAuthority::HumanIntent,
+            false,
+            false,
+            String::new(),
+            &["**/*.env".to_owned()],
+        )
+        .await
+        .unwrap();
+        let assembled = parsed.assemble();
+        assert!(
+            assembled.contains("VISIBLE_NOTE"),
+            "an allowed mention is still attached: {assembled}"
+        );
+        assert!(
+            !assembled.contains("SECRET_MARKER"),
+            "a denied mention must not attach the file body: {assembled}"
+        );
+        assert!(
+            parsed.query.contains("@secret.env"),
+            "the typed mention stays in the query"
+        );
+    }
+
+    /// Minimal valid 1x1 PNG, same bytes the placeholder loader accepts.
+    const PNG_BYTES: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+
+    /// A denied image placeholder is removed before orphan recovery, and an attached `file://` image
+    /// for that path is dropped. An image with no path stays.
+    #[test]
+    fn read_deny_omits_image_placeholders() {
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("secret.png");
+        let ok = dir.path().join("ok.png");
+        std::fs::write(&secret, PNG_BYTES).unwrap();
+        std::fs::write(&ok, PNG_BYTES).unwrap();
+        let query = format!(
+            "look [Image #1: {}] and [Image #2: {}]",
+            secret.display(),
+            ok.display()
+        );
+        let mut loaded = Vec::new();
+        let recovered = crate::session::placeholder_images::recover_orphan_placeholders(
+            &query,
+            &mut loaded,
+            dir.path(),
+        );
+        assert_eq!(recovered, 2, "both files load when no Read deny is set");
+
+        let mut images = Vec::new();
+        let stripped = super::omit_read_denied_placeholders(
+            query,
+            &mut images,
+            dir.path(),
+            &["**/secret.png".to_owned()],
+        );
+        assert!(
+            !stripped.contains("secret.png"),
+            "the denied placeholder is omitted: {stripped}"
+        );
+        assert!(
+            stripped.contains(&ok.display().to_string()),
+            "the allowed placeholder stays: {stripped}"
+        );
+        let recovered = crate::session::placeholder_images::recover_orphan_placeholders(
+            &stripped,
+            &mut images,
+            dir.path(),
+        );
+        assert_eq!(recovered, 1, "only the allowed image is loaded");
+        let attached = images.first().expect("allowed image");
+        let uri = attached.uri.as_deref().unwrap_or("");
+        assert!(
+            !uri.contains("secret.png"),
+            "denied bytes must not be attached: {uri}"
+        );
+
+        let mut attached = vec![
+            acp::ImageContent::new("AAAA", "image/png").uri(format!("file://{}", secret.display())),
+            acp::ImageContent::new("BBBB", "image/png"),
+        ];
+        let plain = super::omit_read_denied_placeholders(
+            "plain".to_owned(),
+            &mut attached,
+            dir.path(),
+            &["**/secret.png".to_owned()],
+        );
+        assert_eq!(plain, "plain");
+        assert_eq!(attached.len(), 1, "the pathless paste stays");
+        assert!(attached.first().is_some_and(|img| img.uri.is_none()));
+    }
+
     #[test]
     fn test_grok_render_plain_message() {
         let result = render_grok("hello", vec![], vec![], &[], false);

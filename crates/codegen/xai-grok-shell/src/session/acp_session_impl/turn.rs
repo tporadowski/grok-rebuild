@@ -996,6 +996,7 @@ impl SessionActor {
                 verbatim,
                 self.is_cursor_harness(),
                 pending_skill_information.take().unwrap_or_default(),
+                &self.deny_read_globs,
             )
             .await
             {
@@ -1006,6 +1007,12 @@ impl SessionActor {
                     return Err(err);
                 }
             };
+            let query = crate::session::prompt_parser::omit_read_denied_placeholders(
+                query,
+                &mut raw_images,
+                std::path::Path::new(&self.session_info.cwd),
+                &self.deny_read_globs,
+            );
             let recovered = if policy.authority == InputAuthority::ModelAuthoredUntrusted {
                 0
             } else {
