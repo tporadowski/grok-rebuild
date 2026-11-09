@@ -5,8 +5,8 @@ use std::path::Path;
 use tree_sitter::Node;
 
 use crate::bash_command_splitting::{
-    MAX_INLINE_SHELL_DEPTH, decode_shell_literal_spelling, normalize_command_words,
-    try_parse_shell, unwrap_wrappers,
+    MAX_INLINE_SHELL_DEPTH, decode_double_quoted_shell_word, decode_shell_literal_spelling,
+    decode_unquoted_shell_word, normalize_command_words, try_parse_shell, unwrap_wrappers,
 };
 use crate::exec_risk::is_accepted_long_option_prefix;
 use crate::policy::{
@@ -853,65 +853,11 @@ fn node_has_expansion(node: Node<'_>) -> bool {
     false
 }
 
-/// Drive-letter / UNC-looking text must keep separators for path normalize.
-fn is_windows_path_like(raw: &str) -> bool {
-    raw.starts_with("\\\\")
-        || (raw
-            .as_bytes()
-            .first()
-            .is_some_and(|b| b.is_ascii_alphabetic())
-            && raw.as_bytes().get(1) == Some(&b':'))
-}
-
-/// Fold unquoted shell backslash escapes (`b\ash` becomes `bash`, `\-c` becomes `-c`).
-fn decode_unquoted_word(raw: &str) -> Option<String> {
-    if !raw.contains('\\') {
-        return Some(raw.to_owned());
-    }
-    if is_windows_path_like(raw) {
-        return Some(raw.to_owned());
-    }
-    let mut out = String::with_capacity(raw.len());
-    let mut chars = raw.chars();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            out.push(chars.next()?);
-        } else {
-            out.push(ch);
-        }
-    }
-    Some(out)
-}
-
-/// Double-quote body: only `\$`, `` \` ``, `\"`, `\\`, and `\<newline>` fold.
-fn decode_double_quoted_content(content: &str) -> Option<String> {
-    if !content.contains('\\') {
-        return Some(content.to_owned());
-    }
-    let mut out = String::with_capacity(content.len());
-    let mut chars = content.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some(n @ ('$' | '`' | '"' | '\\' | '\n')) => out.push(n),
-            Some(n) => {
-                out.push('\\');
-                out.push(n);
-            }
-            None => return None,
-        }
-    }
-    Some(out)
-}
-
 pub(crate) fn shell_node_arg(node: Node<'_>, src: &str) -> Option<ArgText> {
     let text = || node.utf8_text(src.as_bytes()).ok().map(str::to_owned);
     match node.kind() {
         "variable_assignment" => None,
-        "word" | "number" => match text().and_then(|raw| decode_unquoted_word(&raw)) {
+        "word" | "number" => match text().and_then(|raw| decode_unquoted_shell_word(&raw)) {
             Some(literal) => Some(ArgText::Literal(literal)),
             None => Some(ArgText::Ambiguous),
         },
@@ -932,7 +878,7 @@ pub(crate) fn shell_node_arg(node: Node<'_>, src: &str) -> Option<ArgText> {
                 .strip_prefix('"')
                 .and_then(|s| s.strip_suffix('"'))
                 .unwrap_or(raw);
-            match decode_double_quoted_content(stripped) {
+            match decode_double_quoted_shell_word(stripped) {
                 Some(literal) => Some(ArgText::Literal(literal)),
                 None => Some(ArgText::Ambiguous),
             }

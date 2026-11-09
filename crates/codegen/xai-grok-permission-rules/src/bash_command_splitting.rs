@@ -176,6 +176,61 @@ struct EnvScan<'a> {
     command_start: usize,
 }
 
+/// A drive-letter or UNC spelling keeps its backslashes. Folding them would turn `C:\Windows` into `C:Windows`.
+fn is_windows_path_like(raw: &str) -> bool {
+    raw.starts_with("\\\\")
+        || (raw
+            .as_bytes()
+            .first()
+            .is_some_and(|b| b.is_ascii_alphabetic())
+            && raw.as_bytes().get(1) == Some(&b':'))
+}
+
+/// Unquoted word as bash passes it: `hello\ world` becomes `hello world`, `\-c` becomes `-c`.
+/// A trailing backslash is incomplete and returns `None`.
+pub(crate) fn decode_unquoted_shell_word(raw: &str) -> Option<String> {
+    if !raw.contains('\\') {
+        return Some(raw.to_owned());
+    }
+    if is_windows_path_like(raw) {
+        return Some(raw.to_owned());
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            out.push(chars.next()?);
+        } else {
+            out.push(ch);
+        }
+    }
+    Some(out)
+}
+
+/// Double-quoted body as bash passes it. Only `\$`, `` \` ``, `\"`, `\\`, and a backslash-newline fold.
+pub(crate) fn decode_double_quoted_shell_word(content: &str) -> Option<String> {
+    if !content.contains('\\') {
+        return Some(content.to_owned());
+    }
+    let mut out = String::with_capacity(content.len());
+    let mut chars = content.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some(n @ ('$' | '`' | '"' | '\\' | '\n')) => out.push(n),
+            Some(n) => {
+                out.push('\\');
+                out.push(n);
+            }
+            None => return None,
+        }
+    }
+    Some(out)
+}
+
 /// Decode expansion-free word/string/concatenation *source spelling* under shell quote rules.
 /// Meant for raw tree-sitter concatenations that still contain `'`/`"`.
 /// Already-dequoted plain argv words must not use this (env-S metasyntax like `\t` would be corrupted into shell escapes).
@@ -936,10 +991,11 @@ fn parse_plain_command_from_node(cmd: Node, src: &str) -> Option<PlainCommand> {
             }
             "command_name" => {
                 let word_node = child.named_child(0)?;
-                if word_node.kind() != "word" {
+                if !matches!(word_node.kind(), "word" | "number") {
                     return None;
                 }
-                let text = word_node.utf8_text(src.as_bytes()).ok()?.to_owned();
+                let raw = word_node.utf8_text(src.as_bytes()).ok()?;
+                let text = decode_unquoted_shell_word(raw)?;
 
                 if span_start.is_none() {
                     span_start = Some(word_node.start_byte());
@@ -949,7 +1005,8 @@ fn parse_plain_command_from_node(cmd: Node, src: &str) -> Option<PlainCommand> {
                 words.push(text);
             }
             "word" | "number" => {
-                let text = child.utf8_text(src.as_bytes()).ok()?.to_owned();
+                let raw = child.utf8_text(src.as_bytes()).ok()?;
+                let text = decode_unquoted_shell_word(raw)?;
 
                 if span_start.is_none() {
                     span_start = Some(child.start_byte());
@@ -966,7 +1023,8 @@ fn parse_plain_command_from_node(cmd: Node, src: &str) -> Option<PlainCommand> {
                     && child.child(2)?.kind() == "\""
                 => {
                     let content_node = child.child(1)?;
-                    let text = content_node.utf8_text(src.as_bytes()).ok()?.to_owned();
+                    let raw = content_node.utf8_text(src.as_bytes()).ok()?;
+                    let text = decode_double_quoted_shell_word(raw)?;
 
                     if span_start.is_none() {
                         // Highlight whole quoted string in the original script, so span uses the outer node
@@ -993,8 +1051,9 @@ fn parse_plain_command_from_node(cmd: Node, src: &str) -> Option<PlainCommand> {
                 }
             }
             "concatenation" => {
-                // E.g. `{}` in `find -exec`
-                let text = child.utf8_text(src.as_bytes()).ok()?.to_owned();
+                // E.g. `{}` in `find -exec`, or `"hello"world` which bash passes as one word.
+                let raw = child.utf8_text(src.as_bytes()).ok()?;
+                let text = decode_shell_literal_spelling(raw)?;
 
                 if span_start.is_none() {
                     span_start = Some(child.start_byte());
@@ -1395,7 +1454,7 @@ mod tests {
                 highlighted_words: vec![
                     "python3".to_owned(),
                     "-c".to_owned(),
-                    "some text\\\" here ".to_owned()
+                    "some text\" here ".to_owned()
                 ],
                 suffix: vec![
                     "|".to_owned(),
@@ -1490,8 +1549,7 @@ mod tests {
                 highlighted_words: vec![
                     "python".to_owned(),
                     "-c".to_owned(),
-                    "\"\n        import os\n        os.environ.get(\"something\")\n        \""
-                        .to_owned()
+                    "\n        import os\n        os.environ.get(something)\n        ".to_owned()
                 ],
                 suffix: vec![],
             })

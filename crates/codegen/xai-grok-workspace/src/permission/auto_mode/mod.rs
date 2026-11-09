@@ -1832,6 +1832,26 @@ mod tests {
         assert_eq!(v("echo `rm -rf /`"), ClassifierVerdict::Block);
     }
 
+    /// Auto mode skips review only when every command's argv is on the allowlist.
+    /// `l\s` is the program `ls`. A later command that is not allowlisted still asks.
+    #[test]
+    fn auto_mode_skips_review_only_when_every_command_is_allowlisted() {
+        let empty = ClassifierContext::default();
+        let v = |cmd: &str| {
+            HeuristicPermissionClassifier::classify_sync(
+                "run_terminal_command",
+                &AccessKind::Bash(cmd.into()),
+                Some(cmd),
+                &empty,
+            )
+        };
+        assert_eq!(v(r"l\s"), ClassifierVerdict::Allow);
+        assert_eq!(v(r"l\s -la"), ClassifierVerdict::Allow);
+        assert_eq!(v(r#"echo "hello world" && pwd"#), ClassifierVerdict::Allow);
+        assert_eq!(v(r"l\s && rm -rf /tmp/x"), ClassifierVerdict::Block);
+        assert_eq!(v(r#"echo "hello world" && rm -rf /"#), ClassifierVerdict::Block);
+    }
+
     /// The canonical tree-sitter splitter fails closed (None) for constructs that can smuggle commands.
     /// Those are background `&`, ANSI-C quoting, command/process substitution, expansions, parens/subshells, and control flow.
     /// The Bash arm relies on this splitter.
