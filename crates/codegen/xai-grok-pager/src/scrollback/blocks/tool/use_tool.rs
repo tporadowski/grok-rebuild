@@ -6,6 +6,7 @@ use xai_grok_workspace::permission::{MCP_TOOL_NAME_DELIMITER, mcp_titleize_segme
 
 use crate::appearance::AppearanceConfig;
 use crate::render::line_utils::truncate_str;
+use crate::render::wrapping::word_wrap_lines;
 use crate::scrollback::block::BlockContent;
 use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode,
@@ -216,13 +217,22 @@ impl BlockContent for UseToolCallBlock {
 
                 if let Some(ref err) = self.error {
                     lines.push(Line::from("").into());
-                    lines.push(
-                        Line::from(Span::styled(
-                            format!("  {err}"),
-                            theme.fg(theme.accent_error),
-                        ))
-                        .into(),
-                    );
+                    let style = theme.fg(theme.accent_error);
+                    // Keep each source line, then wrap that line to the row width.
+                    // One span would hide the breaks and run past the screen.
+                    let wrap_width = ctx.content_width().max(1);
+                    let styled: Vec<Line<'static>> = err
+                        .lines()
+                        .map(|line| Line::from(Span::styled(format!("  {line}"), style)))
+                        .collect();
+                    let styled = if styled.is_empty() {
+                        vec![Line::from(Span::styled(format!("  {err}"), style))]
+                    } else {
+                        styled
+                    };
+                    for wrapped in word_wrap_lines(styled, wrap_width) {
+                        lines.push(BlockLine::styled(wrapped));
+                    }
                 }
 
                 BlockOutput { lines }
@@ -340,5 +350,66 @@ mod tests {
         assert!(expanded.contains("l10"), "expanded:\n{expanded}");
         assert!(!expanded.contains("l11"), "expanded:\n{expanded}");
         assert!(expanded.contains("(2 more lines"), "expanded:\n{expanded}");
+    }
+
+    fn rendered_rows(block: &UseToolCallBlock, context: &BlockContext) -> Vec<String> {
+        block
+            .output(context)
+            .lines
+            .iter()
+            .map(|line| {
+                line.content
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn failed_mcp_tool_error_wraps_to_the_screen_width_and_keeps_line_breaks() {
+        use unicode_width::UnicodeWidthStr;
+
+        let block = UseToolCallBlock::new("linear__save_issue").with_error(
+            "connection reset while saving the issue\n\
+             the server closed the socket before the write finished\n\
+             alpha bravo charlie delta echo foxtrot golf hotel india juliet",
+        );
+        let mut context = ctx(DisplayMode::Expanded);
+        context.width = 28;
+        let rows = rendered_rows(&block, &context);
+        let limit = context.content_width();
+        let reset_idx = rows
+            .iter()
+            .position(|row| row.contains("connection reset"))
+            .expect("first error line");
+        let socket_idx = rows
+            .iter()
+            .position(|row| row.contains("socket"))
+            .expect("second error line");
+        let alpha_idx = rows
+            .iter()
+            .position(|row| row.contains("alpha"))
+            .expect("third error line");
+        let juliet_idx = rows
+            .iter()
+            .position(|row| row.contains("juliet"))
+            .expect("wrapped tail of the long line");
+        assert!(
+            reset_idx < socket_idx && socket_idx < alpha_idx && alpha_idx < juliet_idx,
+            "line breaks stay in order and the long line wraps: {rows:?}"
+        );
+        assert!(
+            !rows[reset_idx].contains("socket") && !rows[socket_idx].contains("alpha"),
+            "a line break starts a new row: {rows:?}"
+        );
+        for row in rows.iter().skip(reset_idx) {
+            let width = UnicodeWidthStr::width(row.as_str());
+            assert!(
+                width <= limit,
+                "row is {width} cols, wider than the {limit}-col content area: {row:?}"
+            );
+        }
     }
 }
