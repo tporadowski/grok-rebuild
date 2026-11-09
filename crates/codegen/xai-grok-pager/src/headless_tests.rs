@@ -131,6 +131,50 @@ fn reap_request_for_subagent_cancels_with_typed_id() {
     );
 }
 
+/// Ctrl-C / SIGTERM closes every JSON format with the outcome gathered so far.
+#[test]
+fn signal_close_keeps_the_outcome_for_every_json_format() {
+    let partial = "partial answer";
+    let mut json = super::HeadlessEmitter::new(super::OutputFormat::Json, false);
+    json.on_text_chunk(partial);
+    let lines = json.finish_turn("cancelled", "sess-1", "");
+    let record = lines.first().expect("json object");
+    assert_eq!(record["stopReason"], "cancelled");
+    assert_eq!(record["text"], partial);
+    assert_eq!(record["sessionId"], "sess-1");
+
+    let mut streaming = super::HeadlessEmitter::new(super::OutputFormat::StreamingJson, false);
+    let lines = streaming.finish_turn("cancelled", "sess-1", "");
+    let end = lines
+        .iter()
+        .find(|line| line["type"] == "end")
+        .expect("streaming-json end line");
+    assert_eq!(end["stopReason"], "cancelled");
+    assert_eq!(end["sessionId"], "sess-1");
+
+    let mut messages =
+        super::HeadlessEmitter::new(super::OutputFormat::StreamingMessagesJson, false);
+    if let Some(reducer) = messages.reducer.as_mut() {
+        let _ = reducer.reduce(super::reducer::StreamEvent::AgentMessage(partial.into()));
+    }
+    let lines = messages.finish_turn("cancelled", "sess-1", "");
+    let result = lines
+        .iter()
+        .find(|line| line["type"] == "result")
+        .expect("streaming-messages-json result line");
+    assert_eq!(result["is_error"], true);
+    assert_eq!(result["errors"][0], "cancelled");
+    let assistant = lines
+        .iter()
+        .find(|line| line["type"] == "assistant")
+        .expect("partial answer stays in the closing records");
+    let blob = assistant.to_string();
+    assert!(
+        blob.contains(partial),
+        "assistant frame must keep the partial answer: {blob}"
+    );
+}
+
 /// A `task_backgrounded` delivered right at prompt completion is still recorded by the drain.
 #[test]
 fn drain_records_task_backgrounded_delivered_at_exit() {

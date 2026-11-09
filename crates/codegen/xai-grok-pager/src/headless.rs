@@ -375,40 +375,69 @@ impl HeadlessEmitter {
         self.attach_worktree_path(&mut err);
         err
     }
-    fn on_end(&mut self, stop_reason: &str, session_id: &str, request_id: &str) {
+    /// Records a finished turn would write. `plain` has none.
+    /// JSON is one object. Streaming formats are the reducer's terminal lines.
+    fn finish_turn(
+        &mut self,
+        stop_reason: &str,
+        session_id: &str,
+        request_id: &str,
+    ) -> Vec<serde_json::Value> {
         match self.format {
-            OutputFormat::Plain => {
-                let _ = self.write_out(b"\n", false);
-            }
+            OutputFormat::Plain => Vec::new(),
             OutputFormat::Json => {
-                let result = self.build_json_result(stop_reason, session_id, request_id);
-                let mut rendered =
-                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
-                rendered.push('\n');
-                let _ = self.write_out(rendered.as_bytes(), false);
+                vec![self.build_json_result(stop_reason, session_id, request_id)]
             }
             OutputFormat::StreamingJson | OutputFormat::StreamingMessagesJson => {
                 let usage = self.usage.clone();
                 let structured_output = self.resolved_structured_output();
                 let result_text = self.text_buffer.clone();
                 let duration_ms = self.duration_ms();
-                let lines = self.reducer.as_mut().map(|reducer| {
-                    let end = TurnEnd {
-                        stop_reason,
-                        session_id,
-                        request_id,
-                        usage: usage.as_ref(),
-                        structured_output,
-                        result_text: result_text.as_str(),
-                        duration_ms,
-                    };
-                    reducer.finish(&end)
-                });
-                if let Some(lines) = lines {
-                    self.emit_lines(lines);
-                }
+                self.reducer
+                    .as_mut()
+                    .map(|reducer| {
+                        reducer.finish(&TurnEnd {
+                            stop_reason,
+                            session_id,
+                            request_id,
+                            usage: usage.as_ref(),
+                            structured_output,
+                            result_text: result_text.as_str(),
+                            duration_ms,
+                        })
+                    })
+                    .unwrap_or_default()
             }
         }
+    }
+    fn write_finish_lines(&mut self, lines: &[serde_json::Value]) {
+        match self.format {
+            OutputFormat::Plain => {
+                let _ = self.write_out(b"\n", false);
+            }
+            OutputFormat::Json => {
+                let Some(result) = lines.first() else {
+                    return;
+                };
+                let mut rendered =
+                    serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string());
+                rendered.push('\n');
+                let _ = self.write_out(rendered.as_bytes(), false);
+            }
+            OutputFormat::StreamingJson | OutputFormat::StreamingMessagesJson => {
+                self.emit_lines(lines.to_vec());
+            }
+        }
+    }
+    fn on_end(&mut self, stop_reason: &str, session_id: &str, request_id: &str) {
+        let lines = self.finish_turn(stop_reason, session_id, request_id);
+        self.write_finish_lines(&lines);
+    }
+    /// Ctrl-C / SIGTERM: write the closing record, then flush, before the process exits.
+    /// `stopReason` is `cancelled`. Text and usage gathered so far stay on that record.
+    fn close_after_signal(&mut self, session_id: &str) {
+        self.on_end("cancelled", session_id, "");
+        let _ = self.write_out(b"", true);
     }
     /// Emit the max turns marker for the active format.
     fn on_max_turns(&mut self) {
@@ -1606,6 +1635,7 @@ pub async fn run_single_turn(
             exit_code = code,
             "headless: a signal during the turn ends the run"
         );
+        emitter.close_after_signal(session_id.0.as_ref());
         drop(agent_guard);
         crate::app::signal_handler::force_exit(code);
     }

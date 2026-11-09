@@ -133,7 +133,7 @@ stop reason, session ID, request ID (plus `thought` when reasoning is present).
 When the prompt reached the model, the same object also carries spend fields
 (`usage`, `num_turns`, `modelUsage`, cost). `stopReason` is the snake_case
 ACP/Messages token (`end_turn`, `max_tokens`, `max_turn_requests`, …).
-Reaching the turn limit reports `max_turn_requests`.
+Reaching the turn limit reports `max_turn_requests`. Stopping the run with Ctrl-C or SIGTERM still writes this object, or the streaming `end` / `result` line, with `stopReason` `cancelled` and the text gathered so far. The stream is not cut off.
 
 ```json
 {
