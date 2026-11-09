@@ -848,6 +848,81 @@
         );
     }
 
+    /// A chunk that the shell stamps `InProgress` can arrive after `TaskCompleted`.
+    /// The tasks row stays finished, the started block stays still, and the late bytes are kept.
+    #[test]
+    fn late_stdout_after_completion_does_not_flip_back_to_running() {
+        let mut app = make_app_with_agent("sess-late");
+        let tc_id = "call-late-out";
+        let task_id = "task-late-out";
+
+        let started = make_task_backgrounded_notif("sess-late", tc_id, task_id, "echo done");
+        assert!(handle_task_backgrounded(&started, &mut app));
+        let done = make_task_completed_notif("sess-late", task_id, "echo done", Some(0));
+        assert!(handle_task_completed(&done, &mut app));
+        {
+            let agent = app.agents.get(&AgentId(0)).unwrap();
+            let task = agent
+                .session
+                .bg_tasks
+                .get(task_id)
+                .expect("completed background command");
+            assert_eq!(task.status, BgTaskStatus::Done);
+            assert!(!agent.scrollback.needs_animation());
+        }
+
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let request = acp::SessionNotification::new(
+            acp::SessionId::new("sess-late"),
+            acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+                acp::ToolCallId::new(tc_id),
+                acp::ToolCallUpdateFields::new()
+                    .status(Some(acp::ToolCallStatus::InProgress))
+                    .raw_output(Some(serde_json::json!({
+                        "type": "Bash",
+                        "output_for_prompt": "late line\n",
+                    }))),
+            )),
+        );
+        let _ = handle(
+            AcpClientMessage::SessionNotification(xai_acp_lib::AcpArgs {
+                request,
+                response_tx: tx,
+            }),
+            &mut app,
+        );
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        let task = agent
+            .session
+            .bg_tasks
+            .get(task_id)
+            .expect("background command still recorded");
+        assert_eq!(
+            task.status,
+            BgTaskStatus::Done,
+            "late output must not mark a finished background command running"
+        );
+        assert_eq!(task.stdout, "late line\n");
+        assert!(
+            !agent.scrollback.needs_animation(),
+            "late output must not animate the finished command"
+        );
+        let started_entry = agent
+            .scrollback
+            .get(0)
+            .expect("task started block");
+        assert!(
+            !started_entry.is_running,
+            "the started block stays finished when late output arrives"
+        );
+        assert_eq!(
+            agent.scrollback.len(),
+            2,
+            "late output must not push another running block"
+        );
+    }
+
     /// A completion tombstone prefers the snapshot's model-supplied description, so the race renders the same label as the normal order.
     #[test]
     fn unknown_completed_prefers_snapshot_description() {

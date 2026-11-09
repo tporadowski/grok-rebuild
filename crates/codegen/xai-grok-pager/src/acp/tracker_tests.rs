@@ -5823,3 +5823,59 @@ fn cancel_turn_marks_unanswered_tool_calls_cancelled() {
     );
     assert!(!execute_block(late).is_success());
 }
+
+/// A shell chunk stamped `InProgress` can arrive after the command has already finished.
+/// The row stays `Ran` and does not go back to `Running`.
+#[test]
+fn late_in_progress_output_after_execute_finishes_stays_ran() {
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    tracker.handle_update(
+        tool_call("tc-late", acp::ToolKind::Execute, "echo done"),
+        &meta(),
+        &mut sb,
+    );
+    tracker.handle_update(
+        tool_update_in_progress("tc-late", b"partial"),
+        &meta(),
+        &mut sb,
+    );
+    assert!(sb.get(0).unwrap().is_running, "the command is running");
+    tracker.handle_update(
+        tool_update_completed_bash("tc-late", b"partial\ndone", 0),
+        &meta(),
+        &mut sb,
+    );
+    assert!(!sb.get(0).unwrap().is_running, "completion finishes the row");
+    let finished = rendered_header(sb.get(0).unwrap());
+    assert!(
+        finished.contains("Ran"),
+        "a finished command says Ran: {finished:?}"
+    );
+
+    let applied = tracker.handle_update(
+        tool_update_in_progress("tc-late", b"partial\ndone\nlate line"),
+        &meta(),
+        &mut sb,
+    );
+    assert!(
+        !applied,
+        "a late in-progress chunk for a finished command is not a new running row"
+    );
+    assert_eq!(sb.len(), 1, "late output must not push another block");
+    let entry = sb.get(0).unwrap();
+    assert!(
+        !entry.is_running,
+        "late output must not mark the finished command running"
+    );
+    assert!(!sb.needs_animation());
+    let header = rendered_header(entry);
+    assert!(
+        header.contains("Ran"),
+        "late output must keep Ran: {header:?}"
+    );
+    assert!(
+        !header.contains("Running"),
+        "late output must not restore Running: {header:?}"
+    );
+}
