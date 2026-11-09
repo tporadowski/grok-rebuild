@@ -104,6 +104,9 @@ pub(crate) fn deserialize_response_event(data: &str) -> Result<rs::ResponseStrea
                 {
                     tools.retain(|t| serde_json::from_value::<rs::Tool>(t.clone()).is_ok());
                 }
+                // Custom Responses hosts start a web_search_call before it has an action.
+                // async_openai requires `action`, so the frame would otherwise fail the stream and end the turn.
+                supply_missing_web_search_action(&mut value);
                 if let Ok(mut event) = serde_json::from_value::<rs::ResponseStreamEvent>(value) {
                     apply_terminal_event_overrides(&mut event, data);
                     return Ok(event);
@@ -119,6 +122,40 @@ pub(crate) fn deserialize_response_event(data: &str) -> Result<rs::ResponseStrea
     };
     apply_terminal_event_overrides(&mut event, data);
     Ok(event)
+}
+
+/// A `web_search_call` that has not started its action yet has no `action` object.
+/// Fill a blank search so the typed parser accepts the frame and the rest of the turn still arrives.
+fn supply_missing_web_search_action(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                supply_missing_web_search_action(item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            let is_web_search =
+                map.get("type").and_then(|kind| kind.as_str()) == Some("web_search_call");
+            if is_web_search && web_search_action_absent(map.get("action")) {
+                map.insert(
+                    "action".to_owned(),
+                    serde_json::json!({"type": "search", "query": ""}),
+                );
+            }
+            for child in map.values_mut() {
+                supply_missing_web_search_action(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn web_search_action_absent(action: Option<&serde_json::Value>) -> bool {
+    match action {
+        None | Some(serde_json::Value::Null) => true,
+        Some(serde_json::Value::Object(obj)) => obj.get("type").and_then(|kind| kind.as_str()).is_none(),
+        Some(_) => false,
+    }
 }
 
 /// On `response.completed` / `response.incomplete`, rewrite `usage.total_tokens` to the live context length from `context_details`.
@@ -3466,6 +3503,90 @@ mod tests {
             event,
             rs::ResponseStreamEvent::ResponseOutputTextDelta(_)
         ));
+    }
+
+    /// A custom Responses host starts `web_search_call` with no `action`. That frame must parse, and the completed response after it must too.
+    #[test]
+    fn web_search_call_without_action_keeps_the_responses_turn_going() {
+        let started = r#"{
+            "type": "response.output_item.added",
+            "sequence_number": 1,
+            "output_index": 0,
+            "item": {
+                "type": "web_search_call",
+                "id": "ws_1",
+                "status": "in_progress"
+            }
+        }"#;
+        let started = deserialize_response_event(started).expect("search start parses");
+        let rs::ResponseStreamEvent::ResponseOutputItemAdded(added) = started else {
+            panic!("expected output item added");
+        };
+        let rs::OutputItem::WebSearchCall(call) = added.item else {
+            panic!("expected web search call");
+        };
+        assert_eq!(call.id, "ws_1");
+        assert!(
+            matches!(call.action, rs::WebSearchToolCallAction::Search(ref search) if search.query.is_empty()),
+            "a missing action is a blank search, not a stream error"
+        );
+
+        let finished = r#"{
+            "type": "response.completed",
+            "sequence_number": 2,
+            "response": {
+                "id": "resp_1",
+                "object": "response",
+                "created_at": 0,
+                "model": "custom-responses",
+                "status": "completed",
+                "output": [
+                    {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": null},
+                    {
+                        "type": "message",
+                        "id": "msg_1",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": "done", "annotations": []}]
+                    }
+                ]
+            }
+        }"#;
+        let finished = deserialize_response_event(finished).expect("completed response parses");
+        let rs::ResponseStreamEvent::ResponseCompleted(done) = finished else {
+            panic!("expected response.completed");
+        };
+        assert_eq!(done.response.output.len(), 2);
+        let Some(rs::OutputItem::Message(message)) = done.response.output.get(1) else {
+            panic!("the assistant message must follow the search");
+        };
+        let Some(rs::OutputMessageContent::OutputText(text)) = message.content.first() else {
+            panic!("expected output text");
+        };
+        assert_eq!(text.text, "done");
+
+        let with_query = r#"{
+            "type": "response.output_item.done",
+            "sequence_number": 3,
+            "output_index": 0,
+            "item": {
+                "type": "web_search_call",
+                "id": "ws_1",
+                "status": "completed",
+                "action": {"type": "search", "query": "cats"}
+            }
+        }"#;
+        let with_query = deserialize_response_event(with_query).expect("real action parses");
+        let rs::ResponseStreamEvent::ResponseOutputItemDone(done_item) = with_query else {
+            panic!("expected output item done");
+        };
+        let rs::OutputItem::WebSearchCall(call) = done_item.item else {
+            panic!("expected web search call");
+        };
+        assert!(
+            matches!(call.action, rs::WebSearchToolCallAction::Search(ref search) if search.query == "cats"),
+            "an action that arrived must stay"
+        );
     }
 
     /// A request as the builder emits it: `reasoning.summary` already set to the built-in default.
