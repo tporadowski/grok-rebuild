@@ -2151,6 +2151,178 @@ mod tests {
             .await;
     }
 
+    /// Web search, web fetch, and image generation settle `prompt_policy` and
+    /// matching rules before a prompt is shown.
+    #[tokio::test]
+    async fn web_and_image_tools_honor_prompt_policy_before_prompting() {
+        use crate::permission::types::{
+            PatternMode, PermissionConfig, PermissionRule, PromptPolicy, RuleAction, ToolFilter,
+        };
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                async fn settle(
+                    access: AccessKind,
+                    policy: PromptPolicy,
+                    rules: Vec<PermissionRule>,
+                    domains: Vec<String>,
+                ) -> (Decision, usize) {
+                    let tmp = tempfile::tempdir().unwrap();
+                    let cwd = AbsPathBuf::new(tmp.path().to_path_buf()).unwrap();
+                    let client = RecordingClient::default();
+                    let prompts = client.prompts.clone();
+                    let mut config = PermissionConfig::new(rules);
+                    config.prompt_policy = policy;
+                    let (gateway, receiver) =
+                        xai_acp_lib::acp_gateway::<acp::AgentSide, _>(client);
+                    tokio::task::spawn_local(receiver.run());
+                    let (mgr, _events) = spawn_permission_manager_with_pin(
+                        acp::SessionId::new(Arc::from("test-session")),
+                        gateway,
+                        cwd,
+                        ClientType::Generic,
+                        Some(config),
+                        vec![],
+                        domains,
+                        false,
+                        None,
+                        true,
+                        None,
+                        None,
+                    );
+                    let decision = tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        decide(&mgr, access, tool_call()),
+                    )
+                    .await
+                    .expect("permission request must resolve, not hang");
+                    (decision, prompts.borrow().len())
+                }
+                let rule = |action, tool, pattern: &str| PermissionRule {
+                    action,
+                    tool,
+                    pattern: Some(pattern.to_owned()),
+                    pattern_mode: PatternMode::Glob,
+                };
+                let search = AccessKind::WebSearch("rust".into());
+                let listed = AccessKind::WebFetch("https://example.com/docs".into());
+                let unlisted = AccessKind::WebFetch("https://unknown.example/x".into());
+                let image = AccessKind::Tool("image_gen".into());
+                let allowed_hosts = vec!["example.com".to_owned()];
+
+                // Web search is a built-in read-only approval, including under dontAsk.
+                let (decision, prompts) =
+                    settle(search.clone(), PromptPolicy::Deny, vec![], vec![]).await;
+                assert!(
+                    matches!(decision, Decision::Allow),
+                    "dontAsk must not prompt for a web search, got {decision:?}"
+                );
+                assert_eq!(prompts, 0);
+
+                // A fetch on the allowlist is already approved, so dontAsk does not prompt.
+                let (decision, prompts) = settle(
+                    listed.clone(),
+                    PromptPolicy::Deny,
+                    vec![],
+                    allowed_hosts.clone(),
+                )
+                .await;
+                assert!(
+                    matches!(decision, Decision::Allow),
+                    "dontAsk must not prompt for an allowlisted fetch, got {decision:?}"
+                );
+                assert_eq!(prompts, 0);
+
+                // A fetch that is not allowed, and image generation, are not read-only.
+                // dontAsk rejects them before a prompt.
+                for access in [unlisted.clone(), image.clone()] {
+                    let (decision, prompts) =
+                        settle(access, PromptPolicy::Deny, vec![], vec![]).await;
+                    assert!(
+                        matches!(decision, Decision::PolicyDeny(_)),
+                        "dontAsk must reject without a prompt, got {decision:?}"
+                    );
+                    assert_eq!(prompts, 0);
+                }
+
+                for access in [search.clone(), unlisted.clone(), image.clone()] {
+                    let (decision, prompts) =
+                        settle(access, PromptPolicy::Allow, vec![], vec![]).await;
+                    assert!(
+                        matches!(decision, Decision::Allow),
+                        "alwaysAllow must approve without a prompt, got {decision:?}"
+                    );
+                    assert_eq!(prompts, 0);
+                }
+
+                let (decision, prompts) = settle(
+                    search.clone(),
+                    PromptPolicy::Allow,
+                    vec![rule(RuleAction::Deny, ToolFilter::WebSearch, "*")],
+                    vec![],
+                )
+                .await;
+                assert!(
+                    matches!(decision, Decision::PolicyDeny(_)),
+                    "a web search deny rule beats alwaysAllow, got {decision:?}"
+                );
+                assert_eq!(prompts, 0);
+
+                let (decision, prompts) = settle(
+                    listed.clone(),
+                    PromptPolicy::Allow,
+                    vec![rule(RuleAction::Deny, ToolFilter::WebFetch, "*")],
+                    allowed_hosts.clone(),
+                )
+                .await;
+                assert!(
+                    matches!(decision, Decision::PolicyDeny(_)),
+                    "a web fetch deny rule beats the allowlist and alwaysAllow, got {decision:?}"
+                );
+                assert_eq!(prompts, 0);
+
+                let (decision, prompts) = settle(
+                    image.clone(),
+                    PromptPolicy::Allow,
+                    vec![rule(RuleAction::Deny, ToolFilter::Any, "image_gen")],
+                    vec![],
+                )
+                .await;
+                assert!(
+                    matches!(decision, Decision::PolicyDeny(_)),
+                    "an image generation deny rule beats alwaysAllow, got {decision:?}"
+                );
+                assert_eq!(prompts, 0);
+
+                let (decision, prompts) = settle(
+                    image,
+                    PromptPolicy::Deny,
+                    vec![rule(RuleAction::Allow, ToolFilter::Any, "image_gen")],
+                    vec![],
+                )
+                .await;
+                assert!(
+                    matches!(decision, Decision::Allow),
+                    "an image generation allow rule beats dontAsk, got {decision:?}"
+                );
+                assert_eq!(prompts, 0);
+
+                let (decision, prompts) = settle(
+                    search,
+                    PromptPolicy::Deny,
+                    vec![rule(RuleAction::Allow, ToolFilter::WebSearch, "*")],
+                    vec![],
+                )
+                .await;
+                assert!(
+                    matches!(decision, Decision::Allow),
+                    "a web search allow rule beats dontAsk, got {decision:?}"
+                );
+                assert_eq!(prompts, 0);
+            })
+            .await;
+    }
+
     #[tokio::test]
     async fn managed_file_deny_beats_shell_auto_allow_yolo_and_persisted() {
         use crate::permission::types::{
