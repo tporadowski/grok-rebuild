@@ -2124,7 +2124,22 @@ impl SessionActor {
         if self.compaction.is_suppressed() {
             return false;
         }
-        self.estimate_exceeds_error_context_window(err).await
+        if self.estimate_exceeds_error_context_window(err).await {
+            return true;
+        }
+        // A reported window the estimate still fits is not an overflow.
+        // With no reported window, the error text or size code is the signal, so the turn compacts instead of failing.
+        let reported = err
+            .model_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.context_window);
+        if reported.is_some_and(|window| window > 0) {
+            return false;
+        }
+        err.error_code
+            .as_ref()
+            .is_some_and(xai_grok_sampling_types::ApiErrorCode::is_size_overflow)
+            || xai_grok_sampling_types::is_context_length_error(&err.message)
     }
     /// The request's token estimate exceeds the failed response's reported context window.
     /// This probable-overflow signal is shared by compact-and-resubmit and the mid-salvage truncated-complete arm.

@@ -304,11 +304,21 @@ async fn suppression_gates_and_reset_is_reason_scoped() {
             let err = api_error_with_context_window(200_000);
             assert!(actor.check_auto_compact_needed().await.is_some());
             assert!(actor.should_compact_on_error(&err).await);
+            let mut message_only = err.clone();
+            message_only.model_metadata = None;
+            assert!(
+                actor.should_compact_on_error(&message_only).await,
+                "an overflow error with no reported window still compacts"
+            );
             actor
                 .suppress_auto_compaction(SuppressReason::Other, "", 1_000, 200_000)
                 .await;
             assert!(actor.check_auto_compact_needed().await.is_none());
             assert!(!actor.should_compact_on_error(&err).await);
+            assert!(
+                !actor.should_compact_on_error(&message_only).await,
+                "suppression blocks a message-only overflow too"
+            );
             let _ = actor.compaction.auto_compact_suppressed.compare_exchange(
                 SUPPRESS_TURN,
                 SUPPRESS_NONE,
