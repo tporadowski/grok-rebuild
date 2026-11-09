@@ -1748,7 +1748,7 @@ fn print_human(r: &InspectReport, out: &mut impl Write) -> std::io::Result<()> {
                 let status = disabled_compat_tags(m.disabled, m.compatibility_status);
                 format!(
                     "{}{}{}",
-                    m.source.display_label(),
+                    m.source.display_short(),
                     vendor_tag(&m.vendor),
                     status,
                 )

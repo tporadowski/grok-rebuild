@@ -63,7 +63,7 @@ pub struct McpServerSources {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpServerOrigin {
-    /// `path` is the user `config.toml` even for a project definition.
+    /// `path` is the `config.toml` that defines the server, user or project.
     ConfigToml {
         path: PathBuf,
     },
@@ -176,13 +176,12 @@ fn normalize_inline_mcp_servers(value: &serde_json::Value) -> serde_json::Value 
 }
 
 impl McpServerOrigin {
-    /// These paths match what `ConfigSource` reports for the server.
-    fn from_source(source: McpServerSource, cwd: &Path) -> McpServerOrigin {
+    /// The path is the file that declared the server.
+    fn from_source(source: McpServerSource) -> McpServerOrigin {
         match source {
-            McpServerSource::UserConfig { path } => McpServerOrigin::ConfigToml { path },
-            McpServerSource::ProjectConfig { .. } => McpServerOrigin::ConfigToml {
-                path: crate::grok_home().join(crate::USER_CONFIG_FILENAME),
-            },
+            McpServerSource::UserConfig { path } | McpServerSource::ProjectConfig { path } => {
+                McpServerOrigin::ConfigToml { path }
+            }
             McpServerSource::Plugin {
                 plugin_name,
                 path,
@@ -191,15 +190,10 @@ impl McpServerOrigin {
             McpServerSource::ClaudeUser { path } | McpServerSource::ClaudeProject { path } => {
                 McpServerOrigin::ClaudeJson { path }
             }
-            McpServerSource::CursorUser { path } => McpServerOrigin::McpJson { path },
-            McpServerSource::CursorProject { .. } => McpServerOrigin::McpJson {
-                path: xai_dirs::home_dir()
-                    .map(|home| home.join(".cursor").join("mcp.json"))
-                    .unwrap_or_default(),
-            },
-            McpServerSource::McpJson { .. } => McpServerOrigin::McpJson {
-                path: cwd.join(".mcp.json"),
-            },
+            McpServerSource::CursorUser { path } | McpServerSource::CursorProject { path } => {
+                McpServerOrigin::McpJson { path }
+            }
+            McpServerSource::McpJson { path } => McpServerOrigin::McpJson { path },
             McpServerSource::Client => {
                 unreachable!("the config files and plugins never define a client server")
             }
@@ -297,7 +291,7 @@ pub fn load_mcp_servers_with_origin(
         .configured_servers(sources, plugins, xai_dirs::home_dir().as_deref())
         .into_iter()
         .map(|server| {
-            let origin = McpServerOrigin::from_source(server.source.clone(), &sources.cwd);
+            let origin = McpServerOrigin::from_source(server.source.clone());
             (acp::McpServer::from(server), origin)
         })
         .collect()
@@ -361,7 +355,7 @@ pub fn non_toml_mcp_servers_with_origin(
     .filter_map(server_list::McpServerResolution::into_server)
     .filter(|server| !toml_claimed_names.contains(&server.name))
     .map(|server| {
-        let origin = McpServerOrigin::from_source(server.source.clone(), &sources.cwd);
+        let origin = McpServerOrigin::from_source(server.source.clone());
         (acp::McpServer::from(server), origin)
     })
     .collect()

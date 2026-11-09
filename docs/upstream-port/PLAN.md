@@ -837,15 +837,15 @@ Refresh these numbers at the end of a session.
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 39 | 12 | 8 |
-| W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
+| W13 | Update, install, and sign-in | 21 | 0 | 6 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 189. Skipped: 8. Done: 310. Already: 58. Deferred: 18.
+Catalog rows: 583. Pending: 188. Skipped: 8. Done: 311. Already: 58. Deferred: 18.
 
-**Next:** W13 Update, install, and sign-in. First open row: MCP server sources are now correctly reported by `grok inspect` and the MCP doctor (`v46-x01`).
+**Next:** W13 Update, install, and sign-in. First open row: Authentication recovery no longer automatically retries refused prompts after login; the sign-in block now requires manual resend (`v48-x06`).
 
 ## Waves
 
@@ -899,7 +899,7 @@ Pending: 0. Done: 39 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`, `v50-x20`, `v5
 
 ### W13 — Update, install, and sign-in
 
-Pending: 22. Done: 5. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download.
+Pending: 21. Done: 6. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download. `grok inspect` and the MCP doctor name the file that declares each MCP server. A project `config.toml`, a parent `.mcp.json`, and a Cursor project file keep that path (`v46-x01`, `project_definitions_keep_their_declaring_file`).
 
 ### W14 — Pager and remaining bug fixes
 
@@ -1294,7 +1294,7 @@ id | status | wave | kind | flag | covered | note
 - v75-x09 | done | W12 | Bug Fixes |  |  | **Cut-off Fetch, Web Search and MCP tool output** ends with the same `… +N lines · <key> to view all` row as code cells, naming your viewer key, and one hidden line reads `+1 line`.
 - v77-x02 | already | W12 | Bug Fixes |  |  | MCP server connections no longer restart unnecessarily on session reloads or updates.
 - v78-x02 | done | W12 | Bug Fixes |  |  | **Dropped-image notice** no longer appears inside the user's own message in transcripts or history.
-- v46-x01 | pending | W13 | Bug Fixes |  |  | **MCP server sources** are now correctly reported by `grok inspect` and the MCP doctor.
+- v46-x01 | done | W13 | Bug Fixes |  |  | **MCP server sources** are now correctly reported by `grok inspect` and the MCP doctor.
 - v47-x01 | done | W13 | Bug Fixes |  |  | Error messages on the home and login screens now wrap properly in narrow terminals.
 - v48-x06 | pending | W13 | Bug Fixes |  |  | **Authentication recovery** no longer automatically retries refused prompts after login; the sign-in block now requires manual resend.
 - v50-x33 | done | W13 | Bug Fixes |  |  | **The bundled ripgrep** is now available to terminal commands even on images that do not install it.

@@ -24,7 +24,7 @@ fn each_name_comes_from_its_highest_precedence_source() {
     ]);
 
     let resolved = resolved_commands(
-        &workspace.sources(vec![project_config], vec![mcp_json.clone()]),
+        &workspace.sources(vec![project_config.clone()], vec![mcp_json.clone()]),
         &[plugin],
     );
 
@@ -47,11 +47,46 @@ fn each_name_comes_from_its_highest_precedence_source() {
                 "shared".to_owned(),
                 "toml".to_owned(),
                 McpServerOrigin::ConfigToml {
-                    path: crate::grok_home().join(crate::USER_CONFIG_FILENAME),
+                    path: project_config,
                 },
             ),
         ],
         resolved
+    );
+}
+
+#[test]
+fn project_definitions_keep_their_declaring_file() {
+    let workspace = Workspace::new();
+    let child = workspace.path().join("pkg");
+    std::fs::create_dir(&child).expect("child dir");
+    let project_config = workspace.write(
+        ".grok/config.toml",
+        "[mcp_servers.mcp-servers-test-proj]\ncommand = \"toml\"\n",
+    );
+    let mcp_json = workspace.write(
+        ".mcp.json",
+        r#"{"mcpServers": {"mcp-servers-test-json": {"command": "json"}}}"#,
+    );
+    let mut sources = workspace.sources(vec![project_config.clone()], vec![mcp_json.clone()]);
+    sources.cwd = child;
+
+    assert_eq!(
+        vec![
+            (
+                "json".to_owned(),
+                "json".to_owned(),
+                McpServerOrigin::McpJson { path: mcp_json },
+            ),
+            (
+                "proj".to_owned(),
+                "toml".to_owned(),
+                McpServerOrigin::ConfigToml {
+                    path: project_config,
+                },
+            ),
+        ],
+        resolved_commands(&sources, &[])
     );
 }
 

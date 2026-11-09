@@ -45,7 +45,7 @@ impl UserMcpConfig {
     ) -> Vec<SessionMcpServer> {
         let mut by_name: HashMap<String, SessionMcpServer> = HashMap::new();
         for details in self.configured_servers(sources, plugins, home) {
-            let origin = McpServerOrigin::from_source(details.source.clone(), &sources.cwd);
+            let origin = McpServerOrigin::from_source(details.source.clone());
             let tier = SessionMcpTier::from(&origin);
             let server = acp::McpServer::from(details);
             by_name.insert(

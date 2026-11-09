@@ -748,7 +748,7 @@ pub async fn run_doctor(cwd: &Path, name_filter: Option<&str>) -> DoctorReport {
     use futures::StreamExt;
     let results: Vec<McpServerStatus> = futures::stream::iter(to_probe)
         .map(|d| {
-            let label = ConfigSource::from(d.origin.clone()).display_label();
+            let label = ConfigSource::from(d.origin.clone()).display_short();
             let name = mcp_servers::mcp_server_name(&d.server).to_string();
             let block_detail = blocked
                 .get(&name)
@@ -822,6 +822,7 @@ pub fn print_report(report: &DoctorReport) {
             "  {} ({}: {})",
             server.name, server.transport, server.target
         );
+        println!("    source: {}", server.source);
         for check in &server.checks {
             let icon = if check.passed { "\u{2713}" } else { "\u{2717}" };
             let detail = check.detail.as_deref().unwrap_or("");

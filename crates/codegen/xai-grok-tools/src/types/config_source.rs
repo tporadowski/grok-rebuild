@@ -48,7 +48,7 @@ impl ConfigSource {
             Self::User { path } => format!("user: {}", path.display()),
             Self::Plugin { plugin_name, .. } => format!("plugin: {plugin_name}"),
             Self::ConfigToml { path } => format!("config: {}", path.display()),
-            Self::ClaudeJson { .. } => "~/.claude.json".into(),
+            Self::ClaudeJson { path } => format!("claude: {}", path.display()),
             Self::McpJson { path } => format!(".mcp.json: {}", path.display()),
             Self::Cli { .. } => "cli".into(),
             Self::Managed { .. } => "managed".into(),
@@ -95,6 +95,37 @@ impl ConfigSource {
             | Self::Cli { path } => Some(path),
             Self::Managed { path } => path.as_deref(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_label_names_the_declaring_file() {
+        let project = PathBuf::from("/repo/.grok/config.toml");
+        let json = PathBuf::from("/repo/.mcp.json");
+        let claude = PathBuf::from("/repo/.claude.json");
+        assert_eq!(
+            ConfigSource::ConfigToml {
+                path: project.clone()
+            }
+            .display_short(),
+            "config: /repo/.grok/config.toml"
+        );
+        assert_eq!(
+            ConfigSource::McpJson { path: json }.display_short(),
+            ".mcp.json: /repo/.mcp.json"
+        );
+        assert_eq!(
+            ConfigSource::ClaudeJson { path: claude }.display_short(),
+            "claude: /repo/.claude.json"
+        );
+        assert_eq!(
+            ConfigSource::from(McpServerOrigin::ConfigToml { path: project }).display_short(),
+            "config: /repo/.grok/config.toml"
+        );
     }
 }
 
