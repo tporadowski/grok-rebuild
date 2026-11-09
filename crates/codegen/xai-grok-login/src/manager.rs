@@ -522,7 +522,9 @@ impl AuthManager {
         self.remove_scope_impl(scope)
     }
     fn remove_scope_impl(&self, scope: &str) -> std::io::Result<()> {
-        let disk_mutation = if let Some(_lock) = lock::try_lock_auth_file_nonblocking(&self.path) {
+        // Wait out a sibling refresh. A non-blocking skip used to leave the
+        // refreshed token on disk, so the next launch was signed in again.
+        let disk_mutation = if let Some(_lock) = self.lock_auth_for_logout()? {
             self.write_scope_removal(scope)?
         } else {
             ScopeRemoval::SkippedLockUnavailable
@@ -543,6 +545,30 @@ impl AuthManager {
         }
         Ok(())
     }
+    /// Poll until the auth lock is free or the refresh budget runs out.
+    fn lock_auth_for_logout(&self) -> std::io::Result<Option<crate::storage::AuthFileLock>> {
+        if let Some(guard) = lock::try_lock_auth_file_nonblocking(&self.path) {
+            return Ok(Some(guard));
+        }
+        let deadline = std::time::Instant::now() + REFRESH_LOCK_TIMEOUT;
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            if let Some(guard) = lock::try_lock_auth_file_nonblocking(&self.path) {
+                return Ok(Some(guard));
+            }
+        }
+        Ok(None)
+    }
+
+    /// True when persisting a refresh would recreate a login that logout already removed.
+    fn refresh_would_undo_logout(read: &std::io::Result<AuthStore>, scope: &str) -> bool {
+        match read {
+            Ok(store) => !store.contains_key(scope),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+            Err(_) => false,
+        }
+    }
+
     /// Drop `scope` from auth.json and persist, deleting the file when the last scope is gone.
     /// Caller holds the `auth.json` lock (taken by [`Self::remove_scope_impl`]).
     fn write_scope_removal(&self, scope: &str) -> std::io::Result<ScopeRemoval> {
@@ -1415,7 +1441,18 @@ impl AuthManager {
     ) -> Result<GrokAuth, AuthError> {
         let pre_key_suffix = attempted_key.as_deref().map(bearer_suffix);
         match outcome {
-            RefreshOutcome::Success(new_auth) => match self.update(*new_auth).await {
+            RefreshOutcome::Success(new_auth) => {
+                let disk = read_auth_json(&self.path);
+                if Self::refresh_would_undo_logout(&disk, &self.scope) {
+                    self.clear_inner();
+                    xai_grok_telemetry::unified_log::info(
+                        "auth.refresh.skipped_after_logout",
+                        None,
+                        Some(serde_json::json!({ "scope": &self.scope })),
+                    );
+                    return Err(AuthError::NotLoggedIn);
+                }
+                match self.update(*new_auth).await {
                 Ok(auth) => {
                     let new_suffix = bearer_suffix(&auth.key);
                     xai_grok_telemetry::unified_log::info(
@@ -1441,6 +1478,7 @@ impl AuthManager {
                     );
                     Err(AuthError::transient_source(e))
                 }
+            }
             },
             RefreshOutcome::PermanentFailure {
                 error,

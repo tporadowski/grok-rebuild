@@ -13,6 +13,49 @@ fn make_auth(expires_at: Option<DateTime<Utc>>, create_time: DateTime<Utc>) -> G
         ..GrokAuth::test_default()
     }
 }
+
+#[test]
+fn refresh_would_undo_logout_when_the_scope_is_gone() {
+    let mut store = AuthStore::new();
+    store.insert("other".into(), make_auth(None, Utc::now()));
+    let present = Ok(store);
+    assert!(AuthManager::refresh_would_undo_logout(&present, "default"));
+    assert!(!AuthManager::refresh_would_undo_logout(
+        &present, "other"
+    ));
+    let missing = Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "auth.json",
+    ));
+    assert!(AuthManager::refresh_would_undo_logout(&missing, "default"));
+    let unreadable = Err(std::io::Error::other("busy"));
+    assert!(!AuthManager::refresh_would_undo_logout(
+        &unreadable, "default"
+    ));
+}
+
+#[test]
+fn logout_deletes_auth_after_a_held_refresh_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = GrokComConfig::default();
+    let scope = cfg.auth_scope();
+    let mgr = Arc::new(AuthManager::new(dir.path(), cfg));
+    let mut store = AuthStore::new();
+    store.insert(scope.clone(), make_auth(None, Utc::now()));
+    let path = dir.path().join("auth.json");
+    write_auth_json(&path, &store).unwrap();
+    let held = lock::try_lock_auth_file_nonblocking(&path).expect("lock");
+    let mgr2 = Arc::clone(&mgr);
+    let scope2 = scope;
+    let worker = std::thread::spawn(move || mgr2.remove_scope(&scope2));
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    drop(held);
+    worker.join().expect("logout thread").expect("logout");
+    assert!(
+        !path.exists(),
+        "logout must delete auth.json once the refresh lock is released"
+    );
+}
 /// The one-read classification must match what split `current()` /
 /// `is_expired()` reads report for a stable credential, and `Valid` must
 /// carry the token so callers never re-read.
