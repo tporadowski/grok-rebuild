@@ -652,6 +652,15 @@ async fn spawn_agent(
     let _ = options;
     spawn_grok_shell(agent_config, cancel, memory_config).await
 }
+/// `true` when this auth method is the external `auth_provider_command` login.
+fn method_runs_auth_provider(method: &acp::AuthMethod) -> bool {
+    method
+        .meta()
+        .and_then(|meta| meta.get("external_provider"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
 /// Authenticate via the agent's `defaultAuthMethodId`, failing closed when none is available.
 /// Returns whether the selected method is API-key auth.
 async fn authenticate(
@@ -667,7 +676,14 @@ async fn authenticate(
             anyhow::anyhow!("{}", auth_required_message(interactive))
         })?;
     let kind = AuthMethodKind::from_id(&method_id);
-    if kind.needs_interactive_login() {
+    // `grok.com` is interactive for a browser login. With `auth_provider_command` the same
+    // method carries `external_provider`, and headless must send it so the shell runs that command
+    // when no login is stored.
+    let external_provider = auths
+        .iter()
+        .find(|method| method.id() == &method_id)
+        .is_some_and(method_runs_auth_provider);
+    if kind.needs_interactive_login() && !external_provider {
         use std::io::IsTerminal;
         let interactive =
             std::io::stdin().is_terminal() && !xai_grok_shell::util::clipboard::is_remote_session();
@@ -2393,6 +2409,9 @@ fn handle_headless_acp_message(
 #[cfg(test)]
 #[path = "headless/background_lifecycle_tests.rs"]
 mod background_lifecycle_tests;
+#[cfg(test)]
+#[path = "headless/auth_provider_tests.rs"]
+mod auth_provider_tests;
 #[cfg(test)]
 #[path = "headless_tests.rs"]
 mod tests;
