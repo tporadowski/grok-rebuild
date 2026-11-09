@@ -157,22 +157,29 @@ impl ToolSearchIndex for Bm25ToolSearchIndex {
             };
         }
 
-        // Fast path: exact match on qualified name or bare tool name.
-        // When the model already knows the tool name (e.g. "grafana-ai__SearchDashboards" or "SearchDashboards"), skip BM25 entirely.
+        // Exact name skips BM25. A qualified name (`server__tool`) still hits one tool.
+        // A bare name hits every server that exposes it. `limit` applies only to ranked
+        // search; trimming this set would hide the other servers' copies.
         let query_lower = query.trim().to_lowercase();
-        if let Some(exact) = snapshot.tools.iter().find(|t| {
-            t.qualified_name.to_lowercase() == query_lower
-                || t.tool_name.to_lowercase() == query_lower
-        }) {
+        let exact_matches: Vec<ToolSearchResult> = snapshot
+            .tools
+            .iter()
+            .filter(|t| {
+                t.qualified_name.to_lowercase() == query_lower
+                    || t.tool_name.to_lowercase() == query_lower
+            })
+            .map(|exact| ToolSearchResult {
+                tool_name: exact.qualified_name.clone(),
+                server_name: exact.server_name.clone(),
+                description: exact.description.clone(),
+                score: 1.0,
+                parameters: exact.parameters.clone(),
+                input_schema: exact.input_schema.clone(),
+            })
+            .collect();
+        if !exact_matches.is_empty() {
             return SearchSnapshot {
-                results: vec![ToolSearchResult {
-                    tool_name: exact.qualified_name.clone(),
-                    server_name: exact.server_name.clone(),
-                    description: exact.description.clone(),
-                    score: 1.0,
-                    parameters: exact.parameters.clone(),
-                    input_schema: exact.input_schema.clone(),
-                }],
+                results: exact_matches,
                 total_hidden_tools,
                 is_ready,
             };

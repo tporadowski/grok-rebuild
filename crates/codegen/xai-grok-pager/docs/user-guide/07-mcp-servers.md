@@ -236,7 +236,7 @@ From the modal you can:
 
 The model has access to two built-in tools for working with MCP servers:
 
-- `search_tool` — Discover available integration tools across all enabled MCP servers. Use this to find tools by name or description.
+- `search_tool` — Discover available integration tools across all enabled MCP servers. Use this to find tools by name or description. When several servers expose the same tool name, the search returns every server's copy.
 - `use_tool` — Call an integration tool discovered via `search_tool`. Specify the fully-qualified tool name (e.g., `github__create_issue`).
 
 ---

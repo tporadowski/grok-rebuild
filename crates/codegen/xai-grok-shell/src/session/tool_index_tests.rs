@@ -522,15 +522,24 @@ fn search_exact_match_case_insensitive() {
 }
 
 #[test]
-fn search_exact_bare_name_ambiguous_returns_first_match() {
-    // Two servers register tools with the same bare name.
-    // `find()` returns the first match; the model might have wanted the second
+fn search_exact_bare_name_returns_every_server() {
     let tools = vec![
         ToolMetadata {
             qualified_name: "server_a__fetch".into(),
             server_name: "server_a".into(),
             tool_name: "fetch".into(),
             description: "Fetch data from server A".into(),
+            parameters: vec!["url".into()],
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {"url": {"type": "string"}}
+            }),
+        },
+        ToolMetadata {
+            qualified_name: "server_a__other".into(),
+            server_name: "server_a".into(),
+            tool_name: "other".into(),
+            description: "Unrelated tool on server A".into(),
             parameters: vec![],
             input_schema: serde_json::json!({}),
         },
@@ -539,20 +548,62 @@ fn search_exact_bare_name_ambiguous_returns_first_match() {
             server_name: "server_b".into(),
             tool_name: "fetch".into(),
             description: "Fetch data from server B".into(),
-            parameters: vec![],
-            input_schema: serde_json::json!({}),
+            parameters: vec!["id".into()],
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {"id": {"type": "string"}}
+            }),
         },
     ];
     let index = Bm25ToolSearchIndex::new(make_snapshot(tools));
 
-    // Bare name "fetch" returns server_a (first in the Vec) and silently ignores server_b
-    let snap = index.search_snapshot("fetch", 5);
+    // Limit 1 must not drop the second server. Exact names are not a ranked page.
+    let snap = index.search_snapshot("fetch", 1);
+    assert_eq!(snap.total_hidden_tools, 3);
+    assert_eq!(snap.results.len(), 2);
+    assert_eq!(
+        snap.results
+            .iter()
+            .map(|r| r.tool_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["server_a__fetch", "server_b__fetch"]
+    );
+    assert_eq!(
+        snap.results
+            .iter()
+            .map(|r| r.server_name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["server_a", "server_b"]
+    );
+    assert!(snap.results.iter().all(|r| r.score == 1.0));
+    assert_eq!(
+        snap.results.first().map(|r| &r.input_schema),
+        Some(&serde_json::json!({
+            "type": "object",
+            "properties": {"url": {"type": "string"}}
+        }))
+    );
+    assert_eq!(
+        snap.results.get(1).map(|r| &r.input_schema),
+        Some(&serde_json::json!({
+            "type": "object",
+            "properties": {"id": {"type": "string"}}
+        }))
+    );
+
+    let snap = index.search_snapshot("  FETCH  ", 5);
+    assert_eq!(snap.results.len(), 2);
+
+    let snap = index.search_snapshot("server_b__fetch", 5);
     assert_eq!(snap.results.len(), 1);
     assert_eq!(
         snap.results.first().map(|r| r.tool_name.as_str()),
-        Some("server_a__fetch")
+        Some("server_b__fetch")
     );
-    // server_b__fetch is never returned; the model can't discover it without knowing the qualified name
+    assert_eq!(
+        snap.results.first().map(|r| r.server_name.as_str()),
+        Some("server_b")
+    );
 }
 
 // -- e2e tests with real Grafana + Mattermost tool data --
