@@ -348,7 +348,7 @@ grok -p "Now check for security issues" --resume "<id>"
 grok -p "hello" --session-id "$(uuidgen | tr '[:upper:]' '[:lower:]')" --output-format json
 ```
 
-> **Note:** `-s/--session-id` creates a new session only (valid UUID; errors if already in use). Use `-r` to resume.
+> **Note:** `-s/--session-id` creates a new session only (valid UUID; errors if already in use). A reused id prints `Error: Session ID … is already in use.` Use `-r` to resume.
 
 ### Resume (`-r`)
 

@@ -832,12 +832,19 @@ pub(crate) const WORKTREE_NO_RESTORE_CODE_NOTICE: &str =
     "Snapshot code will not be restored into the worktree; pass --restore-code to restore it.";
 /// Preflight: preferred id must be a UUID and not a persisted session under `cwd`.
 /// Agent `session/new` rejects non-UUID `_meta.sessionId`; fail fast here so CLI users get a clear error before ACP.
+/// The sentences do not start with `Error:` — the process printer adds that once — and they are not JSON-RPC text.
 pub fn ensure_session_id_available(session_id: &str, cwd: &str) -> anyhow::Result<()> {
+    ensure_session_id_available_in(
+        session_id,
+        xai_grok_shell::session::persistence::session_exists_for_cwd(session_id, cwd),
+    )
+}
+fn ensure_session_id_available_in(session_id: &str, already_used: bool) -> anyhow::Result<()> {
     if uuid::Uuid::try_parse(session_id).is_err() {
-        anyhow::bail!("Error: --session-id must be a valid UUID (got '{session_id}').");
+        anyhow::bail!("--session-id must be a valid UUID (got '{session_id}').");
     }
-    if xai_grok_shell::session::persistence::session_exists_for_cwd(session_id, cwd) {
-        anyhow::bail!("Error: Session ID {session_id} is already in use.");
+    if already_used {
+        anyhow::bail!("Session ID {session_id} is already in use.");
     }
     Ok(())
 }
@@ -867,7 +874,7 @@ pub async fn materialize_startup_for_cwd(
             if !ctx.has_worktree {
                 ensure_session_id_available(&session_id, cwd)?;
             } else if uuid::Uuid::try_parse(&session_id).is_err() {
-                anyhow::bail!("Error: --session-id must be a valid UUID (got '{session_id}').");
+                anyhow::bail!("--session-id must be a valid UUID (got '{session_id}').");
             }
             Ok(MaterializedStartup::NewWithId { session_id })
         }
@@ -1636,6 +1643,29 @@ mod tests {
             msg.contains("must be a valid UUID"),
             "unexpected message: {msg}"
         );
+        assert!(
+            !msg.starts_with("Error:"),
+            "the process printer adds Error: once: {msg}"
+        );
+        assert_plain_session_id_refusal(&msg);
+    }
+    /// `grok -p -s` with an id that already exists refuses in a sentence.
+    /// The agent would otherwise answer with an ACP / JSON-RPC error.
+    #[test]
+    fn reused_session_id_refuses_in_a_plain_sentence() {
+        let id = "01936a40-7c2a-7a3e-8b1c-6d5e4f3a2b10";
+        let err = super::ensure_session_id_available_in(id, true).unwrap_err();
+        let msg = err.to_string();
+        assert_eq!(msg, format!("Session ID {id} is already in use."));
+        assert_plain_session_id_refusal(&msg);
+        let unused = super::ensure_session_id_available_in(id, false);
+        assert!(unused.is_ok(), "a free id is not a refusal: {unused:?}");
+    }
+    fn assert_plain_session_id_refusal(msg: &str) {
+        assert!(!msg.contains("Internal error"), "{msg}");
+        assert!(!msg.contains("Invalid params"), "{msg}");
+        assert!(!msg.contains("jsonrpc"), "{msg}");
+        assert!(!msg.contains('{'), "{msg}");
     }
     #[test]
     fn effective_fork_new_cwd_prefers_parent() {
