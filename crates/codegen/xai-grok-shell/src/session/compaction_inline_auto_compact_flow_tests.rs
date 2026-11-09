@@ -2070,6 +2070,50 @@ async fn test_pre_sampling_uses_estimated_tokens() {
         })
         .await;
 }
+/// Three automatic compacts that leave the context over the threshold stop the next one.
+/// Dropping under the threshold clears the streak, so a later refill can compact again.
+#[tokio::test(flavor = "current_thread")]
+async fn auto_compact_stops_after_three_context_refills_in_a_row() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (gateway_tx, _) = mpsc::unbounded_channel::<xai_acp_lib::AcpClientMessage>();
+            let (persistence_tx, _) = mpsc::unbounded_channel::<PersistenceMsg>();
+            let actor = create_test_actor(180_000, 200_000, 85, gateway_tx, persistence_tx).await;
+            let overflow = api_error_with_context_window(100_000);
+            assert!(
+                actor.check_auto_compact_needed().await.is_some(),
+                "the seed is over the threshold"
+            );
+            assert!(actor.should_compact_on_error(&overflow).await);
+            actor.note_context_refill(180_000, 200_000);
+            actor.note_context_refill(180_000, 200_000);
+            assert!(
+                !actor.compaction.is_suppressed(),
+                "two refills still allow another compact"
+            );
+            actor.note_context_refill(10_000, 200_000);
+            assert_eq!(actor.compaction.context_refills_in_a_row.get(), 0);
+            assert!(
+                actor.check_auto_compact_needed().await.is_some(),
+                "a compact that fits clears the streak"
+            );
+            actor.note_context_refill(180_000, 200_000);
+            actor.note_context_refill(180_000, 200_000);
+            actor.note_context_refill(180_000, 200_000);
+            assert!(actor.compaction.is_suppressed());
+            assert_eq!(actor.compaction.context_refills_in_a_row.get(), 3);
+            assert!(
+                actor.check_auto_compact_needed().await.is_none(),
+                "the fourth refill in a row does not start"
+            );
+            assert!(
+                !actor.should_compact_on_error(&overflow).await,
+                "an overflow error does not compact again in the same streak"
+            );
+        })
+        .await;
+}
 /// Model-switch compaction fires when switching to a smaller context window.
 #[tokio::test(flavor = "current_thread")]
 async fn test_model_switch_compaction_triggers_on_downgrade() {

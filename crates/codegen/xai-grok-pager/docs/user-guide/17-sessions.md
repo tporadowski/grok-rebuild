@@ -169,7 +169,7 @@ When **Confirm before rewind** is on (default in `/settings`), every pick asks f
 
 ### Auto-Compact
 
-Grok automatically compacts the conversation when the context window approaches its limit. A context overflow error also compacts and continues the turn instead of failing it. You will see a notification when auto-compact triggers. The `context_window` setting on your model configuration controls when this threshold is reached.
+Grok automatically compacts the conversation when the context window approaches its limit. A context overflow error also compacts and continues the turn instead of failing it. If the context is still over the auto-compact threshold after three automatic compactions in a row, auto-compact stops for the rest of that turn. You will see a notification when auto-compact triggers. The `context_window` setting on your model configuration controls when this threshold is reached.
 
 ---
 

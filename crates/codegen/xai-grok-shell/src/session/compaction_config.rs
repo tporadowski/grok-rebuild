@@ -180,6 +180,9 @@ pub(crate) struct CompactionConfig {
     pub prefire: PrefireState,
     /// Sticky once a forked session releases its inherited prefix under compaction pressure (see `run_compact_inner`), so it stops re-pinning it.
     pub prefix_released: AtomicBool,
+    /// Automatic compactions that left the context over the auto-compact threshold, in a row.
+    /// Three stops further auto-compacts for the rest of the turn.
+    pub context_refills_in_a_row: Cell<u32>,
     /// User/stop cancel for the current compact generation.
     pub cancel: CompactCancelGate,
 }

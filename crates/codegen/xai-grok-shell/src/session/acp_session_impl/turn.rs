@@ -2023,6 +2023,7 @@ impl SessionActor {
             std::sync::atomic::Ordering::Relaxed,
             std::sync::atomic::Ordering::Relaxed,
         );
+        self.compaction.context_refills_in_a_row.set(0);
         let agent_ref = self.agent.borrow();
         let completion_req = match agent_ref.completion_requirement() {
             Some(req) => req,

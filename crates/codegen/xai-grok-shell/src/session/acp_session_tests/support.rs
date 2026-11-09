@@ -1294,6 +1294,7 @@ pub(crate) fn test_compaction_config(
         tool_choice: crate::util::config::CompactionToolChoice::Auto,
         prefire: crate::session::compaction_config::PrefireState::default(),
         prefix_released: std::sync::atomic::AtomicBool::new(false),
+        context_refills_in_a_row: std::cell::Cell::new(0),
         cancel: Default::default(),
     }
 }

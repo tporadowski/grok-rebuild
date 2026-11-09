@@ -2301,6 +2301,39 @@ impl SessionActor {
             ));
         }
     }
+    /// Count an automatic compaction that left the context over the auto-compact threshold.
+    /// Three in a row suppress auto-compact for the rest of the turn. Dropping under the threshold clears the streak.
+    fn note_context_refill(&self, tokens_after: u64, context_window: u64) {
+        let still_full = context_window > 0
+            && xai_token_estimation::exceeds_threshold(
+                tokens_after,
+                context_window,
+                self.compaction.threshold_percent.get(),
+            );
+        if !still_full {
+            self.compaction.context_refills_in_a_row.set(0);
+            return;
+        }
+        let streak = self
+            .compaction
+            .context_refills_in_a_row
+            .get()
+            .saturating_add(1);
+        self.compaction.context_refills_in_a_row.set(streak);
+        if streak >= 3 && !self.compaction.is_suppressed() {
+            self.compaction.auto_compact_suppressed.store(
+                SUPPRESS_TURN,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            tracing::warn!(
+                streak,
+                tokens_after,
+                context_window,
+                "auto-compact stopped after three context refills in a row"
+            );
+        }
+    }
+
     /// Compact without auto-continue. The outer turn loop rebuilds and retries.
     /// Emits telemetry (`auto_compact_fired`) and UI notifications automatically.
     #[tracing::instrument(
@@ -2364,6 +2397,8 @@ impl SessionActor {
         match result {
             Ok(()) => {
                 let tokens_after = self.chat_state_handle.get_total_tokens().await;
+                let estimated_after = self.chat_state_handle.get_estimated_total_tokens().await;
+                self.note_context_refill(estimated_after, trigger_info.context_window);
                 let span = tracing::Span::current();
                 span.record("post_tokens", tokens_after as i64);
                 span.record("success", true);

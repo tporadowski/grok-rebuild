@@ -1894,6 +1894,7 @@ pub(crate) async fn spawn_session_actor(
             tool_choice: compaction_tool_choice,
             prefire: crate::session::compaction_config::PrefireState::default(),
             prefix_released: std::sync::atomic::AtomicBool::new(false),
+            context_refills_in_a_row: std::cell::Cell::new(0),
             cancel: Default::default(),
         },
         long_reasoning_reminder,
