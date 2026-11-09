@@ -163,6 +163,50 @@ impl OtherToolCallBlock {
     }
 }
 
+/// Fit a generated image or video path into `max_w` display columns.
+/// The file name stays whole when it fits. Directory text is what gives way.
+/// `\` and `/` both separate that name, so a Windows path keeps it too.
+fn fit_generated_media_path(path: &str, max_w: usize) -> String {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+    if max_w == 0 || path.is_empty() {
+        return String::new();
+    }
+    if path.width() <= max_w {
+        return path.to_string();
+    }
+    let name_at = path.rfind(['/', '\\']).map_or(0, |index| index.saturating_add(1));
+    let name = path.get(name_at..).unwrap_or(path);
+    if name.is_empty() {
+        return crate::util::truncate_to_width(path, max_w).into_owned();
+    }
+    let name_width = name.width();
+    const ELLIPSIS: char = '\u{2026}';
+    if name_width < max_w {
+        let dir_budget = max_w - name_width - 1;
+        let dir = path.get(..name_at).unwrap_or("");
+        let prefix_end = crate::render::line_utils::byte_offset_at_width(dir, dir_budget);
+        let prefix = dir.get(..prefix_end).unwrap_or("");
+        return format!("{prefix}{ELLIPSIS}{name}");
+    }
+    if max_w == 1 {
+        return ELLIPSIS.to_string();
+    }
+    let tail_budget = max_w - 1;
+    let mut width = 0usize;
+    let mut start = name.len();
+    for (index, ch) in name.char_indices().rev() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + ch_width > tail_budget {
+            break;
+        }
+        width += ch_width;
+        start = index;
+    }
+    let tail = name.get(start..).unwrap_or("");
+    format!("{ELLIPSIS}{tail}")
+}
+
 impl BlockContent for OtherToolCallBlock {
     fn output(&self, ctx: &BlockContext) -> BlockOutput {
         let theme = Theme::current();
@@ -179,30 +223,9 @@ impl BlockContent for OtherToolCallBlock {
             let path_str = urlencoding::decode(&raw_path)
                 .map(|s| s.into_owned())
                 .unwrap_or(raw_path);
-            // Truncate in the middle on char boundaries (decoded paths may be multibyte)
-            let path_display = if path_str.chars().count() > max_w {
-                let keep = max_w.saturating_sub(3) / 2;
-                let end_keep = max_w.saturating_sub(3) - keep;
-                let chars: Vec<char> = path_str.chars().collect();
-                match (
-                    chars.get(..keep),
-                    chars
-                        .len()
-                        .checked_sub(end_keep)
-                        .and_then(|i| chars.get(i..)),
-                ) {
-                    (Some(head), Some(tail)) => {
-                        format!(
-                            "{}...{}",
-                            head.iter().collect::<String>(),
-                            tail.iter().collect::<String>()
-                        )
-                    }
-                    _ => path_str,
-                }
-            } else {
-                path_str
-            };
+            // Display columns, not chars: a Chinese or emoji name is wider than its char count.
+            // The file name stays whole when it fits. `\` and `/` both end the directory.
+            let path_display = fit_generated_media_path(&path_str, max_w);
             let path_line = Line::from(Span::styled(
                 path_display,
                 ratatui::style::Style::default().fg(theme.gray_dim),
