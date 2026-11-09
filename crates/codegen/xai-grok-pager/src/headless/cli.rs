@@ -69,8 +69,8 @@ impl HeadlessPrompt {
         if stdin_is_terminal {
             return Ok(None);
         }
-        let text = read_stdin()
-            .map_err(|e| anyhow::anyhow!("failed to read prompt from stdin: {e}"))?;
+        let text =
+            read_stdin().map_err(|e| anyhow::anyhow!("failed to read prompt from stdin: {e}"))?;
         Self::from_text(&text)
             .map(Some)
             .map_err(|e| anyhow::anyhow!("stdin: {e}"))
@@ -90,7 +90,7 @@ impl HeadlessPrompt {
     }
 
     fn from_text(text: &str) -> anyhow::Result<Self> {
-        let trimmed = text.trim();
+        let trimmed = without_leading_bom(text).trim();
         if trimmed.is_empty() {
             anyhow::bail!("prompt is empty");
         }
@@ -98,7 +98,7 @@ impl HeadlessPrompt {
     }
 
     fn from_json(json_str: &str) -> anyhow::Result<Self> {
-        let blocks = parse_prompt_json(json_str)?;
+        let blocks = parse_prompt_json(without_leading_bom(json_str))?;
         Ok(Self::Blocks(blocks))
     }
 
@@ -108,6 +108,12 @@ impl HeadlessPrompt {
             Self::Blocks(blocks) => blocks,
         }
     }
+}
+
+/// A leading UTF-8 byte-order mark is an editor signature, not prompt text.
+/// Leaving it in sends the mark to the model and makes a JSON prompt fail to parse.
+fn without_leading_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
 }
 
 /// Parse ACP content blocks from an array (`[...]`) or typed wrapper (`{"type":"acp","content":[...]}`).
@@ -260,6 +266,7 @@ pub(crate) fn parse_cli_agents(
 #[cfg(test)]
 mod tests {
     use super::HeadlessPrompt;
+    use agent_client_protocol as acp;
     use std::cell::Cell;
 
     fn text_of(prompt: HeadlessPrompt) -> String {
@@ -297,18 +304,13 @@ mod tests {
     #[test]
     fn an_explicit_prompt_wins_over_the_pipe() {
         let reads = Cell::new(0);
-        let prompt = HeadlessPrompt::from_args_or_stdin(
-            Some("from the flag"),
-            None,
-            None,
-            false,
-            || {
+        let prompt =
+            HeadlessPrompt::from_args_or_stdin(Some("from the flag"), None, None, false, || {
                 reads.set(reads.get() + 1);
                 Ok("from the pipe".into())
-            },
-        )
-        .unwrap()
-        .expect("flag prompt");
+            })
+            .unwrap()
+            .expect("flag prompt");
         assert_eq!(reads.get(), 0, "an explicit prompt must not read stdin");
         assert_eq!(text_of(prompt), "from the flag");
     }
@@ -319,6 +321,68 @@ mod tests {
             .expect_err("empty stdin is not an interactive session");
         let msg = format!("{err:#}");
         assert!(msg.contains("empty"), "{msg}");
+    }
+
+    fn block_text(prompt: HeadlessPrompt) -> String {
+        let HeadlessPrompt::Blocks(blocks) = prompt else {
+            panic!("expected content blocks, got {prompt:?}");
+        };
+        let Some(acp::ContentBlock::Text(block)) = blocks.first() else {
+            panic!("expected a text block, got {blocks:?}");
+        };
+        block.text.clone()
+    }
+
+    #[test]
+    fn leading_byte_order_mark_is_not_sent_as_text() {
+        let prompt = HeadlessPrompt::from_args(Some("\u{feff}Explain this"), None, None)
+            .unwrap()
+            .expect("prompt");
+        let text = text_of(prompt);
+        assert_eq!(text, "Explain this");
+        assert!(!text.contains('\u{feff}'));
+
+        let piped = HeadlessPrompt::from_args_or_stdin(None, None, None, false, || {
+            Ok("\u{feff}  from stdin\n".into())
+        })
+        .unwrap()
+        .expect("piped prompt");
+        assert_eq!(text_of(piped), "from stdin");
+
+        let kept = HeadlessPrompt::from_args(Some("keep \u{feff} this"), None, None)
+            .unwrap()
+            .expect("interior mark stays");
+        assert_eq!(text_of(kept), "keep \u{feff} this");
+
+        let err = HeadlessPrompt::from_args(Some("\u{feff} \n"), None, None)
+            .expect_err("a mark alone is still an empty prompt");
+        assert!(format!("{err:#}").contains("empty"), "{err:#}");
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prompt.txt");
+        std::fs::write(&path, "\u{feff}Explain this file\n").unwrap();
+        let from_file = HeadlessPrompt::from_file(&path).expect("text file");
+        assert_eq!(text_of(from_file), "Explain this file");
+    }
+
+    #[test]
+    fn leading_byte_order_mark_does_not_break_json_prompts() {
+        let inline =
+            "\u{feff}{\"type\":\"acp\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}";
+        let prompt = HeadlessPrompt::from_args(None, Some(inline), None)
+            .expect("prompt-json with a mark parses")
+            .expect("prompt");
+        assert_eq!(block_text(prompt), "hello");
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prompt.json");
+        std::fs::write(
+            &path,
+            "\u{feff}[{\"type\":\"text\",\"text\":\"from file\"}]\n",
+        )
+        .unwrap();
+        let from_file = HeadlessPrompt::from_file(&path).expect("json file with a mark parses");
+        assert_eq!(block_text(from_file), "from file");
     }
 }
 

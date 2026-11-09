@@ -404,7 +404,7 @@ echo "Explain this codebase" | grok
 git diff --staged | grok
 ```
 
-`-p`, `--prompt-json`, and `--prompt-file` still name the prompt when you pass them. An empty pipe is an error. You can also put the prompt in a file:
+`-p`, `--prompt-json`, and `--prompt-file` still name the prompt when you pass them. An empty pipe is an error. A prompt that starts with a UTF-8 byte-order mark is read without that mark, including a JSON prompt file. You can also put the prompt in a file:
 
 ```bash
 grok --prompt-file ./prompt.txt
