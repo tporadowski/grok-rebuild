@@ -505,6 +505,16 @@ impl AgentView {
         }
     }
 
+    /// Enter on a video card. Inline playback when the terminal can show it and
+    /// ffmpeg is available; otherwise the OS default player.
+    pub(crate) fn activate_video_card(&mut self, path: &std::path::Path) {
+        if crate::inline_media_ffmpeg::inline_video_playback_available() {
+            self.start_inline_video_playback(path);
+        } else {
+            self.open_media_natively(path);
+        }
+    }
+
     /// Start or restart inline video playback.
     /// If already playing for this path, playback restarts from the beginning.
     /// Frames are extracted via ffmpeg in a background thread so the UI never blocks.
@@ -809,6 +819,30 @@ mod tests {
         let _no_ffmpeg = crate::inline_media_ffmpeg::set_ffmpeg_available_for_test(false);
         agent.start_inline_video_playback(path);
         assert!(agent.video_load_rx.is_none());
+    }
+
+    /// Without inline playback, Enter opens the file in the default player
+    /// and does not start a decode.
+    #[test]
+    fn video_card_enter_opens_the_default_player_without_inline_support() {
+        use crate::terminal::image::{GraphicsProtocol, set_protocol_for_test};
+
+        let _none = set_protocol_for_test(GraphicsProtocol::None);
+        let _ffmpeg = crate::inline_media_ffmpeg::set_ffmpeg_available_for_test(true);
+        let mut agent = make_agent();
+        agent.activate_video_card(std::path::Path::new("/tmp/clip.mp4"));
+        assert!(agent.video_load_rx.is_none());
+        let toast = agent.toast.as_ref().map(|(msg, _)| msg.as_str());
+        assert_eq!(toast, Some("Opening in default app\u{2026}"));
+
+        drop((_none, _ffmpeg));
+        let _kitty = set_protocol_for_test(GraphicsProtocol::Kitty);
+        let _no_ffmpeg = crate::inline_media_ffmpeg::set_ffmpeg_available_for_test(false);
+        let mut agent = make_agent();
+        agent.activate_video_card(std::path::Path::new("/tmp/clip.mp4"));
+        assert!(agent.video_load_rx.is_none());
+        let toast = agent.toast.as_ref().map(|(msg, _)| msg.as_str());
+        assert_eq!(toast, Some("Opening in default app\u{2026}"));
     }
 
     fn stub_inline_video() -> crate::app::agent_view::InlineVideoState {

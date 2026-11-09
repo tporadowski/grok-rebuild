@@ -382,10 +382,10 @@ pub(super) fn dispatch_open_block_viewer(app: &mut AppView) {
         }
 
         if !entry.block.has_normal_fullscreen_viewer() {
-            // Video: Enter starts inline playback (no modal).
+            // Video: Enter plays inline when that works, otherwise the default player.
             if let Some(first_ref) = entry.block.video_references().first() {
                 let path = first_ref.path.clone();
-                agent.start_inline_video_playback(&path);
+                agent.activate_video_card(&path);
                 return;
             }
             // Image: Enter opens the file in the OS-native viewer.
@@ -455,10 +455,10 @@ pub(super) fn dispatch_open_block_viewer(app: &mut AppView) {
             return;
         }
 
-        // Video: Enter starts inline playback.
+        // Video: Enter plays inline when that works, otherwise the default player.
         if let Some(first_ref) = entry.block.video_references().first() {
             let path = first_ref.path.clone();
-            agent.start_inline_video_playback(&path);
+            agent.activate_video_card(&path);
             return;
         }
         // Image: Enter opens the file in the OS-native viewer.

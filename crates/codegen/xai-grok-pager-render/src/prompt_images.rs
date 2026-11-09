@@ -392,6 +392,43 @@ impl VideoViewerState {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static POSTER_FFMPEG: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    static POSTER_FFMPEG_SPAWNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+fn poster_ffmpeg_available() -> bool {
+    #[cfg(test)]
+    if let Some(available) = POSTER_FFMPEG.with(|cell| cell.get()) {
+        return available;
+    }
+    xai_grok_config::shell::is_command_available("ffmpeg")
+}
+
+fn note_poster_ffmpeg_spawn() {
+    #[cfg(test)]
+    POSTER_FFMPEG_SPAWNS.with(|cell| cell.set(cell.get().saturating_add(1)));
+}
+
+#[cfg(test)]
+struct PosterFfmpegGuard;
+
+#[cfg(test)]
+impl Drop for PosterFfmpegGuard {
+    fn drop(&mut self) {
+        POSTER_FFMPEG.with(|cell| cell.set(None));
+        POSTER_FFMPEG_SPAWNS.with(|cell| cell.set(0));
+    }
+}
+
+#[cfg(test)]
+fn set_poster_ffmpeg_for_test(available: bool) -> PosterFfmpegGuard {
+    POSTER_FFMPEG.with(|cell| cell.set(Some(available)));
+    POSTER_FFMPEG_SPAWNS.with(|cell| cell.set(0));
+    PosterFfmpegGuard
+}
+
 /// Extract a single poster frame from a video file via ffmpeg.
 /// Returns `(image_bytes, width, height)`. The image format depends on the active terminal protocol (PNG for Kitty, JPEG for iTerm2).
 pub fn extract_poster_frame(path: &std::path::Path) -> Option<(Vec<u8>, u32, u32)> {
@@ -403,9 +440,15 @@ pub fn extract_poster_frame(path: &std::path::Path) -> Option<(Vec<u8>, u32, u32
         GraphicsProtocol::ITerm2 => "jpg",
         GraphicsProtocol::None => return None,
     };
+    // A missing ffmpeg used to spawn twice on the draw path and block the UI
+    // while PATH was searched. Skip the process when it is not there.
+    if !poster_ffmpeg_available() {
+        return None;
+    }
 
     // Try seeking to 1s for a representative frame; fall back to first frame.
     let try_extract = |seek: Option<&str>| {
+        note_poster_ffmpeg_spawn();
         let mut cmd = std::process::Command::new("ffmpeg");
         cmd.args(["-hide_banner", "-loglevel", "error"]);
         if let Some(ss) = seek {
@@ -1877,6 +1920,16 @@ pub fn extract_video_refs(text: &str) -> Vec<ScrollbackVideoRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn poster_extract_does_not_spawn_ffmpeg_when_it_is_missing() {
+        use crate::terminal::image::{GraphicsProtocol, set_protocol_for_test};
+
+        let _kitty = set_protocol_for_test(GraphicsProtocol::Kitty);
+        let _no_ffmpeg = set_poster_ffmpeg_for_test(false);
+        assert!(extract_poster_frame(std::path::Path::new("/tmp/no-such-clip.mp4")).is_none());
+        assert_eq!(POSTER_FFMPEG_SPAWNS.with(|cell| cell.get()), 0);
+    }
 
     fn nth<T>(xs: &[T], i: usize) -> &T {
         let Some(x) = xs.get(i) else {
