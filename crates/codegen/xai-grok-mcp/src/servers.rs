@@ -1778,21 +1778,30 @@ fn tool_error_for_service_error(err: &ServiceError) -> xai_tool_runtime::ToolErr
     }
 }
 
-/// Recover for every JSON-RPC code except the deterministic client set {-32700, -32600, -32601, -32602}.
-/// Those mean the request was wrong, not the session. -32021/-32022 stay recoverable on purpose:
-/// a 2026-07-28-era server sends them to a legacy session, and the re-handshake's
-/// `server/discover` probe upgrades it.
-fn should_recover_mcp_error(code: i32) -> bool {
+/// A JSON-RPC error is the server's answer, so the tool already ran and must not be posted again.
+/// Two rejections happen before the tool runs and still reconnect: protocol-upgrade codes
+/// -32021/-32022 (a 2026-07-28 server answering a legacy session), and a dead-session message.
+fn should_recover_mcp_error(code: i32, message: &str) -> bool {
     use rmcp::model::ErrorCode;
     let deterministic_client_error = code == ErrorCode::PARSE_ERROR.0
         || code == ErrorCode::INVALID_REQUEST.0
         || code == ErrorCode::METHOD_NOT_FOUND.0
         || code == ErrorCode::INVALID_PARAMS.0;
-    !deterministic_client_error
+    if deterministic_client_error {
+        return false;
+    }
+    code == -32021 || code == -32022 || is_session_lost_message(message)
 }
 
-/// Recovers transport errors, and an HTTP `McpError` once per dispatch except deterministic client codes and auth-class errors.
-/// A rebuild reuses stale creds, so auth is routed to the re-auth paths instead.
+/// The server refused the call because the HTTP session is gone, not because the tool failed.
+fn is_session_lost_message(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("session expired") || lower.contains("session not found")
+}
+
+/// Recovers a dead transport, and an HTTP JSON-RPC error only when the tool did not run:
+/// a protocol-upgrade rejection or a dead-session message, once per dispatch.
+/// A rebuild reuses stale creds, so an auth rejection is routed to the re-auth path instead.
 fn should_recover_service_error(
     err: &ServiceError,
     is_http: bool,
@@ -1804,7 +1813,7 @@ fn should_recover_service_error(
             ServiceError::McpError(e)
                 if is_http
                     && !reconnect_attempted
-                    && should_recover_mcp_error(e.code.0)
+                    && should_recover_mcp_error(e.code.0, e.message.as_ref())
                     && !is_auth_rejection_message(e.message.as_ref())
         )
 }

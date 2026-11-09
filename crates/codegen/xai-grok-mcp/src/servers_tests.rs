@@ -1553,29 +1553,34 @@ fn mcp_service_err(code: i32) -> ServiceError {
 }
 
 #[test]
-fn should_recover_mcp_error_recovers_everything_outside_excluded_set() {
-    assert!(should_recover_mcp_error(-32603));
-    assert!(should_recover_mcp_error(-32002));
-    assert!(should_recover_mcp_error(-32000));
-    assert!(should_recover_mcp_error(-32099));
-    assert!(should_recover_mcp_error(-32100));
-    assert!(should_recover_mcp_error(0));
-    assert!(should_recover_mcp_error(1));
-    assert!(should_recover_mcp_error(i32::MIN));
-    assert!(should_recover_mcp_error(i32::MAX));
+fn should_recover_mcp_error_runs_a_tool_jsonrpc_error_once() {
+    assert!(!should_recover_mcp_error(-32603, "boom"));
+    assert!(!should_recover_mcp_error(-32002, "not ready"));
+    assert!(!should_recover_mcp_error(-32000, "server error"));
+    assert!(!should_recover_mcp_error(-32099, "application"));
+    assert!(!should_recover_mcp_error(0, "nope"));
+    assert!(!should_recover_mcp_error(1, "nope"));
+    assert!(should_recover_mcp_error(-32603, "session expired"));
+    assert!(should_recover_mcp_error(-32000, "Session not found"));
+    assert!(should_recover_mcp_error(-32021, "missing capability"));
+    assert!(should_recover_mcp_error(
+        -32022,
+        "unsupported protocol version"
+    ));
 }
 
 #[test]
 fn should_recover_mcp_error_skips_deterministic_client_errors() {
-    assert!(!should_recover_mcp_error(-32700));
-    assert!(!should_recover_mcp_error(-32600));
-    assert!(!should_recover_mcp_error(-32601));
-    assert!(!should_recover_mcp_error(-32602));
+    assert!(!should_recover_mcp_error(-32700, "parse"));
+    assert!(!should_recover_mcp_error(-32600, "bad request"));
+    assert!(!should_recover_mcp_error(-32601, "missing method"));
+    assert!(!should_recover_mcp_error(-32602, "bad params"));
+    assert!(!should_recover_mcp_error(-32602, "session expired"));
 }
 
 #[test]
-fn should_recover_service_error_http_mcperror_recoverable() {
-    assert!(should_recover_service_error(
+fn should_recover_service_error_http_tool_jsonrpc_error_is_not_retried() {
+    assert!(!should_recover_service_error(
         &mcp_service_err(-32603),
         true,
         false,
@@ -2371,7 +2376,7 @@ async fn try_call_tool_http_mcperror_recovers_then_retry_succeeds() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn try_call_tool_http_retry_failure_surfaces_retry_error() {
+async fn try_call_tool_http_jsonrpc_error_runs_once() {
     let (url, handles) = spawn_fake_mcp(CallToolBehavior::AlwaysError { code: -32603 }).await;
     let client = fake_http_client(&url, 5);
     let tool = fake_echo_tool();
@@ -2390,20 +2395,28 @@ async fn try_call_tool_http_retry_failure_surfaces_retry_error() {
             &tracing::Span::none(),
         )
         .await
-        .expect_err("both attempts fail");
+        .expect_err("the JSON-RPC error is the result");
 
     let msg = err.to_string();
-    assert!(msg.contains("attempt 2"), "want retry error, got: {msg}");
     assert!(
-        !msg.contains("attempt 1"),
-        "must not surface the original error: {msg}"
+        msg.contains("attempt 1"),
+        "the first JSON-RPC error is the result: {msg}"
     );
-    assert!(reconnect);
+    assert!(
+        !msg.contains("attempt 2"),
+        "a tool JSON-RPC error must not be posted again: {msg}"
+    );
+    assert!(!reconnect, "a tool JSON-RPC error must not reconnect");
     assert!(!is_timeout);
     assert_eq!(
         handles.calls.load(Ordering::Relaxed),
-        2,
-        "one failed + one retried tools/call"
+        1,
+        "the tool runs once"
+    );
+    assert_eq!(
+        handles.inits.load(Ordering::Relaxed),
+        1,
+        "no recovery re-init"
     );
 }
 
