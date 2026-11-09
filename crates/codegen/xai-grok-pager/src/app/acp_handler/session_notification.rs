@@ -36,8 +36,17 @@ fn is_foreign_hook_batch(agent: &AgentView, batch_prompt_id: Option<&str>) -> bo
         (Some(batch), Some(current)) if batch != current
     )
 }
+/// Update the context bar's used count.
+/// A window the session already reported stays. Compaction and token stamps must not replace it with the catalog default.
 pub(super) fn refresh_context_used(view: &mut AgentView, used: u64) {
-    let total = view.session.models.get_context_window().unwrap_or(0);
+    let reported = view
+        .context_state
+        .as_ref()
+        .map(|state| state.total)
+        .filter(|total| *total > 0);
+    let total = reported
+        .or_else(|| view.session.models.get_context_window())
+        .unwrap_or(0);
     view.apply_context_used(used, total);
 }
 /// Context-bar refresh carried by a compaction lifecycle update, if any.
@@ -1637,7 +1646,7 @@ fn apply_child_hook_annotation(
         .push_block(RenderBlock::session_event(event));
     true
 }
-fn apply_compaction_or_retry_update(
+pub(super) fn apply_compaction_or_retry_update(
     agent: &mut AgentView,
     update: &XaiSessionUpdate,
     is_api_key_auth: bool,

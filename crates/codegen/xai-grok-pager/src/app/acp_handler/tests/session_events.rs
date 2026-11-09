@@ -1049,6 +1049,36 @@
         assert_eq!(compaction_context_refresh(&cancelled), None);
     }
 
+    /// `/compact` on a session that has not sent a message still emits `AutoCompactCompleted` when the shell summarizes what is there.
+    /// The bar's used count follows that notice. The window the session already reported stays, instead of falling back to the catalog default.
+    #[test]
+    fn compaction_on_an_empty_session_keeps_the_reported_context_window() {
+        let mut agent = make_agent(Some("s1"));
+        agent.apply_context_used(0, 500_000);
+        seed_windowed_model(&mut agent, "grok-4", 256_000, &[256_000, 500_000]);
+        agent.session.models.current = Some(acp_fixtures::model_id("grok-4"));
+        assert_eq!(
+            agent.session.models.get_context_window(),
+            Some(256_000),
+            "the catalog default is the value a refresh used to write over the reported window"
+        );
+
+        let update = XaiSessionUpdate::AutoCompactCompleted {
+            tokens_before: Some(0),
+            tokens_after: 0,
+            elapsed_ms: None,
+            summary_preview: None,
+        };
+        assert!(apply_compaction_or_retry_update(&mut agent, &update, false));
+
+        let context = agent.context_state.as_ref().expect("context bar");
+        assert_eq!(context.used, 0);
+        assert_eq!(
+            context.total, 500_000,
+            "an empty /compact must not replace the reported context window with the catalog default"
+        );
+    }
+
     #[test]
     fn apply_unhandled_event_returns_false() {
         let mut session = make_session(Some("s1"));
