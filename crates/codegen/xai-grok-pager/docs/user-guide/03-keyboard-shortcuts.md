@@ -290,6 +290,8 @@ Actions that affect the agent session, available from the agent screen.
 
 **Note:** While a **subagent fullscreen view** is open, the composer is hidden. Root-only chords (`Ctrl+P`, `Ctrl+M`, `Ctrl+R`, `Ctrl+O`, `Ctrl+B`, settings, extensions, Shift+Tab) do nothing. `Ctrl+C` cancels the **child's** turn. `q` / `Esc` closes the view. `Ctrl+Q` still quits (`Ctrl+D` on VS Code family). See [Viewing Subagents in the TUI](16-subagents.md#fullscreen-framed-view-the-child-transcript).
 
+**Note:** `e` on a queued prompt edits that row. A queued command such as `/compact` cannot be edited: the attempt shows a message and the text you typed stays in the prompt.
+
 **Note:** `Ctrl+M` is context-dependent. When the prompt is focused, it toggles multiline input mode. Otherwise, it opens the model picker.
 
 **Note:** While a draft is stashed, the prompt's top border reads `Stashed` (next to the `/rename` title, if you set one). Minimal mode draws no border, so it prints a line in the scrollback each time you stash or restore. The stash lives in memory only: it is gone when you quit, and it does not travel to a resumed session. A new stash replaces the old one; the replaced draft is discarded.

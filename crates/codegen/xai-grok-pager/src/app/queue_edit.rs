@@ -331,6 +331,21 @@ impl AgentView {
         server_id: Option<String>,
         drain: bool,
     ) -> InputOutcome {
+        // A queued command (`/compact`, `/flush`) is not a prompt. Saving would rewrite the command
+        // or run the new text. Refuse, leave the row alone, and keep what was typed.
+        if matches!(
+            self.prompt_mode,
+            PromptMode::EditingQueued {
+                kind: crate::app::agent::QueueEntryKind::Command,
+                ..
+            }
+        ) {
+            let kept = self.prompt.stash();
+            self.show_toast("Queued commands such as /compact can't be edited");
+            self.exit_editing_mode();
+            self.prompt.restore(kept);
+            return InputOutcome::Changed;
+        }
         // A pager builtin left in the row would reach the model verbatim as a literal `/…` string:
         // the agent's resolve() reserves pager-owned names without handling them.
         // Only a `Prompt` row in normal composer mode qualifies; bash and remember rows stay text.
@@ -1287,6 +1302,57 @@ mod tests {
             );
             assert_eq!(front_nth(&agent.session.pending_prompts, 0).text, text);
         }
+    }
+
+    /// A queued command such as `/compact` is not rewritten. The refusal keeps the typed text.
+    #[test]
+    fn editing_a_queued_command_is_refused_and_keeps_the_new_text() {
+        use crate::app::agent::QueueEntryKind;
+        let mut agent = make_running_agent();
+        let registry = non_vscode_registry();
+        agent.session.pending_prompts.clear();
+        agent.session.enqueue_command("/compact".into());
+        agent.queue.sync_from_merged(
+            &agent.session.pending_prompts,
+            &agent.shared_queue,
+            agent.session.current_prompt_id.as_deref(),
+            agent.expect_send_now_cancel.as_deref(),
+            &agent.send_now_painted_blocks,
+        );
+        let ids = agent.queue.entry_ids();
+        agent.queue.list_state.select_by_id(*ids.last().unwrap());
+        let _ = agent.handle_queue_key(&edit_key(), &registry);
+        assert!(
+            matches!(
+                agent.prompt_mode,
+                PromptMode::EditingQueued {
+                    kind: QueueEntryKind::Command,
+                    ..
+                }
+            ),
+            "the queued command must open for editing before the save is refused"
+        );
+        agent.prompt.set_text("please summarize instead");
+
+        let outcome = agent.handle_prompt_key_for_test(&enter_key());
+
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "the edit is refused, got {outcome:?}"
+        );
+        assert!(matches!(agent.prompt_mode, PromptMode::Normal));
+        assert_eq!(agent.prompt.text(), "please summarize instead");
+        let row = agent
+            .session
+            .pending_prompts
+            .iter()
+            .find(|entry| entry.kind == QueueEntryKind::Command)
+            .expect("queued command stays");
+        assert_eq!(row.text, "/compact");
+        assert_eq!(
+            agent.toast.as_ref().map(|(message, _)| message.as_str()),
+            Some("Queued commands such as /compact can't be edited")
+        );
     }
 
     /// A bash row edited into `/btw …` stays a bash command: the composer is in bash mode, so the text is a shell string, not a pager command.
