@@ -99,7 +99,12 @@ impl AgentView {
                 return InputOutcome::Changed;
             }
             match key.code {
-                KeyCode::Enter | KeyCode::Tab | KeyCode::BackTab => {
+                KeyCode::Tab | KeyCode::BackTab => {
+                    ev.focus = ElicitationFocus::Fields;
+                    return InputOutcome::Changed;
+                }
+                // Send now is Ctrl+Enter. It must not leave the field the way bare Enter does.
+                KeyCode::Enter if key.modifiers.is_empty() => {
                     ev.focus = ElicitationFocus::Fields;
                     return InputOutcome::Changed;
                 }
@@ -169,7 +174,8 @@ impl AgentView {
                 }
                 InputOutcome::Changed
             }
-            KeyCode::Enter => {
+            // Send now is Ctrl+Enter. Bare Enter still accepts or declines the focused action.
+            KeyCode::Enter if key.modifiers.is_empty() => {
                 if ev.focus == ElicitationFocus::Fields {
                     if !ev.enter_edit_or_options() {
                         ev.toggle_bool_or_enum();

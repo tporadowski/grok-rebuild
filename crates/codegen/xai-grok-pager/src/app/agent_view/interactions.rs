@@ -268,7 +268,8 @@ impl AgentView {
                 ctv.active_idx = ctv.active_idx.saturating_sub(1);
                 InputOutcome::Changed
             }
-            KeyCode::Enter => {
+            // Send now is Ctrl+Enter. Bare Enter still chooses the highlighted row.
+            KeyCode::Enter if key.modifiers.is_empty() => {
                 let Some(&choice) = CancelTurnChoice::ALL.get(ctv.active_idx) else {
                     return InputOutcome::Unchanged;
                 };
@@ -2528,6 +2529,92 @@ mod question_send_now_tests {
             agent.question_view.is_none(),
             "bare Enter still submits the question"
         );
+    }
+}
+
+#[cfg(test)]
+mod send_now_card_tests {
+    use super::super::test_fixtures::make_agent;
+    use super::super::AgentView;
+    use crate::actions::ActionRegistry;
+    use crate::app::actions::Action;
+    use crate::app::app_view::InputOutcome;
+    use crate::views::elicitation_view::ElicitationViewState;
+    use crate::views::modal::{CancelTurnChoice, CancelTurnViewState};
+    use crate::views::prompt_widget::StashedPrompt;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use xai_grok_tools::mcp_elicitation::{McpElicitExtRequest, McpElicitModeFields};
+
+    fn press(agent: &mut AgentView, code: KeyCode, modifiers: KeyModifiers) -> InputOutcome {
+        let registry = ActionRegistry::non_vscode_for_test();
+        agent.handle_input(&Event::Key(KeyEvent::new(code, modifiers)), &registry)
+    }
+
+    #[test]
+    fn ctrl_enter_does_not_answer_the_stop_subagents_panel() {
+        let mut agent = make_agent();
+        agent.cancel_turn_view = Some(CancelTurnViewState {
+            active_idx: 0,
+            running_count: 2,
+        });
+        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::SHIFT] {
+            let outcome = press(&mut agent, KeyCode::Enter, modifiers);
+            assert!(
+                !matches!(outcome, InputOutcome::Action(Action::CancelTurnChoice(_))),
+                "{modifiers:?}+Enter must not answer the stop-subagents panel, got {outcome:?}"
+            );
+            assert!(agent.cancel_turn_view.is_some());
+        }
+        let outcome = press(&mut agent, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(
+            matches!(
+                outcome,
+                InputOutcome::Action(Action::CancelTurnChoice(CancelTurnChoice::StopRunning))
+            ),
+            "bare Enter still chooses the highlighted row, got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn ctrl_enter_does_not_answer_an_mcp_prompt() {
+        let mut agent = make_agent();
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        agent.elicitation_view = Some(ElicitationViewState::from_request(
+            McpElicitExtRequest {
+                session_id: "s".into(),
+                tool_call_id: "mcp-elicit-1".into(),
+                server_name: "demo".into(),
+                message: "Open login?".into(),
+                mode: McpElicitModeFields::Url {
+                    url: "https://example.com/login".into(),
+                    elicitation_id: "eid-1".into(),
+                },
+            },
+            Some(StashedPrompt::default()),
+            Some(tx),
+        ));
+        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::SHIFT] {
+            let _ = press(&mut agent, KeyCode::Enter, modifiers);
+            let ev = agent
+                .elicitation_view
+                .as_ref()
+                .expect("MCP prompt stays open");
+            assert!(
+                ev.url().is_some() && !ev.is_url_waiting(),
+                "{modifiers:?}+Enter must not accept the MCP prompt"
+            );
+            assert!(
+                matches!(rx.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)),
+                "{modifiers:?}+Enter must not send an answer"
+            );
+        }
+        let _ = press(&mut agent, KeyCode::Enter, KeyModifiers::NONE);
+        let answer = rx
+            .try_recv()
+            .expect("bare Enter answers the MCP prompt")
+            .expect("not an error");
+        let value: serde_json::Value = serde_json::from_str(answer.0.get()).unwrap();
+        assert_eq!(value["outcome"], "accept");
     }
 }
 
