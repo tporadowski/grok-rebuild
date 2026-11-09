@@ -2537,6 +2537,57 @@ where
 /// Max bytes of an offending line copied into the decode-error event.
 const DECODE_ERROR_SAMPLE_LEN: usize = 200;
 
+/// Turn a stdout line that serde rejects for invalid characters into JSON it can parse.
+/// Invalid UTF-8 becomes U+FFFD. A raw control character inside a string is written as a `\u00XX`
+/// escape, which JSON requires. The same byte outside a string is dropped. A line that needs no
+/// repair is returned unchanged so the caller can tell a real decode failure from a repaired reply.
+fn repair_mcp_json_line(line: &[u8]) -> String {
+    let text = String::from_utf8_lossy(line);
+    let mut out = String::with_capacity(text.len());
+    let mut in_string = false;
+    let mut escape = false;
+    for ch in text.chars() {
+        if in_string {
+            if escape {
+                escape = false;
+                out.push(ch);
+                continue;
+            }
+            match ch {
+                '\\' => {
+                    escape = true;
+                    out.push(ch);
+                }
+                '"' => {
+                    in_string = false;
+                    out.push(ch);
+                }
+                c if c.is_control() => {
+                    let code = u32::from(c);
+                    out.push_str(&format!("\\u{code:04x}"));
+                }
+                c => out.push(c),
+            }
+        } else if ch == '"' {
+            in_string = true;
+            out.push(ch);
+        } else if ch.is_control() && ch != '\t' && ch != '\r' {
+            // A raw control between tokens is not JSON whitespace.
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn decode_repaired_line(line: &[u8]) -> Option<RxJsonRpcMessage<RoleClient>> {
+    let repaired = repair_mcp_json_line(line);
+    if repaired.as_bytes() == line {
+        return None;
+    }
+    serde_json::from_str(&repaired).ok()
+}
+
 /// A line that failed to deserialize but is a JSON *notification* (an object with a `method` and no `id`) is benign.
 /// Many servers emit non-MCP / unknown notifications (e.g. LSP-style).
 /// Skip those quietly instead of flagging a decode error, mirroring rmcp's compatibility handling.
@@ -2647,8 +2698,12 @@ where
 
             match serde_json::from_slice::<RxJsonRpcMessage<RoleClient>>(&line) {
                 Ok(msg) => return Some(msg),
-                // The whole point: a single undecodable line must not collapse the transport; skip it and keep reading
+                // A tool reply with a raw control or invalid UTF-8 is still the response. Dropping it
+                // leaves the call waiting until it times out.
                 Err(err) => {
+                    if let Some(msg) = decode_repaired_line(&line) {
+                        return Some(msg);
+                    }
                     if is_ignorable_notification(&line) {
                         tracing::trace!(
                             server = %self.server_name,

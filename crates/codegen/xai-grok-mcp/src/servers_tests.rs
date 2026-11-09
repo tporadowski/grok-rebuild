@@ -34,6 +34,36 @@ async fn resilient_transport_skips_undecodable_line_and_keeps_stream_alive() {
     );
 }
 
+/// A tool reply that contains a raw NUL or an invalid UTF-8 byte is still delivered.
+/// Skipping that line would leave the caller waiting until the call times out.
+#[tokio::test]
+async fn tool_reply_with_invalid_characters_is_delivered() {
+    let (mut server_out, client_in) = tokio::io::duplex(64 * 1024);
+    let mut transport = ResilientRwTransport::new(
+        client_in,
+        tokio::io::sink(),
+        "fwbuild".to_string(),
+        xai_grok_session_events::EventWriter::noop(),
+    );
+
+    let mut line = br#"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"hello"#.to_vec();
+    line.push(0);
+    line.extend_from_slice(b"wor");
+    line.push(0xFF);
+    line.extend_from_slice(b"ld\"}]}}\n");
+    server_out.write_all(&line).await.unwrap();
+    drop(server_out);
+
+    let msg = transport
+        .receive()
+        .await
+        .expect("invalid characters must not drop the tool reply");
+    let rendered = serde_json::to_string(&msg).expect("repaired reply serializes");
+    assert!(rendered.contains("hello"), "{rendered}");
+    assert!(rendered.contains("wor"), "{rendered}");
+    assert!(rendered.contains("ld"), "{rendered}");
+}
+
 /// A read interrupted mid-line must keep the bytes already taken, then finish the JSON-RPC message.
 #[tokio::test]
 async fn stdio_read_interrupted_keeps_partial_line() {
