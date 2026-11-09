@@ -33,7 +33,8 @@ use xai_grok_shell::sampling::error::{
     RATE_LIMITED_ERROR_CODE, error_detail_from_data, format_rate_limited_user_message,
 };
 use xai_grok_shell::sampling::types::{
-    REASONING_EFFORT_META_KEY, parse_canonical_effort_token, reasoning_effort_meta_value,
+    REASONING_EFFORT_META_KEY, ReasoningEffort, parse_canonical_effort_token,
+    reasoning_effort_meta_value,
 };
 use xai_grok_shell::util::config as cli_config;
 use xai_grok_telemetry::startup::PendingStartup;
@@ -900,6 +901,36 @@ async fn resume_session_in_new_worktree(
         )),
     }
 }
+const EFFORT_IGNORED_WARNING: &str =
+    "--effort/--reasoning-effort: model does not support reasoning effort; ignoring";
+
+/// Classify `--effort` for `grok -p`.
+/// A model that does not support effort is ignored, with [`EFFORT_IGNORED_WARNING`].
+/// An unknown level is refused.
+fn choose_headless_effort(
+    models: &ModelState,
+    model_id: &acp::ModelId,
+    token: Option<&str>,
+) -> Result<(Option<ReasoningEffort>, Option<&'static str>), String> {
+    let Some(token) = token else {
+        return Ok((None, None));
+    };
+    if models.available.is_empty() {
+        if parse_canonical_effort_token(token).is_none() {
+            return Err(format!(
+                "--effort/--reasoning-effort: unknown effort level '{token}' \
+                 (model catalog unavailable; remapped menu ids require a loaded catalog)"
+            ));
+        }
+        return Ok((None, None));
+    }
+    match models.resolve_cli_effort_for_model(model_id, token) {
+        Ok(effort) => Ok((Some(effort), None)),
+        Err(EffortTokenError::Unsupported) => Ok((None, Some(EFFORT_IGNORED_WARNING))),
+        Err(err) => Err(format!("--effort/--reasoning-effort: {}", err.message())),
+    }
+}
+
 /// Apply `-m` / effort after session open.
 /// Effort is soft-ignored on a non-supporting model (still applying `-m`) but hard-fails on a genuinely unknown token.
 async fn apply_headless_model_and_effort(
@@ -929,32 +960,12 @@ async fn apply_headless_model_and_effort(
             }
         }
     };
-    let effort = match effort_token {
-        None => None,
-        Some(token) if models.available.is_empty() => {
-            if parse_canonical_effort_token(token).is_none() {
-                anyhow::bail!(
-                    "--effort/--reasoning-effort: unknown effort level '{token}' \
-                     (model catalog unavailable; remapped menu ids require a loaded catalog)"
-                );
-            }
-            None
-        }
-        Some(token) => match models.resolve_cli_effort_for_model(&model_id, token) {
-            Ok(effort) => Some(effort),
-            Err(EffortTokenError::Unsupported) => {
-                tracing::warn!(
-                    model = %model_id.0,
-                    token,
-                    "--effort/--reasoning-effort: model does not support reasoning effort; ignoring"
-                );
-                None
-            }
-            Err(err) => {
-                anyhow::bail!("--effort/--reasoning-effort: {}", err.message())
-            }
-        },
-    };
+    let (effort, warning) = choose_headless_effort(models, &model_id, effort_token)
+        .map_err(|message| anyhow::anyhow!(message))?;
+    if let Some(warning) = warning {
+        tracing::warn!(model = %model_id.0, "{warning}");
+        eprint_line(warning);
+    }
     if model_name.is_none() && effort.is_none() {
         return Ok(());
     }

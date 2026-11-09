@@ -1091,3 +1091,63 @@ fn handler_answers_ext_method_instead_of_dropping() {
         serde_json::from_str(resp.0.get()).expect("typed wire reply");
     assert!(matches!(parsed, AskUserQuestionExtResponse::Cancelled));
 }
+
+fn model_with_effort_meta(meta: Option<serde_json::Value>) -> super::ModelState {
+    let id = acp::ModelId::new(std::sync::Arc::from("m"));
+    let mut state = super::ModelState::default();
+    state.available.insert(
+        id.clone(),
+        acp::ModelInfo::new(id.clone(), "M".to_string())
+            .meta(meta.and_then(|v| v.as_object().cloned())),
+    );
+    state.current = Some(id);
+    state
+}
+
+/// `grok -p --effort` warns when the model ignores the flag and refuses a level it does not offer.
+#[test]
+fn headless_effort_warns_when_the_model_ignores_it_and_refuses_an_unknown_level() {
+    use xai_grok_shell::sampling::types::ReasoningEffort;
+
+    let plain = model_with_effort_meta(None);
+    let plain_id = plain.current.clone().unwrap();
+    let (effort, warning) =
+        super::choose_headless_effort(&plain, &plain_id, Some("high")).unwrap();
+    assert!(effort.is_none(), "an unsupported model does not take the flag");
+    assert_eq!(
+        warning,
+        Some(
+            "--effort/--reasoning-effort: model does not support reasoning effort; ignoring"
+        )
+    );
+
+    let reasoning = model_with_effort_meta(Some(serde_json::json!({
+        "supportsReasoningEffort": true,
+        "reasoningEfforts": [
+            { "id": "high", "value": "high", "label": "High" },
+            { "id": "low", "value": "low", "label": "Low" },
+        ],
+    })));
+    let reasoning_id = reasoning.current.clone().unwrap();
+    let refused = super::choose_headless_effort(&reasoning, &reasoning_id, Some("turbo"))
+        .expect_err("an unknown level is refused");
+    assert!(
+        refused.contains("unknown effort level 'turbo'"),
+        "{refused}"
+    );
+    assert!(refused.contains("use one of: high, low"), "{refused}");
+
+    let (effort, warning) =
+        super::choose_headless_effort(&reasoning, &reasoning_id, Some("high")).unwrap();
+    assert_eq!(effort, Some(ReasoningEffort::High));
+    assert!(warning.is_none());
+
+    let empty = super::ModelState::default();
+    let missing = acp::ModelId::new(std::sync::Arc::from("missing"));
+    let refused = super::choose_headless_effort(&empty, &missing, Some("turbo"))
+        .expect_err("an unknown level is refused before the catalog loads");
+    assert!(
+        refused.contains("unknown effort level 'turbo'"),
+        "{refused}"
+    );
+}
