@@ -647,6 +647,64 @@ fn load_claude_env_with_project_drops_repo_env_when_untrusted() {
 // ── requirements.toml / managed-settings.json permission tests ────
 
 #[test]
+fn compact_lists_load_alongside_verbose_rules() {
+    let both: toml::Value = toml::from_str(
+        r#"
+            deny = ["Read(**/.env*)"]
+            [[rules]]
+            action = "allow"
+            tool = "bash"
+            pattern = "git *"
+        "#,
+    )
+    .unwrap();
+    let rules = parse_toml_permission_section(&both).unwrap();
+    assert_eq!(rules.len(), 2, "compact and verbose rules both load: {rules:?}");
+    let compact = rules.first().unwrap_or_else(|| panic!("expected compact rule"));
+    assert_eq!(compact.action, RuleAction::Deny);
+    assert_eq!(compact.tool, ToolFilter::Read);
+    assert_eq!(compact.pattern.as_deref(), Some("**/.env*"));
+    let verbose = rules.get(1).unwrap_or_else(|| panic!("expected verbose rule"));
+    assert_eq!(verbose.action, RuleAction::Allow);
+    assert_eq!(verbose.tool, ToolFilter::Bash);
+    assert_eq!(verbose.pattern.as_deref(), Some("git *"));
+
+    let verbose_only: toml::Value = toml::from_str(
+        r#"
+            [[rules]]
+            action = "deny"
+            tool = "read"
+            pattern = "**/.env*"
+        "#,
+    )
+    .unwrap();
+    let only = parse_toml_permission_section(&verbose_only).unwrap();
+    assert_eq!(only.len(), 1);
+    assert_eq!(
+        only.first().unwrap_or_else(|| panic!("expected verbose rule")).tool,
+        ToolFilter::Read
+    );
+
+    let broken: toml::Value = toml::from_str(
+        r#"
+            allow = ["Bash(git *)"]
+            rules = "not-a-list"
+        "#,
+    )
+    .unwrap();
+    let (kept, skipped) = parse_toml_permission_section_with_skips(&broken).unwrap();
+    assert_eq!(kept.len(), 1, "a bad verbose list must not drop compact rules");
+    assert_eq!(
+        kept.first().unwrap_or_else(|| panic!("expected compact rule")).action,
+        RuleAction::Allow
+    );
+    assert!(
+        skipped.iter().any(|skip| skip.rule == "permission.rules"),
+        "the bad verbose list is reported"
+    );
+}
+
+#[test]
 fn parse_toml_compact_deny_rules() {
     let toml_val: toml::Value =
         toml::from_str(r#"deny = ["Read(**/.env*)", "Bash(cat .env*)"]"#).unwrap();

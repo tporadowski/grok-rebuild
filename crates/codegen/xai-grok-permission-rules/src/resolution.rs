@@ -92,8 +92,8 @@ fn parse_default_mode_claiming_scope(
 }
 
 /// Parse `[permission]` from TOML.
-/// Tries compact (`deny = ["Read(...)"]`) first, falls back to verbose (`[[permission.rules]]`).
-/// Bad entries and unrecognized keys are returned as skips; sibling rules stay.
+/// Compact lists (`deny` / `allow` / `ask`) and verbose `[[permission.rules]]` both load.
+/// A bad verbose list is skipped when compact rules already parsed. Bad entries and unrecognized keys are returned as skips; sibling rules stay.
 #[cfg(test)]
 fn parse_toml_permission_section(
     permission_value: &toml::Value,
@@ -166,15 +166,30 @@ fn parse_toml_permission_section_with_skips(
         }
     }
 
-    if found_compact {
-        return Ok((rules, skipped));
+    if permission_value.get("rules").is_some() {
+        match permission_value.clone().try_into::<PermissionConfig>() {
+            Ok(config) => rules.extend(config.rules),
+            Err(e) => {
+                let reason = e.to_string();
+                warn!("permission.rules: {reason} -- ignored");
+                skipped.push(SkippedPermission {
+                    rule: "permission.rules".to_string(),
+                    reason: reason.clone(),
+                });
+                if !found_compact {
+                    return Err(reason);
+                }
+            }
+        }
+    } else if !found_compact {
+        return permission_value
+            .clone()
+            .try_into::<PermissionConfig>()
+            .map(|config| (config.rules, skipped))
+            .map_err(|e| e.to_string());
     }
 
-    permission_value
-        .clone()
-        .try_into::<PermissionConfig>()
-        .map(|config| (config.rules, skipped))
-        .map_err(|e| e.to_string())
+    Ok((rules, skipped))
 }
 
 fn toml_type_name(v: &toml::Value) -> &'static str {

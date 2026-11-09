@@ -258,7 +258,7 @@ Managed configuration deployed by your organization also contributes `[permissio
 
 Permission rules from every source are read once, when a session starts. Changes apply to the next session.
 
-The native `[permission]` section also accepts the compact `allow` / `deny` / `ask` string-array form, using the same rule strings as the `--allow` / `--deny` flags and `.claude/settings.json`:
+The native `[permission]` section also accepts the compact `allow` / `deny` / `ask` string-array form, using the same rule strings as the `--allow` / `--deny` flags and `.claude/settings.json`. A `[[permission.rules]]` list in the same section loads as well:
 
 ```toml
 [permission]
