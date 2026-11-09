@@ -440,15 +440,21 @@ impl SessionActor {
         filter_cursor_tools_by_plan_mode(defs, plan_active)
     }
 
-    /// Messages-backed models never see `use_tool`'s file forms: the Anthropic Messages API rejects the schema's
-    /// root-level union (`oneOf`) with HTTP 400, which fails every turn. Checked per request because a model switch
-    /// mid-session keeps the finalized toolset.
+    /// Some hosts reject `use_tool`'s file-form schema: its root `oneOf` is an HTTP 400, so the turn never starts.
+    /// Messages always does. Chat Completions does too, except on an xAI HTTPS endpoint, which accepts the union.
+    /// A custom model pointed at another chat host, including a local OpenAI-compatible server, gets the inline
+    /// schema instead. Checked per request because a model switch mid-session keeps the finalized toolset.
     pub(crate) async fn mcp_file_forms_hidden(&self) -> bool {
+        use xai_grok_sampling_types::ApiBackend;
         self.chat_state_handle
             .get_sampling_config()
             .await
-            .is_some_and(|config| {
-                config.api_backend == xai_grok_sampling_types::ApiBackend::Messages
+            .is_some_and(|config| match config.api_backend {
+                ApiBackend::Messages => true,
+                ApiBackend::ChatCompletions => {
+                    !crate::util::is_trusted_xai_https_url(&config.base_url)
+                }
+                ApiBackend::Responses => false,
             })
     }
 

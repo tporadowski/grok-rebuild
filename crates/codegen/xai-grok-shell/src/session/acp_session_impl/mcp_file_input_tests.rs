@@ -446,15 +446,25 @@ async fn messages_backend_advertises_inline_only_use_tool() {
                 .await
                 .unwrap();
 
-            for backend in [
-                ApiBackend::Responses,
-                ApiBackend::Messages,
-                ApiBackend::ChatCompletions,
+            let xai = "https://api.x.ai/v1";
+            let openai = "https://api.openai.com/v1";
+            let local = "http://127.0.0.1:11434/v1";
+            for (backend, base_url, hidden) in [
+                (ApiBackend::Responses, openai, false),
+                (ApiBackend::Messages, xai, true),
+                (ApiBackend::ChatCompletions, xai, false),
+                (ApiBackend::ChatCompletions, openai, true),
+                (ApiBackend::ChatCompletions, local, true),
+                (
+                    ApiBackend::ChatCompletions,
+                    crate::env::PROD_CLI_CHAT_PROXY_BASE_URL,
+                    false,
+                ),
             ] {
                 let mut config = actor.chat_state_handle.get_sampling_config().await.unwrap();
                 config.api_backend = backend.clone();
+                config.base_url = base_url.to_string();
                 actor.chat_state_handle.update_sampling_config(config);
-                let hidden = backend == ApiBackend::Messages;
 
                 let definitions = actor.prepare_tool_definitions_inner().await;
                 let tool = &definitions
@@ -476,11 +486,11 @@ async fn messages_backend_advertises_inline_only_use_tool() {
                 } else {
                     vec!["file", "tool_input", "tool_input_file", "tool_name"]
                 };
-                assert_eq!(expected, keys, "{backend:?}");
+                assert_eq!(expected, keys, "{backend:?} {base_url}");
                 assert_eq!(
                     !hidden,
                     tool.parameters.get("oneOf").is_some(),
-                    "{backend:?}"
+                    "{backend:?} {base_url}"
                 );
                 let description = tool.description.as_deref().unwrap();
                 let hint = actor.rendered_mcp_hint().await.unwrap();
@@ -488,7 +498,7 @@ async fn messages_backend_advertises_inline_only_use_tool() {
                     assert_eq!(
                         !hidden,
                         text.to_lowercase().contains("file"),
-                        "{backend:?}: {text}"
+                        "{backend:?} {base_url}: {text}"
                     );
                 }
             }
