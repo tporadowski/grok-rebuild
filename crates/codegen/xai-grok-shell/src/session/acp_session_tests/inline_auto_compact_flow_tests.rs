@@ -968,6 +968,43 @@ async fn test_compact_on_error_triggers_when_tokens_exceed_new_window() {
         })
         .await;
 }
+/// A larger window from `/context-window` or a model table stays put.
+/// Idle catalog refresh does not shrink it, and a rate limit that carries the smaller catalog window does not compact.
+#[test]
+fn catalog_refresh_keeps_a_larger_context_window() {
+    let large = std::num::NonZeroU64::new(1_000_000).unwrap();
+    let catalog = std::num::NonZeroU64::new(200_000).unwrap();
+    let raised = std::num::NonZeroU64::new(300_000).unwrap();
+    assert_eq!(
+        SessionActor::context_window_after_catalog_refresh(large, catalog, false),
+        large,
+        "a model-table window is not replaced by a smaller catalog value"
+    );
+    assert_eq!(
+        SessionActor::context_window_after_catalog_refresh(large, raised, true),
+        large,
+        "a /context-window pick stays even when the catalog is larger"
+    );
+    assert_eq!(
+        SessionActor::context_window_after_catalog_refresh(
+            std::num::NonZeroU64::new(200_000).unwrap(),
+            raised,
+            false
+        ),
+        raised,
+        "an unfixed default still takes a larger catalog window"
+    );
+    assert!(
+        !xai_token_estimation::exceeds_threshold(250_000, large.get(), 85),
+        "250k tokens are not over 85% of the kept 1M window"
+    );
+    assert!(xai_token_estimation::exceeds_threshold(
+        250_000,
+        catalog.get(),
+        85
+    ));
+}
+
 /// When tracked tokens are within the new limit, the error was not a context overflow, so do not compact.
 #[tokio::test(flavor = "current_thread")]
 async fn test_compact_on_error_no_trigger_when_tokens_within_new_window() {
@@ -979,6 +1016,40 @@ async fn test_compact_on_error_no_trigger_when_tokens_within_new_window() {
             let actor = create_test_actor(150_000, 1_000_000, 85, gateway_tx, persistence_tx).await;
             let err = api_error_with_context_window(200_000);
             assert!(!actor.should_compact_on_error(&err).await);
+        })
+        .await;
+}
+/// A rate limit that reports the catalog window must not compact a session whose larger window still fits.
+#[tokio::test(flavor = "current_thread")]
+async fn rate_limit_keeps_a_larger_context_window() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (gateway_tx, _) = mpsc::unbounded_channel::<xai_acp_lib::AcpClientMessage>();
+            let (persistence_tx, _) = mpsc::unbounded_channel::<PersistenceMsg>();
+            let actor =
+                create_test_actor(250_000, 1_000_000, 85, gateway_tx, persistence_tx).await;
+            actor.compaction.context_window_selection.store(
+                1_000_000,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            let mut err = api_error_with_context_window(200_000);
+            err.kind = xai_grok_sampler::SamplingErrorKind::RateLimited;
+            err.status_code = Some(429);
+            err.message = "rate limit exceeded".into();
+            assert!(
+                !actor.should_compact_on_error(&err).await,
+                "a rate limit is not a context overflow"
+            );
+            err.kind = xai_grok_sampler::SamplingErrorKind::IdleTimeout;
+            err.message = "inference idle timeout".into();
+            assert!(!actor.should_compact_on_error(&err).await);
+            let cfg = actor.chat_state_handle.get_sampling_config().await.unwrap();
+            assert_eq!(1_000_000, cfg.context_window.get());
+            assert!(
+                actor.check_auto_compact_needed().await.is_none(),
+                "250k tokens must not auto-compact against the kept 1M window"
+            );
         })
         .await;
 }

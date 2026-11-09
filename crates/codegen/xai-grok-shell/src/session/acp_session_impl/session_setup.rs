@@ -359,6 +359,19 @@ impl SessionActor {
         }
         self.persist_announcement_state().await;
     }
+/// A catalog refresh may raise the window. It does not shrink one the user picked
+/// or one set with `context_window` in the model table. A fixed selection stays put.
+pub(crate) fn context_window_after_catalog_refresh(
+    current: std::num::NonZeroU64,
+    fetched: std::num::NonZeroU64,
+    fixed: bool,
+) -> std::num::NonZeroU64 {
+    if fixed || fetched < current {
+        current
+    } else {
+        fetched
+    }
+}
     /// Idle threshold for proactive model metadata refresh on session resume.
     /// A session idle longer than this fetches fresh model config from cli-chat-proxy before the next API request to catch context_window changes.
     pub(super) const IDLE_REFRESH_THRESHOLD_SECS: i64 = 600;
@@ -478,15 +491,18 @@ impl SessionActor {
         };
         let mut config_changed = false;
         let mut updated_config = current_config.clone();
-        if current_config.context_window != new_context_window
-            && !self.is_context_window_fixed(current_config.context_window)
-        {
+        let kept = Self::context_window_after_catalog_refresh(
+            current_config.context_window,
+            new_context_window,
+            self.is_context_window_fixed(current_config.context_window),
+        );
+        if kept != current_config.context_window {
             tracing::info!(
                 old_context_window = current_config.context_window.get(),
-                new_context_window = new_context_window.get(),
+                new_context_window = kept.get(),
                 "Context window updated on session resume"
             );
-            updated_config.context_window = new_context_window;
+            updated_config.context_window = kept;
             config_changed = true;
         }
         if let Some(new_mct) = new_max_completion_tokens

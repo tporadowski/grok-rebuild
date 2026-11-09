@@ -2124,6 +2124,22 @@ impl SessionActor {
         if self.compaction.is_suppressed() {
             return false;
         }
+        // A rate limit or an idle timeout can carry the catalog window. That window is
+        // smaller than a `/context-window` pick or a model-table `context_window`, and
+        // treating it as an overflow compacts early and drops the larger window.
+        let size_error = err
+            .error_code
+            .as_ref()
+            .is_some_and(xai_grok_sampling_types::ApiErrorCode::is_size_overflow)
+            || xai_grok_sampling_types::is_context_length_error(&err.message);
+        if matches!(
+            err.kind,
+            xai_grok_sampler::SamplingErrorKind::RateLimited
+                | xai_grok_sampler::SamplingErrorKind::IdleTimeout
+        ) && !size_error
+        {
+            return false;
+        }
         if self.estimate_exceeds_error_context_window(err).await {
             return true;
         }
@@ -2136,10 +2152,7 @@ impl SessionActor {
         if reported.is_some_and(|window| window > 0) {
             return false;
         }
-        err.error_code
-            .as_ref()
-            .is_some_and(xai_grok_sampling_types::ApiErrorCode::is_size_overflow)
-            || xai_grok_sampling_types::is_context_length_error(&err.message)
+        size_error
     }
     /// The request's token estimate exceeds the failed response's reported context window.
     /// This probable-overflow signal is shared by compact-and-resubmit and the mid-salvage truncated-complete arm.
