@@ -604,6 +604,14 @@ enum GrepStep {
     Early(GrepSearchOutput),
 }
 
+/// A Read deny written `./rel` names `rel` from the session directory. Ripgrep anchors a leading `/` there and does not match a literal `./`.
+fn rg_deny_exclude(pattern: &str) -> String {
+    match pattern.strip_prefix("./") {
+        Some(relative) => format!("!/{relative}"),
+        None => format!("!{pattern}"),
+    }
+}
+
 /// Resolve resources, then take the file system's offer or spawn ripgrep; `Early`
 /// for pre-read short-circuits. Shared by `run` and `execute`.
 async fn prepare_grep(
@@ -738,7 +746,7 @@ async fn prepare_grep(
         .iter()
         .filter(|glob| !glob.is_empty())
         .cloned()
-        .chain(deny_read_globs.iter().map(|deny| format!("!{deny}")))
+        .chain(deny_read_globs.iter().map(|deny| rg_deny_exclude(deny)))
         .collect();
     let args = RgArgs {
         program: rg_path()?,
@@ -1052,6 +1060,55 @@ mod tests {
         assert!(
             !stdout.contains("other.txt"),
             "the slash glob must not match a file outside it: {stdout}"
+        );
+    }
+
+    /// A Read deny that starts with `./` names a path from the session directory.
+    /// It excludes that path and does not exclude the same name in another directory.
+    #[tokio::test]
+    async fn deny_read_glob_with_dot_slash_excludes_that_path() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("nested")).unwrap();
+        fs::write(tmp.path().join("secret.txt"), "FAKE root\n").unwrap();
+        fs::write(tmp.path().join("nested/secret.txt"), "FAKE nested\n").unwrap();
+        fs::write(tmp.path().join("readme.md"), "FAKE readme\n").unwrap();
+
+        let run = |deny: &str| {
+            let deny = deny.to_string();
+            let tmp_path = tmp.path().to_path_buf();
+            async move {
+                let mut resources = Resources::new();
+                resources.insert(Cwd(tmp_path));
+                resources.insert(DenyReadGlobs(vec![deny]));
+                let out = xai_tool_runtime::Tool::run(
+                    &GrepTool,
+                    test_ctx(resources.into_shared()),
+                    make_grep_input("FAKE"),
+                )
+                .await
+                .unwrap();
+                String::from_utf8_lossy(&out.stdout).into_owned()
+            }
+        };
+
+        let rooted = run("./secret.txt").await;
+        assert!(
+            rooted.contains("FAKE readme") && rooted.contains("FAKE nested"),
+            "files outside ./secret.txt must stay searchable: {rooted}"
+        );
+        assert!(
+            !rooted.contains("FAKE root"),
+            "Read deny ./secret.txt must hide the session-root file: {rooted}"
+        );
+
+        let directory = run("./nested/**").await;
+        assert!(
+            directory.contains("FAKE root") && directory.contains("FAKE readme"),
+            "files outside ./nested/** must stay searchable: {directory}"
+        );
+        assert!(
+            !directory.contains("FAKE nested"),
+            "Read deny ./nested/** must hide files under nested: {directory}"
         );
     }
 

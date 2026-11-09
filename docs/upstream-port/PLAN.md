@@ -823,7 +823,7 @@ Refresh these numbers at the end of a session.
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 41 | 2 | 0 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
-| W11 | Headless mode and tools | 24 | 0 | 15 | 2 | 0 |
+| W11 | Headless mode and tools | 23 | 0 | 16 | 2 | 0 |
 | W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
@@ -831,9 +831,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 263. Skipped: 8. Done: 260. Already: 42. Deferred: 10.
+Catalog rows: 583. Pending: 262. Skipped: 8. Done: 261. Already: 42. Deferred: 10.
 
-**Next:** W11 headless mode and tools. First open row: Grep respects Read deny rules that use a leading `./` (`v50-x63`).
+**Next:** W11 headless mode and tools. First open row: `grok agent stdio` lists sessions and returns consistent reply envelopes (`v51-f32`).
 
 ## Waves
 
@@ -879,7 +879,7 @@ Pending: 0. Done: 43 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50
 
 ### W11 — Headless mode and tools
 
-Pending: 24. Done: 15 (`v46-x05`, `v48-x03`, `v48-x05`, `v50-f07`, `v50-x02`, `v50-x16`, `v50-x41`, `v50-x42`, `v50-x43`, `v50-x44`, `v50-x48`, `v50-x49`). Already: 2 (`v49-x03`, D-188; `v49-x04`, D-189). Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat. Cancelling one shell tool call stops that command and leaves the other parallel commands running (D-187). Allow once allows the command on the card and does not remember it for the session (D-188). A self-matching `pkill -f` or `pgrep -f` is refused before the shell starts (D-189). A cancelled turn marks tool calls that never finished as cancelled, so a shell label says Cancelled instead of Ran (`v50-x02`). A prompt piped to stdin runs headless instead of opening the UI (`v50-x16`). Slash commands run regardless of case, so `/COMPACT` and `/compact` are the same command (`v50-x41`). `/context` shows an auto-compact line only when the session reports a threshold (`v50-x42`). A tool call finishes the agent sentence it interrupts, so that text stops asking for redraws (`v50-x43`). A shell tool call still runs when the workspace directory is gone, and a huge output burst stays within a memory ceiling (`v50-x44`). The shell tool description states the output limit the command uses, and a grep glob that contains / is relative to the session directory (`v50-x48`). A compaction line appended after the turn scrolls into view (`v50-x49`).
+Pending: 23. Done: 16 (`v46-x05`, `v48-x03`, `v48-x05`, `v50-f07`, `v50-x02`, `v50-x16`, `v50-x41`, `v50-x42`, `v50-x43`, `v50-x44`, `v50-x48`, `v50-x49`, `v50-x63`). Already: 2 (`v49-x03`, D-188; `v49-x04`, D-189). Look first: Headless entry points in `xai-grok-shell` and `grok agent stdio`. Tool implementations in `xai-grok-tools`. `--allowed-tools` is an alias to add next to the existing `--allowedTools` compat. Cancelling one shell tool call stops that command and leaves the other parallel commands running (D-187). Allow once allows the command on the card and does not remember it for the session (D-188). A self-matching `pkill -f` or `pgrep -f` is refused before the shell starts (D-189). A cancelled turn marks tool calls that never finished as cancelled, so a shell label says Cancelled instead of Ran (`v50-x02`). A prompt piped to stdin runs headless instead of opening the UI (`v50-x16`). Slash commands run regardless of case, so `/COMPACT` and `/compact` are the same command (`v50-x41`). `/context` shows an auto-compact line only when the session reports a threshold (`v50-x42`). A tool call finishes the agent sentence it interrupts, so that text stops asking for redraws (`v50-x43`). A shell tool call still runs when the workspace directory is gone, and a huge output burst stays within a memory ceiling (`v50-x44`). The shell tool description states the output limit the command uses, and a grep glob that contains / is relative to the session directory (`v50-x48`). A compaction line appended after the turn scrolls into view (`v50-x49`). A Read deny written with a leading `./` excludes that path from grep (`v50-x63`).
 
 ### W12 — MCP, web, images, and browser
 
@@ -1196,7 +1196,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x44 | done | W11 | Bug Fixes |  |  | **CLI tool calls** no longer fail or overflow when the workspace directory is deleted or output is huge.
 - v50-x48 | done | W11 | Bug Fixes |  |  | **Shell tool descriptions** now correctly state the actual output truncation limit, and grep respects globs relative to the current session directory.
 - v50-x49 | done | W11 | Bug Fixes |  |  | **Compaction messages** now scroll into view instead of appearing below the bottom of the screen after a turn finishes.
-- v50-x63 | pending | W11 | Bug Fixes |  |  | **Grep** now respects Read deny rules that use a leading `./`.
+- v50-x63 | done | W11 | Bug Fixes |  |  | **Grep** now respects Read deny rules that use a leading `./`.
 - v51-f32 | pending | W11 | Features |  |  | `grok agent stdio` now supports listing sessions via ACP and returns consistent reply envelopes.
 - v51-f34 | done | W11 | Features |  |  | **--allowed-tools** is now accepted as an alias for --allow in headless mode.
 - v51-x23 | pending | W11 | Bug Fixes |  |  | **Headless JSON output** now reports the correct stop reason when the turn limit is reached and removes duplicate error prefixes.
