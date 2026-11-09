@@ -66,9 +66,42 @@ fn manual_install_cmd(channel: &str) -> String {
     }
 }
 
+/// Homebrew's `grok-build` cask tracks stable. Other channels leave that cask first.
+pub fn homebrew_cask_message(channel: &str, switching: bool) -> String {
+    if !switching || is_stable_channel(channel) {
+        "This Grok was installed with Homebrew.\n\
+         Update it with:\n  \
+         brew upgrade --cask grok-build"
+            .to_string()
+    } else {
+        format!(
+            "This Grok was installed with the Homebrew cask grok-build, which tracks stable.\n\
+             To switch to {channel}, leave Homebrew and install that channel:\n  \
+             brew uninstall --cask grok-build\n  \
+             {}",
+            manual_install_cmd(channel)
+        )
+    }
+}
+
+/// True when `path` is inside Homebrew's `Caskroom/grok-build` prefix.
+pub fn is_homebrew_cask_path(path: &std::path::Path) -> bool {
+    let mut saw_caskroom = false;
+    for component in path.components() {
+        let name = component.as_os_str();
+        if name == "Caskroom" {
+            saw_caskroom = true;
+        } else if saw_caskroom && name == "grok-build" {
+            return true;
+        }
+    }
+    false
+}
+
 fn reinstall_hint(installer: &str, channel: &str) -> String {
     match installer {
         "npm" => "Please reinstall via npm:\n  npm i -g @xai-official/grok".to_string(),
+        "homebrew" => homebrew_cask_message("stable", false),
         "gh-release" => "Please reinstall via GitHub Releases:\n  gh release download --repo xai-org-shared/grok-build --pattern 'grok-*' --output grok && chmod +x grok".to_string(),
         WINGET => format!("Update with WinGet:\n  {UPGRADE_COMMAND}"),
         _ => format!("Please reinstall via:\n  {}", manual_install_cmd(channel)),
@@ -490,6 +523,7 @@ fn parse_grok_installer(value: &str) -> Option<&'static str> {
         "npm" => Some("npm"),
         "internal" => Some("internal"),
         "gh-release" | "gh" => Some("gh-release"),
+        "homebrew" | "brew" => Some("homebrew"),
         _ => None,
     }
 }
@@ -525,6 +559,9 @@ pub async fn get_installer() -> Option<&'static str> {
     }
     if running_exe_matches(crate::winget::is_winget_package_path) {
         return Some(WINGET);
+    }
+    if running_exe_matches(is_homebrew_cask_path) {
+        return Some("homebrew");
     }
     if let Some(i) = env_installer() {
         return Some(i);
@@ -2610,6 +2647,10 @@ pub async fn apply_channel_switch(
         if installer == Some("npm") {
             anyhow::bail!("{}", npm_channel_switch_error(ch));
         }
+        if installer == Some("homebrew") {
+            eprintln!("{}", homebrew_cask_message(ch, true));
+            return Ok(());
+        }
         let _ = config::update_config(|st| {
             st.cli.channel = Some(ch.to_string());
         })
@@ -2676,6 +2717,12 @@ pub async fn run_update(
         };
         let channel = channel_switch.unwrap_or(update_config.channel.as_str());
         eprint!("{}", crate::winget::hand_off_message(target, channel));
+        return Ok(None);
+    }
+    if installer == Some("homebrew") {
+        let channel = channel_switch.unwrap_or(update_config.channel.as_str());
+        let switching = channel_switch.is_some_and(|requested| requested != update_config.channel);
+        eprintln!("{}", homebrew_cask_message(channel, switching));
         return Ok(None);
     }
     apply_channel_switch(channel_switch, update_config).await?;

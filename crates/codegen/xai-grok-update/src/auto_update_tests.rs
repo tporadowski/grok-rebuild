@@ -1,5 +1,50 @@
 use super::*;
 
+#[test]
+fn homebrew_cask_update_and_channel_switch_show_brew_commands() {
+    let cellar = std::path::Path::new(
+        "/opt/homebrew/Caskroom/grok-build/1.0.77/grok-1.0.77-macos-aarch64",
+    );
+    assert!(is_homebrew_cask_path(cellar));
+    assert!(!is_homebrew_cask_path(std::path::Path::new(
+        "/opt/homebrew/bin/grok"
+    )));
+    assert!(!is_homebrew_cask_path(std::path::Path::new(
+        "/opt/homebrew/Caskroom/other/1/grok"
+    )));
+
+    let update = homebrew_cask_message("stable", false);
+    assert!(update.contains("brew upgrade --cask grok-build"), "{update}");
+    assert!(!update.contains("uninstall"), "{update}");
+
+    let alpha = homebrew_cask_message("alpha", true);
+    assert!(alpha.contains("brew uninstall --cask grok-build"), "{alpha}");
+    assert!(alpha.contains("tracks stable"), "{alpha}");
+    assert!(alpha.contains("GROK_CHANNEL='alpha'"), "{alpha}");
+    assert_eq!(
+        reinstall_hint("homebrew", "stable"),
+        homebrew_cask_message("stable", false)
+    );
+}
+
+#[tokio::test]
+async fn homebrew_channel_switch_does_not_rewrite_the_channel() {
+    unsafe { std::env::set_var("GROK_INSTALLER", "homebrew") };
+    let mut config = UpdateConfig {
+        proxy_base_url: String::new(),
+        auth_scope: String::new(),
+        deployment_key: None,
+        alpha_test_key: None,
+        channel: "stable".to_string(),
+        npm_registry: None,
+    };
+    apply_channel_switch(Some("alpha"), &mut config)
+        .await
+        .expect("homebrew channel switch prints commands and returns");
+    unsafe { std::env::remove_var("GROK_INSTALLER") };
+    assert_eq!(config.channel, "stable");
+}
+
 #[tokio::test]
 async fn npm_channel_switch_explains_the_npm_steps() {
     // SAFETY: this test is the only one in the filtered run that reads GROK_INSTALLER.
@@ -1057,7 +1102,7 @@ fn test_reinstall_hint_malformed_channel_falls_back_to_stable() {
 #[test]
 fn test_reinstall_hint_unknown_falls_back_to_internal() {
     // Unknown installer falls back to the same hint as "internal".
-    let unknown = reinstall_hint("homebrew", "stable");
+    let unknown = reinstall_hint("snap", "stable");
     let internal = reinstall_hint("internal", "stable");
     assert_eq!(unknown, internal);
 }
