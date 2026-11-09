@@ -145,7 +145,14 @@ impl StaticShellSnapshot {
                  builtin eval \"$__grok_user_cmd\" 2>&1"
             ),
             UnixShellKind::Zsh => format!(
+                // A fresh zsh defines `alias run-help=man`. Startup files that replace it
+                // (`unalias run-help; autoload run-help`) replay a function of that name.
+                // Defining the function while the alias still exists is a parse error, and
+                // every alias or function after it in the snapshot is dropped. Clear aliases
+                // before the replay; the snapshot puts them back, including `alias grep`.
                 "snap=$(command cat <&3); \
+                 builtin unsetopt aliases 2>/dev/null; \
+                 builtin unalias -m '*' 2>/dev/null || true; \
                  builtin setopt nonomatch 2>/dev/null; \
                  builtin eval \"$snap\"; \
                  builtin export GROK_AGENT=1; \
@@ -248,10 +255,14 @@ mod tests {
         std::path::Path::new("/bin/bash").exists()
     }
 
-    async fn run_static(snapshot: &str, command: &str) -> std::process::Output {
+    async fn run_static_with(
+        shell: UnixShellKind,
+        snapshot: &str,
+        command: &str,
+    ) -> std::process::Output {
         let state = StaticShellSnapshot {
             snapshot: snapshot.to_string(),
-            shell: UnixShellKind::Bash,
+            shell,
         };
         let prep = state
             .prepare_command(
@@ -277,6 +288,59 @@ mod tests {
         let output = child.wait_with_output().await.unwrap();
         write_handle.await.unwrap().unwrap();
         output
+    }
+
+    async fn run_static(snapshot: &str, command: &str) -> std::process::Output {
+        run_static_with(UnixShellKind::Bash, snapshot, command).await
+    }
+
+    fn zsh_available() -> bool {
+        std::path::Path::new(xai_grok_config::shell::unix_shell_path(UnixShellKind::Zsh)).exists()
+    }
+
+    /// Startup files that alias `grep` and replace zsh's `run-help` alias must not
+    /// drop the rest of the snapshot. A fresh zsh still has `alias run-help=man`.
+    #[tokio::test]
+    async fn zsh_grep_alias_and_replaced_run_help_still_runs() {
+        if !zsh_available() {
+            return;
+        }
+        let snapshot = "\
+alias grep='grep --color=auto'\n\
+run-help () {\n\
+\t# undefined\n\
+\tbuiltin autoload -XUz\n\
+}\n\
+later_fn () { echo LATER_OK; }\n\
+";
+        let output = run_static_with(
+            UnixShellKind::Zsh,
+            snapshot,
+            "later_fn; printf 'hello\\n' | grep hello",
+        )
+        .await;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "command failed: stdout={stdout:?} stderr={stderr:?}"
+        );
+        assert!(
+            !stderr.contains("defining function based on alias"),
+            "run-help must not be a parse error: {stderr:?}"
+        );
+        assert!(
+            stdout.contains("LATER_OK"),
+            "function after run-help must still load: {stdout:?}"
+        );
+        assert!(
+            stdout.contains("hello"),
+            "aliased grep must still print the match: {stdout:?}"
+        );
+        assert!(
+            !stdout.contains("defining function based on alias"),
+            "run-help must not be a parse error: {stdout:?}"
+        );
     }
 
     #[tokio::test]

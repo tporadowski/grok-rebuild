@@ -1355,6 +1355,51 @@ mod tests {
         );
     }
 
+    /// A startup file that aliases `grep` and replaces `run-help` must not skip the command.
+    /// The replayed snapshot carries the autoload stub `run-help () { builtin autoload -XUz }`.
+    #[tokio::test]
+    async fn zsh_grep_alias_and_replaced_run_help_still_runs() {
+        if !zsh_available() {
+            return;
+        }
+        let cwd = std::env::current_dir().unwrap();
+        let mut state = ShellState {
+            cwd,
+            snapshot: "\
+alias grep='grep --color=auto'\n\
+run-help () {\n\
+\t# undefined\n\
+\tbuiltin autoload -XUz\n\
+}\n\
+later_fn () { echo LATER_OK; }\n\
+"
+            .to_string(),
+            shell: ShellKind::Zsh,
+        };
+        let (code, stdout) =
+            run_command(&mut state, "later_fn; printf 'hello\\n' | grep hello").await;
+        assert_eq!(code, 0, "{stdout}");
+        assert!(
+            stdout.contains("LATER_OK"),
+            "function after run-help must still load: {stdout:?}"
+        );
+        assert!(
+            stdout.contains("hello"),
+            "aliased grep must still print the match: {stdout:?}"
+        );
+        assert!(
+            state.snapshot.contains("grok_snap_FUNCTIONS_B64"),
+            "the command must finish with a state dump, got {}",
+            state.snapshot.chars().take(180).collect::<String>()
+        );
+        let (code, stdout) = run_command(&mut state, "later_fn").await;
+        assert_eq!(code, 0, "next command after the dump: {stdout}");
+        assert!(
+            stdout.contains("LATER_OK"),
+            "later_fn must survive the state dump: {stdout:?}"
+        );
+    }
+
     #[tokio::test]
     async fn test_function_persists_across_commands() {
         if !bash_available() {
