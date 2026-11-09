@@ -70,6 +70,25 @@ pub(crate) fn hold_teardown_for_test() {
     }
 }
 
+/// Exit code for the quit deadline.
+/// A screen-mode relaunch is not armed: the timer would kill the process it is about to exec.
+/// Quit-for-update is armed, so teardown after Ctrl+U cannot hang past the usual deadline.
+pub(crate) fn forced_exit_code(
+    quit_for_update: bool,
+    relaunch: bool,
+    run_failed: bool,
+) -> Option<i32> {
+    if relaunch && !run_failed {
+        let _ = quit_for_update;
+        None
+    } else if run_failed {
+        Some(1)
+    } else {
+        let _ = quit_for_update;
+        Some(0)
+    }
+}
+
 fn parse_timeout(env: Option<&str>) -> Option<Duration> {
     match env.map(str::trim).and_then(|v| v.parse::<u64>().ok()) {
         Some(0) => None,
@@ -88,5 +107,14 @@ mod tests {
         assert_eq!(parse_timeout(Some(" 2 ")), Some(Duration::from_secs(2)));
         assert_eq!(parse_timeout(Some("0")), None);
         assert_eq!(parse_timeout(Some("fast")), Some(DEFAULT_EXIT_TIMEOUT));
+    }
+
+    #[test]
+    fn quit_for_update_still_arms_the_exit_deadline() {
+        assert_eq!(forced_exit_code(true, false, false), Some(0));
+        assert_eq!(forced_exit_code(false, false, false), Some(0));
+        assert_eq!(forced_exit_code(false, false, true), Some(1));
+        assert_eq!(forced_exit_code(true, true, false), None);
+        assert_eq!(forced_exit_code(false, true, false), None);
     }
 }

@@ -1209,9 +1209,12 @@ pub async fn run(
     .await;
     signal_handler::clear_quit_notify();
     let forced_exit_code = match &result {
-        Ok(run_result) if run_result.quit_for_update || run_result.relaunch.is_some() => None,
-        Ok(_) => Some(0),
-        Err(_) => Some(1),
+        Ok(run_result) => exit_timeout::forced_exit_code(
+            run_result.quit_for_update,
+            run_result.relaunch.is_some(),
+            false,
+        ),
+        Err(_) => exit_timeout::forced_exit_code(false, false, true),
     };
     if let Some(code) = forced_exit_code {
         exit_timeout::arm(code);
