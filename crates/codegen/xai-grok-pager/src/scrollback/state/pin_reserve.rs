@@ -485,6 +485,62 @@ mod tests {
     }
 
     #[test]
+    fn compaction_notice_after_the_turn_scrolls_into_view() {
+        use crate::scrollback::blocks::SessionEvent;
+        let (mut state, prompt_idx) = tall_history_then_prompt();
+        state.follow_new_turn(Some(prompt_idx), true);
+        state.prepare_layout(80, 8);
+        let pin = state.scroll_offset();
+
+        state.push_block(agent_block("short answer"));
+        state.prepare_layout(80, 8);
+        state.note_pin_reserve_turn_finished();
+        state.push_block(RenderBlock::session_event(SessionEvent::TurnCompleted {
+            elapsed: Some(std::time::Duration::from_secs(2)),
+        }));
+        state.prepare_layout(80, 8);
+        assert_eq!(
+            state.scroll_offset(),
+            pin,
+            "a turn marker after the pin freezes must stay put"
+        );
+
+        for i in 0..12 {
+            state.push_block(agent_block(&format!("late line {i}")));
+        }
+        state.prepare_layout(80, 8);
+        assert_eq!(
+            state.scroll_offset(),
+            pin,
+            "ordinary rows after the turn must not consume the pin"
+        );
+
+        let compaction = state.push_block(RenderBlock::session_event(
+            SessionEvent::CompactionCompleted {
+                tokens_before: Some(48_800),
+                tokens_after: 27_100,
+                elapsed_ms: Some(2_100),
+            },
+        ));
+        state.prepare_layout(80, 8);
+
+        let idx = state.index_of_id(compaction).expect("compaction entry");
+        assert!(
+            state.entry_overlaps_viewport(idx),
+            "the compaction line must scroll into view"
+        );
+        let (_, view_bottom) = state.viewport_virtual_bounds().expect("viewport");
+        let cache = state.layout_cache.as_ref().expect("layout");
+        let entry_top = cache.virtual_y.get(idx).copied().expect("compaction y");
+        let height = cache.entries.get(idx).expect("compaction layout").height as usize;
+        assert!(
+            entry_top + height <= view_bottom,
+            "the whole compaction line must sit inside the viewport"
+        );
+        assert!(state.scroll_offset() > pin);
+    }
+
+    #[test]
     fn post_turn_visibility_invalidation_cannot_strand_viewport_in_padding() {
         crate::appearance::cache::set_show_thinking_blocks(true);
         let (mut state, prompt_idx) = tall_history_then_prompt();

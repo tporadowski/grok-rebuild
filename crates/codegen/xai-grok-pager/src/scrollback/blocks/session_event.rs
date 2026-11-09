@@ -582,6 +582,19 @@ impl SessionEvent {
         )
     }
 
+    /// A compaction status line. Page-flip keeps the prompt pinned after the turn, so this line is scrolled into view on its own.
+    pub fn is_compaction_notice(&self) -> bool {
+        matches!(
+            self,
+            SessionEvent::CompactionStarted { .. }
+                | SessionEvent::CompactionCompleted { .. }
+                | SessionEvent::CompactionFailed { .. }
+                | SessionEvent::CompactionCancelled
+                | SessionEvent::CompactStarted
+                | SessionEvent::CompactCompleted { .. }
+        )
+    }
+
     /// Whether this event ends an agent turn. [`SessionEvent::RequestFailed`] and [`SessionEvent::ReAuthRequired`] are
     /// excluded: RetryState may push them before PromptResponse, and dedicated banners skip the TurnFailed marker.
     pub fn is_turn_terminal(&self) -> bool {

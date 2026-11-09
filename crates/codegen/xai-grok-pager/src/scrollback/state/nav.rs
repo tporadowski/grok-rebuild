@@ -1100,13 +1100,65 @@ impl ScrollbackState {
                 self.follow_preserve_scroll = false;
                 self.release_pin_reserve();
                 self.scroll_offset = self.max_scroll_offset();
+            } else {
+                // The pin stays after the turn, so a compaction line appended then would sit
+                // below the viewport. Nudge just far enough to show that line.
+                self.reveal_compaction_notice_below_the_view();
             }
-            // Otherwise: all new content still fits below the prompt. Stay put.
         } else {
             // Normal follow: scroll to bottom, unconditionally
             // max_scroll_offset() is 0 when the content fits, which also heals an offset left wedged past the end by a shrink
             self.scroll_offset = self.max_scroll_offset();
         }
+    }
+
+    /// Scroll the latest compaction status line into the viewport when the page-flip pin is holding the prompt after the turn.
+    /// Other post-turn rows stay put: only this line is brought up from below the bottom.
+    fn reveal_compaction_notice_below_the_view(&mut self) {
+        if !self.pin_reserve_after_turn {
+            return;
+        }
+        let Some(idx) = self.latest_compaction_notice_index() else {
+            return;
+        };
+        let Some(cache) = self.layout_cache.as_ref() else {
+            return;
+        };
+        let Some(&entry_top) = cache.virtual_y.get(idx) else {
+            return;
+        };
+        let Some(info) = cache.entries.get(idx) else {
+            return;
+        };
+        let height = info.height as usize;
+        if height == 0 {
+            return;
+        }
+        let entry_bottom = entry_top.saturating_add(height);
+        let Some((_, view_bottom)) = self.viewport_virtual_bounds() else {
+            return;
+        };
+        if entry_bottom <= view_bottom {
+            return;
+        }
+        let delta = entry_bottom - view_bottom;
+        self.scroll_offset = self
+            .scroll_offset
+            .saturating_add(delta)
+            .min(self.max_scroll_offset());
+    }
+
+    fn latest_compaction_notice_index(&self) -> Option<usize> {
+        self.entries
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(idx, (_, entry))| {
+                let RenderBlock::SessionEvent(block) = &entry.block else {
+                    return None;
+                };
+                block.event.is_compaction_notice().then_some(idx)
+            })
     }
 }
 
