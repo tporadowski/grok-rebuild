@@ -5648,6 +5648,115 @@ fn execute_block(entry: &ScrollbackEntry) -> &ExecuteToolCallBlock {
     }
 }
 
+fn replay_user_text(text: &str, prompt_index: usize) -> acp::SessionUpdate {
+    let mut chunk_meta = serde_json::Map::new();
+    chunk_meta.insert("promptIndex".into(), serde_json::json!(prompt_index));
+    acp::SessionUpdate::UserMessageChunk(
+        acp::ContentChunk::new(acp::ContentBlock::Text(acp::TextContent::new(
+            text.to_string(),
+        )))
+        .meta(Some(chunk_meta)),
+    )
+}
+
+fn replay_user_image(display_number: usize, prompt_index: usize) -> acp::SessionUpdate {
+    let mut chunk_meta = serde_json::Map::new();
+    chunk_meta.insert("promptIndex".into(), serde_json::json!(prompt_index));
+    let image = acp::ImageContent::new("aGVsbG8=".to_string(), "image/png".to_string()).meta(Some(
+        xai_grok_shell::session::placeholder_images::display_number_meta(display_number),
+    ));
+    acp::SessionUpdate::UserMessageChunk(
+        acp::ContentChunk::new(acp::ContentBlock::Image(image)).meta(Some(chunk_meta)),
+    )
+}
+
+/// Resume replays the persisted text chunk, then the image chunks that were actually sent.
+/// A placeholder whose display number is on one of those images is sent. One that is only text is struck through.
+#[test]
+fn replayed_user_prompt_marks_sent_and_struck_image_placeholders() {
+    let _guard = crate::theme::cache::pin_theme();
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    let replay = NotificationMeta {
+        is_replay: true,
+        ..Default::default()
+    };
+    assert!(tracker.handle_update(
+        replay_user_text("see [Image #1] and [Image #2: /tmp/miss.png]", 0),
+        &replay,
+        &mut sb,
+    ));
+    assert!(
+        tracker.handle_update(replay_user_image(1, 0), &replay, &mut sb),
+        "an image chunk marks the open prompt and asks for a redraw"
+    );
+    assert_eq!(sb.len(), 1, "the image chunk must not paint its own row");
+    tracker.handle_update(agent_chunk("ok"), &replay, &mut sb);
+    assert!(tracker.handle_update(
+        replay_user_text("later [Image #3]", 1),
+        &replay,
+        &mut sb,
+    ));
+    // A late image for the first prompt must not green a placeholder on the second.
+    tracker.handle_update(replay_user_image(3, 0), &replay, &mut sb);
+
+    let prompts: Vec<_> = (0..sb.len())
+        .filter_map(|idx| match &sb.get(idx).unwrap().block {
+            RenderBlock::UserPrompt(block) => Some(block),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(prompts.len(), 2);
+
+    let theme = crate::theme::Theme::current();
+    let first = prompt_lines(prompts[0]);
+    let sent = first
+        .iter()
+        .find(|span| span.content.as_ref() == "[Image #1]")
+        .expect("sent placeholder");
+    assert_eq!(sent.style.fg, Some(theme.accent_success));
+    assert!(!sent.style.add_modifier.contains(ratatui::style::Modifier::CROSSED_OUT));
+    let typed = first
+        .iter()
+        .find(|span| span.content.as_ref() == "[Image #2: /tmp/miss.png]")
+        .expect("typed placeholder");
+    assert!(typed.style.add_modifier.contains(ratatui::style::Modifier::CROSSED_OUT));
+    assert_ne!(typed.style.fg, Some(theme.accent_success));
+
+    let second = prompt_lines(prompts[1]);
+    let later = second
+        .iter()
+        .find(|span| span.content.as_ref() == "[Image #3]")
+        .expect("later placeholder");
+    assert!(later.style.add_modifier.contains(ratatui::style::Modifier::CROSSED_OUT));
+    assert_ne!(later.style.fg, Some(theme.accent_success));
+}
+
+fn prompt_lines(
+    block: &crate::scrollback::blocks::UserPromptBlock,
+) -> Vec<ratatui::text::Span<'static>> {
+    use crate::scrollback::block::BlockContent;
+    use crate::scrollback::types::{BlockContext, DisplayMode};
+    let entry = ScrollbackEntry::new(RenderBlock::UserPrompt(block.clone()));
+    let ctx = BlockContext {
+        width: 100,
+        mode: DisplayMode::Expanded,
+        is_running: false,
+        raw: false,
+        max_lines: None,
+        appearance: Default::default(),
+        is_selected: false,
+        cwd: None,
+    };
+    entry
+        .block
+        .output(&ctx)
+        .lines
+        .into_iter()
+        .flat_map(|line| line.content.spans)
+        .collect()
+}
+
 /// A cancelled turn marks tool calls that never finished as cancelled. A normal finish still treats them as successful.
 #[test]
 fn cancel_turn_marks_unanswered_tool_calls_cancelled() {

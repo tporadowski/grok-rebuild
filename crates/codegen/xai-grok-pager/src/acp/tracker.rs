@@ -380,6 +380,11 @@ pub struct AcpUpdateTracker {
     /// When true, the next UserMessageChunk is silently ignored because we already pushed the user prompt entry from `dispatch_send_prompt`.
     /// Reset after one skip.
     skip_next_user_echo: bool,
+    /// User-prompt rows painted for the echo that is still open.
+    /// A following image chunk with the same `promptIndex` marks those placeholders sent or struck through.
+    open_user_prompt_ids: Vec<EntryId>,
+    open_user_prompt_index: Option<usize>,
+    open_sent_image_numbers: Vec<usize>,
     /// When true, the next UserMessageChunk is a skill body that follows a skill metadata chunk.
     /// It should be silently absorbed so the raw skill instructions don't appear in scrollback.
     skip_next_skill_body: bool,
@@ -1063,6 +1068,10 @@ impl AcpUpdateTracker {
             self.writing_tool_call = None;
             self.writing_tool_names.clear();
         }
+        // The model has moved past the user echo, so a later image chunk must not mark that prompt.
+        if is_agent_output {
+            self.clear_open_user_prompt();
+        }
         let changed = match update {
             acp::SessionUpdate::AgentMessageChunk(chunk) => {
                 self.blocking_waits.clear();
@@ -1594,6 +1603,78 @@ impl AcpUpdateTracker {
             false
         }
     }
+    fn clear_open_user_prompt(&mut self) {
+        self.open_user_prompt_ids.clear();
+        self.open_sent_image_numbers.clear();
+        self.open_user_prompt_index = None;
+    }
+
+    /// A new text chunk starts a prompt. Further text chunks with the same `promptIndex` stay in that prompt.
+    /// A chunk with no index is its own prompt: the shell's older sessions did not stamp one.
+    fn begin_user_text(&mut self, prompt_index: Option<usize>) {
+        let same_prompt = prompt_index.is_some() && self.open_user_prompt_index == prompt_index;
+        if !same_prompt {
+            self.open_user_prompt_ids.clear();
+            self.open_sent_image_numbers.clear();
+            self.open_user_prompt_index = prompt_index;
+        }
+    }
+
+    /// Paint one user row and remember it so a later image chunk can mark its placeholders.
+    fn track_painted_user_prompt(
+        &mut self,
+        scrollback: &mut ScrollbackState,
+        mut block: crate::scrollback::blocks::UserPromptBlock,
+    ) -> EntryId {
+        let numbers = self.open_sent_image_numbers.clone();
+        block.mark_image_placeholders(&numbers);
+        let id = scrollback.push_block(RenderBlock::UserPrompt(block));
+        self.open_user_prompt_ids.push(id);
+        id
+    }
+
+    /// An image chunk of the open prompt names a placeholder that was actually sent.
+    /// Returns whether a painted row was marked.
+    fn note_sent_image_chunk(
+        &mut self,
+        chunk: &acp::ContentChunk,
+        scrollback: &mut ScrollbackState,
+    ) -> bool {
+        let acp::ContentBlock::Image(image) = &chunk.content else {
+            return false;
+        };
+        let Some(number) = xai_grok_shell::session::placeholder_images::display_number_from_meta(
+            image.meta.as_ref(),
+        ) else {
+            return false;
+        };
+        let matches_open = match (chunk_prompt_index(chunk), self.open_user_prompt_index) {
+            (Some(chunk_index), Some(open_index)) => chunk_index == open_index,
+            (None, None) => !self.open_user_prompt_ids.is_empty(),
+            _ => false,
+        };
+        if !matches_open {
+            return false;
+        }
+        if !self.open_sent_image_numbers.contains(&number) {
+            self.open_sent_image_numbers.push(number);
+        }
+        let ids = self.open_user_prompt_ids.clone();
+        let numbers = self.open_sent_image_numbers.clone();
+        let mut marked = false;
+        for id in ids {
+            let Some(entry) = scrollback.get_by_id_mut(id) else {
+                continue;
+            };
+            if let RenderBlock::UserPrompt(block) = &mut entry.block {
+                block.mark_image_placeholders(&numbers);
+                marked = true;
+            }
+            entry.invalidate_cache();
+        }
+        marked
+    }
+
     /// Handle a user message chunk (session replay or live followup).
     /// If `skip_next_user_echo` is set, this is the ACP echo of a prompt we already added to scrollback.
     /// Drop it but still reset tracking state so the agent's response creates fresh entries.
@@ -1609,6 +1690,11 @@ impl AcpUpdateTracker {
             return false;
         }
         if text.is_empty() {
+            // Image chunks follow the text chunk of the same prompt. The leader already marked its
+            // optimistic bubble and is still skipping that echo, so those chunks must not retarget an older row.
+            if !self.skip_next_user_echo {
+                return self.note_sent_image_chunk(&chunk, scrollback);
+            }
             return false;
         }
         self.finish_thinking(scrollback);
@@ -1627,6 +1713,9 @@ impl AcpUpdateTracker {
         }
         if self.skip_next_user_echo {
             self.skip_next_user_echo = false;
+            // The optimistic bubble already has its marks. Drop the open echo so this prompt's image
+            // chunks, which arrive after the skipped text, cannot strike or green an older row.
+            self.clear_open_user_prompt();
             if text.contains("<command-name>") {
                 self.skip_next_skill_body = true;
             }
@@ -1662,18 +1751,15 @@ impl AcpUpdateTracker {
             }
             return false;
         }
-        let prompt_index = chunk
-            .meta
-            .as_ref()
-            .and_then(|m| m.get(user_message_chunk_meta::PROMPT_INDEX))
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize);
+        let prompt_index = chunk_prompt_index(&chunk);
         if let Some(segments) = combined_display_texts_from_chunk(&chunk) {
+            self.begin_user_text(prompt_index);
             let mut last_id = None;
             for seg in &segments {
-                last_id = Some(scrollback.push_block(RenderBlock::UserPrompt(
+                last_id = Some(self.track_painted_user_prompt(
+                    scrollback,
                     crate::scrollback::blocks::UserPromptBlock::new(seg.clone()),
-                )));
+                ));
             }
             if let (Some(pi), Some(id)) = (prompt_index, last_id)
                 && let Some(entry) = scrollback.get_by_id_mut(id)
@@ -1752,7 +1838,8 @@ impl AcpUpdateTracker {
             }
         };
         block.prompt_index = prompt_index;
-        let entry_id = scrollback.push_block(RenderBlock::UserPrompt(block));
+        self.begin_user_text(prompt_index);
+        let entry_id = self.track_painted_user_prompt(scrollback, block);
         let ts_ms = meta.turn_start_ms.or(meta.agent_timestamp_ms);
         if let Some(ms) = ts_ms
             && let Some(entry) = scrollback.get_by_id_mut(entry_id)
@@ -1762,6 +1849,15 @@ impl AcpUpdateTracker {
         true
     }
 }
+fn chunk_prompt_index(chunk: &acp::ContentChunk) -> Option<usize> {
+    chunk
+        .meta
+        .as_ref()
+        .and_then(|m| m.get(user_message_chunk_meta::PROMPT_INDEX))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+}
+
 /// Per-prompt display strings from combine ([`user_prompt_meta::COMBINED_DISPLAY_TEXTS`]).
 fn combined_display_texts_from_chunk(chunk: &acp::ContentChunk) -> Option<Vec<String>> {
     let acp::ContentBlock::Text(t) = &chunk.content else {
