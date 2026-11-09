@@ -4532,11 +4532,11 @@ pub(crate) fn execute(
                             .into(),
                     );
                     match acp_send(request, &tx).await {
-                        Ok(_) => {
+                        Ok(resp) => {
                             TaskResult::RecapRequested {
                                 session_id,
                                 auto,
-                                error: None,
+                                error: helpers::recap_ack_error(resp.0.get()),
                             }
                         }
                         Err(e) => {

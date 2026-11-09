@@ -103,6 +103,8 @@ Communication follows the JSON-RPC 2.0 format. A typical session lifecycle:
 4. **Receive updates** -- agent sends `session/update` notifications with streamed content
 5. **Handle permissions** -- agent may request tool execution approval (or allow or deny based on permission mode)
 
+A request whose parameters do not parse names the method and the reason. `x.ai/recap` answers in the `{ result, error }` envelope, including when the session is missing.
+
 ### Architecture
 
 ```

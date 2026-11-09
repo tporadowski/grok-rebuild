@@ -55,13 +55,19 @@ use serde::de::DeserializeOwned;
 use std::sync::Arc;
 pub type ExtResult = Result<acp::ExtResponse, acp::Error>;
 pub(crate) fn parse_params<T: DeserializeOwned>(args: &acp::ExtRequest) -> Result<T, acp::Error> {
-    parse_params_str(args.params.get())
+    parse_method_params(&args.method, args.params.get())
 }
 /// Deserialize ACP params from their raw JSON string, mapping a parse failure to `invalid_params`.
 /// Used by [`parse_params`] and the bridge `encode` hooks, which hold the params `RawValue` directly.
 pub(crate) fn parse_params_str<T: DeserializeOwned>(raw: &str) -> Result<T, acp::Error> {
-    serde_json::from_str(raw)
-        .map_err(|e| acp::Error::invalid_params().data(format!("invalid params: {}", e)))
+    parse_method_params("request", raw)
+}
+/// A malformed stdio request names the method and the parse reason once.
+/// The JSON-RPC error is already `Invalid params`, so the detail does not repeat that label.
+fn parse_method_params<T: DeserializeOwned>(method: &str, raw: &str) -> Result<T, acp::Error> {
+    serde_json::from_str(raw).map_err(|error| {
+        acp::Error::invalid_params().data(format!("{method}: {error}"))
+    })
 }
 pub fn parse_session_id(args: &acp::ExtRequest) -> Option<acp::SessionId> {
     let v: serde_json::Value = serde_json::from_str(args.params.get()).ok()?;
@@ -95,3 +101,39 @@ pub(crate) fn to_ext_response_partial<T: Serialize>(
 /// Empty response for operations that return no data.
 #[derive(Debug, Serialize)]
 pub struct Empty {}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::parse_params;
+    use agent_client_protocol as acp;
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RecapRequest {
+        session_id: String,
+    }
+
+    #[test]
+    fn malformed_ext_request_names_the_method_once() {
+        let raw = serde_json::value::to_raw_value(&serde_json::json!({})).unwrap();
+        let args = acp::ExtRequest::new("x.ai/recap", raw.into());
+        let err = parse_params::<RecapRequest>(&args).unwrap_err();
+        let detail = err
+            .data
+            .as_ref()
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        assert!(
+            detail.starts_with("x.ai/recap:"),
+            "the method names the bad request: {detail}"
+        );
+        assert!(
+            detail.contains("sessionId"),
+            "the reason names the missing field: {detail}"
+        );
+        assert!(
+            !detail.contains("invalid params"),
+            "the JSON-RPC label is not repeated: {detail}"
+        );
+    }
+}

@@ -438,6 +438,24 @@ pub(crate) fn is_disk_full_error(raw: &str) -> bool {
         || raw.contains(xai_fast_worktree::ENOSPC_OS_MESSAGE)
         || raw.contains("Disk quota exceeded") || raw.contains("Out of disk space")
 }
+/// Error text inside an `x.ai/recap` `{ result, error }` ack.
+/// An accepted recap has no `error`. A string or `{ message }` error is the refusal.
+pub(crate) fn recap_ack_error(body: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(body).ok()?;
+    let error = parsed.get("error")?;
+    let text = error.as_str().map(str::to_string).or_else(|| {
+        error
+            .get("message")
+            .and_then(|message| message.as_str())
+            .map(str::to_string)
+    })?;
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
 /// Sanitize an error string before showing it to the user.
 ///
 /// Strips protocol jargon (ACP, JSON-RPC) and other technical noise that would be meaningless in a toast, and collapses known disk-full markers.

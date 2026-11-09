@@ -37,9 +37,11 @@ pub async fn handle(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
     // An automatic recap fires when the user returns after being away; after a leader restart the reconnect may still be replaying `session/load`
     // Wait for that load to finish instead of failing with "session not found"
     let Some(session) = agent.session_handle_waiting_for_load(&sid).await else {
-        return Err(
-            acp::Error::invalid_params().data(format!("session not found: {}", req.session_id))
-        );
+        // Same `{ result, error }` envelope as an accepted or disabled recap.
+        return to_ext_response::<serde_json::Value>(Err(anyhow::anyhow!(
+            "session not found: {}",
+            req.session_id
+        )));
     };
 
     // Fire-and-forget: the recap is emitted later as a SessionRecap notification

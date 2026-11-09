@@ -1,5 +1,29 @@
 #![cfg_attr(rustfmt, rustfmt::skip)]
 use super::*;
+
+#[test]
+fn recap_ack_reads_the_envelope_error_and_ignores_an_accepted_recap() {
+    assert_eq!(
+        super::helpers::recap_ack_error(r#"{"result":{"ok":true},"error":null}"#),
+        None
+    );
+    assert_eq!(
+        super::helpers::recap_ack_error(r#"{"result":{"ok":true,"disabled":true}}"#),
+        None
+    );
+    assert_eq!(
+        super::helpers::recap_ack_error(
+            r#"{"result":null,"error":"session not found: missing-session"}"#
+        ),
+        Some("session not found: missing-session".to_string())
+    );
+    assert_eq!(
+        super::helpers::recap_ack_error(
+            r#"{"result":null,"error":{"code":"not_found","message":"session not found: s"}}"#
+        ),
+        Some("session not found: s".to_string())
+    );
+}
 fn nth<T>(xs: &[T], i: usize) -> &T {
     let Some(x) = xs.get(i) else {
         panic!("expected index {i}, len {}", xs.len());

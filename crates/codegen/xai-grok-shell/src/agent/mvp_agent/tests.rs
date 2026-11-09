@@ -2602,7 +2602,58 @@ async fn upload_trace_unknown_intent_is_rejected() {
     )
     .await;
     assert_eq!(err.code, acp::Error::invalid_params().code);
-    assert!(err.to_string().contains("invalid params"), "got: {err}");
+    let detail = err
+        .data
+        .as_ref()
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    assert!(
+        detail.starts_with("x.ai/feedback/upload-trace:"),
+        "a bad intent names the method: {detail}"
+    );
+    assert!(
+        !detail.contains("invalid params"),
+        "the JSON-RPC label is not repeated: {detail}"
+    );
+}
+#[tokio::test]
+#[serial_test::serial]
+async fn missing_session_recap_uses_the_result_error_envelope() {
+    let _recap = xai_grok_test_support::EnvGuard::unset("GROK_SESSION_RECAP");
+    let agent = build_agent_with_auth(personal_xai_oauth_auth());
+    {
+        let mut cfg = agent.cfg.borrow_mut();
+        cfg.feature_values
+            .insert(crate::agent::config::Feature::SessionRecap, true);
+    }
+    let raw = serde_json::value::to_raw_value(&serde_json::json!({
+        "sessionId": "missing-session"
+    }))
+    .unwrap();
+    let request = acp::ExtRequest::new("x.ai/recap", raw.into());
+    let response = crate::extensions::recap::handle(&agent, &request)
+        .await
+        .expect("a missing session still answers in the envelope");
+    let body: serde_json::Value = serde_json::from_str(response.0.get()).unwrap();
+    assert!(
+        body.get("result").is_some_and(serde_json::Value::is_null),
+        "a missing session has no result: {body}"
+    );
+    assert_eq!(body["error"], "session not found: missing-session");
+
+    let bad = serde_json::value::to_raw_value(&serde_json::json!({})).unwrap();
+    let bad_request = acp::ExtRequest::new("x.ai/recap", bad.into());
+    let err = crate::extensions::recap::handle(&agent, &bad_request)
+        .await
+        .expect_err("malformed recap params are a request error");
+    let detail = err
+        .data
+        .as_ref()
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    assert!(detail.starts_with("x.ai/recap:"), "{detail}");
+    assert!(detail.contains("sessionId"), "{detail}");
+    assert!(!detail.contains("invalid params"), "{detail}");
 }
 #[tokio::test]
 #[serial_test::serial]
