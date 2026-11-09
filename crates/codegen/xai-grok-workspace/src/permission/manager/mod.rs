@@ -1164,7 +1164,11 @@ pub fn spawn_permission_manager_with_pin(
                     }
 
                     let mut pre_decision: Option<(Decision, &'static str)> = match &access {
-                        AccessKind::Read(_) | AccessKind::Grep { .. } if policy_forced_prompt => {
+                        AccessKind::Read(_)
+                        | AccessKind::Grep { .. }
+                        | AccessKind::WebSearch(_)
+                            if policy_forced_prompt =>
+                        {
                             None
                         }
                         AccessKind::Read(_) => Some((Decision::Allow, reasons::SAFE_COMMAND)),
@@ -1238,6 +1242,8 @@ pub fn spawn_permission_manager_with_pin(
                                     web_fetch_deny_pre_decision(&parsed_url, &state)
                                 {
                                     Some((reject, reasons::SESSION_DENY))
+                                } else if policy_forced_prompt {
+                                    None
                                 } else if static_domain_matcher.check(&parsed_url).is_none() {
                                     tracing::debug!(
                                         url = %url,
@@ -2055,6 +2061,91 @@ mod tests {
                 assert!(
                     matches!(d, Decision::Allow),
                     "non-ask read must auto-allow, got {d:?}"
+                );
+            })
+            .await;
+    }
+
+    /// A web search is safe by default, and a fetch on the allowlist is too.
+    /// An ask rule on either one still prompts instead of taking that auto-approve.
+    #[tokio::test]
+    async fn ask_rules_for_web_search_and_fetch_prompt() {
+        use crate::permission::types::{
+            PatternMode, PermissionConfig, PermissionRule, RuleAction, ToolFilter,
+        };
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let tmp = tempfile::tempdir().unwrap();
+                let cwd = AbsPathBuf::new(tmp.path().to_path_buf()).unwrap();
+                let ask = |tool, pattern: &str, mode| PermissionRule {
+                    action: RuleAction::Ask,
+                    tool,
+                    pattern: Some(pattern.to_owned()),
+                    pattern_mode: mode,
+                };
+                let config = PermissionConfig::new(vec![
+                    ask(ToolFilter::WebSearch, "secret*", PatternMode::Glob),
+                    ask(
+                        ToolFilter::WebFetch,
+                        "example.com",
+                        PatternMode::Domain,
+                    ),
+                ]);
+                let tc = || {
+                    acp::ToolCallUpdate::new(
+                        acp::ToolCallId::new(Arc::from("tc")),
+                        acp::ToolCallUpdateFields::default(),
+                    )
+                };
+                let domains = vec!["example.com".to_owned(), "docs.rs".to_owned()];
+                let (tx, rx) = mpsc::unbounded_channel();
+                drop(rx);
+                let (mgr, _e) = spawn_permission_manager_with_pin(
+                    acp::SessionId::new(Arc::from("test-session")),
+                    GatewaySender::new(tx),
+                    cwd.clone(),
+                    ClientType::Generic,
+                    Some(config),
+                    vec![],
+                    domains.clone(),
+                    false,
+                    None,
+                    true,
+                    None,
+                    None,
+                );
+                let asked_search = decide(
+                    &mgr,
+                    AccessKind::WebSearch("secret plans".into()),
+                    tc(),
+                )
+                .await;
+                assert!(
+                    !matches!(asked_search, Decision::Allow),
+                    "ask-ruled web search must prompt, got {asked_search:?}"
+                );
+                let open_search =
+                    decide(&mgr, AccessKind::WebSearch("weather".into()), tc()).await;
+                assert!(
+                    matches!(open_search, Decision::Allow),
+                    "a search outside the ask rule must auto-allow, got {open_search:?}"
+                );
+                let asked_fetch = decide(
+                    &mgr,
+                    AccessKind::WebFetch("https://example.com/x".into()),
+                    tc(),
+                )
+                .await;
+                assert!(
+                    !matches!(asked_fetch, Decision::Allow),
+                    "ask-ruled allowlisted fetch must prompt, got {asked_fetch:?}"
+                );
+                let open_fetch =
+                    decide(&mgr, AccessKind::WebFetch("https://docs.rs/x".into()), tc()).await;
+                assert!(
+                    matches!(open_fetch, Decision::Allow),
+                    "an allowlisted fetch outside the ask rule must auto-allow, got {open_fetch:?}"
                 );
             })
             .await;

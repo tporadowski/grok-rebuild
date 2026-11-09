@@ -828,16 +828,16 @@ Refresh these numbers at the end of a session.
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
-| W12 | MCP, web, images, and browser | 47 | 0 | 12 | 0 | 0 |
+| W12 | MCP, web, images, and browser | 46 | 0 | 13 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 236. Skipped: 8. Done: 283. Already: 46. Deferred: 10.
+Catalog rows: 583. Pending: 235. Skipped: 8. Done: 284. Already: 46. Deferred: 10.
 
-**Next:** W12 MCP, web, images, and browser. First open row: **Ask rules for WebSearch and WebFetch** now correctly show a prompt instead of auto-running (`v48-x04`).
+**Next:** W12 MCP, web, images, and browser. First open row: **Web searches, fetches, and image generation** now correctly respect the prompt_policy setting and rule decisions before prompting (`v49-x02`).
 
 ## Waves
 
@@ -887,7 +887,7 @@ Pending: 0. Done: 35 (`v46-x05`, `v48-x03`, `v48-x05`, `v50-f07`, `v50-x02`, `v5
 
 ### W12 — MCP, web, images, and browser
 
-Pending: 47. Done: 12 (`v46-x02`, `v46-x06`, `v46-x07`). Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing. A folded run of tool searches says `Ran N tool searches`. The count is the searches, not the MCP tools they returned (`v46-x02`). Enter on a video card starts inline playback only when the terminal can show images and ffmpeg is available (`v46-x06`). Otherwise Enter opens the file in the default player, and a missing ffmpeg does not spawn a poster extract (`v46-x07`).
+Pending: 46. Done: 13 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`). Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing. A folded run of tool searches says `Ran N tool searches`. The count is the searches, not the MCP tools they returned (`v46-x02`). Enter on a video card starts inline playback only when the terminal can show images and ffmpeg is available (`v46-x06`). Otherwise Enter opens the file in the default player, and a missing ffmpeg does not spawn a poster extract (`v46-x07`). An ask rule for a web search, or for a web fetch whose host is already allowed, prompts instead of running on its own (`v48-x04`).
 
 ### W13 — Update, install, and sign-in
 
@@ -1230,7 +1230,7 @@ id | status | wave | kind | flag | covered | note
 - v46-x02 | done | W12 | Bug Fixes |  |  | **Tool search** activity now correctly folds as "Ran N tool searches" instead of claiming MCP tool results.
 - v46-x06 | done | W12 | Bug Fixes |  |  | **Enter on video cards** no longer attempts playback in terminals that cannot show it or lack ffmpeg.
 - v46-x07 | done | W12 | Bug Fixes |  |  | **Video cards** now open the file in the default player on Enter in terminals without inline playback support, and no longer get stuck trying to extract posters without ffmpeg.
-- v48-x04 | pending | W12 | Bug Fixes |  |  | **Ask rules for WebSearch and WebFetch** now correctly show a prompt instead of auto-running.
+- v48-x04 | done | W12 | Bug Fixes |  |  | **Ask rules for WebSearch and WebFetch** now correctly show a prompt instead of auto-running.
 - v49-x02 | pending | W12 | Bug Fixes |  |  | **Web searches, fetches, and image generation** now correctly respect the prompt_policy setting and rule decisions before prompting.
 - v50-x20 | pending | W12 | Bug Fixes |  |  | When multiple MCP servers expose a tool with the same name, `search_tool` now returns all of them.
 - v50-x21 | pending | W12 | Bug Fixes |  |  | Concurrent Grok windows editing settings no longer lose or corrupt config.toml entries such as MCP servers or permission rules.
