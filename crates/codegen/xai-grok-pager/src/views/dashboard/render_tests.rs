@@ -4013,6 +4013,12 @@ fn dispatch_text_rows_grows_with_newlines() {
         8,
         "dispatch text rows saturate at the cap",
     );
+    state.dispatch.set_text("");
+    state.voice_interim = Some("one two three four five six seven eight nine ten".repeat(4));
+    assert!(
+        dispatch_text_rows(&state, width, height) > 1,
+        "a blank dispatch grows while voice preview text wraps"
+    );
 }
 
 /// Overview list focused (via Tab) with vim on: the nav chip is dropped from the bottom bar to save space.

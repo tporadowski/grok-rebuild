@@ -844,8 +844,13 @@ impl AgentView {
                 .desired_height(inner_width, &prompt_style, true, max_prompt_height)
                 .min(prompt_style.vpad_top + 1 + prompt_style.info_block(true))
         } else {
-            self.prompt
-                .desired_height(inner_width, &prompt_style, true, max_prompt_height)
+            self.prompt.desired_height_with_interim(
+                inner_width,
+                &prompt_style,
+                true,
+                max_prompt_height,
+                voice_interim,
+            )
         };
         let overlay_content_w = inner_width.saturating_sub(QUESTION_VIEW_HPAD) as usize;
         let slot_card = self.blocking_card();

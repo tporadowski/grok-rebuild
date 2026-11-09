@@ -136,7 +136,7 @@ pub(crate) fn render_dashboard(
 
     let mut layout = state.layout_with_preview(area, agents);
 
-    if state.peek.is_none() && area.height > 8 && !state.dispatch.text().is_empty() {
+    if state.peek.is_none() && area.height > 8 {
         let rows = dispatch_text_rows(state, layout.dispatch.width, area.height);
         if rows > 1 {
             layout = super::layout::compute_layout_with_dispatch(area, false, rows);
@@ -2476,9 +2476,13 @@ fn dispatch_text_rows(state: &DashboardState, dispatch_width: u16, area_height: 
         chrome: false,
         ..PromptStyle::default()
     };
-    state
-        .dispatch
-        .desired_height(content_w, &style, false, max_text_rows)
+    state.dispatch.desired_height_with_interim(
+        content_w,
+        &style,
+        false,
+        max_text_rows,
+        state.voice_interim.as_deref(),
+    )
 }
 
 /// Top and bottom border rows of a dispatch dropdown panel.

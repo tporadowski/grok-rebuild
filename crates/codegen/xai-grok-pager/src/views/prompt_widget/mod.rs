@@ -395,7 +395,9 @@ pub struct VoicePromptOverlay<'a> {
     pub color: ratatui::style::Color,
 }
 
-/// Greedy word-wrap the interim transcript into at most `max_rows` lines of `max_w` columns, appending an ellipsis to the last line when truncated.
+/// Greedy word-wrap the interim transcript into at most `max_rows` lines of `max_w` columns.
+/// A transcript taller than the box keeps its newest rows. The first visible row starts with `…`
+/// when older rows scrolled off.
 fn wrap_voice_interim(text: &str, max_w: usize, max_rows: usize) -> Vec<String> {
     use unicode_width::UnicodeWidthStr;
     if max_w == 0 || max_rows == 0 {
@@ -406,18 +408,34 @@ fn wrap_voice_interim(text: &str, max_w: usize, max_rows: usize) -> Vec<String> 
     let mut cur_w = 0usize;
     for word in text.split_whitespace() {
         let ww = UnicodeWidthStr::width(word);
+        if ww > max_w {
+            if !cur.is_empty() {
+                lines.push(std::mem::take(&mut cur));
+                cur_w = 0;
+            }
+            let mut rest = word;
+            while !rest.is_empty() {
+                let (chunk, next) = take_front_columns(rest, max_w);
+                if chunk.is_empty() {
+                    break;
+                }
+                if next.is_empty() {
+                    cur.push_str(chunk);
+                    cur_w = UnicodeWidthStr::width(cur.as_str());
+                    break;
+                }
+                lines.push(chunk.to_string());
+                rest = next;
+            }
+            continue;
+        }
         if !cur.is_empty() && cur_w + 1 + ww > max_w {
             lines.push(std::mem::take(&mut cur));
             cur_w = 0;
         }
         if cur.is_empty() {
-            if ww > max_w {
-                cur = crate::render::line_utils::truncate_str(word, max_w);
-                cur_w = UnicodeWidthStr::width(cur.as_str());
-            } else {
-                cur.push_str(word);
-                cur_w = ww;
-            }
+            cur.push_str(word);
+            cur_w = ww;
         } else {
             cur.push(' ');
             cur.push_str(word);
@@ -428,13 +446,94 @@ fn wrap_voice_interim(text: &str, max_w: usize, max_rows: usize) -> Vec<String> 
         lines.push(cur);
     }
     if lines.len() > max_rows {
-        lines.truncate(max_rows);
-        if let Some(last) = lines.last_mut() {
-            let trimmed = crate::render::line_utils::truncate_str(last, max_w.saturating_sub(1));
-            *last = format!("{trimmed}\u{2026}");
+        let drop = lines.len() - max_rows;
+        lines.drain(0..drop);
+        if let Some(first) = lines.first_mut() {
+            *first = mark_scrolled_voice_line(first, max_w);
         }
     }
     lines
+}
+
+/// Wrapped rows of an interim transcript, with no row cap.
+fn voice_interim_row_count(text: &str, max_w: usize) -> u16 {
+    u16::try_from(wrap_voice_interim(text, max_w, usize::MAX).len()).unwrap_or(u16::MAX)
+}
+
+/// The leading `max_w` columns of `s`, and the rest. An over-wide grapheme still consumes one column of progress.
+fn take_front_columns(s: &str, max_w: usize) -> (&str, &str) {
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
+    if s.is_empty() || max_w == 0 {
+        return ("", s);
+    }
+    let mut width = 0usize;
+    let mut end = 0usize;
+    for (i, grapheme) in s.grapheme_indices(true) {
+        let grapheme_w = UnicodeWidthStr::width(grapheme);
+        if grapheme_w > max_w && width == 0 {
+            let next = i + grapheme.len();
+            return (
+                s.get(..next).unwrap_or(""),
+                s.get(next..).unwrap_or(""),
+            );
+        }
+        if width > 0 && width + grapheme_w > max_w {
+            return (s.get(..end).unwrap_or(""), s.get(end..).unwrap_or(""));
+        }
+        width += grapheme_w;
+        end = i + grapheme.len();
+        if width >= max_w {
+            return (s.get(..end).unwrap_or(""), s.get(end..).unwrap_or(""));
+        }
+    }
+    (s, "")
+}
+
+/// The trailing `max_w` columns of `s`.
+fn take_end_columns(s: &str, max_w: usize) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
+    if max_w == 0 || s.is_empty() {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(s) <= max_w {
+        return s.to_string();
+    }
+    let graphemes: Vec<&str> = s.graphemes(true).collect();
+    let mut width = 0usize;
+    let mut start = graphemes.len();
+    while start > 0 {
+        let grapheme = graphemes.get(start - 1).copied().unwrap_or("");
+        let grapheme_w = UnicodeWidthStr::width(grapheme);
+        if width > 0 && width + grapheme_w > max_w {
+            break;
+        }
+        if grapheme_w > max_w && width == 0 {
+            return grapheme.to_string();
+        }
+        width += grapheme_w;
+        start -= 1;
+        if width >= max_w {
+            break;
+        }
+    }
+    graphemes.get(start..).unwrap_or(&[]).concat()
+}
+
+/// Prefix `…` and keep the end of `line` inside `max_w`.
+fn mark_scrolled_voice_line(line: &str, max_w: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    const ELLIPSIS: &str = "\u{2026}";
+    let ellipsis_w = UnicodeWidthStr::width(ELLIPSIS);
+    if max_w == 0 {
+        return String::new();
+    }
+    if max_w <= ellipsis_w {
+        return crate::render::line_utils::truncate_str(ELLIPSIS, max_w);
+    }
+    let tail = take_end_columns(line, max_w - ellipsis_w);
+    format!("{ELLIPSIS}{tail}")
 }
 
 /// Result of rendering the prompt.
@@ -1691,6 +1790,20 @@ impl PromptWidget {
         has_info: bool,
         max_height: u16,
     ) -> u16 {
+        self.desired_height_with_interim(area_width, style, has_info, max_height, None)
+    }
+
+    /// [`desired_height`] plus a live voice interim. A blank draft grows with the wrapped preview
+    /// so the words being spoken fit, up to `max_height`. A draft that already has text keeps its
+    /// own height: the ghost stays on the caret row.
+    pub fn desired_height_with_interim(
+        &self,
+        area_width: u16,
+        style: &PromptStyle,
+        has_info: bool,
+        max_height: u16,
+        interim: Option<&str>,
+    ) -> u16 {
         let content_width = self.content_width(area_width, style);
         let prefix_w = style.prefix_display_width(
             self.history_search.is_active() && !self.history_search.is_browse(),
@@ -1702,13 +1815,32 @@ impl PromptWidget {
         let text_height = if self.history_search.is_browse() {
             1
         } else {
-            self.textarea.desired_height(text_width).max(1)
+            self.textarea
+                .desired_height(text_width)
+                .max(1)
+                .max(self.blank_voice_preview_rows(interim, text_width))
         };
         let vpad_top = style.vpad_top;
         let info_block = style.info_block(has_info);
         let total = vpad_top + text_height + info_block;
         let min = vpad_top + 1 + info_block;
         total.clamp(min.min(max_height), max_height)
+    }
+
+    /// Wrapped rows of a voice interim shown in place of a blank draft. Zero when the draft already
+    /// has text, or when there is no interim.
+    fn blank_voice_preview_rows(&self, interim: Option<&str>, text_width: u16) -> u16 {
+        let Some(interim) = interim.map(str::trim).filter(|text| !text.is_empty()) else {
+            return 0;
+        };
+        if !crate::voice::prompt_blank_for_voice(self.textarea.text()) {
+            return 0;
+        }
+        let width = usize::from(text_width);
+        if width == 0 {
+            return 1;
+        }
+        voice_interim_row_count(interim, width).max(1)
     }
 
     /// Current vertical scroll offset of the textarea.
@@ -3419,7 +3551,12 @@ impl PromptWidget {
                         let saved: Vec<ratatui::buffer::Cell> = (tail_x..row_right)
                             .map(|x| buf.cell((x, row_y)).cloned().unwrap_or_default())
                             .collect();
-                        let truncated = crate::render::line_utils::truncate_str(&display, avail);
+                        // A ghost longer than the rest of the row keeps its newest columns.
+                        let truncated = if UnicodeWidthStr::width(display.as_str()) > avail {
+                            take_end_columns(&display, avail)
+                        } else {
+                            display
+                        };
                         let ghost_w =
                             unicode_width::UnicodeWidthStr::width(truncated.as_str()) as u16;
                         buf.set_string(start_x, row_y, &truncated, interim_style);

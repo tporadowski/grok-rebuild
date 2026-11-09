@@ -450,7 +450,7 @@ pub fn render_peek_panel(
     let prefix = "\u{276F} ";
     let prefix_w = UnicodeWidthStr::width(prefix) as u16;
     let reply_text_w = inner.width.saturating_sub(prefix_w);
-    let reply_rows = reply_row_count(reply, reply_text_w, MAX_REPLY_ROWS)
+    let reply_rows = reply_row_count(reply, reply_text_w, MAX_REPLY_ROWS, voice_interim)
         .min(inner.height.saturating_sub(1).max(1));
     let reply_top_y = inner.y + inner.height.saturating_sub(reply_rows);
 
@@ -690,6 +690,7 @@ pub fn reply_row_count(
     reply: &crate::views::prompt_widget::PromptWidget,
     reply_text_width: u16,
     cap: u16,
+    interim: Option<&str>,
 ) -> u16 {
     use crate::views::prompt_widget::PromptStyle;
     let style = PromptStyle {
@@ -700,7 +701,7 @@ pub fn reply_row_count(
         ..PromptStyle::default()
     };
     reply
-        .desired_height(reply_text_width, &style, false, cap.max(1))
+        .desired_height_with_interim(reply_text_width, &style, false, cap.max(1), interim)
         .max(1)
 }
 
@@ -1951,22 +1952,28 @@ mod tests {
     fn reply_row_count_grows_with_newlines_and_caps() {
         let mut reply = test_reply();
         assert_eq!(
-            reply_row_count(&reply, 40, MAX_REPLY_ROWS),
+            reply_row_count(&reply, 40, MAX_REPLY_ROWS, None),
             1,
             "empty reply wants a single row",
         );
         reply.set_text("line one\nline two\nline three");
         assert_eq!(
-            reply_row_count(&reply, 40, MAX_REPLY_ROWS),
+            reply_row_count(&reply, 40, MAX_REPLY_ROWS, None),
             3,
             "a 3-line reply wants 3 rows",
         );
         // Past the cap the count saturates (the widget scrolls instead).
         reply.set_text(&"x\n".repeat(20));
         assert_eq!(
-            reply_row_count(&reply, 40, MAX_REPLY_ROWS),
+            reply_row_count(&reply, 40, MAX_REPLY_ROWS, None),
             MAX_REPLY_ROWS,
             "reply rows are capped at MAX_REPLY_ROWS",
+        );
+        reply.set_text("");
+        assert_eq!(
+            reply_row_count(&reply, 5, MAX_REPLY_ROWS, Some("one two three four")),
+            4,
+            "a blank reply grows with the voice preview",
         );
     }
 

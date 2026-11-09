@@ -1474,12 +1474,122 @@
     }
 
     #[test]
-    fn wrap_voice_interim_truncates_with_ellipsis_when_overflowing_rows() {
+    fn wrap_voice_interim_keeps_the_newest_rows_when_overflowing() {
         let lines = wrap_voice_interim("one two three four five six", 5, 2);
         assert_eq!(lines.len(), 2);
+        let last = lines.last().expect("newest row");
         assert!(
-            lines.last().unwrap().ends_with('\u{2026}'),
-            "last visible line should be ellipsized: {lines:?}"
+            last.contains("six"),
+            "the newest word stays on the last row: {lines:?}"
+        );
+        assert!(
+            lines.first().is_some_and(|line| line.contains('\u{2026}')),
+            "older rows leave an ellipsis on the first visible row: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("one")),
+            "words above the window scroll off: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn desired_height_grows_with_a_blank_voice_preview_and_caps() {
+        let pw = PromptWidget::new();
+        let style = PromptStyle {
+            focused: true,
+            show_prefix: false,
+            vpad_top: 0,
+            chrome: false,
+            ..Default::default()
+        };
+        let interim = "one two three four";
+        assert_eq!(pw.desired_height(5, &style, false, 20), 1);
+        assert_eq!(
+            pw.desired_height_with_interim(5, &style, false, 20, Some(interim)),
+            4,
+            "each word wraps onto its own row at width 5"
+        );
+        assert_eq!(
+            pw.desired_height_with_interim(5, &style, false, 2, Some(interim)),
+            2,
+            "growth stops at the prompt cap"
+        );
+        let mut typed = PromptWidget::new();
+        typed.set_text("hello");
+        assert_eq!(
+            typed.desired_height_with_interim(5, &style, false, 20, Some(interim)),
+            typed.desired_height(5, &style, false, 20),
+            "a draft that already has text keeps the ghost on its own row"
+        );
+    }
+
+    #[test]
+    fn voice_preview_draw_shows_the_newest_words_inside_the_box() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let style = PromptStyle {
+            focused: true,
+            show_prefix: false,
+            vpad_top: 0,
+            chrome: false,
+            ..Default::default()
+        };
+        let interim = "one two three four";
+        let overlay = VoicePromptOverlay {
+            interim: Some(interim),
+            color: ratatui::style::Color::Cyan,
+        };
+
+        let tall = Rect::new(0, 0, 5, 4);
+        let mut buf = Buffer::empty(tall);
+        let mut pw = PromptWidget::new();
+        pw.draw(&mut buf, tall, None, &style, None, Some(overlay));
+        let top = buf_text_at(&buf, 0, tall.width, 0);
+        let bottom = buf_text_at(&buf, 0, tall.width, 3);
+        assert!(top.contains("one"), "a box that fits shows the start: {top:?}");
+        assert!(
+            bottom.contains("four"),
+            "a box that fits shows the newest word: {bottom:?}"
+        );
+
+        let short = Rect::new(0, 0, 5, 2);
+        let mut buf = Buffer::empty(short);
+        let mut pw = PromptWidget::new();
+        pw.draw(&mut buf, short, None, &style, None, Some(overlay));
+        let window_top = buf_text_at(&buf, 0, short.width, 0);
+        let window_bottom = buf_text_at(&buf, 0, short.width, 1);
+        assert!(
+            window_top.contains('\u{2026}'),
+            "a short box marks the scrolled-off words: {window_top:?}"
+        );
+        assert!(
+            !window_top.contains("one") && !window_bottom.contains("one"),
+            "the oldest word leaves the short box: {window_top:?} {window_bottom:?}"
+        );
+        assert!(
+            window_bottom.contains("four"),
+            "the newest word stays in view: {window_bottom:?}"
+        );
+
+        let mut typed = PromptWidget::new();
+        typed.set_text("hi");
+        typed.set_cursor(2);
+        let row = Rect::new(0, 0, 8, 1);
+        let mut buf = Buffer::empty(row);
+        let long = VoicePromptOverlay {
+            interim: Some("abcdefghij"),
+            color: ratatui::style::Color::Cyan,
+        };
+        typed.draw(&mut buf, row, None, &style, None, Some(long));
+        let painted = buf_text_at(&buf, 0, row.width, 0);
+        assert!(
+            painted.contains("efghij"),
+            "a ghost that does not fit the row keeps its newest letters: {painted:?}"
+        );
+        assert!(
+            !painted.contains("abcd"),
+            "the start of an overflowing ghost scrolls off the row: {painted:?}"
         );
     }
 

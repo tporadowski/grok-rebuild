@@ -21,6 +21,7 @@ struct MeasureLiveTailContent<'a> {
     dispatch: Rect,
     reply: &'a PromptWidget,
     scrollback: Option<&'a mut ScrollbackState>,
+    interim: Option<&'a str>,
 }
 
 impl DashboardState {
@@ -86,6 +87,7 @@ impl DashboardState {
                 dispatch: result.dispatch,
                 reply: &self.peek_reply,
                 scrollback: scrollback_mut_for_row(&selected, agents),
+                interim: self.voice_interim.as_deref(),
             })
         };
 
@@ -112,9 +114,10 @@ impl DashboardState {
             dispatch,
             reply,
             scrollback,
+            interim,
         } = input;
         let reply_text_w = dispatch.width.saturating_sub(6);
-        let reply_rows = peek::reply_row_count(reply, reply_text_w, peek::MAX_REPLY_ROWS);
+        let reply_rows = peek::reply_row_count(reply, reply_text_w, peek::MAX_REPLY_ROWS, interim);
         let max_content = layout::max_peek_content_rows(area);
         let middle_w = dispatch.width.saturating_sub(4);
         let (body_measured, pin_user) = scrollback
