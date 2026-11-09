@@ -58,11 +58,7 @@ pub(crate) fn handle_mcp_elicit(
         cancel_elicitation_request(old_tx);
     }
 
-    // Mandatory ingress wins: evict an open feedback modal before this elicitation installs and stashes its own state.
-    agent.displace_feedback_modal(
-        crate::views::feedback_modal::FeedbackModalDisplacement::McpElicitation,
-    );
-
+    // An open `/feedback` form keeps the keyboard. This elicitation waits underneath.
     if let Some(mut old) =
         agent.take_unanswered_elicitation(crate::app::agent_view::UnansweredElicitation::Superseded)
     {
@@ -131,11 +127,7 @@ pub(crate) fn handle_ask_user_question(
         return false;
     };
 
-    // Mandatory ingress wins: evict an open feedback modal before this question installs and stashes its own state.
-    agent.displace_feedback_modal(
-        crate::views::feedback_modal::FeedbackModalDisplacement::AcpQuestion,
-    );
-
+    // An open `/feedback` form keeps the keyboard. This question waits underneath.
     // If a question is already active, cancel it before replacing.
     if let Some(mut old_qv) = agent.question_view.take() {
         agent.record_question_pause(&old_qv);

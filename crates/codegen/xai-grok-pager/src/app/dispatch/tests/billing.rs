@@ -1266,7 +1266,10 @@ fn free_usage_upsell_displaces_feedback_before_opening_question() {
 
     open_free_usage_upsell(agent, None);
 
-    assert!(agent.feedback_modal.is_none());
+    assert!(
+        agent.feedback_modal.is_some(),
+        "feedback stays open while the question waits"
+    );
     assert!(agent.question_view.is_some());
 }
 

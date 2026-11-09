@@ -156,7 +156,10 @@ fn doctor_planning_displaces_feedback_before_opening_question() {
     );
 
     let agent = &expect_agent(&app, id);
-    assert!(agent.feedback_modal.is_none());
+    assert!(
+        agent.feedback_modal.is_some(),
+        "feedback stays open while the question waits"
+    );
     assert!(agent.question_view.is_some());
 }
 

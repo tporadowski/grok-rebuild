@@ -1784,7 +1784,10 @@ fn displaced_draft_send_outcome_is_reported_in_scrollback() {
     assert!(crate::app::acp_handler::handle_ask_user_question(
         args, &mut app
     ));
-    assert!(agent_ref(&app, AgentId(0)).feedback_modal.is_none());
+    assert!(
+        agent_ref(&app, AgentId(0)).feedback_modal.is_some(),
+        "an in-flight feedback send stays open when a question arrives"
+    );
     let _ = dispatch(
         Action::TaskComplete(TaskResult::FeedbackComplete {
             agent_id: AgentId(0),
@@ -1794,12 +1797,21 @@ fn displaced_draft_send_outcome_is_reported_in_scrollback() {
         }),
         &mut app,
     );
-    assert!(last_system_text(&app, AgentId(0)).contains("do not resend"));
+    let notice = agent_ref(&app, AgentId(0))
+        .feedback_modal
+        .as_ref()
+        .and_then(|modal| modal.error_text())
+        .unwrap_or("");
+    assert!(
+        notice.contains("do not resend"),
+        "the still-open modal reports the send outcome: {notice}"
+    );
 }
-/// A mandatory ACP question evicts the open modal via the production handler: the draft is dropped
-/// with a visible notice, the question installs, and the stashed main draft is untouched.
+/// A question waits under the open feedback modal. Typing still lands in the draft, and the
+/// main composer draft stays stashed for the question.
 #[test]
-fn acp_question_displaces_feedback_modal_and_keeps_main_draft() {
+fn acp_question_keeps_feedback_modal_open_for_typing() {
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     let mut app = test_app_with_agent();
     app.agents
         .get_mut(&AgentId(0))
@@ -1810,24 +1822,25 @@ fn acp_question_displaces_feedback_modal_and_keeps_main_draft() {
     let (args, _rx) = make_ask_user_question_args("acp-question");
     let handled = crate::app::acp_handler::handle_ask_user_question(args, &mut app);
     assert!(handled);
+    app.handle_input(&Event::Key(KeyEvent::new(
+        KeyCode::Char('x'),
+        KeyModifiers::NONE,
+    )));
     let agent = &agent_ref(&app, AgentId(0));
-    assert!(
-        agent.feedback_modal.is_none(),
-        "mandatory ingress evicts feedback"
-    );
+    let modal = agent
+        .feedback_modal
+        .as_ref()
+        .expect("feedback stays open while the question waits");
+    assert_eq!(modal.text(), "unsent reportx");
     let qv = agent.question_view.as_ref().expect("question installed");
     assert_eq!(
         qv.stashed_prompt.text, "main draft",
         "the question stashes the untouched main draft, not the feedback text"
     );
-    assert!(
-        last_system_text(&app, AgentId(0)).contains("Feedback closed"),
-        "displacement must leave a visible notice"
-    );
 }
-/// A permission request evicts the open modal through the production enqueue path.
+/// A permission request waits under the open feedback modal. Typing still extends the draft.
 #[test]
-fn permission_ingress_displaces_feedback_modal() {
+fn permission_ingress_keeps_feedback_modal_open_for_typing() {
     use std::sync::Arc;
     use xai_acp_lib::AcpClientMessage;
     let mut app = test_app_with_agent();
@@ -1852,17 +1865,21 @@ fn permission_ingress_displaces_feedback_modal() {
         }),
         &mut app,
     );
+    app.handle_input(&crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('x'),
+        crossterm::event::KeyModifiers::NONE,
+    )));
     let agent = &agent_ref(&app, AgentId(0));
-    assert!(agent.feedback_modal.is_none(), "permission evicts feedback");
+    let modal = agent
+        .feedback_modal
+        .as_ref()
+        .expect("feedback stays open while the permission waits");
+    assert_eq!(modal.text(), "unsent reportx");
     assert!(!agent.permission_queue.is_empty(), "permission installed");
     assert_eq!(
         agent.prompt.text(),
         "",
-        "the discarded draft must not land in the composer"
-    );
-    assert!(
-        last_system_text(&app, AgentId(0))
-            .contains("Feedback closed because a permission request needs an answer")
+        "the feedback draft must not land in the composer"
     );
 }
 /// The cancel-turn prompt evicts the open modal immediately before it installs.
@@ -1916,10 +1933,9 @@ fn plan_approval_ingress_displaces_feedback_modal() {
     assert!(agent.plan_approval_view.is_some(), "approval installed");
     assert!(last_system_text(&app, AgentId(0)).contains("Feedback closed"));
 }
-/// An MCP elicitation evicts the open modal through the production ext-method handler:
-/// it is a `BlockingCard` the modal intercept would otherwise key-starve.
+/// An MCP prompt waits under the open feedback modal. Typing still extends the draft.
 #[test]
-fn mcp_elicitation_ingress_displaces_feedback_modal() {
+fn mcp_elicitation_ingress_keeps_feedback_modal_open_for_typing() {
     use xai_acp_lib::AcpClientMessage;
     let mut app = test_app_with_agent();
     open_feedback_modal(&mut app, Some("unsent report"));
@@ -1939,13 +1955,17 @@ fn mcp_elicitation_ingress_displaces_feedback_modal() {
         }),
         &mut app,
     );
+    app.handle_input(&crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('x'),
+        crossterm::event::KeyModifiers::NONE,
+    )));
     let agent = &agent_ref(&app, AgentId(0));
-    assert!(
-        agent.feedback_modal.is_none(),
-        "elicitation evicts feedback"
-    );
+    let modal = agent
+        .feedback_modal
+        .as_ref()
+        .expect("feedback stays open while the MCP prompt waits");
+    assert_eq!(modal.text(), "unsent reportx");
     assert!(agent.elicitation_view.is_some(), "elicitation installed");
-    assert!(last_system_text(&app, AgentId(0)).contains("Feedback closed"));
 }
 /// Confirm a trace choice through the production key layer, then dispatch the resulting submit.
 fn confirm_trace_choice(

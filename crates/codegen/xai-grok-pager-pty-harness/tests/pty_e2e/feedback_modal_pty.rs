@@ -23,7 +23,7 @@ const SEND_FAILED_SENTINEL: &str = "Couldn't send feedback";
 const TRACE_PROMPT_SENTINEL: &str = "Attach this session's trace to your feedback?";
 const TRACE_SEND_CHOICE: &str = "Send this session's trace";
 const TRACE_FEEDBACK_ONLY_CHOICE: &str = "No, just the feedback";
-const QUESTION_DISPLACED_SENTINEL: &str = "Feedback closed because the agent asked a question";
+
 
 // ── Blocked tool turns ──────────────────────────────────────────────────
 
@@ -459,9 +459,8 @@ async fn feedback_modal_trace_step_and_upload_ordering_pty() {
     harness.quit().expect("clean quit");
 }
 
-/// An `ask_user_question` ingress visibly displaces the open feedback modal: the eviction notice
-/// and the question card render, the unsent draft is discarded (not sent, not moved into the main
-/// composer), and the question remains answerable.
+/// An `ask_user_question` ingress leaves the open feedback modal up. The draft stays on screen,
+/// the question stays behind it, and Esc then reveals the question so it can be answered.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "PTY e2e; run the owning pty_e2e_* Cargo test with --ignored (see Cargo.toml)"]
 async fn feedback_modal_displaced_by_acp_question_pty() {
@@ -523,28 +522,30 @@ async fn feedback_modal_displaced_by_acp_question_pty() {
         expectation.release();
     }
     harness
-        .wait_for_text(QUESTION_DISPLACED_SENTINEL, Duration::from_secs(30))
-        .expect("the eviction notice must be visible");
-    harness
-        .wait_for_text(QUESTION_TEXT, Duration::from_secs(15))
-        .expect("the question card renders after displacing feedback");
+        .wait_for_text(DRAFT, Duration::from_secs(15))
+        .expect("the draft stays in the feedback modal");
     assert!(
-        !harness.contains_text(FEEDBACK_MODAL_PLACEHOLDER_SENTINEL),
-        "the feedback modal must be gone\nscreen:\n{}",
+        harness.contains_text(FEEDBACK_MODAL_PLACEHOLDER_SENTINEL),
+        "the feedback modal stays open\nscreen:\n{}",
         harness.screen_contents()
     );
     assert!(
-        !harness.contains_text(DRAFT),
-        "the discarded draft must not survive anywhere (composer included)\nscreen:\n{}",
+        !harness.contains_text(QUESTION_TEXT),
+        "the question waits behind the open feedback modal\nscreen:\n{}",
         harness.screen_contents()
     );
     assert!(
         !harness.contains_text(THANKS_SENTINEL),
-        "a displaced draft must never send\nscreen:\n{}",
+        "keeping the draft must not send it\nscreen:\n{}",
         harness.screen_contents()
     );
 
-    // The question stayed the sole input owner: answer it and let the turn settle.
+    harness.inject_keys(b"\x1b").expect("close feedback");
+    harness
+        .wait_for_text(QUESTION_TEXT, Duration::from_secs(15))
+        .expect("the question card renders after feedback closes");
+
+    // The question is now the input owner: answer it and let the turn settle.
     harness.inject_keys(b" ").expect("mark the first answer");
     harness.inject_keys(b"\r").expect("submit answers");
     harness

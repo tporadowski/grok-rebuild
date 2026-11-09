@@ -113,7 +113,7 @@ impl AgentView {
         &mut self,
         question: crate::views::question_view::QuestionViewState,
     ) {
-        self.displace_feedback_modal(FeedbackModalDisplacement::LocalQuestion);
+        // An open `/feedback` form keeps the keyboard. The question waits underneath.
         self.question_view = Some(question);
     }
 
