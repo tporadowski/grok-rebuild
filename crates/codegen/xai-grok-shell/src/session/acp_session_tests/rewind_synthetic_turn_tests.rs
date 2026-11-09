@@ -109,6 +109,46 @@ async fn rewind_removes_turn_after_synthetic_auto_wake_marked() {
     local.run_until(run_rewind_over_synthetic_turn(true)).await;
 }
 
+/// `/rewind` lists the prompts the user typed and skips an automatic task-wake turn between them.
+#[tokio::test(flavor = "current_thread")]
+async fn rewind_points_list_only_prompts_the_user_typed() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            for mark_turn_starts in [false, true] {
+                let (gateway_tx, _gateway_rx) = tokio::sync::mpsc::unbounded_channel();
+                let (persistence_tx, _persistence_rx) = tokio::sync::mpsc::unbounded_channel();
+                let actor = create_test_actor(0, 200_000, 80, gateway_tx, persistence_tx).await;
+                let mut snap = actor
+                    .chat_state_handle
+                    .snapshot()
+                    .await
+                    .expect("snapshot available");
+                snap.conversation = seed_conversation(mark_turn_starts);
+                snap.prompt_index = 3;
+                snap.prompt_texts = vec![
+                    "P0".into(),
+                    "Background task abc completed".into(),
+                    "P2".into(),
+                ];
+                actor.chat_state_handle.restore_snapshot(snap);
+
+                let points = actor.get_rewind_points().await;
+                let listed: Vec<(usize, Option<&str>)> = points
+                    .rewind_points
+                    .iter()
+                    .map(|point| (point.prompt_index, point.prompt_preview.as_deref()))
+                    .collect();
+                assert_eq!(
+                    listed,
+                    vec![(0, Some("P0")), (2, Some("P2"))],
+                    "mark_turn_starts={mark_turn_starts}"
+                );
+            }
+        })
+        .await;
+}
+
 /// Rewind on a session with no prompts: the picker has nothing to offer and an execute request is rejected (no silent no-op "success").
 #[tokio::test(flavor = "current_thread")]
 async fn rewind_with_no_prompts_lists_no_points_and_rejects_execute() {

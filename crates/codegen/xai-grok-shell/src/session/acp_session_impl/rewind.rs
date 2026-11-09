@@ -21,7 +21,7 @@ impl SessionActor {
     }
 
     /// Get available rewind points for this session.
-    /// Every prompt is a checkpoint: the list always contains `[0, 1, ..., N-1]` where N is the current prompt_index.
+    /// The list is the prompts the user typed, `[0, 1, ..., N-1]` minus automatic runtime turns.
     /// File snapshots may or may not exist for each checkpoint (indicated by `has_file_changes`).
     pub(super) async fn get_rewind_points(&self) -> RewindPointsResponse {
         // Metadata only: don't load the (huge) file-content snapshots just to render the picker
@@ -29,10 +29,15 @@ impl SessionActor {
 
         // Query prompt state from the chat state actor.
         let snapshot = self.chat_state_handle.snapshot().await;
-        let (prompts, current_prompt_index) = match snapshot {
-            Some(ref s) => (s.prompt_texts.clone(), s.prompt_index),
-            None => (vec![], 0),
+        let (prompts, current_prompt_index, runtime_turns) = match snapshot {
+            Some(ref s) => (
+                s.prompt_texts.clone(),
+                s.prompt_index,
+                automatic_runtime_prompt_indices(&s.conversation),
+            ),
+            None => (vec![], 0, Vec::new()),
         };
+        let runtime_turns: std::collections::HashSet<usize> = runtime_turns.into_iter().collect();
 
         // Build a lookup of which prompt indices have file snapshots.
         let file_meta_map: std::collections::HashMap<
@@ -40,8 +45,9 @@ impl SessionActor {
             &xai_grok_workspace::session::file_state::RewindPointMeta,
         > = file_metas.iter().map(|m| (m.prompt_index, m)).collect();
 
-        // Generate a rewind point for every prompt 0..current_prompt_index.
+        // A rewind point for every typed prompt. Automatic wakes stay out of the picker.
         let rewind_points = (0..current_prompt_index)
+            .filter(|idx| !runtime_turns.contains(idx))
             .map(|idx| {
                 let prompt_preview = prompts
                     .get(idx)

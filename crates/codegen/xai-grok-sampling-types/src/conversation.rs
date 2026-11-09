@@ -216,6 +216,19 @@ impl SyntheticReason {
             | Self::WorkingDirectorySwitch => false,
         }
     }
+
+    /// A turn the runtime started. `/rewind` leaves these out of the picker.
+    pub fn is_automatic_runtime_turn(&self) -> bool {
+        matches!(
+            self,
+            Self::TaskCompleted
+                | Self::SubagentCompleted
+                | Self::NotificationDrain
+                | Self::GoalSummary
+                | Self::GoalClassifierNudge
+                | Self::SchedulerFired
+        )
+    }
 }
 
 /// How the user *fatally* interrupted (cancelled) the turn immediately preceding this *real* user message.
@@ -1854,6 +1867,99 @@ fn conversation_truncate_progressive(
     }
 
     conversation.len()
+}
+
+/// Prompt indices of automatic runtime turns, using the same turn walk as [`conversation_truncate_for_prompt`].
+/// A prompt the user typed is absent. An index the walk cannot see stays absent, so a compacted history is not hidden.
+pub fn automatic_runtime_prompt_indices(conversation: &[ConversationItem]) -> Vec<usize> {
+    let mut indices = Vec::new();
+    let first_marker = conversation.iter().find_map(|item| match item {
+        ConversationItem::User(user) => user.prompt_index,
+        _ => None,
+    });
+    let Some(first_marker_idx) = first_marker else {
+        collect_legacy_runtime_indices(conversation, &mut indices);
+        return indices;
+    };
+    if count_legacy_turns_until_marker(conversation) != first_marker_idx {
+        collect_marked_runtime_indices(conversation, &mut indices);
+        return indices;
+    }
+    collect_progressive_runtime_indices(conversation, &mut indices);
+    indices
+}
+
+fn push_runtime_index(indices: &mut Vec<usize>, idx: usize, reason: &SyntheticReason) {
+    if reason.is_automatic_runtime_turn() {
+        indices.push(idx);
+    }
+}
+
+fn collect_legacy_runtime_indices(conversation: &[ConversationItem], indices: &mut Vec<usize>) {
+    let mut next_unmarked_index = 0usize;
+    let mut seen_unmarked_preamble = false;
+    for item in conversation {
+        let ConversationItem::User(user) = item else {
+            continue;
+        };
+        let effective_index = match &user.synthetic_reason {
+            SyntheticReason::Human if !seen_unmarked_preamble => {
+                seen_unmarked_preamble = true;
+                None
+            }
+            SyntheticReason::Human => Some(next_unmarked_index),
+            reason if reason.starts_prompt_turn() => Some(next_unmarked_index),
+            _ => None,
+        };
+        if let Some(idx) = effective_index {
+            push_runtime_index(indices, idx, &user.synthetic_reason);
+            next_unmarked_index = idx + 1;
+        }
+    }
+}
+
+fn collect_marked_runtime_indices(conversation: &[ConversationItem], indices: &mut Vec<usize>) {
+    for item in conversation {
+        let ConversationItem::User(user) = item else {
+            continue;
+        };
+        if let Some(idx) = user.prompt_index {
+            push_runtime_index(indices, idx, &user.synthetic_reason);
+        }
+    }
+}
+
+fn collect_progressive_runtime_indices(conversation: &[ConversationItem], indices: &mut Vec<usize>) {
+    let mut next_unmarked_index = 0usize;
+    let mut seen_unmarked_preamble = false;
+    let mut seen_marker = false;
+    for item in conversation {
+        let ConversationItem::User(user) = item else {
+            continue;
+        };
+        let effective_index = if let Some(idx) = user.prompt_index {
+            seen_marker = true;
+            Some(idx)
+        } else if seen_marker {
+            None
+        } else {
+            match &user.synthetic_reason {
+                SyntheticReason::Human if !seen_unmarked_preamble => {
+                    seen_unmarked_preamble = true;
+                    None
+                }
+                SyntheticReason::Human => Some(next_unmarked_index),
+                reason if reason.starts_prompt_turn() => Some(next_unmarked_index),
+                _ => None,
+            }
+        };
+        if let Some(idx) = effective_index {
+            push_runtime_index(indices, idx, &user.synthetic_reason);
+            if user.prompt_index.is_none() {
+                next_unmarked_index = idx + 1;
+            }
+        }
+    }
 }
 
 /// Transform CWD paths in conversation items (used for forked sessions).
