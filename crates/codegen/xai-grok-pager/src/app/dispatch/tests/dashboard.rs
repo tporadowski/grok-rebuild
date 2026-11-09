@@ -1072,10 +1072,9 @@ fn auth_complete_opens_deferred_dashboard() {
         "the deferred-dashboard flag must be consumed",
     );
 }
-/// Mid-session re-auth completed from the dashboard still consumes the stash on the agent that 401'd (auth is global, not per-view).
-/// stash on the agent that 401'd (auth is global, not per-view).
+/// Mid-session re-auth completed from the dashboard still returns the refused prompt to that agent's composer (auth is global, not per-view).
 #[test]
-fn auth_complete_retries_stashed_prompt_from_dashboard() {
+fn auth_complete_restores_refused_prompt_from_dashboard_for_manual_resend() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);
     let mut image = crate::prompt_images::from_clipboard_data(&crate::clipboard::ImageData {
@@ -1106,12 +1105,16 @@ fn auth_complete_retries_stashed_prompt_from_dashboard() {
         &mut app,
     );
     assert_eq!(app.active_view, ActiveView::AgentDashboard);
-    assert!(test_agent(&app, id).reauth_stashed_prompt.is_none());
+    let agent = test_agent(&app, id);
+    assert!(agent.reauth_stashed_prompt.is_none());
+    assert_eq!(agent.prompt.text(), "retry me [Image #1]");
+    assert_eq!(agent.prompt.images.len(), 1);
     assert!(
-        effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::SendPromptBlocks { .. })),
-        "stash must be retried even when login returns to the dashboard, got: {effects:?}"
+        !effects.iter().any(|effect| matches!(
+            effect,
+            Effect::SendPrompt { .. } | Effect::SendPromptBlocks { .. }
+        )),
+        "login from the dashboard must not send the refused prompt, got: {effects:?}"
     );
 }
 /// Cancelling a mid-session re-auth from the dashboard also drops the stash (auth is global, not per-view).

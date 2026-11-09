@@ -2134,9 +2134,9 @@ fn auth_complete_strips_reauth_prompt_after_mid_session_login() {
         "re-auth prompt must be stripped after successful re-auth"
     );
 }
-/// After a successful mid-session re-auth, the prompt that failed on the expired login is auto-resubmitted so the user doesn't have to retype it.
+/// After a successful mid-session re-auth, the refused prompt is back in the composer. Login does not send it.
 #[test]
-fn auth_complete_retries_stashed_prompt_after_mid_session_login() {
+fn auth_complete_restores_refused_prompt_for_manual_resend() {
     use crate::scrollback::block::RenderBlock;
     let mut app = test_app_with_agent();
     let id = AgentId(0);
@@ -2166,14 +2166,59 @@ fn auth_complete_retries_stashed_prompt_after_mid_session_login() {
     let agent = &expect_agent(&app, id);
     assert!(
         agent.reauth_stashed_prompt.is_none(),
-        "stashed prompt must be consumed on re-auth"
+        "stashed prompt must be released on re-auth"
     );
+    assert_eq!(agent.prompt.text(), "retry me");
     assert!(
-        effects.iter().any(|e| matches!(
+        !effects.iter().any(|e| matches!(
             e,
-            Effect::SendPrompt { text, .. } if text == "retry me"
+            Effect::SendPrompt { .. } | Effect::SendPromptBlocks { .. }
         )),
-        "the stashed prompt must be auto-resubmitted, got: {effects:?}"
+        "the refused prompt must not be sent, got: {effects:?}"
+    );
+    let retrying = (0..agent.scrollback.len()).any(|i| {
+        matches!(
+            agent.scrollback.entry(i).map(|e| &e.block),
+            Some(RenderBlock::System(message)) if message.text.contains("Retrying")
+        )
+    });
+    assert!(!retrying, "login must not announce an automatic retry");
+}
+
+/// A draft already in the composer survives login. The refused prompt is not written over it and is not sent.
+#[test]
+fn auth_complete_keeps_a_composer_draft_on_manual_resend() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.prompt.set_text("draft I typed");
+        agent.reauth_stashed_prompt = Some(crate::app::agent::InFlightPrompt {
+            text: "refused".into(),
+            images: Vec::new(),
+            scrollback_entry: crate::scrollback::EntryId::new(0),
+            combined_scrollback_entries: Vec::new(),
+            chip_elements: Vec::new(),
+        });
+    }
+    dispatch(Action::Login, &mut app);
+    let seq = authenticating_seq(&app);
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::AuthComplete {
+            request_seq: seq,
+            meta: None,
+        }),
+        &mut app,
+    );
+    let agent = &expect_agent(&app, id);
+    assert!(agent.reauth_stashed_prompt.is_none());
+    assert_eq!(agent.prompt.text(), "draft I typed");
+    assert!(
+        !effects.iter().any(|e| matches!(
+            e,
+            Effect::SendPrompt { .. } | Effect::SendPromptBlocks { .. }
+        )),
+        "a refused prompt must not be sent over a draft, got: {effects:?}"
     );
 }
 #[test]

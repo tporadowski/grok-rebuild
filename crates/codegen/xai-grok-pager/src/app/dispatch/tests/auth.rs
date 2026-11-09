@@ -342,9 +342,9 @@ fn without_account_logins_the_welcome_login_is_refused() {
     );
 }
 
-/// Compact-auth recovery: the prompt is held across an auto-compact 401, stashed on PromptResponse, and resubmitted on a mid-session AuthComplete.
+/// Compact-auth recovery: the prompt is held across an auto-compact 401, stashed on PromptResponse, and returned to the composer on a mid-session AuthComplete. Login does not send it.
 #[test]
-fn e2e_compact_auth_failure_holds_prompt_and_resubmits_after_login() {
+fn e2e_compact_auth_failure_holds_prompt_for_manual_resend() {
     use crate::app::acp_handler::apply_session_event_for_test;
     use crate::app::agent::{AgentState, InFlightPrompt};
     use crate::scrollback::EntryId;
@@ -388,7 +388,7 @@ fn e2e_compact_auth_failure_holds_prompt_and_resubmits_after_login() {
                 .as_ref()
                 .map(|p| p.text.as_str()),
             Some("please continue after login"),
-            "must hold the prompt text for reauth auto-resubmit"
+            "must hold the prompt text so login can hand it back"
         );
 
         apply_session_event_for_test(
@@ -433,7 +433,7 @@ fn e2e_compact_auth_failure_holds_prompt_and_resubmits_after_login() {
             .as_ref()
             .map(|p| p.text.as_str()),
         Some("please continue after login"),
-        "PromptResponse must stash the compact-held prompt for AuthComplete"
+        "PromptResponse must stash the compact-held prompt for a manual resend"
     );
 
     dispatch(Action::Login, &mut app);
@@ -447,14 +447,19 @@ fn e2e_compact_auth_failure_holds_prompt_and_resubmits_after_login() {
     );
     assert!(
         test_agent(&app, id).reauth_stashed_prompt.is_none(),
-        "stash consumed on AuthComplete"
+        "stash released on AuthComplete"
     );
     assert!(
-        effects.iter().any(|e| matches!(
+        !effects.iter().any(|e| matches!(
             e,
             Effect::SendPrompt { .. } | Effect::SendPromptBlocks { .. }
         )),
-        "AuthComplete must resubmit the prompt so compact runs again with valid auth, got: {effects:?}"
+        "AuthComplete must not resubmit a refused prompt, got: {effects:?}"
+    );
+    assert_eq!(
+        test_agent(&app, id).prompt.text(),
+        "please continue after login",
+        "the refused prompt returns to the composer for a manual resend"
     );
 }
 

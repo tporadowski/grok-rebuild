@@ -28,7 +28,7 @@
         assert_eq!(
             session.compact_held_prompt.as_ref().map(|p| p.text.as_str()),
             Some("hi"),
-            "hold prompt text for re-auth auto-resubmit if compact fails with auth"
+            "hold prompt text so a later login can hand it back"
         );
         match last_session_event(&scrollback) {
             Some(SessionEvent::CompactionStarted { percentage, reason }) => {
@@ -674,7 +674,7 @@
         assert!(!session.credit_limit_blocked);
     }
 
-    /// A recoverable auth failure preserves `in_flight_prompt` so the PromptResponse handler can stash it for auto-resubmit after re-auth.
+    /// A recoverable auth failure preserves `in_flight_prompt` so the PromptResponse handler can stash it for a manual resend after re-auth.
     #[test]
     fn apply_retry_state_auth_failure_preserves_in_flight_prompt() {
         let mut session = make_session(Some("s1"));

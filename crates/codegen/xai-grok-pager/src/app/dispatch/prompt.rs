@@ -1682,7 +1682,7 @@ pub(super) fn handle_prompt_response(
         if credit_limit_blocked && let Some(prompt) = agent.session.in_flight_prompt.clone() {
             agent.credit_limit_stashed_prompt = Some(prompt);
         }
-        // Stash for AuthComplete after 401
+        // Stash for a manual resend after /login. AuthComplete does not send it.
         // Prefer in_flight; fall back to compact_held (cleared for cancel-rewind during auto-compact)
         // Skip if both None
         if reauth_prompted {

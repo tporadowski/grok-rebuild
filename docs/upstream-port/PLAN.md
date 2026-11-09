@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-193 — A refused prompt waits for the user to send it after login
+
+A 401 still stashes the prompt that was in flight, including one held across auto-compact. `handle_auth_complete` no longer enqueues that prompt or drains the queue. The sign-in block (`ReAuthRequired`) is removed once login succeeds, and an empty composer gets the refused text, chips, and images back. The user sends it. A composer that already has a draft is left as it is, and the refused prompt is not sent (`auth_complete_restores_refused_prompt_for_manual_resend`, `auth_complete_keeps_a_composer_draft_on_manual_resend`). Cancelling login still drops the stash. A credit-limit retry after a tier upgrade still sends. The shell's in-turn 401 resubmit, after a token refresh that did not show the sign-in block, is unchanged (`v48-x06`).
+
 ### D-192 — Web search mints an external auth token before the snapshot
 
 The search model's external auth provider is cache-only on a sync read. A cold cache used to turn web search off, so the first turn and a subagent never searched. `resolve_web_search_sampling_config_ready` mints that token, then resolves. Session start uses it. Subagent spawn mints again before its sync snapshot, so a child started while the cache is still cold gets the same token (`web_search_auth_provider_mints_for_the_first_turn_and_a_subagent`). A sync read with no mint still refuses to send an empty bearer (`v64-x03`).
@@ -837,15 +841,15 @@ Refresh these numbers at the end of a session.
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 39 | 12 | 8 |
-| W13 | Update, install, and sign-in | 21 | 0 | 6 | 0 | 0 |
+| W13 | Update, install, and sign-in | 20 | 0 | 7 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 188. Skipped: 8. Done: 311. Already: 58. Deferred: 18.
+Catalog rows: 583. Pending: 187. Skipped: 8. Done: 312. Already: 58. Deferred: 18.
 
-**Next:** W13 Update, install, and sign-in. First open row: Authentication recovery no longer automatically retries refused prompts after login; the sign-in block now requires manual resend (`v48-x06`).
+**Next:** W13 Update, install, and sign-in. First open row: **grok doctor** now reports the exact config file or setting that prevents Grok from starting instead of saying zero issues (`v50-x38`).
 
 ## Waves
 
@@ -899,7 +903,7 @@ Pending: 0. Done: 39 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`, `v50-x20`, `v5
 
 ### W13 — Update, install, and sign-in
 
-Pending: 21. Done: 6. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download. `grok inspect` and the MCP doctor name the file that declares each MCP server. A project `config.toml`, a parent `.mcp.json`, and a Cursor project file keep that path (`v46-x01`, `project_definitions_keep_their_declaring_file`).
+Pending: 20. Done: 7. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download. `grok inspect` and the MCP doctor name the file that declares each MCP server. A project `config.toml`, a parent `.mcp.json`, and a Cursor project file keep that path (`v46-x01`, `project_definitions_keep_their_declaring_file`). After login, a refused prompt returns to an empty composer and is not sent. A draft already in the composer stays (`v48-x06`, `auth_complete_restores_refused_prompt_for_manual_resend`).
 
 ### W14 — Pager and remaining bug fixes
 
@@ -1296,7 +1300,7 @@ id | status | wave | kind | flag | covered | note
 - v78-x02 | done | W12 | Bug Fixes |  |  | **Dropped-image notice** no longer appears inside the user's own message in transcripts or history.
 - v46-x01 | done | W13 | Bug Fixes |  |  | **MCP server sources** are now correctly reported by `grok inspect` and the MCP doctor.
 - v47-x01 | done | W13 | Bug Fixes |  |  | Error messages on the home and login screens now wrap properly in narrow terminals.
-- v48-x06 | pending | W13 | Bug Fixes |  |  | **Authentication recovery** no longer automatically retries refused prompts after login; the sign-in block now requires manual resend.
+- v48-x06 | done | W13 | Bug Fixes |  |  | **Authentication recovery** no longer automatically retries refused prompts after login; the sign-in block now requires manual resend.
 - v50-x33 | done | W13 | Bug Fixes |  |  | **The bundled ripgrep** is now available to terminal commands even on images that do not install it.
 - v50-x38 | pending | W13 | Bug Fixes |  |  | **grok doctor** now reports the exact config file or setting that prevents Grok from starting instead of saying zero issues.
 - v50-x40 | pending | W13 | Bug Fixes |  |  | **grok doctor fix** now opens its confirmation card on Cancel to prevent accidental edits to shell or tmux config.

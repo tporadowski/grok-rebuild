@@ -1,14 +1,12 @@
 //! Login, logout, account switching, and auth-code submission dispatchers.
 
 use super::ctx::{refuse_withheld, restore_auth_return_view, show_welcome};
-use super::queue::{maybe_drain_queue, note_peek_page_flip};
 use super::router::dispatch;
 use super::session::lifecycle::{clear_startup_actions, drain_startup_actions};
 use crate::app::actions::{Action, Effect};
 use crate::app::agent::AgentId;
 use crate::app::agent_view::AgentView;
 use crate::app::app_view::{ActiveView, AppView, AuthMode, AuthState};
-use crate::scrollback::block::RenderBlock;
 use crate::scrollback::blocks::SessionEvent;
 use xai_grok_config::Capability;
 
@@ -190,6 +188,22 @@ pub(super) fn trailing_session_events(
         })
 }
 
+/// Put a prompt the server refused back into an empty composer so the user can send it.
+/// A draft already in the composer stays. Nothing is enqueued.
+fn restore_refused_prompt_for_manual_resend(
+    agent: &mut AgentView,
+    prompt: crate::app::agent::InFlightPrompt,
+) {
+    if !agent.prompt.is_effectively_empty() {
+        return;
+    }
+    let cursor = prompt.text.len();
+    agent.prompt.set_text(&prompt.text);
+    agent.prompt.restore_chip_elements(&prompt.chip_elements);
+    agent.prompt.set_images(prompt.images);
+    agent.prompt.set_cursor(cursor);
+}
+
 /// Strip the trailing run of auth-error blocks (the `ReAuthRequired` prompt plus any stale `RetryFailed` / `TurnFailed`) from an agent's scrollback.
 /// Called after a successful mid-session re-auth so the prompt disappears once the user returns to the session.
 /// Mirrors how the credit-limit upsell strips its stale blocks.
@@ -334,33 +348,19 @@ pub(super) fn handle_auth_complete(
             // Discard any deferred startup stash rather than leaving it to fire later
             // One example: an incidental `Ctrl+N` pressed during /login that the chokepoint deferred
             clear_startup_actions(app);
-            // Re-auth succeeded: hide the now-stale re-auth prompt (and any trailing error blocks) so the user returns to a clean session
-            // Mirrors how the credit-limit upsell strips its stale blocks
+            // Re-auth succeeded: hide the now-stale sign-in block. The refused prompt is not sent.
+            // The block already told the user to resend, so an empty composer gets that prompt back.
             // Auth is global, so handle every agent (the login may have been started from the dashboard, not the agent that 401'd)
-            let mut retry_effects = Vec::new();
-            let mut page_flips = Vec::new();
             for agent in app.agents.values_mut() {
                 strip_trailing_auth_error_blocks(agent);
-                // Auto-resubmit the prompt that failed on the expired login so the user doesn't have to retype it
-                // The user couldn't have queued another prompt during the auth detour, so a plain front-enqueue and drain is safe
                 if let Some(prompt) = agent.reauth_stashed_prompt.take() {
-                    agent.scrollback.push_block(RenderBlock::system(
-                        "Re-authenticated. Retrying\u{2026}".to_string(),
-                    ));
-                    agent.session.enqueue_in_flight_prompt_front(prompt);
-                    let drain = maybe_drain_queue(agent, &mut app.pending_image_notices);
-                    retry_effects.extend(drain.effects);
-                    page_flips.push((agent.session.id, drain.page_flip_entry));
+                    restore_refused_prompt_for_manual_resend(agent, prompt);
                 }
-            }
-            for (id, page_flip_entry) in page_flips {
-                note_peek_page_flip(app, id, page_flip_entry);
             }
             let mut effects = dispatch(Action::RequestBundleStatus, app);
             if app.usage_visible {
                 effects.push(Effect::FetchAppBilling { nonce: 0 });
             }
-            effects.extend(retry_effects);
             return effects;
         }
 
