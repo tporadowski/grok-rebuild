@@ -41,6 +41,9 @@ pub(crate) struct RgArgs<'a> {
     pub(crate) output_mode: &'a OutputMode,
     /// The search root, resolved from the model's `path`.
     pub(crate) root: &'a Path,
+    /// Session directory. `rg` runs here so a glob that contains `/` is
+    /// relative to the session, not to whatever directory started the process.
+    pub(crate) session_cwd: &'a Path,
     /// `--glob` values in order.
     pub(crate) globs: &'a [String],
 }
@@ -54,9 +57,11 @@ impl RgArgs<'_> {
             input,
             output_mode,
             root,
+            session_cwd,
             globs,
         } = self;
         let mut cmd = Command::new(program);
+        cmd.current_dir(session_cwd);
         cmd.arg("--heading")
             .arg("--with-filename")
             .arg("--line-number")

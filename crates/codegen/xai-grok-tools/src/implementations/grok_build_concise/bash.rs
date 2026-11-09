@@ -132,6 +132,16 @@ impl crate::types::tool_metadata::ToolMetadata for BashConciseTool {
         )
     }
 
+    fn output_byte_limit_placeholder(
+        &self,
+        effective_params: &serde_json::Value,
+    ) -> Option<(&'static str, usize)> {
+        crate::types::tool_metadata::ToolMetadata::output_byte_limit_placeholder(
+            &BashTool,
+            effective_params,
+        )
+    }
+
     fn requires_expr(&self) -> Expr<ToolRequirement> {
         Expr::And(vec![
             Expr::Value(ToolRequirement::if_params(

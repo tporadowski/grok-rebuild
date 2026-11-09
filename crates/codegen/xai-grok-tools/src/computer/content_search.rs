@@ -51,7 +51,7 @@ pub struct ContentSearchRequest {
     pub case: CaseSensitivity,
     /// `rg --glob` values in the tool's order: the caller's glob, then `!<glob>`
     /// for each deny-read glob. The last matching glob wins, and a glob with a
-    /// `/` anchors at [`ContentSearchRequest::process_cwd`].
+    /// `/` is relative to the session directory ([`ContentSearchRequest::process_cwd`]).
     pub globs: Vec<String>,
     /// The `rg --type` name.
     pub file_type: Option<String>,
@@ -71,7 +71,9 @@ pub struct ContentSearchRequest {
     /// [`ContentSearchOutcome::Truncated`]. Advisory: the tool caps what it
     /// renders either way.
     pub result_budget: u32,
-    /// The working directory `rg` inherits (it runs with none set).
+    /// The working directory `rg` runs in. This is the session directory, so a
+    /// glob that contains `/` is relative to the session and not to the
+    /// directory that started the process.
     pub process_cwd: PathBuf,
     /// When the tool stops waiting and reports a timeout.
     pub deadline: tokio::time::Instant,

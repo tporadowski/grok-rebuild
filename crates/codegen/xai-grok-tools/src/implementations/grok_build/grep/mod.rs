@@ -71,7 +71,7 @@ pub struct GrepSearchInput {
     pub path: Option<String>,
 
     #[schemars(
-        description = r#"Glob pattern (rg --glob GLOB -- PATH) to filter files (e.g. "*.js", "*.{ts,tsx}")."#
+        description = r#"Glob pattern (rg --glob GLOB -- PATH) to filter files (e.g. "*.js", "*.{ts,tsx}"). A pattern that contains / is relative to the session directory."#
     )]
     pub glob: Option<String>,
 
@@ -252,6 +252,7 @@ impl crate::types::tool_metadata::ToolMetadata for GrepTool {
 - Full regex syntax, so escape literal special characters: `functionCall\(`, or `interface\{\}` to find interface{} in Go.
 - Pass ${{ params.search.pattern }} as a raw regex string — no surrounding quotes.
 - Respects .gitignore unless you pass a broad glob like '--glob *'.
+- A glob that contains / is relative to the session directory.
 - Only filter by '${{ params.search.type }}' or '${{ params.search.glob }}' when you are sure of the file type; import paths may not match source file types (.js vs .ts).
 - Output is ripgrep-style: ':' marks match lines, '-' marks context lines, grouped by file. Large results are capped and report "at least" counts."#
     }
@@ -744,6 +745,7 @@ async fn prepare_grep(
         input,
         output_mode: &output_mode,
         root: &workdir,
+        session_cwd: &cwd,
         globs: &globs,
     };
     let offer = file_system.and_then(|file_system| {
@@ -1008,6 +1010,49 @@ mod tests {
         assert!(output.match_count > 0);
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("main"));
+    }
+
+    /// A glob that contains `/` is relative to the session directory, even when
+    /// that directory is not the process working directory.
+    #[tokio::test]
+    async fn slash_glob_is_relative_to_the_session_directory() {
+        let session = TempDir::new().unwrap();
+        let process_cwd = std::env::current_dir().unwrap();
+        assert_ne!(
+            session.path().canonicalize().unwrap(),
+            process_cwd.canonicalize().unwrap(),
+            "the session directory must differ from the process cwd"
+        );
+        fs::create_dir_all(session.path().join("session_glob_anchor")).unwrap();
+        fs::write(
+            session.path().join("session_glob_anchor/hit.txt"),
+            "needle\n",
+        )
+        .unwrap();
+        fs::write(session.path().join("other.txt"), "needle\n").unwrap();
+
+        let mut resources = Resources::new();
+        resources.insert(Cwd(session.path().to_path_buf()));
+        let mut input = make_grep_input("needle");
+        input.glob = Some("session_glob_anchor/*.txt".to_string());
+
+        let output = xai_tool_runtime::Tool::run(
+            &GrepTool,
+            test_ctx(resources.into_shared()),
+            input,
+        )
+        .await
+        .unwrap();
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("session_glob_anchor") && stdout.contains("hit.txt"),
+            "a slash glob must match under the session directory: {stdout}"
+        );
+        assert!(
+            !stdout.contains("other.txt"),
+            "the slash glob must not match a file outside it: {stdout}"
+        );
     }
 
     /// `DenyReadGlobs` become ripgrep excludes so a search can't read a

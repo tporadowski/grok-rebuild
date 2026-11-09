@@ -181,8 +181,8 @@ impl OfferAnswer {
 /// Why `search` names a file `rg` would not have searched, if it does: one
 /// outside [`ContentSearchRequest::root`], or one that the request's globs
 /// exclude, including the `!<glob>` read-deny excludes. `rg` applies the globs
-/// with `process_cwd` as their root to every walked file and directory, but not
-/// to a root given as a file.
+/// with the session directory as their root to every walked file and directory,
+/// but not to a root given as a file.
 fn unsearched_path(search: &ContentSearch, request: &ContentSearchRequest) -> Option<&'static str> {
     let mut builder = OverrideBuilder::new(&request.process_cwd);
     for glob in &request.globs {
@@ -228,9 +228,9 @@ fn rg_reads_user_config(config_path: Option<&OsStr>) -> bool {
 }
 
 /// The request describing the `rg` call `args` builds. `None` when no backend
-/// could reproduce `rg`'s answer: the working directory `rg` would inherit is
-/// unknown, a user config (`RIPGREP_CONFIG_PATH`) may change its flags, or the
-/// count mode is multiline, where `rg -c` counts matches the hits do not delimit.
+/// could reproduce `rg`'s answer: a user config (`RIPGREP_CONFIG_PATH`) may
+/// change its flags, or the count mode is multiline, where `rg -c` counts
+/// matches the hits do not delimit.
 pub(crate) fn content_search_request(
     args: &RgArgs<'_>,
     root_kind: RootKind,
@@ -249,13 +249,7 @@ pub(crate) fn content_search_request(
     if mode == ContentSearchMode::Count && input.multiline {
         return None;
     }
-    let process_cwd = match std::env::current_dir() {
-        Ok(cwd) => cwd,
-        Err(error) => {
-            tracing::debug!(%error, "process cwd unknown; grep runs rg without an offer");
-            return None;
-        }
-    };
+    let process_cwd = args.session_cwd.to_path_buf();
     // `rg` takes `-C` first, then `-B` and `-A` override it; the tool passes
     // only positive counts.
     let context_lines = |lines: Option<usize>| {

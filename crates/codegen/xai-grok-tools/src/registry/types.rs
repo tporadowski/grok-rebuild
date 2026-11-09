@@ -1250,20 +1250,24 @@ impl ToolRegistryBuilder {
                     &entry.input_schema,
                     effective_params,
                 );
+                let (limit_tool, limit_builtin) = entry
+                    .metadata
+                    .output_byte_limit_placeholder(effective_params)
+                    .unwrap_or((client_name.as_str(), crate::DEFAULT_TOOL_OUTPUT_BYTES));
                 if let Some(desc) = &definition.function.description {
                     definition.function.description =
                         Some(truncation_config.interpolate_description(
                             desc,
-                            &client_name,
-                            crate::DEFAULT_TOOL_OUTPUT_BYTES,
+                            limit_tool,
+                            limit_builtin,
                             xai_tool_types::max_wait_block_ms(),
                         ));
                 }
                 renderer.render_schema_descriptions(&mut definition.function.parameters);
                 truncation_config.apply_to_schema(
                     &mut definition.function.parameters,
-                    &client_name,
-                    crate::DEFAULT_TOOL_OUTPUT_BYTES,
+                    limit_tool,
+                    limit_builtin,
                     xai_tool_types::max_wait_block_ms(),
                 );
                 definition
@@ -3088,6 +3092,179 @@ mod tests {
         );
         assert!(field_on.is_empty() && field_off.is_empty());
     }
+
+    /// The model-facing shell description states the cap `run` enforces, including
+    /// a params override and a truncation-config override. The generic 40_000-byte
+    /// fallback is the wrong number for these tools.
+    #[tokio::test]
+    async fn shell_description_states_the_output_limit_the_tool_runs_with() {
+        use crate::implementations::grok_build::bash::{BashParams, resolved_output_byte_limit};
+        use crate::types::context::TruncationConfig;
+
+        fn params_map(params: &BashParams) -> serde_json::Map<String, serde_json::Value> {
+            serde_json::to_value(params)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .clone()
+        }
+
+        fn shell_description(params: &BashParams, truncation: &TruncationConfig) -> String {
+            let config = ToolServerConfig {
+                tools: vec![
+                    ToolConfig {
+                        id: "GrokBuild:run_terminal_cmd".to_string(),
+                        params: Some(params_map(params)),
+                        name_override: None,
+                        params_name_overrides: None,
+                        description_override: None,
+                        behavior_version: None,
+                        kind: None,
+                    },
+                    ToolConfig::from_id("GrokBuild:get_task_output"),
+                    ToolConfig::from_id("GrokBuild:kill_task"),
+                ],
+                behavior_preset: None,
+            };
+            let tmp = TempDir::new().unwrap();
+            let toolset = ToolRegistryBuilder::new()
+                .finalize_with_trunc_config(
+                    config,
+                    test_session_context(&tmp),
+                    truncation.clone(),
+                    None,
+                )
+                .expect("finalize");
+            toolset
+                .tool_definitions()
+                .into_iter()
+                .find(|def| def.function.name == "run_terminal_cmd")
+                .and_then(|def| def.function.description)
+                .expect("run_terminal_cmd description")
+        }
+
+        let cases = [
+            (
+                BashParams::default(),
+                TruncationConfig::default(),
+                crate::DEFAULT_TOOL_OUTPUT_CHARS,
+            ),
+            (
+                BashParams {
+                    output_byte_limit: Some(8_000),
+                    ..BashParams::default()
+                },
+                TruncationConfig::default(),
+                8_000,
+            ),
+            (
+                BashParams {
+                    output_byte_limit: Some(8_000),
+                    ..BashParams::default()
+                },
+                TruncationConfig {
+                    default_max_output_bytes: Some(9_999),
+                    ..TruncationConfig::default()
+                },
+                9_999,
+            ),
+            (
+                BashParams {
+                    output_byte_limit: Some(8_000),
+                    ..BashParams::default()
+                },
+                TruncationConfig {
+                    per_tool_max_output_bytes: HashMap::from([(
+                        "run_terminal_cmd".to_string(),
+                        1_234,
+                    )]),
+                    ..TruncationConfig::default()
+                },
+                1_234,
+            ),
+        ];
+        for (params, truncation, expected) in cases {
+            assert_eq!(
+                resolved_output_byte_limit(&params, Some(&truncation)),
+                expected
+            );
+            assert_ne!(expected, crate::DEFAULT_TOOL_OUTPUT_BYTES);
+            let desc = shell_description(&params, &truncation);
+            assert!(
+                desc.contains(&format!("exceeds {expected} characters")),
+                "description should state {expected}: {desc}"
+            );
+            assert!(!desc.contains("{max_output_bytes}"), "{desc}");
+        }
+
+        let opencode = ToolServerConfig {
+            tools: vec![ToolConfig::from_id("OpenCode:bash")],
+            behavior_preset: None,
+        };
+        let tmp = TempDir::new().unwrap();
+        let toolset = ToolRegistryBuilder::new()
+            .finalize_with_trunc_config(
+                opencode,
+                test_session_context(&tmp),
+                TruncationConfig::default(),
+                None,
+            )
+            .expect("opencode bash finalizes");
+        let desc = toolset
+            .tool_definitions()
+            .into_iter()
+            .find(|def| def.function.name == "bash")
+            .and_then(|def| def.function.description)
+            .expect("bash description");
+        let limit = crate::DEFAULT_TOOL_OUTPUT_CHARS;
+        assert!(
+            desc.contains(&format!("exceeds {limit} characters")),
+            "opencode bash should state {limit}: {desc}"
+        );
+        assert!(!desc.contains("{max_output_bytes}"), "{desc}");
+
+        let concise_params = BashParams {
+            output_byte_limit: Some(8_000),
+            ..BashParams::default()
+        };
+        let concise = ToolServerConfig {
+            tools: vec![
+                ToolConfig {
+                    id: "GrokBuildConcise:run_terminal_cmd".to_string(),
+                    params: Some(params_map(&concise_params)),
+                    name_override: None,
+                    params_name_overrides: None,
+                    description_override: None,
+                    behavior_version: None,
+                    kind: None,
+                },
+                ToolConfig::from_id("GrokBuild:get_task_output"),
+                ToolConfig::from_id("GrokBuild:kill_task"),
+            ],
+            behavior_preset: None,
+        };
+        let tmp = TempDir::new().unwrap();
+        let toolset = ToolRegistryBuilder::new()
+            .finalize_with_trunc_config(
+                concise,
+                test_session_context(&tmp),
+                TruncationConfig::default(),
+                None,
+            )
+            .expect("concise bash finalizes");
+        let desc = toolset
+            .tool_definitions()
+            .into_iter()
+            .find(|def| def.function.name == "run_terminal_cmd")
+            .and_then(|def| def.function.description)
+            .expect("concise run_terminal_cmd description");
+        assert!(
+            desc.contains("exceeds 8000 characters"),
+            "concise shell should state the params cap: {desc}"
+        );
+        assert!(!desc.contains("{max_output_bytes}"), "{desc}");
+    }
+
     /// Each assertion pattern-matches on the exact `ToolOutput::SearchReplace`
     /// variant so the test fails if the renderer silently returns empty strings
     /// or the tool returns the wrong variant.

@@ -449,7 +449,7 @@ async fn request_describes_the_rg_call() {
         max_file_bytes: 5 * 1024 * 1024,
         max_columns: 1000,
         result_budget: 8,
-        process_cwd: std::env::current_dir().unwrap(),
+        process_cwd: tree.path().to_path_buf(),
         deadline: request.deadline,
     };
     assert_eq!(expected, request);
@@ -563,6 +563,7 @@ async fn failed_job_leaves_rg_the_rest_of_the_deadline() {
         input: &input,
         output_mode: &output_mode,
         root: tree.path(),
+        session_cwd: tree.path(),
         globs: &[],
     };
     let mut request = content_search_request(&args, RootKind::Directory, 10).unwrap();

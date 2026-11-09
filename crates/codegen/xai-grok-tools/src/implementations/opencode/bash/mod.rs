@@ -279,6 +279,18 @@ impl From<BashToolOutput> for crate::types::output::ToolOutput {
     }
 }
 
+/// Name [`crate::types::context::TruncationConfig`] uses for this shell's output cap.
+const OUTPUT_LIMIT_TOOL_NAME: &str = "bash";
+
+fn resolved_output_byte_limit(
+    truncation: Option<&crate::types::context::TruncationConfig>,
+) -> usize {
+    match truncation {
+        Some(cfg) => cfg.max_output_bytes_for(OUTPUT_LIMIT_TOOL_NAME, DEFAULT_TOOL_OUTPUT_CHARS),
+        None => DEFAULT_TOOL_OUTPUT_CHARS,
+    }
+}
+
 impl crate::types::tool_metadata::ToolMetadata for BashTool {
     fn kind(&self) -> ToolKind {
         ToolKind::Execute
@@ -305,6 +317,13 @@ impl crate::types::tool_metadata::ToolMetadata for BashTool {
 
     fn requires_expr(&self) -> Expr<ToolRequirement> {
         Expr::True
+    }
+
+    fn output_byte_limit_placeholder(
+        &self,
+        _effective_params: &serde_json::Value,
+    ) -> Option<(&'static str, usize)> {
+        Some((OUTPUT_LIMIT_TOOL_NAME, DEFAULT_TOOL_OUTPUT_CHARS))
     }
 }
 
@@ -362,15 +381,10 @@ impl xai_tool_runtime::Tool for BashTool {
             .0
             .clone();
 
-        let output_byte_limit = resources
-            .lock()
-            .await
-            .get::<TruncationCfg>()
-            .map(|cfg| {
-                cfg.0
-                    .max_output_bytes_for("bash", DEFAULT_TOOL_OUTPUT_CHARS)
-            })
-            .unwrap_or(DEFAULT_TOOL_OUTPUT_CHARS);
+        let output_byte_limit = {
+            let res = resources.lock().await;
+            resolved_output_byte_limit(res.get::<TruncationCfg>().map(|cfg| &cfg.0))
+        };
 
         // --- Resolve working directory ---
         let cwd = Self::resolve_cwd(&session_cwd, input.workdir.as_deref());

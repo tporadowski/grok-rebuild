@@ -122,6 +122,16 @@ pub trait ToolMetadata: Send + Sync {
         };
         ToolDefinition::function(client_name, Some(&description), remapped_schema)
     }
+
+    /// Lookup for `{max_output_bytes}` in this tool's description: the canonical
+    /// tool name and the builtin cap `run` uses when no truncation override is set.
+    /// `None` keeps the client name and [`crate::DEFAULT_TOOL_OUTPUT_BYTES`].
+    fn output_byte_limit_placeholder(
+        &self,
+        _effective_params: &serde_json::Value,
+    ) -> Option<(&'static str, usize)> {
+        None
+    }
 }
 
 /// Extract `SharedResources` from the runtime tool-call context. `ToolBridge` inserts

@@ -204,6 +204,29 @@ impl crate::types::resources::ResourceType for BashParams {
     }
 }
 
+/// Name [`crate::types::context::TruncationConfig`] uses for this shell's output cap.
+/// The model-facing description and [`BashTool::run`] both resolve the cap through it.
+const OUTPUT_LIMIT_TOOL_NAME: &str = "run_terminal_cmd";
+
+fn builtin_output_byte_limit(params: &BashParams) -> usize {
+    params
+        .output_byte_limit
+        .unwrap_or(DEFAULT_TOOL_OUTPUT_CHARS)
+}
+
+/// The output cap a shell call enforces: a per-tool override, then the default
+/// override, then [`BashParams::output_byte_limit`] or [`DEFAULT_TOOL_OUTPUT_CHARS`].
+pub(crate) fn resolved_output_byte_limit(
+    params: &BashParams,
+    truncation: Option<&crate::types::context::TruncationConfig>,
+) -> usize {
+    let builtin = builtin_output_byte_limit(params);
+    match truncation {
+        Some(cfg) => cfg.max_output_bytes_for(OUTPUT_LIMIT_TOOL_NAME, builtin),
+        None => builtin,
+    }
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Input
 // ───────────────────────────────────────────────────────────────────────────
@@ -1679,6 +1702,15 @@ impl crate::types::tool_metadata::ToolMetadata for BashTool {
         ToolDefinition::function(client_name, Some(&description), remapped_schema)
     }
 
+    fn output_byte_limit_placeholder(
+        &self,
+        effective_params: &serde_json::Value,
+    ) -> Option<(&'static str, usize)> {
+        let params: BashParams =
+            serde_json::from_value(effective_params.clone()).unwrap_or_default();
+        Some((OUTPUT_LIMIT_TOOL_NAME, builtin_output_byte_limit(&params)))
+    }
+
     fn requires_expr(&self) -> Expr<ToolRequirement> {
         // If our param `enabled_background` is true (the default), we need both a
         // BackgroundTaskAction tool (get_task_output) and a KillTaskAction tool (kill_task) so the
@@ -1962,20 +1994,10 @@ impl xai_tool_runtime::Tool for BashTool {
 
         let config_timeout = Duration::from_millis(Self::effective_default_timeout_ms(&params));
 
-        let config_output_byte_limit = params
-            .output_byte_limit
-            .unwrap_or(DEFAULT_TOOL_OUTPUT_CHARS);
-
-        // Use truncation config override if available
-        let output_byte_limit = resources
-            .lock()
-            .await
-            .get::<TruncationCfg>()
-            .map(|cfg| {
-                cfg.0
-                    .max_output_bytes_for("run_terminal_cmd", config_output_byte_limit)
-            })
-            .unwrap_or(config_output_byte_limit);
+        let output_byte_limit = {
+            let res = resources.lock().await;
+            resolved_output_byte_limit(&params, res.get::<TruncationCfg>().map(|cfg| &cfg.0))
+        };
 
         // --- Validate: reject commands that use `&` as a background operator ---
         let is_legacy = version.is_legacy();
@@ -2672,6 +2694,57 @@ mod tests {
             description: "test".to_string(),
             is_background: false,
             block_until_ms: None,
+        }
+    }
+
+    /// The cap passed to the terminal is the cap `resolved_output_byte_limit` names:
+    /// the shell default, a params override, or a per-tool truncation override.
+    #[tokio::test]
+    async fn run_passes_the_resolved_output_limit() {
+        use crate::types::context::TruncationConfig;
+
+        let cases = [
+            (BashParams::default(), TruncationConfig::default(), DEFAULT_TOOL_OUTPUT_CHARS),
+            (
+                BashParams {
+                    output_byte_limit: Some(8_000),
+                    ..BashParams::default()
+                },
+                TruncationConfig::default(),
+                8_000,
+            ),
+            (
+                BashParams {
+                    output_byte_limit: Some(8_000),
+                    ..BashParams::default()
+                },
+                TruncationConfig {
+                    per_tool_max_output_bytes: HashMap::from([(
+                        "run_terminal_cmd".to_string(),
+                        1_234,
+                    )]),
+                    ..TruncationConfig::default()
+                },
+                1_234,
+            ),
+        ];
+        for (params, truncation, expected) in cases {
+            assert_eq!(
+                resolved_output_byte_limit(&params, Some(&truncation)),
+                expected
+            );
+            let (mock, captured) = MockTerminal::success_capturing("ok\n", 0);
+            let mut resources = make_resources_with_params(mock, params);
+            resources.insert(TruncationCfg(truncation));
+            xai_tool_runtime::Tool::run(
+                &BashTool,
+                test_ctx(resources.into_shared()),
+                make_input("echo ok"),
+            )
+            .await
+            .unwrap();
+            let request = captured.lock().unwrap().take().expect("foreground request");
+            assert_eq!(request.output_byte_limit, expected);
         }
     }
 
