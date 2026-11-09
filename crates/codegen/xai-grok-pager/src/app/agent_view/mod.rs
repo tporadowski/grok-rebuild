@@ -982,6 +982,8 @@ pub struct AgentView {
     pub pane_areas: PaneAreas,
     /// Entry index currently hovered by the mouse (for dimmed selection box).
     pub hovered_entry: Option<usize>,
+    /// Image placeholder under the pointer in a transcript prompt, if any.
+    pub transcript_image_hover: Option<crate::scrollback::blocks::TranscriptImageHover>,
     /// Pending markdown text drag before the pointer crosses the drag threshold.
     pub pending_text_drag: Option<PendingTextDrag>,
     /// Active markdown text drag selection.

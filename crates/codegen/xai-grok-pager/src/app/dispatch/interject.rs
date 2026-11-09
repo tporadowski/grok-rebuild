@@ -191,6 +191,7 @@ pub(super) fn dispatch_send_prompt_now(
             &[entry_id],
             &sent_numbers,
             &images_for_restore,
+            &build.skipped,
         );
     }
     app.pending_image_notices

@@ -14,6 +14,24 @@ use crate::views::prompt_widget::PromptEvent;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use std::time::Instant;
 impl AgentView {
+    /// The image placeholder under the pointer, using the last frame's selectable lines.
+    fn transcript_image_hover_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<crate::scrollback::blocks::TranscriptImageHover> {
+        let hit = self
+            .last_scrollback_selection_model
+            .hit_test_text_exact(col, row)?;
+        let entry = self.scrollback.entry(hit.entry_idx)?;
+        let crate::scrollback::block::RenderBlock::UserPrompt(block) = &entry.block else {
+            return None;
+        };
+        let line = self.last_scrollback_selection_model.line_for_hit(&hit)?;
+        let painted = line.painted_region.as_deref().unwrap_or(line.text.as_str());
+        block.image_hover_at_display_col(painted, usize::from(hit.col_within_range))
+    }
+
     /// Multi-click check for the prompt textarea, paired by time only (no coordinates); a mispaired action is one undo step.
     /// Records the click for the next pairing.
     pub(super) fn prompt_click_is_double(&mut self) -> bool {
@@ -1015,6 +1033,17 @@ impl AgentView {
                 }
                 self.hovered_entry = new_hover;
                 self.hovered_prompt = new_prompt_hover;
+                let next_image_hover = if suppress_scrollback_hover || on_rail {
+                    None
+                } else {
+                    self.transcript_image_hover_at(mouse.column, mouse.row)
+                };
+                changed |= match (&self.transcript_image_hover, &next_image_hover) {
+                    (None, None) => false,
+                    (Some(previous), Some(next)) => !previous.same_target(next),
+                    _ => true,
+                };
+                self.transcript_image_hover = next_image_hover;
                 if new_timeline_hover != self.timeline_hover {
                     self.timeline_hover = new_timeline_hover;
                     self.sync_timeline_hover_preview();

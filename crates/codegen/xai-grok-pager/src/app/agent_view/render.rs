@@ -1690,6 +1690,7 @@ impl AgentView {
                 self.hovered_entry,
                 &theme,
             );
+            self.paint_transcript_image_hover(buf, layout.scrollback, &theme);
             if let Some(ref drag) = self.drag_selection
                 && drag.anchor.entry_idx != BTW_OVERLAY_ENTRY_IDX
             {
@@ -4393,6 +4394,35 @@ impl AgentView {
         }
         (prompt_cursor_pos, prompt_post_flush)
     }
+
+    /// A transcript image placeholder under the pointer shows the sent image, or why it was not sent.
+    fn paint_transcript_image_hover(&self, buf: &mut Buffer, area: Rect, theme: &Theme) {
+        use crate::render::{PreviewConfig, PreviewStyle};
+        use crate::scrollback::blocks::TranscriptImageHover;
+        match &self.transcript_image_hover {
+            Some(TranscriptImageHover::Sent(image)) => {
+                let _ = crate::render::render_image_overlay(
+                    buf,
+                    area,
+                    image,
+                    theme.paste_bg,
+                    theme.paste_fg,
+                    theme.paste_dim,
+                );
+            }
+            Some(TranscriptImageHover::NotSent(reason)) => {
+                let style = PreviewStyle::new(theme.paste_bg, theme.paste_fg, theme.paste_dim);
+                let _ = crate::render::render_preview_overlay(
+                    buf,
+                    area,
+                    reason,
+                    style,
+                    PreviewConfig::default(),
+                );
+            }
+            None => {}
+        }
+    }
 }
 /// Draw one ▼/▲ scroll-indicator arrow centered on row `y`, or clear its hit area when hidden (`y: None`).
 /// The unconditional set-or-clear is the point: a hit rect must never outlive the frame that painted its arrow.
@@ -4454,6 +4484,69 @@ mod toast_fit_tests {
     fn zero_width_slot_yields_none() {
         assert_eq!(fit_toast_text("Copied!", 4), None);
         assert_eq!(fit_toast_text("Copied!", 0), None);
+    }
+}
+#[cfg(test)]
+mod transcript_image_hover_tests {
+    use super::super::test_fixtures::make_agent;
+    use crate::scrollback::blocks::TranscriptImageHover;
+    use crate::theme::Theme;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    fn buf_text(buf: &Buffer) -> String {
+        let area = *buf.area();
+        let mut out = String::new();
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                if let Some(cell) = buf.cell((x, y)) {
+                    out.push_str(cell.symbol());
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn hover_paints_the_sent_image_title_or_the_reason() {
+        let _guard = crate::theme::cache::pin_theme();
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 80, 24);
+        let mut agent = make_agent();
+        agent.transcript_image_hover = Some(TranscriptImageHover::Sent(sent_image()));
+        let mut buf = Buffer::empty(area);
+        agent.paint_transcript_image_hover(&mut buf, area, &theme);
+        let text = buf_text(&buf);
+        assert!(
+            text.contains("Image #1"),
+            "hovering a sent placeholder shows that image, got {text:?}"
+        );
+
+        agent.transcript_image_hover = Some(TranscriptImageHover::NotSent(
+            "Image #3 not attached — placeholder sent as text".into(),
+        ));
+        let mut buf = Buffer::empty(area);
+        agent.paint_transcript_image_hover(&mut buf, area, &theme);
+        let text = buf_text(&buf);
+        assert!(
+            text.contains("not attached"),
+            "hovering an unsent placeholder shows why, got {text:?}"
+        );
+    }
+
+    fn sent_image() -> crate::prompt_images::PastedImage {
+        crate::prompt_images::PastedImage {
+            element_id: xai_ratatui_textarea::ElementId::from_raw(1),
+            display_number: 1,
+            mime_type: "image/png".into(),
+            dimensions: Some((8, 8)),
+            byte_len: 3,
+            encoded_bytes: Some(std::sync::Arc::<[u8]>::from(vec![1, 2, 3])),
+            source_path: None,
+            staged_temp_path: None,
+            session_image_path: None,
+            preview: crate::prompt_images::PromptImagePreview::default(),
+        }
     }
 }
 #[cfg(test)]

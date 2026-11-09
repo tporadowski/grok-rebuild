@@ -157,6 +157,87 @@ pub struct UserPromptBlock {
     pub image_marks: Vec<(Range<usize>, ImagePlaceholderMark)>,
     /// Copies of the images that were sent with this prompt, so a rewind can put the chips back.
     pub sent_images: Vec<crate::prompt_images::PastedImage>,
+    /// Why an attached image was left off the wire. A typed placeholder with no record is not listed.
+    pub image_skip_reasons: Vec<(usize, crate::prompt_images::ImageSendSkip)>,
+}
+
+/// Hover over an image placeholder in a transcript prompt.
+#[derive(Debug, Clone)]
+pub enum TranscriptImageHover {
+    /// The bytes that went out with this placeholder.
+    Sent(crate::prompt_images::PastedImage),
+    /// Why this placeholder was not sent.
+    NotSent(String),
+}
+
+impl TranscriptImageHover {
+    pub(crate) fn same_target(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Sent(left), Self::Sent(right)) => left.display_number == right.display_number,
+            (Self::NotSent(left), Self::NotSent(right)) => left == right,
+            _ => false,
+        }
+    }
+}
+
+struct PlaceholderHit {
+    bytes: Range<usize>,
+    col_start: usize,
+    col_end: usize,
+    number: usize,
+}
+
+fn display_cols(text: &str, bytes: Range<usize>) -> Option<(usize, usize)> {
+    let slice = text.get(bytes.clone())?;
+    let start = UnicodeWidthStr::width(text.get(..bytes.start).unwrap_or(""));
+    Some((start, start + UnicodeWidthStr::width(slice)))
+}
+
+/// Display column of an `[Image #N]` or `[Image #N: path]` in `text`, if `col` lands inside one.
+fn image_placeholder_number_at_display_col(text: &str, col: usize) -> Option<usize> {
+    let mut hits = Vec::new();
+    for placeholder in xai_grok_shell::session::placeholder_images::extract_placeholders(text) {
+        let bytes = placeholder.span.0..placeholder.span.1;
+        let Some((col_start, col_end)) = display_cols(text, bytes.clone()) else {
+            continue;
+        };
+        hits.push(PlaceholderHit {
+            bytes,
+            col_start,
+            col_end,
+            number: placeholder.display_number,
+        });
+    }
+    for capture in chip_image_placeholder_regex().captures_iter(text) {
+        let Some(whole) = capture.get(0) else {
+            continue;
+        };
+        let Some(number) = capture
+            .get(1)
+            .and_then(|matched| matched.as_str().parse::<usize>().ok())
+        else {
+            continue;
+        };
+        let bytes = whole.start()..whole.end();
+        if hits
+            .iter()
+            .any(|hit| bytes.start < hit.bytes.end && hit.bytes.start < bytes.end)
+        {
+            continue;
+        }
+        let Some((col_start, col_end)) = display_cols(text, bytes.clone()) else {
+            continue;
+        };
+        hits.push(PlaceholderHit {
+            bytes,
+            col_start,
+            col_end,
+            number,
+        });
+    }
+    hits.into_iter()
+        .find(|hit| col >= hit.col_start && col < hit.col_end)
+        .map(|hit| hit.number)
 }
 
 /// How an image placeholder in a user prompt was sent.
@@ -179,6 +260,7 @@ impl UserPromptBlock {
             skill_token_ranges: Vec::new(),
             image_marks: Vec::new(),
             sent_images: Vec::new(),
+            image_skip_reasons: Vec::new(),
         }
     }
 
@@ -196,6 +278,7 @@ impl UserPromptBlock {
             skill_token_ranges: Vec::new(),
             image_marks: Vec::new(),
             sent_images: Vec::new(),
+            image_skip_reasons: Vec::new(),
         }
     }
 
@@ -221,6 +304,7 @@ impl UserPromptBlock {
             skill_token_ranges,
             image_marks: Vec::new(),
             sent_images: Vec::new(),
+            image_skip_reasons: Vec::new(),
         }
     }
 
@@ -238,6 +322,7 @@ impl UserPromptBlock {
             skill_token_ranges,
             image_marks: Vec::new(),
             sent_images: Vec::new(),
+            image_skip_reasons: Vec::new(),
         }
     }
 
@@ -245,6 +330,33 @@ impl UserPromptBlock {
     /// Every other `[Image #N]` or `[Image #N: path]` is text the user typed.
     pub fn mark_image_placeholders(&mut self, sent_numbers: &[usize]) {
         self.image_marks = image_placeholder_marks(&self.text, sent_numbers);
+    }
+
+    /// What a pointer over one image placeholder in this prompt should show.
+    pub fn image_hover_at_display_col(
+        &self,
+        painted_body: &str,
+        col: usize,
+    ) -> Option<TranscriptImageHover> {
+        let number = image_placeholder_number_at_display_col(painted_body, col)?;
+        if let Some(image) = self
+            .sent_images
+            .iter()
+            .find(|image| image.display_number == number)
+        {
+            return Some(TranscriptImageHover::Sent(image.clone()));
+        }
+        if let Some((_, reason)) = self
+            .image_skip_reasons
+            .iter()
+            .find(|(skipped, _)| *skipped == number)
+        {
+            let text = crate::prompt_images::format_skipped_image_sends(&[(number, *reason)])?;
+            return Some(TranscriptImageHover::NotSent(text));
+        }
+        Some(TranscriptImageHover::NotSent(format!(
+            "Image #{number} not attached — placeholder sent as text"
+        )))
     }
 
     /// Image marks first, then skill tokens. A later range that starts inside an earlier one is dropped,
@@ -290,6 +402,7 @@ impl UserPromptBlock {
             skill_token_ranges: Vec::new(),
             image_marks: Vec::new(),
             sent_images: Vec::new(),
+            image_skip_reasons: Vec::new(),
         }
     }
 
@@ -303,6 +416,7 @@ impl UserPromptBlock {
             skill_token_ranges: Vec::new(),
             image_marks: Vec::new(),
             sent_images: Vec::new(),
+            image_skip_reasons: Vec::new(),
         }
     }
 
@@ -1529,5 +1643,58 @@ mod tests {
             .expect("body");
         assert_eq!(body.style.fg, Some(theme.text_primary));
         assert!(!body.style.add_modifier.contains(Modifier::CROSSED_OUT));
+    }
+
+    #[test]
+    fn image_hover_shows_the_sent_image_or_why_it_was_not() {
+        let text = "see [Image #1] and [Image #2: /tmp/x.png] plus [Image #3]";
+        let mut block = UserPromptBlock::new(text);
+        block.mark_image_placeholders(&[1]);
+        block.sent_images = vec![hover_image(1)];
+        block.image_skip_reasons = vec![(2, crate::prompt_images::ImageSendSkip::TooLarge)];
+
+        let sent_col = text.find("[Image #1]").expect("sent chip");
+        match block.image_hover_at_display_col(text, sent_col) {
+            Some(TranscriptImageHover::Sent(image)) => assert_eq!(image.display_number, 1),
+            other => panic!("sent placeholder should show the image, got {other:?}"),
+        }
+        assert!(
+            block
+                .image_hover_at_display_col(text, sent_col + 3)
+                .is_some_and(|hover| matches!(hover, TranscriptImageHover::Sent(_))),
+            "a column inside the chip still shows the image"
+        );
+
+        let skipped_col = text.find("[Image #2:").expect("skipped chip");
+        match block.image_hover_at_display_col(text, skipped_col) {
+            Some(TranscriptImageHover::NotSent(reason)) => {
+                assert_eq!(reason, "Image #2 is over the 50 MB send limit — not sent");
+            }
+            other => panic!("skipped placeholder should say why, got {other:?}"),
+        }
+
+        let typed_col = text.find("[Image #3]").expect("typed chip");
+        match block.image_hover_at_display_col(text, typed_col) {
+            Some(TranscriptImageHover::NotSent(reason)) => {
+                assert_eq!(reason, "Image #3 not attached — placeholder sent as text");
+            }
+            other => panic!("typed placeholder should say it was not attached, got {other:?}"),
+        }
+        assert!(block.image_hover_at_display_col(text, 0).is_none());
+    }
+
+    fn hover_image(display_number: usize) -> crate::prompt_images::PastedImage {
+        crate::prompt_images::PastedImage {
+            element_id: xai_ratatui_textarea::ElementId::from_raw(1),
+            display_number,
+            mime_type: "image/png".into(),
+            dimensions: Some((8, 8)),
+            byte_len: 3,
+            encoded_bytes: Some(std::sync::Arc::<[u8]>::from(vec![1, 2, 3])),
+            source_path: None,
+            staged_temp_path: None,
+            session_image_path: None,
+            preview: crate::prompt_images::PromptImagePreview::default(),
+        }
     }
 }

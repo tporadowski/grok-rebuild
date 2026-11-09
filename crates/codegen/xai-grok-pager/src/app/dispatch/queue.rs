@@ -516,6 +516,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
             let combined_segs = queued.combined_texts.clone();
             let images_for_restore = queued.images.clone();
             let mut sent_image_numbers = Vec::new();
+            let mut image_skips = Vec::new();
             let effects = if let Some(mut blocks) = queued.wire_blocks {
                 // Skill injection: send structured blocks.
                 // A pasted image on a skill command (for example `/pr-workflow`) rides along
@@ -527,6 +528,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
                         Some(std::path::Path::new(&agent.session.cwd)),
                     );
                     notices.extend(agent.notice_skipped_sends(&built));
+                    image_skips.clone_from(&built.skipped);
                     blocks.extend(
                         built
                             .blocks
@@ -572,6 +574,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
                 );
                 notices.extend(agent.notice_skipped_sends(&build));
                 sent_image_numbers = sent_image_display_numbers(&build.blocks);
+                image_skips = build.skipped;
                 let mut blocks = build.blocks;
                 if let Some(acp::ContentBlock::Text(tb)) = blocks.first_mut() {
                     let map = tb.meta.get_or_insert_with(acp::Meta::new);
@@ -610,6 +613,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
                 &combined_entries,
                 &sent_image_numbers,
                 &images_for_restore,
+                &image_skips,
             );
             QueueDrain {
                 effects,
@@ -776,6 +780,7 @@ pub(super) fn mark_painted_image_placeholders(
     ids: &[crate::scrollback::EntryId],
     sent_numbers: &[usize],
     images: &[crate::prompt_images::PastedImage],
+    skipped: &[(usize, crate::prompt_images::ImageSendSkip)],
 ) {
     let sent_images: Vec<crate::prompt_images::PastedImage> = images
         .iter()
@@ -789,6 +794,7 @@ pub(super) fn mark_painted_image_placeholders(
         if let crate::scrollback::RenderBlock::UserPrompt(block) = &mut entry.block {
             block.mark_image_placeholders(sent_numbers);
             block.sent_images.clone_from(&sent_images);
+            block.image_skip_reasons = skipped.to_vec();
         }
         entry.invalidate_cache();
     }
