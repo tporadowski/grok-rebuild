@@ -408,6 +408,10 @@ fn clone_repo(
 
     cmd.arg("--").arg(url).arg(target);
 
+    // A clone interrupted on Linux leaves this directory behind. The next
+    // `git clone` refuses a non-empty destination, so the retry never starts.
+    clear_partial_clone(target)?;
+
     tracing::info!(url, target = %target.display(), "cloning plugin repo");
 
     let output = cmd.output().map_err(|e| InstallError::InstallFailed {
@@ -435,6 +439,7 @@ fn clone_repo_at_sha(url: &str, sha: &str, target: &Path) -> Result<(), InstallE
 
     tracing::info!(url, sha, target = %target.display(), "cloning plugin repo at SHA");
 
+    clear_partial_clone(target)?;
     std::fs::create_dir_all(target).map_err(|e| InstallError::Io {
         path: target.to_path_buf(),
         source: e,
@@ -494,6 +499,26 @@ fn read_head_commit(repo_path: &Path) -> Option<String> {
     run_git_in_capture(repo_path, &["rev-parse", "HEAD"])
         .ok()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// Drop a leftover clone directory so the next install can use `target`.
+/// A missing path is not an error. A registered install never reaches this:
+/// `install_from_source` returns `AlreadyInstalled` first.
+fn clear_partial_clone(target: &Path) -> Result<(), InstallError> {
+    match target.symlink_metadata() {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(InstallError::Io {
+            path: target.to_path_buf(),
+            source: error,
+        }),
+        Ok(meta) if meta.file_type().is_symlink() || meta.is_file() => {
+            std::fs::remove_file(target).map_err(|error| InstallError::Io {
+                path: target.to_path_buf(),
+                source: error,
+            })
+        }
+        Ok(_) => remove_repo_path(target),
+    }
 }
 
 /// Remove a repo path (handles both symlinks and directories).
@@ -1152,6 +1177,29 @@ mod tests {
                 "0123456789abcdef0123456789abcdef01234567",
             ]
         );
+    }
+
+    #[test]
+    fn clone_replaces_a_partial_directory_left_by_an_interrupted_clone() {
+        if !git_available() {
+            eprintln!("skipping: `git` binary not available in test sandbox");
+            return;
+        }
+        let (repo, _sha) = make_local_repo();
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("plugin");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("partial.txt"), "interrupted").unwrap();
+        let url = format!("file://{}", repo.path().display());
+
+        clone_repo(&url, None, None, &target).expect("a partial directory must not block the retry");
+
+        assert!(
+            !target.join("partial.txt").exists(),
+            "the interrupted clone must be replaced"
+        );
+        assert!(target.join("plugin.json").exists());
+        assert!(target.join(".git").is_dir());
     }
 
     #[test]
