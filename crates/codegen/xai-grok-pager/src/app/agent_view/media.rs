@@ -509,6 +509,9 @@ impl AgentView {
     /// If already playing for this path, playback restarts from the beginning.
     /// Frames are extracted via ffmpeg in a background thread so the UI never blocks.
     pub(crate) fn start_inline_video_playback(&mut self, path: &std::path::Path) {
+        if !crate::inline_media_ffmpeg::inline_video_playback_available() {
+            return;
+        }
         // If already loaded for this path, restart
         if let Some(ref mut video) = self.inline_video
             && video.path == path
@@ -785,6 +788,27 @@ mod tests {
 
     fn make_agent() -> crate::app::agent_view::AgentView {
         crate::test_util::make_agent_view(None, "/tmp")
+    }
+
+    /// Enter and the play target both call this. A terminal that cannot show
+    /// images, or a session without ffmpeg, must not start a decode.
+    #[test]
+    fn video_card_enter_does_not_start_playback_without_support() {
+        use crate::terminal::image::{GraphicsProtocol, set_protocol_for_test};
+
+        let path = std::path::Path::new("/tmp/clip.mp4");
+
+        let _none = set_protocol_for_test(GraphicsProtocol::None);
+        let _ffmpeg = crate::inline_media_ffmpeg::set_ffmpeg_available_for_test(true);
+        let mut agent = make_agent();
+        agent.start_inline_video_playback(path);
+        assert!(agent.video_load_rx.is_none());
+        drop(_none);
+
+        let _kitty = set_protocol_for_test(GraphicsProtocol::Kitty);
+        let _no_ffmpeg = crate::inline_media_ffmpeg::set_ffmpeg_available_for_test(false);
+        agent.start_inline_video_playback(path);
+        assert!(agent.video_load_rx.is_none());
     }
 
     fn stub_inline_video() -> crate::app::agent_view::InlineVideoState {

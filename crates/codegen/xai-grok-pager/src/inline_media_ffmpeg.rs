@@ -4,6 +4,12 @@ use crate::prompt_images::InlineMediaInfo;
 
 pub const FFMPEG_HINT_TEXT: &str = "Install ffmpeg to view inline";
 
+/// Inline playback needs both a graphics protocol and ffmpeg.
+/// Enter on a video card must not start a decode when either is missing.
+pub fn inline_video_playback_available() -> bool {
+    crate::terminal::image::detect_graphics_protocol().supports_images() && ffmpeg_available()
+}
+
 /// Caches the first success and keeps re-probing failures, so installing ffmpeg mid-session recovers posters.
 pub fn ffmpeg_available() -> bool {
     #[cfg(test)]
@@ -191,6 +197,27 @@ mod tests {
         let _no_ffmpeg = set_ffmpeg_available_for_test(false);
         let _no_pm = set_ffmpeg_install_cmd_for_test(None);
         assert_eq!(inline_media_reserved_rows(&media(true), 80), (1, 2));
+    }
+
+    #[test]
+    fn inline_playback_needs_graphics_and_ffmpeg() {
+        use crate::terminal::image::{GraphicsProtocol, set_protocol_for_test};
+
+        {
+            let _none = set_protocol_for_test(GraphicsProtocol::None);
+            let _ffmpeg = set_ffmpeg_available_for_test(true);
+            assert!(!inline_video_playback_available());
+        }
+        {
+            let _kitty = set_protocol_for_test(GraphicsProtocol::Kitty);
+            let _no_ffmpeg = set_ffmpeg_available_for_test(false);
+            assert!(!inline_video_playback_available());
+        }
+        {
+            let _kitty = set_protocol_for_test(GraphicsProtocol::Kitty);
+            let _ffmpeg = set_ffmpeg_available_for_test(true);
+            assert!(inline_video_playback_available());
+        }
     }
 
     #[test]
