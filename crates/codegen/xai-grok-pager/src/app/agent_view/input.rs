@@ -675,6 +675,14 @@ impl AgentView {
                     if registry.lookup(key, When::Always).is_some() {
                         return InputOutcome::Unchanged;
                     }
+                    // `/mcps` owns ordinary keys. A running turn's cancel chord still stops the turn.
+                    if registry.matches_id(ActionId::CancelTurn, key)
+                        && (self.stoppable_activity_running() || self.any_cancel_pending())
+                    {
+                        self.extensions_modal = None;
+                        return self
+                            .handle_agent_action_with_registry(ActionId::CancelTurn, registry);
+                    }
                     self.handle_extensions_modal_key(key)
                 }
                 Event::Mouse(mouse) => self.handle_extensions_modal_mouse(mouse),
@@ -713,6 +721,14 @@ impl AgentView {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
                     if registry.lookup(key, When::Always).is_some() {
                         return InputOutcome::Unchanged;
+                    }
+                    // The viewer owns ordinary keys. A running turn's cancel chord still stops the turn.
+                    if registry.matches_id(ActionId::CancelTurn, key)
+                        && (self.stoppable_activity_running() || self.any_cancel_pending())
+                    {
+                        self.dismiss_block_viewer();
+                        return self
+                            .handle_agent_action_with_registry(ActionId::CancelTurn, registry);
                     }
                     // The viewer swallows keys that are not global. This chord copies the open message's source.
                     if registry.matches_id(ActionId::CopyMarkdownSource, key) {
@@ -2515,6 +2531,55 @@ mod jump_backout_key_tests {
         assert!(
             matches!(outcome, InputOutcome::Action(Action::CancelTurn)),
             "Ctrl+C during /compact with /jump open must cancel, got {outcome:?}"
+        );
+    }
+    /// `/mcps` must not swallow Ctrl+C while a turn is running.
+    #[test]
+    fn mcps_modal_ctrl_c_cancels_running_turn() {
+        let mut agent = make_agent();
+        agent.session.state = AgentState::TurnRunning;
+        agent.extensions_modal = Some(crate::views::extensions_modal::ExtensionsModalState::new(
+            crate::views::extensions_modal::ExtensionsTab::McpServers,
+        ));
+        let outcome = agent.handle_input(&ctrl_c(), &ActionRegistry::defaults());
+        assert!(
+            agent.extensions_modal.is_none(),
+            "Ctrl+C during a turn must close /mcps"
+        );
+        assert!(
+            matches!(outcome, InputOutcome::Action(Action::CancelTurn)),
+            "Ctrl+C during a turn with /mcps open must cancel, got {outcome:?}"
+        );
+    }
+    /// An idle `/mcps` list keeps Ctrl+C for the modal. It must not invent a cancel.
+    #[test]
+    fn mcps_modal_ctrl_c_does_not_cancel_when_idle() {
+        let mut agent = make_agent();
+        agent.extensions_modal = Some(crate::views::extensions_modal::ExtensionsModalState::new(
+            crate::views::extensions_modal::ExtensionsTab::McpServers,
+        ));
+        let outcome = agent.handle_input(&ctrl_c(), &ActionRegistry::defaults());
+        assert!(
+            !matches!(outcome, InputOutcome::Action(Action::CancelTurn)),
+            "idle /mcps must not cancel a turn, got {outcome:?}"
+        );
+    }
+    /// The block viewer must not swallow Ctrl+C while a turn is running.
+    #[test]
+    fn block_viewer_ctrl_c_cancels_running_turn() {
+        let mut agent = make_agent();
+        agent.session.state = AgentState::TurnRunning;
+        agent.block_viewer = Some(crate::views::block_viewer::BlockViewerPane::for_plain_text(
+            "note", "body",
+        ));
+        let outcome = agent.handle_input(&ctrl_c(), &ActionRegistry::defaults());
+        assert!(
+            agent.block_viewer.is_none(),
+            "Ctrl+C during a turn must close the block viewer"
+        );
+        assert!(
+            matches!(outcome, InputOutcome::Action(Action::CancelTurn)),
+            "Ctrl+C during a turn with the block viewer open must cancel, got {outcome:?}"
         );
     }
     /// Once a wake cancel is in flight, Ctrl+C must reach the same quit escalation as a stuck normal cancel instead of re-sending forever.

@@ -258,7 +258,7 @@ sends it and `Esc` returns to the options.
 
 **Steal-Esc (runs before the mid-turn hint and clear / rewind):** overlays, modals, slash/file/completion dropdowns, history search, scrollback search, text selection, link highlight, voice, and **Bash / Remember mode exit** when the prompt is empty (Esc leaves `!` / `#` mode and returns to the normal prompt, even while a turn is running). Bare `/feedback` opens the feedback form; Esc closes it.
 
-**Ctrl+C vs Esc:** with a non-empty draft while a turn is running, Ctrl+C clears the draft and keeps the turn; a second Ctrl+C on an empty prompt cancels. Esc never cancels: mid-turn it only points you at Ctrl+C and leaves the draft alone. Idle non-empty Ctrl+C clears in one press; Esc requires two presses within 800ms. The two clears differ in what they leave behind: `Esc Esc` stashes the draft, so `Ctrl+S` (or `Ctrl+Z` pressed right after) brings it back, while `Ctrl+C` discards it (`Ctrl+Z` still undoes that clear, text only).
+**Ctrl+C vs Esc:** with a non-empty draft while a turn is running, Ctrl+C clears the draft and keeps the turn; a second Ctrl+C on an empty prompt cancels. Esc never cancels: mid-turn it only points you at Ctrl+C and leaves the draft alone. Idle non-empty Ctrl+C clears in one press; Esc requires two presses within 800ms. The two clears differ in what they leave behind: `Esc Esc` stashes the draft, so `Ctrl+S` (or `Ctrl+Z` pressed right after) brings it back, while `Ctrl+C` discards it (`Ctrl+Z` still undoes that clear, text only). With `/mcps` or the block viewer open, `Ctrl+C` cancels a running turn and closes that screen instead of waiting for an empty composer.
 
 ---
 
@@ -272,7 +272,7 @@ Actions that affect the agent session, available from the agent screen.
 | `?` (Shift+/) | Agent screen | Open the command palette (alt binding) |
 | `Ctrl+M` | Agent screen | Open the model picker / switch model |
 | `Ctrl+M` | Prompt focused | Toggle multiline input mode |
-| `Ctrl+C` | Agent screen | Cancel the current turn (or clear non-empty draft first; see Escape table) |
+| `Ctrl+C` | Agent screen | Cancel the current turn (or clear non-empty draft first; see Escape table). With `/mcps` or the block viewer open, it cancels a running turn and closes that screen. |
 | `Ctrl+O` | Agent screen | Toggle always-approve (YOLO) mode |
 | `Ctrl+R` | Agent screen | Open the session picker (resume a previous session, same as `/resume`) |
 | `Ctrl+;` (alt: `Ctrl+'`) | Agent screen | Toggle the prompt queue pane (when non-empty). **Local macOS** VS Code family only: primary **`Ctrl+4`** (`;` / `'` still alts). SSH and non-Mac keep **`Ctrl+;`** / **`Ctrl+'`**. |
