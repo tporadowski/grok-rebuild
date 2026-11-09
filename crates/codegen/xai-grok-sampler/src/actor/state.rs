@@ -95,6 +95,30 @@ mod tests {
     }
 
     #[test]
+    fn cancel_one_request_leaves_the_other() {
+        let mut state = ActorState::new(cfg(), RetryPolicy::default());
+        let stop = RequestId::from("response-stop");
+        let keep = RequestId::from("response-keep");
+        let kept = CancellationToken::new();
+        state.register(
+            stop.clone(),
+            ActiveRequest {
+                cancel_token: CancellationToken::new(),
+            },
+        );
+        state.register(
+            keep.clone(),
+            ActiveRequest {
+                cancel_token: kept.clone(),
+            },
+        );
+        assert!(state.cancel(&stop));
+        assert!(!state.active_requests.contains_key(&stop));
+        assert!(state.active_requests.contains_key(&keep));
+        assert!(!kept.is_cancelled());
+    }
+
+    #[test]
     fn register_returns_previous_when_same_id() {
         let mut state = ActorState::new(cfg(), RetryPolicy::default());
         let id = RequestId::from("req-1");
