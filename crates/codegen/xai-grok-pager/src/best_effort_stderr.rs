@@ -20,6 +20,16 @@ pub fn eprint_line(line: &str) {
     write_line(&mut std::io::stderr(), line);
 }
 
+/// True when a panic is the standard-library print macro failing to write.
+///
+/// `println!` and `eprintln!` panic with `failed printing to stdout` or
+/// `failed printing to stderr` for a closed pipe and for any other write error.
+/// `grok update` and `grok login` exit on that panic instead of aborting.
+pub fn is_stdio_print_failure(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("failed printing to stdout") || lower.contains("failed printing to stderr")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -29,6 +39,28 @@ mod tests {
         let mut buf = Vec::new();
         assert!(write_line(&mut buf, "Finishing session…"));
         assert_eq!(buf, "Finishing session…\n".as_bytes());
+    }
+
+    /// Closing the read end makes every write fail with EPIPE, like the dead tty a closed pane
+    /// leaves behind. SIGPIPE is ignored in Rust binaries, so the write returns an error.
+    #[test]
+    fn closed_or_unwritable_print_panics_are_stdio_failures() {
+        assert!(is_stdio_print_failure(
+            "failed printing to stdout: Broken pipe (os error 32)"
+        ));
+        assert!(is_stdio_print_failure(
+            "failed printing to stderr: Broken pipe (os error 32)"
+        ));
+        assert!(is_stdio_print_failure(
+            "failed printing to stdout: Permission denied (os error 13)"
+        ));
+        assert!(is_stdio_print_failure(
+            "failed printing to stderr: No space left on device (os error 28)"
+        ));
+        assert!(!is_stdio_print_failure("config.toml is not a table"));
+        assert!(!is_stdio_print_failure(
+            "os error 32 while reading the config file"
+        ));
     }
 
     /// Closing the read end makes every write fail with EPIPE, like the dead tty a closed pane

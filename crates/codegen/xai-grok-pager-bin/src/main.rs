@@ -2785,13 +2785,9 @@ async fn run_update_blocking(update_config: &UpdateConfig) -> bool {
     .await
     .is_ok()
 }
-/// `println!` / `eprintln!` panic when stdout or stderr is closed. `grok update` and
-/// `grok login` must exit instead of aborting. SIGPIPE stays ignored so children keep
-/// the Rust default.
-fn is_broken_pipe_message(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("broken pipe") || lower.contains("os error 32")
-}
+/// `println!` / `eprintln!` panic when stdout or stderr is closed or cannot be written.
+/// `grok update` and `grok login` must exit instead of aborting. SIGPIPE stays ignored
+/// so children keep the Rust default.
 fn install_quiet_broken_pipe_exit() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -2806,9 +2802,9 @@ fn install_quiet_broken_pipe_exit() {
             .downcast_ref::<String>()
             .map(String::as_str)
             .unwrap_or("");
-        if is_broken_pipe_message(&payload)
-            || is_broken_pipe_message(owned)
-            || is_broken_pipe_message(&info.to_string())
+        if xai_grok_pager::best_effort_stderr::is_stdio_print_failure(&payload)
+            || xai_grok_pager::best_effort_stderr::is_stdio_print_failure(owned)
+            || xai_grok_pager::best_effort_stderr::is_stdio_print_failure(&info.to_string())
         {
             std::process::exit(0);
         }
@@ -3054,16 +3050,6 @@ mod tests {
     }
 
     #[test]
-    fn closed_stdout_panic_is_a_broken_pipe() {
-        assert!(is_broken_pipe_message(
-            "failed printing to stdout: Broken pipe (os error 32)"
-        ));
-        assert!(is_broken_pipe_message(
-            "failed printing to stderr: Broken pipe (os error 32)"
-        ));
-        assert!(!is_broken_pipe_message("config.toml is not a table"));
-    }
-
     #[test]
     fn embedded_agent_commands_heal_managed_policy_before_sandboxing() {
         for args in [
