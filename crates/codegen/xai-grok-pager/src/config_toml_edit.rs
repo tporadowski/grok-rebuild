@@ -35,21 +35,21 @@ pub(crate) fn set_hint(key: &str, value: impl Into<toml_edit::Value>) -> std::io
 }
 
 /// Core of [`set_hint`]; takes the path so tests can point it at a temp dir.
+/// Re-reads under the config-init flock so a concurrent settings save keeps MCP
+/// servers and permission rules.
 fn set_hint_at(path: &Path, key: &str, value: impl Into<toml_edit::Value>) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let Some(mut doc) = read_config_document_for_edit(path) else {
-        return Ok(());
-    };
-    if let Some(table) = doc
-        .entry("hints")
-        .or_insert(toml_edit::table())
-        .as_table_mut()
-    {
-        table.insert(key, toml_edit::value(value));
-    }
-    std::fs::write(path, doc.to_string())
+    let value = value.into();
+    xai_grok_shell::util::config::edit_config_toml_locked(path, true, |doc| {
+        if let Some(table) = doc
+            .entry("hints")
+            .or_insert(toml_edit::table())
+            .as_table_mut()
+        {
+            table.insert(key, toml_edit::value(value));
+        }
+        true
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -162,6 +162,55 @@ mod tests {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         assert!(disabled, "should read back true after set_hint write");
+    }
+
+    #[test]
+    fn set_hint_at_keeps_mcp_and_permission_written_while_it_waits() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join(xai_grok_config::USER_CONFIG_FILENAME);
+        fs::write(&path, "[ui]\ncompact_mode = false\n").unwrap();
+        let lock = xai_grok_shell::util::config::acquire_init_lock(dir.path()).unwrap();
+        let path_writer = path.clone();
+        let writer = std::thread::spawn(move || {
+            set_hint_at(&path_writer, "memory_modal_fullscreen", true).unwrap();
+        });
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let mid = fs::read_to_string(&path).unwrap();
+        assert!(
+            !mid.contains("memory_modal_fullscreen"),
+            "hint save must wait for the config lock, got {mid}"
+        );
+        fs::write(
+            &path,
+            "[mcp_servers.linear]\ncommand = \"linear\"\n\n[permission]\nallow = [\"Bash(git status)\"]\n",
+        )
+        .unwrap();
+        drop(lock);
+        writer.join().unwrap();
+        let body = fs::read_to_string(&path).unwrap();
+        let root: toml::Value = toml::from_str(&body).unwrap();
+        assert!(
+            root.get("mcp_servers")
+                .and_then(|servers| servers.get("linear"))
+                .is_some(),
+            "{body}"
+        );
+        assert!(
+            root.get("permission")
+                .and_then(|section| section.get("allow"))
+                .and_then(|allow| allow.as_array())
+                .is_some_and(|allow| {
+                    allow.iter().any(|value| value.as_str() == Some("Bash(git status)"))
+                }),
+            "{body}"
+        );
+        assert_eq!(
+            root.get("hints")
+                .and_then(|hints| hints.get("memory_modal_fullscreen"))
+                .and_then(|value| value.as_bool()),
+            Some(true),
+            "{body}"
+        );
     }
 
     #[test]

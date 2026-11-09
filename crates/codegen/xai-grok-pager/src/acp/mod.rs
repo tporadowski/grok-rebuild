@@ -418,29 +418,25 @@ fn apply_interactive_tool_flags(
 }
 /// Write config.toml fields based on CLI flags.
 pub(super) fn apply_config_writes(flags: &ConnectFlags) {
+    let Some(installer) = flags.installer.as_deref() else {
+        return;
+    };
+    let installer = installer.to_owned();
     let config_path =
         xai_grok_shell::util::grok_home::grok_home().join(xai_grok_config::USER_CONFIG_FILENAME);
-    let content = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let mut doc = content
-        .parse::<toml_edit::DocumentMut>()
-        .unwrap_or_default();
-    let mut changed = false;
-    if let Some(ref installer) = flags.installer {
-        let cli = doc
-            .entry("cli")
-            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()));
-        if let Some(tbl) = cli.as_table_mut() {
-            tbl.insert("installer", toml_edit::value(installer.as_str()));
-            changed = true;
-        }
-    }
-    if changed {
-        if let Some(parent) = config_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Err(e) = std::fs::write(&config_path, doc.to_string()) {
-            tracing::warn!(error = %e, "failed to write config.toml");
-        }
+    if let Err(e) =
+        xai_grok_shell::util::config::edit_config_toml_locked(&config_path, true, |doc| {
+            let cli = doc
+                .entry("cli")
+                .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()));
+            let Some(tbl) = cli.as_table_mut() else {
+                return false;
+            };
+            tbl.insert("installer", toml_edit::value(installer));
+            true
+        })
+    {
+        tracing::warn!(error = %e, "failed to write config.toml");
     }
 }
 /// Build the per-session `_meta` for `InitializeRequest` (TUI and leader).

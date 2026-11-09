@@ -4695,13 +4695,20 @@ pub fn write_persisted(p: &PersistedDashboard) -> std::io::Result<()> {
 }
 
 /// Path-taking variant of [`write_persisted`] so the on-disk round-trip can be exercised in tests against a `tempfile::TempDir`.
+/// Holds the config-init flock and re-reads before editing, so another window's MCP servers and
+/// permission rules are part of the document that gets published.
 pub fn write_persisted_to_path(
     path: &std::path::Path,
     p: &PersistedDashboard,
 ) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    let Some(parent) = path.parent() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "config.toml path has no parent",
+        ));
+    };
+    std::fs::create_dir_all(parent)?;
+    let _lock = xai_grok_shell::util::config::acquire_init_lock(parent)?;
     let mut doc = match crate::config_toml_edit::read_config_document_for_edit(path) {
         Some(d) => d,
         None => {

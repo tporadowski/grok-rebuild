@@ -37,7 +37,7 @@ GROK_CONFIG='{"models": {"default_reasoning_effort": "high"}}' grok agent stdio
 
 ## config.toml (main configuration)
 
-Location: `~/.grok/config.toml`. If the file is missing, Grok uses its built-in defaults, so you only need to set the values you want to override.
+Location: `~/.grok/config.toml`. If the file is missing, Grok uses its built-in defaults, so you only need to set the values you want to override. Two windows can edit this file at the same time. Each save re-reads it under a lock, so a settings change keeps MCP servers and permission rules written by the other window.
 
 ### General settings
 

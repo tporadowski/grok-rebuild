@@ -761,18 +761,30 @@ pub fn set_default_agent(name: Option<&str>) -> Result<(), String> {
     if let Some(parent) = config_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let Some(mut doc) = crate::config_toml_edit::read_config_document_for_edit(&config_path) else {
-        return Err("Could not read or parse config.toml".to_string());
-    };
-    if let Some(agent_name) = name {
-        let agent_item = doc.entry("agent").or_insert(toml_edit::table());
-        let agent_table = agent_item.as_table_mut().ok_or("[agent] is not a table")?;
-        agent_table.insert("name", toml_edit::value(agent_name));
-    } else if let Some(agent_table) = doc.get_mut("agent").and_then(|v| v.as_table_mut()) {
-        agent_table.remove("name");
+    let agent_name = name.map(str::to_owned);
+    let mut rejected = None;
+    match xai_grok_shell::util::config::edit_config_toml_locked(&config_path, true, |doc| {
+        if let Some(agent_name) = agent_name.as_deref() {
+            let agent_item = doc.entry("agent").or_insert(toml_edit::table());
+            let Some(agent_table) = agent_item.as_table_mut() else {
+                rejected = Some("[agent] is not a table".to_string());
+                return false;
+            };
+            agent_table.insert("name", toml_edit::value(agent_name));
+        } else if let Some(agent_table) = doc.get_mut("agent").and_then(|v| v.as_table_mut()) {
+            agent_table.remove("name");
+        }
+        true
+    }) {
+        Ok(xai_grok_shell::util::config::ConfigTomlEdit::Unparseable) => {
+            return Err("Could not read or parse config.toml".to_string());
+        }
+        Ok(_) => {}
+        Err(e) => return Err(format!("Failed to write config.toml: {e}")),
     }
-    std::fs::write(&config_path, doc.to_string())
-        .map_err(|e| format!("Failed to write config.toml: {e}"))?;
+    if let Some(message) = rejected {
+        return Err(message);
+    }
     Ok(())
 }
 /// Toggle an agent's enabled state via `[subagents.toggle]` in config.toml.
@@ -781,21 +793,28 @@ pub fn toggle_agent(name: &str, enabled: bool) -> Result<(), String> {
     if let Some(parent) = config_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let Some(mut doc) = crate::config_toml_edit::read_config_document_for_edit(&config_path) else {
-        return Err("Could not read or parse config.toml".to_string());
-    };
-    let subagents_item = doc.entry("subagents").or_insert(toml_edit::table());
-    let subagents = subagents_item
-        .as_table_mut()
-        .ok_or("subagents is not a table")?;
-    let toggle_item = subagents.entry("toggle").or_insert(toml_edit::table());
-    let toggle_table = toggle_item
-        .as_table_mut()
-        .ok_or("subagents.toggle is not a table")?;
-    toggle_table.insert(name, toml_edit::value(enabled));
-    std::fs::write(&config_path, doc.to_string())
-        .map_err(|e| format!("Failed to write config.toml: {e}"))?;
-    Ok(())
+    let name = name.to_owned();
+    let mut rejected = None;
+    match xai_grok_shell::util::config::edit_config_toml_locked(&config_path, true, |doc| {
+        let subagents_item = doc.entry("subagents").or_insert(toml_edit::table());
+        let Some(subagents) = subagents_item.as_table_mut() else {
+            rejected = Some("subagents is not a table".to_string());
+            return false;
+        };
+        let toggle_item = subagents.entry("toggle").or_insert(toml_edit::table());
+        let Some(toggle_table) = toggle_item.as_table_mut() else {
+            rejected = Some("subagents.toggle is not a table".to_string());
+            return false;
+        };
+        toggle_table.insert(&name, toml_edit::value(enabled));
+        true
+    }) {
+        Ok(xai_grok_shell::util::config::ConfigTomlEdit::Unparseable) => {
+            Err("Could not read or parse config.toml".to_string())
+        }
+        Ok(_) => rejected.map_or(Ok(()), Err),
+        Err(e) => Err(format!("Failed to write config.toml: {e}")),
+    }
 }
 /// Format detail lines for an expanded agent entry.
 pub fn format_agent_detail(entry: &AgentListEntry) -> Vec<String> {

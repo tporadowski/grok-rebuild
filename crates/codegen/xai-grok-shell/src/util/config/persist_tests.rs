@@ -1896,3 +1896,105 @@ async fn cancelled_blocking_save_holds_write_guard_until_worker_finishes() {
         "second writer acquired locks before the detached save released them"
     );
 }
+
+fn permission_allow_contains(root: &toml::Value, rule: &str) -> bool {
+    root.get("permission")
+        .and_then(|section| section.get("allow"))
+        .and_then(|allow| allow.as_array())
+        .is_some_and(|allow| allow.iter().any(|value| value.as_str() == Some(rule)))
+}
+
+/// A writer blocked on the config-init flock must re-read after the other window
+/// publishes MCP servers and permission rules.
+#[test]
+fn edit_config_toml_locked_keeps_mcp_and_permission_from_the_other_window() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, "[ui]\ncompact_mode = false\n").unwrap();
+    let lock = acquire_init_lock(dir.path()).unwrap();
+    let path_writer = path.clone();
+    let writer = std::thread::spawn(move || {
+        edit_config_toml_locked(&path_writer, true, |doc| {
+            let ui = doc.entry("ui").or_insert(toml_edit::table());
+            let Some(ui) = ui.as_table_mut() else {
+                return false;
+            };
+            ui.insert("theme", toml_edit::value("grok"));
+            true
+        })
+        .unwrap()
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let mid = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !mid.contains("theme"),
+        "the settings writer must wait for the config lock before reading, got {mid}"
+    );
+    std::fs::write(
+        &path,
+        "[mcp_servers.linear]\ncommand = \"linear\"\n\n[permission]\nallow = [\"Bash(git status)\"]\n",
+    )
+    .unwrap();
+    drop(lock);
+    assert_eq!(writer.join().unwrap(), ConfigTomlEdit::Wrote);
+    let body = std::fs::read_to_string(&path).unwrap();
+    let root: toml::Value = toml::from_str(&body).unwrap();
+    assert!(
+        root.get("mcp_servers")
+            .and_then(|servers| servers.get("linear"))
+            .is_some(),
+        "{body}"
+    );
+    assert!(permission_allow_contains(&root, "Bash(git status)"), "{body}");
+    assert_eq!(
+        root.get("ui")
+            .and_then(|ui| ui.get("theme"))
+            .and_then(|theme| theme.as_str()),
+        Some("grok"),
+        "{body}"
+    );
+}
+
+/// Two windows: one saves a setting, the other adds an MCP server. Both land,
+/// and the permission rules that were already in the file stay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial_test::serial]
+async fn concurrent_settings_and_mcp_saves_keep_permission_rules() {
+    let home = tempfile::tempdir().expect("tempdir");
+    let _env = xai_grok_test_support::EnvGuard::set("GROK_HOME", home.path());
+    let path = home.path().join("config.toml");
+    std::fs::write(
+        &path,
+        "[mcp_servers.linear]\ncommand = \"linear\"\n\n[permission]\nallow = [\"Bash(git status)\"]\n",
+    )
+    .unwrap();
+    let server: super::super::mcp::McpServerConfig =
+        toml::from_str("command = \"extra\"\n").expect("stdio server");
+    let settings = update_config(|cfg| cfg.ui.compact_mode = true);
+    let mcp = super::super::mcp::save_mcp_server_config("extra", &server);
+    let (settings, mcp) = tokio::join!(settings, mcp);
+    settings.expect("settings save");
+    mcp.expect("mcp save");
+    let body = std::fs::read_to_string(&path).unwrap();
+    let root: toml::Value = toml::from_str(&body).expect("config stays valid toml");
+    assert!(
+        root.get("mcp_servers")
+            .and_then(|servers| servers.get("linear"))
+            .is_some(),
+        "{body}"
+    );
+    assert!(
+        root.get("mcp_servers")
+            .and_then(|servers| servers.get("extra"))
+            .is_some(),
+        "{body}"
+    );
+    assert!(permission_allow_contains(&root, "Bash(git status)"), "{body}");
+    assert_eq!(
+        root.get("ui")
+            .and_then(|ui| ui.get("compact_mode"))
+            .and_then(|value| value.as_bool()),
+        Some(true),
+        "{body}"
+    );
+}

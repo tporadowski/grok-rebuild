@@ -335,6 +335,61 @@ fn merge_section<T: serde::Serialize>(
         }
     }
 }
+/// What [`edit_config_toml_locked`] did with the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigTomlEdit {
+    /// The edit returned true and the new document was published.
+    Wrote,
+    /// The edit returned false. The file was not rewritten.
+    Unchanged,
+    /// The file was non-empty and not valid TOML. It was left untouched.
+    Unparseable,
+}
+
+/// Locked read-modify-write of one `config.toml`.
+///
+/// The config-init flock is held before the file is read, so a settings save in
+/// another window cannot drop MCP servers or permission rules that landed while
+/// this writer waited. `follow_leaf` publishes through [`atomic_write_string`]
+/// (user `config.toml`). `false` uses [`atomic_replace_string`] (project files).
+/// The closure returns whether the document changed.
+pub fn edit_config_toml_locked(
+    path: &std::path::Path,
+    follow_leaf: bool,
+    edit: impl FnOnce(&mut toml_edit::DocumentMut) -> bool,
+) -> std::io::Result<ConfigTomlEdit> {
+    let Some(parent) = path.parent() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "config.toml path has no parent",
+        ));
+    };
+    if parent.as_os_str().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "config.toml path has no parent",
+        ));
+    }
+    std::fs::create_dir_all(parent)?;
+    let _lock = acquire_init_lock(parent)?;
+    let content = read_to_string_or_empty(path)?;
+    let mut doc = match content.parse::<toml_edit::DocumentMut>() {
+        Ok(doc) => doc,
+        Err(_) if content.trim().is_empty() => toml_edit::DocumentMut::new(),
+        Err(_) => return Ok(ConfigTomlEdit::Unparseable),
+    };
+    if !edit(&mut doc) {
+        return Ok(ConfigTomlEdit::Unchanged);
+    }
+    let published = doc.to_string();
+    if follow_leaf {
+        atomic_write_string(path, &published)?;
+    } else {
+        atomic_replace_string(path, &published)?;
+    }
+    Ok(ConfigTomlEdit::Wrote)
+}
+
 /// Update settings with a read-modify-write, preserving unrelated fields.
 pub async fn update_config<F>(f: F) -> Result<()>
 where

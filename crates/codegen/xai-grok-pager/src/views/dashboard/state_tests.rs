@@ -429,6 +429,74 @@ fn persisted_write_preserves_other_tables() {
     assert!(after.contains("[dashboard]"));
 }
 
+/// A dashboard save that waits on the config lock re-reads MCP servers and permission rules
+/// another window published while this one was blocked.
+#[test]
+fn persisted_write_keeps_mcp_and_permission_saved_while_it_waits() {
+    use std::collections::BTreeSet;
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.toml");
+    std::fs::write(&path, "[ui]\ncompact_mode = false\n").unwrap();
+    let lock = xai_grok_shell::util::config::acquire_init_lock(tmp.path()).unwrap();
+    let path_writer = path.clone();
+    let writer = std::thread::spawn(move || {
+        write_persisted_to_path(
+            &path_writer,
+            &PersistedDashboard {
+                enabled: false,
+                grouping: Grouping::Directory,
+                pinned: BTreeSet::new(),
+                reorder: Vec::new(),
+            },
+        )
+        .unwrap();
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let mid = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !mid.contains("[dashboard]"),
+        "dashboard save must wait for the config lock, got {mid}"
+    );
+    std::fs::write(
+        &path,
+        "[mcp_servers.linear]\ncommand = \"linear\"\n\n[permission]\nallow = [\"Bash(git status)\"]\n",
+    )
+    .unwrap();
+    drop(lock);
+    writer.join().unwrap();
+    let body = std::fs::read_to_string(&path).unwrap();
+    let root: toml::Value = toml::from_str(&body).unwrap();
+    assert!(
+        root.get("mcp_servers")
+            .and_then(|servers| servers.get("linear"))
+            .is_some(),
+        "{body}"
+    );
+    assert!(
+        root.get("permission")
+            .and_then(|section| section.get("allow"))
+            .and_then(|allow| allow.as_array())
+            .is_some_and(|allow| {
+                allow.iter().any(|value| value.as_str() == Some("Bash(git status)"))
+            }),
+        "{body}"
+    );
+    assert_eq!(
+        root.get("dashboard")
+            .and_then(|dashboard| dashboard.get("enabled"))
+            .and_then(|value| value.as_bool()),
+        Some(false),
+        "{body}"
+    );
+    assert_eq!(
+        root.get("dashboard")
+            .and_then(|dashboard| dashboard.get("grouping"))
+            .and_then(|value| value.as_str()),
+        Some("directory"),
+        "{body}"
+    );
+}
+
 /// Garbage `enabled` value falls back to defaults at load.
 #[test]
 fn persisted_load_garbage_enabled_falls_back() {

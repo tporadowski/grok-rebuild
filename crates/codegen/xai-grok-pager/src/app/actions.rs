@@ -1672,8 +1672,8 @@ pub enum Effect {
     /// Persist memory modal fullscreen preference to `[hints]` in config.toml.
     PersistMemoryFullscreen { fullscreen: bool },
     /// Persist the dashboard's `[dashboard]` configuration to `~/.grok/config.toml`.
-    /// Multi-pager safe via `config_toml_edit::read_config_document_for_edit`, which loads, modifies, then writes the whole document.
-    /// Concurrent pagers may produce last-writer-wins behaviour but never corrupt the file.
+    /// The write holds the config-init flock and re-reads the file, so another window's
+    /// MCP servers and permission rules stay in the document.
     PersistDashboard(crate::views::dashboard::PersistedDashboard),
     /// Persist a per-command worktree mode preference to `[hints]` in config.toml.
     /// `config_key` is the TOML key under `[hints]` (`"new_session_worktree_mode"` or `"fork_worktree_mode"`).
