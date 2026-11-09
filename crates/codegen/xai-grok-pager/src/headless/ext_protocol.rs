@@ -74,6 +74,12 @@ pub(crate) enum ExtEvent {
     },
     TaskCompleted {
         task_id: String,
+        /// The shell admitted a follow-up turn for this completion.
+        will_wake: bool,
+    },
+    /// A turn reached its terminal outcome. Headless uses this to release a follow-up it is still waiting on.
+    TurnCompleted {
+        prompt_id: String,
     },
     SubagentSpawned {
         subagent_id: String,
@@ -185,6 +191,8 @@ fn decode_task_completed(method: &str, params: &str) -> ExtEvent {
     enum TaskDoneUpdate {
         TaskCompleted {
             task_snapshot: TaskSnapshotLite,
+            #[serde(default)]
+            will_wake: bool,
         },
         #[serde(other)]
         Other,
@@ -196,8 +204,12 @@ fn decode_task_completed(method: &str, params: &str) -> ExtEvent {
     }
     match serde_json::from_str::<TaskDoneEnvelope>(params) {
         Ok(env) => match env.update {
-            TaskDoneUpdate::TaskCompleted { task_snapshot } => ExtEvent::TaskCompleted {
+            TaskDoneUpdate::TaskCompleted {
+                task_snapshot,
+                will_wake,
+            } => ExtEvent::TaskCompleted {
                 task_id: task_snapshot.task_id,
+                will_wake,
             },
             // The sessionUpdate tag does not match the method; log loudly instead of silently dropping
             TaskDoneUpdate::Other => {
@@ -311,6 +323,9 @@ fn decode_session_notification(method: &str, params: &str) -> ExtEvent {
         },
         TurnUsage {
             usage: xai_grok_shell::extensions::notification::ResponseUsage,
+        },
+        TurnCompleted {
+            prompt_id: String,
         },
         #[serde(other)]
         Other,
@@ -442,6 +457,7 @@ fn decode_session_notification(method: &str, params: &str) -> ExtEvent {
         XaiUpdate::TurnUsage { usage } => {
             ExtEvent::Stream(Box::new(StreamEvent::TurnUsage { usage }))
         }
+        XaiUpdate::TurnCompleted { prompt_id } => ExtEvent::TurnCompleted { prompt_id },
         // A task_backgrounded or task_completed tag arriving here belongs on its dedicated method; log loudly
         // Any other unknown tag stays a clean ignore
         XaiUpdate::Other => {

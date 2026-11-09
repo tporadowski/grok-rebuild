@@ -756,7 +756,8 @@ pub struct PagerArgs {
     #[arg(long = "no-wait-for-background", hide = true)]
     pub no_wait_for_background: bool,
     /// Max seconds to wait for background work after the first turn ends (headless only).
-    /// Applies to bash/monitor `task_completed`, background subagents (`SubagentFinished`), and any still-running non-persistent work.
+    /// Applies to bash/monitor `task_completed`, the follow-up turn a finished task starts, background subagents (`SubagentFinished`), and any still-running non-persistent work.
+    /// Hitting the limit stops that wait and the run exits with an error.
     /// Persistent `monitor(persistent:true)` never completes and always waits the full timeout.
     #[arg(
         long = "background-wait-timeout",

@@ -109,7 +109,7 @@ fn headless_task_completed_numeric_task_id_is_coerced() {
     );
     assert!(matches!(
         handle_ext_notification(&notif),
-        ExtEvent::TaskCompleted { task_id } if task_id == "4242"
+        ExtEvent::TaskCompleted { task_id, will_wake: false } if task_id == "4242"
     ));
 }
 
@@ -130,6 +130,35 @@ fn headless_task_backgrounded_with_monitor_description_is_monitor() {
 }
 
 #[test]
+fn headless_task_completed_will_wake_and_turn_completed_decode() {
+    let completed = make_ext_notif(
+        "x.ai/task_completed",
+        serde_json::json!({
+            "sessionUpdate": "task_completed",
+            "task_snapshot": { "task_id": "task-abc" },
+            "will_wake": true
+        }),
+    );
+    assert!(matches!(
+        handle_ext_notification(&completed),
+        ExtEvent::TaskCompleted { task_id, will_wake: true } if task_id == "task-abc"
+    ));
+
+    let turn = make_ext_notif(
+        "x.ai/session/update",
+        serde_json::json!({
+            "sessionUpdate": "turn_completed",
+            "prompt_id": "task-completed-task-abc",
+            "stop_reason": "end_turn"
+        }),
+    );
+    assert!(matches!(
+        handle_ext_notification(&turn),
+        ExtEvent::TurnCompleted { prompt_id } if prompt_id == "task-completed-task-abc"
+    ));
+}
+
+#[test]
 fn headless_task_completed_parses_task_id() {
     let notif = make_ext_notif(
         "x.ai/task_completed",
@@ -140,7 +169,7 @@ fn headless_task_completed_parses_task_id() {
     );
     assert!(matches!(
         handle_ext_notification(&notif),
-        ExtEvent::TaskCompleted { task_id } if task_id == "task-abc"
+        ExtEvent::TaskCompleted { task_id, will_wake: false } if task_id == "task-abc"
     ));
 }
 

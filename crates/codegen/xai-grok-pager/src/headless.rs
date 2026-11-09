@@ -1682,9 +1682,7 @@ pub async fn run_single_turn(
         }
         None => Ok(()),
     };
-    if background_wait_timed_out {
-        outcome = Err(anyhow::anyhow!(background_wait_timeout_message()));
-    }
+    outcome = apply_background_wait_timeout(outcome, background_wait_timed_out);
     let flush_error = if options.memory_flush && outcome.is_ok() {
         run_headless_memory_flush(
             &acp_tx,
@@ -1768,6 +1766,8 @@ enum BackgroundWork {
     Task(String),
     Subagent(String),
     Goal(String),
+    /// Prompt id of the follow-up turn a finished background task started.
+    FollowUp(String),
 }
 
 /// An `active` goal is still running. Every other status is an outcome headless can report and stop waiting on.
@@ -1843,6 +1843,20 @@ pub(crate) fn background_wait_timeout_message() -> &'static str {
     "background wait timed out before pending work finished"
 }
 
+/// A successful first turn is still an error when the background wait gives up.
+fn apply_background_wait_timeout(outcome: Result<()>, timed_out: bool) -> Result<()> {
+    if timed_out {
+        Err(anyhow::anyhow!(background_wait_timeout_message()))
+    } else {
+        outcome
+    }
+}
+
+/// Prompt id the shell uses when a finished task starts a follow-up turn.
+pub(crate) fn task_follow_up_prompt_id(task_id: &str) -> String {
+    format!("task-completed-{task_id}")
+}
+
 const GOAL_PAUSE_PROMPT: &str = "/goal pause";
 #[derive(Default)]
 struct BackgroundLifecycleState {
@@ -1850,6 +1864,8 @@ struct BackgroundLifecycleState {
     subagents: HashMap<String, SubagentLifecycleState>,
     /// Goal ids that already reported a success status. Later pause lines stay quiet.
     finished_goals: HashSet<String>,
+    /// Follow-up prompt ids that already finished. A late `will_wake` must not wait again.
+    finished_follow_ups: HashSet<String>,
 }
 /// Ext request that kills one unit of background work (subagent cancel or task kill).
 fn reap_request_for_work(
@@ -1874,6 +1890,11 @@ fn reap_request_for_work(
         BackgroundWork::Goal(_) => {
             return Err(serde::de::Error::custom(
                 "an active goal is paused with /goal pause, not an ext request",
+            ));
+        }
+        BackgroundWork::FollowUp(_) => {
+            return Err(serde::de::Error::custom(
+                "a follow-up turn is not killed with a task reap request",
             ));
         }
     };
@@ -1909,6 +1930,9 @@ async fn reap_pending_background_tasks(
             if headless_exit_pauses_goal(finished_goals, goal_id) {
                 pause_headless_goal(session_id, acp_tx).await;
             }
+            continue;
+        }
+        if matches!(work, BackgroundWork::FollowUp(_)) {
             continue;
         }
         let request = match reap_request_for_work(work, session_id) {
@@ -2053,9 +2077,19 @@ fn track_background_lifecycle(
                 pending_bg.insert(BackgroundWork::Task(task_id));
             }
         }
-        ExtEvent::TaskCompleted { task_id } => {
+        ExtEvent::TaskCompleted { task_id, will_wake } => {
             pending_bg.remove(&BackgroundWork::Task(task_id.clone()));
-            state.completed_tasks.insert(task_id);
+            state.completed_tasks.insert(task_id.clone());
+            if will_wake {
+                let prompt_id = task_follow_up_prompt_id(&task_id);
+                if !state.finished_follow_ups.contains(&prompt_id) {
+                    pending_bg.insert(BackgroundWork::FollowUp(prompt_id));
+                }
+            }
+        }
+        ExtEvent::TurnCompleted { prompt_id } => {
+            state.finished_follow_ups.insert(prompt_id.clone());
+            pending_bg.remove(&BackgroundWork::FollowUp(prompt_id));
         }
         ExtEvent::SubagentSpawned {
             subagent_id,

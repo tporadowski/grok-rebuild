@@ -77,6 +77,80 @@ fn a_background_wait_timeout_is_an_error() {
     let message = super::background_wait_timeout_message();
     assert!(message.contains("timed out"));
     assert!(message.contains("pending"));
+    let timed_out = super::apply_background_wait_timeout(Ok(()), true)
+        .expect_err("a timeout replaces a successful turn");
+    assert!(
+        timed_out.to_string().contains(message),
+        "timeout error must name the wait: {timed_out}"
+    );
+    assert!(super::apply_background_wait_timeout(Ok(()), false).is_ok());
+}
+
+#[test]
+fn a_finished_task_that_wakes_keeps_headless_waiting_for_the_follow_up() {
+    let mut pending = std::collections::HashSet::new();
+    let mut completed = super::BackgroundLifecycleState::default();
+    super::track_background_lifecycle(
+        super::ExtEvent::TaskBackgrounded {
+            task_id: "t1".into(),
+            is_monitor: false,
+        },
+        &mut pending,
+        &mut completed,
+    );
+    super::track_background_lifecycle(
+        super::ExtEvent::TaskCompleted {
+            task_id: "t1".into(),
+            will_wake: true,
+        },
+        &mut pending,
+        &mut completed,
+    );
+    let prompt_id = super::task_follow_up_prompt_id("t1");
+    assert_eq!(prompt_id, "task-completed-t1");
+    assert!(
+        pending.contains(&super::BackgroundWork::FollowUp(prompt_id.clone())),
+        "the follow-up turn stays pending after the task itself finishes: {pending:?}"
+    );
+    assert!(!pending.contains(&super::BackgroundWork::Task("t1".into())));
+
+    super::track_background_lifecycle(
+        super::ExtEvent::TurnCompleted {
+            prompt_id: prompt_id.clone(),
+        },
+        &mut pending,
+        &mut completed,
+    );
+    assert!(
+        pending.is_empty(),
+        "the follow-up's turn completion releases the wait: {pending:?}"
+    );
+
+    super::track_background_lifecycle(
+        super::ExtEvent::TaskCompleted {
+            task_id: "t1".into(),
+            will_wake: true,
+        },
+        &mut pending,
+        &mut completed,
+    );
+    assert!(
+        pending.is_empty(),
+        "a late wake for a finished follow-up must not wait again"
+    );
+
+    super::track_background_lifecycle(
+        super::ExtEvent::TaskCompleted {
+            task_id: "t2".into(),
+            will_wake: false,
+        },
+        &mut pending,
+        &mut completed,
+    );
+    assert!(
+        pending.is_empty(),
+        "a completion that does not wake does not start a follow-up wait"
+    );
 }
 
 #[test]
@@ -106,6 +180,7 @@ fn lifecycle_tracking_is_independent_of_wait_flag() {
     super::track_background_lifecycle(
         super::ExtEvent::TaskCompleted {
             task_id: "t1".into(),
+            will_wake: false,
         },
         &mut pending,
         &mut completed,
@@ -129,6 +204,7 @@ fn completion_before_backgrounded_never_rearms_pending() {
     super::track_background_lifecycle(
         super::ExtEvent::TaskCompleted {
             task_id: "t1".into(),
+            will_wake: false,
         },
         &mut pending,
         &mut completed,
@@ -157,6 +233,7 @@ fn duplicate_backgrounded_after_completion_stays_dead() {
     super::track_background_lifecycle(
         super::ExtEvent::TaskCompleted {
             task_id: "t1".into(),
+            will_wake: false,
         },
         &mut pending,
         &mut completed,

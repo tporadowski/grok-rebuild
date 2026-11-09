@@ -410,6 +410,8 @@ git diff --staged | grok
 grok --prompt-file ./prompt.txt
 ```
 
+`grok -p` waits for the follow-up turn a finished background task starts. `--background-wait-timeout` stops that wait, and the run exits with an error.
+
 ---
 
 ## CI/CD Integration Examples
