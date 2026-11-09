@@ -36,46 +36,103 @@ fn sanitize_token_ranges(text: &str, mut ranges: Vec<Range<usize>>) -> Vec<Range
     out
 }
 
-/// Split one logical line into token/body spans by intersecting the line's byte span in the block text with the (sanitized) token ranges.
-fn token_styled_line(
+fn chip_image_placeholder_regex() -> &'static regex::Regex {
+    use std::sync::LazyLock;
+    #[expect(clippy::unwrap_used, reason = "the pattern is a literal that compiles")]
+    static RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"\[Image #(\d+)\]").unwrap());
+    &RE
+}
+
+/// Spans of `[Image #N: path]` and `[Image #N]` in `text`.
+fn image_placeholder_marks(
+    text: &str,
+    sent_numbers: &[usize],
+) -> Vec<(Range<usize>, ImagePlaceholderMark)> {
+    let kind_for = |number: usize| {
+        if sent_numbers.contains(&number) {
+            ImagePlaceholderMark::Sent
+        } else {
+            ImagePlaceholderMark::TypedOnly
+        }
+    };
+    let mut marks: Vec<(Range<usize>, ImagePlaceholderMark)> =
+        xai_grok_shell::session::placeholder_images::extract_placeholders(text)
+            .into_iter()
+            .map(|placeholder| {
+                (
+                    placeholder.span.0..placeholder.span.1,
+                    kind_for(placeholder.display_number),
+                )
+            })
+            .collect();
+    for capture in chip_image_placeholder_regex().captures_iter(text) {
+        let Some(whole) = capture.get(0) else {
+            continue;
+        };
+        let Some(number) = capture
+            .get(1)
+            .and_then(|matched| matched.as_str().parse::<usize>().ok())
+        else {
+            continue;
+        };
+        let range = whole.start()..whole.end();
+        let overlaps = marks
+            .iter()
+            .any(|(prev, _)| range.start < prev.end && prev.start < range.end);
+        if overlaps {
+            continue;
+        }
+        marks.push((range, kind_for(number)));
+    }
+    marks.sort_by_key(|(range, _)| range.start);
+    marks
+}
+
+/// Paint `marks` over one logical line. A mark that starts inside an earlier mark is skipped.
+fn range_styled_line(
     line_text: &str,
     line_start: usize,
-    ranges: &[Range<usize>],
-    token_style: Style,
+    marks: &[(Range<usize>, Style)],
     body_style: Style,
 ) -> Line<'static> {
     let line_end = line_start + line_text.len();
     let mut spans = Vec::new();
     let mut pos = line_start;
-    for r in ranges {
-        let start = r.start.clamp(line_start, line_end);
-        let end = r.end.clamp(line_start, line_end);
-        if start >= end {
+    for (range, style) in marks {
+        let start = range.start.clamp(line_start, line_end);
+        let end = range.end.clamp(line_start, line_end);
+        if start >= end || start < pos {
             continue;
         }
         if start > pos {
-            let Some(body) = pos.checked_sub(line_start).and_then(|a| {
+            let Some(body) = pos.checked_sub(line_start).and_then(|from| {
                 start
                     .checked_sub(line_start)
-                    .and_then(|b| line_text.get(a..b))
+                    .and_then(|to| line_text.get(from..to))
             }) else {
                 continue;
             };
             spans.push(Span::styled(body.to_string(), body_style));
         }
-        let Some(token) = start.checked_sub(line_start).and_then(|a| {
+        let Some(token) = start.checked_sub(line_start).and_then(|from| {
             end.checked_sub(line_start)
-                .and_then(|b| line_text.get(a..b))
+                .and_then(|to| line_text.get(from..to))
         }) else {
             continue;
         };
-        spans.push(Span::styled(token.to_string(), token_style));
+        spans.push(Span::styled(token.to_string(), *style));
         pos = end;
     }
     if pos < line_end
-        && let Some(body) = pos.checked_sub(line_start).and_then(|a| line_text.get(a..))
+        && let Some(body) = pos
+            .checked_sub(line_start)
+            .and_then(|from| line_text.get(from..))
     {
         spans.push(Span::styled(body.to_string(), body_style));
+    }
+    if spans.is_empty() {
+        spans.push(Span::styled(line_text.to_string(), body_style));
     }
     Line::from(spans)
 }
@@ -96,6 +153,17 @@ pub struct UserPromptBlock {
     /// Empty means plain prompt styling.
     /// This is the sole skill signal; a leading skill invocation is `[0..token_end]`.
     pub skill_token_ranges: Vec<Range<usize>>,
+    /// `[Image #N]` and `[Image #N: path]` spans in `text`, and whether that image went out with the prompt.
+    pub image_marks: Vec<(Range<usize>, ImagePlaceholderMark)>,
+}
+
+/// How an image placeholder in a user prompt was sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImagePlaceholderMark {
+    /// The image bytes went with the prompt.
+    Sent,
+    /// The placeholder was only text: nothing was attached, or the bytes were not sent.
+    TypedOnly,
 }
 
 impl UserPromptBlock {
@@ -107,6 +175,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges: Vec::new(),
+            image_marks: Vec::new(),
         }
     }
 
@@ -122,6 +191,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges: Vec::new(),
+            image_marks: Vec::new(),
         }
     }
 
@@ -145,6 +215,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges,
+            image_marks: Vec::new(),
         }
     }
 
@@ -160,7 +231,47 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges,
+            image_marks: Vec::new(),
         }
+    }
+
+    /// Mark each image placeholder in `text`. A number in `sent_numbers` was attached and sent.
+    /// Every other `[Image #N]` or `[Image #N: path]` is text the user typed.
+    pub fn mark_image_placeholders(&mut self, sent_numbers: &[usize]) {
+        self.image_marks = image_placeholder_marks(&self.text, sent_numbers);
+    }
+
+    /// Image marks first, then skill tokens. A later range that starts inside an earlier one is dropped,
+    /// so an image placeholder keeps its own style when it overlaps a skill token.
+    fn styled_placeholder_ranges(
+        &self,
+        skill_style: Style,
+        sent_style: Style,
+        typed_style: Style,
+    ) -> Vec<(Range<usize>, Style)> {
+        let mut raw: Vec<(Range<usize>, Style, u8)> = Vec::new();
+        for (range, mark) in &self.image_marks {
+            let style = match mark {
+                ImagePlaceholderMark::Sent => sent_style,
+                ImagePlaceholderMark::TypedOnly => typed_style,
+            };
+            raw.push((range.clone(), style, 0));
+        }
+        for range in &self.skill_token_ranges {
+            raw.push((range.clone(), skill_style, 1));
+        }
+        raw.sort_by_key(|(range, _, priority)| (range.start, *priority));
+        let mut out: Vec<(Range<usize>, Style)> = Vec::new();
+        for (range, style, _) in raw {
+            if out
+                .last()
+                .is_some_and(|(prev, _)| range.start < prev.end)
+            {
+                continue;
+            }
+            out.push((range, style));
+        }
+        out
     }
 
     pub fn cron(text: impl Into<String>) -> Self {
@@ -171,6 +282,7 @@ impl UserPromptBlock {
             is_interjection: false,
             prompt_index: None,
             skill_token_ranges: Vec::new(),
+            image_marks: Vec::new(),
         }
     }
 
@@ -182,6 +294,7 @@ impl UserPromptBlock {
             is_interjection: true,
             prompt_index: None,
             skill_token_ranges: Vec::new(),
+            image_marks: Vec::new(),
         }
     }
 
@@ -297,10 +410,16 @@ impl UserPromptBlock {
         let attribute_emphasis = !terminal_native && crate::theme::cache::terminal_native_active();
         let (mut prefix_style, mut text_style, mut skill_style) =
             Self::prompt_styles(&theme, terminal_native);
+        let mut sent_style = theme.fg(theme.accent_success);
+        let mut typed_style = theme
+            .fg(theme.gray)
+            .add_modifier(Modifier::CROSSED_OUT);
         if attribute_emphasis {
             prefix_style = prefix_style.add_modifier(Modifier::BOLD);
             text_style = text_style.add_modifier(Modifier::BOLD);
             skill_style = skill_style.add_modifier(Modifier::BOLD);
+            sent_style = sent_style.add_modifier(Modifier::BOLD);
+            typed_style = typed_style.add_modifier(Modifier::BOLD);
         }
         let mut turn_style = theme.fg(theme.gray);
         if terminal_native {
@@ -372,7 +491,8 @@ impl UserPromptBlock {
             }
 
             // Wrap this line's content.
-            let content_line = if self.skill_token_ranges.is_empty() {
+            let content_line = if self.skill_token_ranges.is_empty() && self.image_marks.is_empty()
+            {
                 Line::from(Span::styled(line_text.to_string(), text_style))
             } else {
                 // `lines()` strips terminators, so recover this line's byte offset from the subslice pointer into `self.text`
@@ -384,13 +504,8 @@ impl UserPromptBlock {
                     "line_text must be a subslice of self.text"
                 );
                 let line_start = line_text.as_ptr() as usize - self.text.as_ptr() as usize;
-                token_styled_line(
-                    line_text,
-                    line_start,
-                    &self.skill_token_ranges,
-                    skill_style,
-                    text_style,
-                )
+                let marks = self.styled_placeholder_ranges(skill_style, sent_style, typed_style);
+                range_styled_line(line_text, line_start, &marks, text_style)
             };
             let (wrapped, wrap_joiners) =
                 word_wrap_line_with_joiners(&content_line, RtOptions::new(base_content_width));
@@ -1376,5 +1491,35 @@ mod tests {
             cont.starts_with(&" ".repeat(prefix_w)),
             "continuation indent should match turn-labeled prefix width: {cont:?}"
         );
+    }
+
+    #[test]
+    fn image_placeholder_sent_is_green_and_typed_is_struck() {
+        let _guard = crate::theme::cache::pin_theme();
+        let mut block =
+            UserPromptBlock::new("see [Image #1] and [Image #2: /tmp/x.png]");
+        block.mark_image_placeholders(&[1]);
+        let lines = block.wrap_prompt_lines(80, None, true, false);
+        assert_eq!(lines.len(), 1);
+        let theme = Theme::current();
+        let spans = &line_at(&lines, 0).content.spans;
+        let sent = spans
+            .iter()
+            .find(|span| span.content.as_ref() == "[Image #1]")
+            .expect("sent placeholder");
+        assert_eq!(sent.style.fg, Some(theme.accent_success));
+        assert!(!sent.style.add_modifier.contains(Modifier::CROSSED_OUT));
+        let typed = spans
+            .iter()
+            .find(|span| span.content.as_ref() == "[Image #2: /tmp/x.png]")
+            .expect("typed placeholder");
+        assert!(typed.style.add_modifier.contains(Modifier::CROSSED_OUT));
+        assert_ne!(typed.style.fg, Some(theme.accent_success));
+        let body = spans
+            .iter()
+            .find(|span| span.content.as_ref() == "see ")
+            .expect("body");
+        assert_eq!(body.style.fg, Some(theme.text_primary));
+        assert!(!body.style.add_modifier.contains(Modifier::CROSSED_OUT));
     }
 }

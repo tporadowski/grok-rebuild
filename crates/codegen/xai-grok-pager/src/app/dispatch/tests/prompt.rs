@@ -6119,6 +6119,71 @@ fn unbound_image_placeholder_send_toasts_and_keeps_text() {
         Some("Image #1 not attached — placeholder sent as text")
     );
     assert!(agent_ref(&app, id).prompt.text().is_empty());
+    let agent = agent_ref(&app, id);
+    let prompt = agent_user_prompt_text(agent);
+    let marks = user_prompt_image_marks(agent);
+    assert!(
+        marks.iter().any(|(range, mark)| {
+            prompt.get(range.clone()) == Some("[Image #1]")
+                && *mark == crate::scrollback::blocks::ImagePlaceholderMark::TypedOnly
+        }),
+        "a typed placeholder is marked as text only in {prompt:?}: {marks:?}"
+    );
+}
+
+#[test]
+fn sent_image_placeholder_is_marked_sent_in_the_transcript() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent
+            .prompt
+            .insert_image(crate::app::agent_view::test_fixtures::test_pasted_image())
+            .unwrap();
+        agent.prompt.append_text(" what is this");
+    }
+    let text = agent_ref(&app, id).prompt.text().to_string();
+    let _ = dispatch(Action::SendPrompt(text), &mut app);
+    let agent = agent_ref(&app, id);
+    let prompt = agent_user_prompt_text(agent);
+    let marks = user_prompt_image_marks(agent);
+    assert!(
+        marks.iter().any(|(range, mark)| {
+            prompt.get(range.clone()) == Some("[Image #1]")
+                && *mark == crate::scrollback::blocks::ImagePlaceholderMark::Sent
+        }),
+        "the attached image is marked sent in {prompt:?}: {marks:?}"
+    );
+}
+
+fn agent_user_prompt_text(agent: &AgentView) -> String {
+    for idx in (0..agent.scrollback.len()).rev() {
+        let Some(entry) = agent.scrollback.entry(idx) else {
+            continue;
+        };
+        if let crate::scrollback::RenderBlock::UserPrompt(block) = &entry.block {
+            return block.text.clone();
+        }
+    }
+    String::new()
+}
+
+fn user_prompt_image_marks(
+    agent: &AgentView,
+) -> Vec<(
+    std::ops::Range<usize>,
+    crate::scrollback::blocks::ImagePlaceholderMark,
+)> {
+    for idx in (0..agent.scrollback.len()).rev() {
+        let Some(entry) = agent.scrollback.entry(idx) else {
+            continue;
+        };
+        if let crate::scrollback::RenderBlock::UserPrompt(block) = &entry.block {
+            return block.image_marks.clone();
+        }
+    }
+    Vec::new()
 }
 
 /// Mid-turn Send now (Ctrl+Enter) runs the same unbound check before it drains the composer; the

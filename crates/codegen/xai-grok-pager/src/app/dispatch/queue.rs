@@ -514,6 +514,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
             agent.scrollback.follow_new_turn(Some(prompt_idx), flip);
 
             let combined_segs = queued.combined_texts.clone();
+            let mut sent_image_numbers = Vec::new();
             let effects = if let Some(mut blocks) = queued.wire_blocks {
                 // Skill injection: send structured blocks.
                 // A pasted image on a skill command (for example `/pr-workflow`) rides along
@@ -532,6 +533,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
                             .filter(|block| matches!(block, acp::ContentBlock::Image(_))),
                     );
                 }
+                sent_image_numbers = sent_image_display_numbers(&blocks);
                 // Annotate the first text block's meta with the display text
                 // Without the annotation, replay shows the raw skill instructions instead of the user-facing display text
                 if let Some(acp::ContentBlock::Text(tb)) = blocks.first_mut() {
@@ -568,6 +570,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
                     Some(std::path::Path::new(&agent.session.cwd)),
                 );
                 notices.extend(agent.notice_skipped_sends(&build));
+                sent_image_numbers = sent_image_display_numbers(&build.blocks);
                 let mut blocks = build.blocks;
                 if let Some(acp::ContentBlock::Text(tb)) = blocks.first_mut() {
                     let map = tb.meta.get_or_insert_with(acp::Meta::new);
@@ -601,6 +604,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
                     skill_token_ranges: queued.skill_token_ranges,
                 }]
             };
+            mark_painted_image_placeholders(agent, &combined_entries, &sent_image_numbers);
             QueueDrain {
                 effects,
                 page_flip_entry: flip.then_some(prompt_entry_id),
@@ -746,6 +750,35 @@ fn trailing_user_prompts(
         }
     }
     None
+}
+
+fn sent_image_display_numbers(blocks: &[acp::ContentBlock]) -> Vec<usize> {
+    blocks
+        .iter()
+        .filter_map(|block| {
+            let acp::ContentBlock::Image(image) = block else {
+                return None;
+            };
+            xai_grok_shell::session::placeholder_images::display_number_from_meta(image.meta.as_ref())
+        })
+        .collect()
+}
+
+/// Record which image placeholders in the painted bubbles were sent and which were only typed.
+fn mark_painted_image_placeholders(
+    agent: &mut AgentView,
+    ids: &[crate::scrollback::EntryId],
+    sent_numbers: &[usize],
+) {
+    for id in ids {
+        let Some(entry) = agent.scrollback.get_by_id_mut(*id) else {
+            continue;
+        };
+        if let crate::scrollback::RenderBlock::UserPrompt(block) = &mut entry.block {
+            block.mark_image_placeholders(sent_numbers);
+        }
+        entry.invalidate_cache();
+    }
 }
 
 /// Paint one user bubble per combined segment, or reuse matching trailing bubbles.
