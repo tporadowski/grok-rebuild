@@ -2411,7 +2411,7 @@ pub(crate) fn execute(
                             }
                         }
                         Err(e) => {
-                            let error = e.to_string();
+                            let error = sign_in_error_text(&e);
                             ulog::error(
                                 "auth failed",
                                 None,

@@ -68,7 +68,9 @@ pub use jwt::{is_jwt_expired_or_near, parse_jwt_expiration, parse_jwt_subject};
 pub use pre_tui::{PreTuiLoginOutcome, maybe_run_pre_tui_external_login};
 pub use xai_grok_config_types::AuthProviderConfig;
 pub mod meta;
-pub use error::{AuthError, RefreshTokenError, RefreshTokenFailedReason};
+pub use error::{
+    AuthError, RefreshTokenError, RefreshTokenFailedReason, sign_in_failure_message,
+};
 pub use manager::AuthManager;
 pub use manager::{
     AuthRemedy, CachedTokenState, Login, LoginChanges, LoginSnapshot, SilentRefresh,

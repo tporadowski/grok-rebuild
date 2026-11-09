@@ -933,8 +933,10 @@ impl acp::Agent for MvpAgent {
                                 },
                             ),
                         );
+                        tracing::warn!(error = %e, "auth: login flow failed");
                         let mut err = acp::Error::auth_required();
-                        err.message = e.to_string();
+                        err.message =
+                            xai_grok_login::sign_in_failure_message(&format!("{e:#}"));
                         err
                     })?;
                 {

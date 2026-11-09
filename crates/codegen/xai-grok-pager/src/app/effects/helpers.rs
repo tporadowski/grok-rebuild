@@ -962,6 +962,10 @@ pub(super) async fn send_credit_limit_recheck(
         }
     }
 }
+/// Sentence stored on `AuthFailed` and painted on the welcome and minimal sign-in screens.
+pub(super) fn sign_in_error_text(err: &acp::Error) -> String {
+    xai_grok_login::sign_in_failure_message(&err.to_string())
+}
 pub(super) async fn send_authenticate(
     tx: &AcpAgentTx,
     request_seq: u64,
@@ -986,7 +990,7 @@ pub(super) async fn send_authenticate(
             }
         }
         Err(e) => {
-            let error = sanitize_user_error(&e.to_string());
+            let error = sign_in_error_text(&e);
             ulog::error(
                 "auth failed",
                 None,

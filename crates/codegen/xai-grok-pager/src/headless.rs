@@ -695,7 +695,13 @@ async fn authenticate(
             .meta(serde_json::json!({"headless": true}).as_object().cloned()),
         acp_tx,
     )
-    .await?;
+    .await
+    .map_err(|err| {
+        anyhow::anyhow!(
+            "{}",
+            xai_grok_login::sign_in_failure_message(&err.to_string())
+        )
+    })?;
     Ok(is_api_key_auth)
 }
 fn build_headless_init_request(

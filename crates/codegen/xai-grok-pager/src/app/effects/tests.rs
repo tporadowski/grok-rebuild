@@ -3071,6 +3071,47 @@ fn compact_error_message_empty_data_renders_terse_and_no_data_uses_display() {
             "Internal error"
         );
 }
+async fn authenticate_error_text(message: &str) -> String {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let message = message.to_string();
+    tokio::spawn(async move {
+        let msg = rx.recv().await.expect("authenticate request");
+        let xai_acp_lib::AcpAgentMessage::Authenticate(args) = msg else {
+            panic!("expected authenticate");
+        };
+        let mut err = acp::Error::auth_required();
+        err.message = message;
+        let _ = args.response_tx.send(Err(err));
+    });
+    match send_authenticate(&tx, 7, acp::AuthMethodId::new("grok.com"), true, false).await {
+        TaskResult::AuthFailed { request_seq, error } => {
+            assert_eq!(request_seq, 7);
+            error
+        }
+        TaskResult::AuthComplete { .. } => panic!("authenticate was supposed to fail"),
+        _ => panic!("expected AuthFailed"),
+    }
+}
+
+#[tokio::test]
+async fn authenticate_failure_is_plain_english_with_a_next_step() {
+    let raw = "OIDC token exchange failed: HTTP 500 — {\"error\":\"server_error\",\"error_description\":\"boom\"} from https://idp.example/token";
+    let error = authenticate_error_text(raw).await;
+    assert_eq!(error, xai_grok_login::sign_in_failure_message(raw));
+    assert!(!error.contains("boom"), "{error}");
+    assert!(!error.contains("https://"), "{error}");
+    assert!(!error.to_ascii_lowercase().contains("oidc"), "{error}");
+    assert!(error.contains("grok login"), "{error}");
+    assert!(error.contains("Wait a minute"), "{error}");
+}
+
+#[tokio::test]
+async fn authenticate_failure_keeps_a_plain_next_step() {
+    let raw = "Login timed out after 10 minutes. Please try again.";
+    let error = authenticate_error_text(raw).await;
+    assert_eq!(error, raw);
+}
+
 #[test]
 fn sanitize_user_error_strips_auth_prefixes() {
     assert_eq!(

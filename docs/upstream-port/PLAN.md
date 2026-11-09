@@ -841,15 +841,15 @@ Refresh these numbers at the end of a session.
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 39 | 12 | 8 |
-| W13 | Update, install, and sign-in | 17 | 0 | 10 | 0 | 0 |
+| W13 | Update, install, and sign-in | 16 | 0 | 11 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 184. Skipped: 8. Done: 315. Already: 58. Deferred: 18.
+Catalog rows: 583. Pending: 183. Skipped: 8. Done: 316. Already: 58. Deferred: 18.
 
-**Next:** W13 Update, install, and sign-in. First open row: Sign-in failures now show a clear plain-English message with the next step instead of raw errors (`v51-x12`).
+**Next:** W13 Update, install, and sign-in. First open row: `grok plugin install` interrupted mid-clone on Linux no longer leaves a partial folder that blocks the retry (`v53-x14`).
 
 ## Waves
 
@@ -903,7 +903,7 @@ Pending: 0. Done: 39 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`, `v50-x20`, `v5
 
 ### W13 — Update, install, and sign-in
 
-Pending: 17. Done: 10. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download. `grok inspect` and the MCP doctor name the file that declares each MCP server. A project `config.toml`, a parent `.mcp.json`, and a Cursor project file keep that path (`v46-x01`, `project_definitions_keep_their_declaring_file`). After login, a refused prompt returns to an empty composer and is not sent. A draft already in the composer stays (`v48-x06`, `auth_complete_restores_refused_prompt_for_manual_resend`). `grok doctor` names the config file or setting that stops startup, instead of reporting 0 issues (`v50-x38`, `a_config_file_that_blocks_startup_is_an_issue`). `/doctor fix` opens its confirmation card on Cancel, so Enter does not edit shell or tmux config (`v50-x40`, `doctor_fix_confirmation_opens_on_cancel`). `grok -p` sends the external-provider login when no login is stored, so the shell runs `auth_provider_command`. A browser login is still refused (`v51-f29`, `headless_sends_provider_login_when_no_login_is_stored`).
+Pending: 16. Done: 11. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download. `grok inspect` and the MCP doctor name the file that declares each MCP server. A project `config.toml`, a parent `.mcp.json`, and a Cursor project file keep that path (`v46-x01`, `project_definitions_keep_their_declaring_file`). After login, a refused prompt returns to an empty composer and is not sent. A draft already in the composer stays (`v48-x06`, `auth_complete_restores_refused_prompt_for_manual_resend`). `grok doctor` names the config file or setting that stops startup, instead of reporting 0 issues (`v50-x38`, `a_config_file_that_blocks_startup_is_an_issue`). `/doctor fix` opens its confirmation card on Cancel, so Enter does not edit shell or tmux config (`v50-x40`, `doctor_fix_confirmation_opens_on_cancel`). `grok -p` sends the external-provider login when no login is stored, so the shell runs `auth_provider_command`. A browser login is still refused (`v51-f29`, `headless_sends_provider_login_when_no_login_is_stored`). A sign-in failure is one plain sentence that names the next step. A token-exchange dump, a URL, and an HTTP body are not shown (`v51-x12`, `authenticate_failure_is_plain_english_with_a_next_step`).
 
 ### W14 — Pager and remaining bug fixes
 
@@ -1305,7 +1305,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x38 | done | W13 | Bug Fixes |  |  | **grok doctor** now reports the exact config file or setting that prevents Grok from starting instead of saying zero issues.
 - v50-x40 | done | W13 | Bug Fixes |  |  | **grok doctor fix** now opens its confirmation card on Cancel to prevent accidental edits to shell or tmux config.
 - v51-f29 | done | W13 | Features |  |  | grok -p now runs auth_provider_command when no login is stored.
-- v51-x12 | pending | W13 | Bug Fixes |  |  | Sign-in failures now show a clear plain-English message with the next step instead of raw errors.
+- v51-x12 | done | W13 | Bug Fixes |  |  | Sign-in failures now show a clear plain-English message with the next step instead of raw errors.
 - v53-x14 | pending | W13 | Bug Fixes |  |  | **`grok plugin install`** interrupted mid-clone on Linux no longer leaves a partial folder that blocks the retry.
 - v59-f02 | done | W13 | Features |  |  | **`grok --resume <title>`** matches a title whatever separates its words, so `fix-login-bug` finds "Fix login bug".
 - v60-x01 | done | W13 | Bug Fixes |  |  | **`grok --resume <title>`** with a title that matches no local session reports the miss right away instead of trying a remote restore and asking you to sign in.

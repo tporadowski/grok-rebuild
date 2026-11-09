@@ -785,7 +785,8 @@ pub async fn ensure_authenticated_with_override(
         None,
         login_override,
     )
-    .await?;
+    .await
+    .map_err(crate::error::sign_in_failure_anyhow)?;
     if did_auth {
         report_signed_in(&auth);
     }
@@ -841,7 +842,8 @@ pub async fn run_cli_login(
         oauth,
         device_auth,
     )
-    .await;
+    .await
+    .map_err(crate::error::sign_in_failure_anyhow);
     xai_grok_telemetry::session_ctx::drain_pending(xai_grok_telemetry::session_ctx::CLI_DRAIN)
         .await;
     result
