@@ -276,6 +276,20 @@ mod tests {
         });
     }
 
+    /// A session line bigger than the old 4 MiB ceiling is delivered, not dropped.
+    #[test]
+    fn a_line_past_four_mib_stays_connected() {
+        run(async {
+            let mut data = vec![b'x'; 4 * 1024 * 1024 + 1];
+            data.push(b'\n');
+            let source = Cursor::new(data.clone());
+            let mut reader = LineBufferedRead::spawn_local(source);
+            let mut buf = Vec::new();
+            reader.read_to_end(&mut buf).await.expect("line over 4 MiB");
+            assert_eq!(buf, data);
+        });
+    }
+
     #[test]
     fn large_line_within_limit() {
         run(async {
