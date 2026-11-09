@@ -390,7 +390,8 @@ mod tests {
     use super::*;
     use crate::scrollback::blocks::SubagentBlock;
     use crate::scrollback::blocks::tool::{
-        ListDirToolCallBlock, ReadToolCallBlock, SearchToolCallBlock, WebSearchToolCallBlock,
+        DiscoveredTool, IntegrationSearchToolCallBlock, ListDirToolCallBlock, ReadToolCallBlock,
+        SearchToolCallBlock, WebSearchToolCallBlock,
     };
 
     fn entry(block: ToolCallBlock) -> ScrollbackEntry {
@@ -523,6 +524,44 @@ mod tests {
         ];
         let l = label(&entries);
         assert_eq!(l.text, "Searched 2 websites");
+    }
+
+    /// Tool-search rows fold as the searches that ran. The tools those searches
+    /// returned stay out of the count, so the label does not claim MCP results.
+    #[test]
+    fn tool_search_fold_counts_searches_not_mcp_results() {
+        let mut many = IntegrationSearchToolCallBlock::new("issues");
+        many.result_count = 4;
+        many.results = vec![
+            DiscoveredTool {
+                name: "linear__list_issues".into(),
+                server: "linear".into(),
+                description: String::new(),
+                score: 1.0,
+            },
+            DiscoveredTool {
+                name: "linear__get_issue".into(),
+                server: "linear".into(),
+                description: String::new(),
+                score: 0.5,
+            },
+        ];
+        let mut one = IntegrationSearchToolCallBlock::new("prs");
+        one.result_count = 1;
+        let entries = vec![
+            entry(ToolCallBlock::IntegrationSearch(many)),
+            entry(ToolCallBlock::IntegrationSearch(one)),
+        ];
+        let l = label(&entries);
+        assert_eq!(l.text, "Ran 2 tool searches");
+
+        let mut running = entries;
+        let Some(first) = running.get_mut(0) else {
+            panic!("expected a tool search");
+        };
+        first.is_running = true;
+        let l = label(&running);
+        assert_eq!(l.text, "Running 2 tool searches");
     }
 
     #[test]

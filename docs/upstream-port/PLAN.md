@@ -828,16 +828,16 @@ Refresh these numbers at the end of a session.
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
-| W12 | MCP, web, images, and browser | 50 | 0 | 9 | 0 | 0 |
+| W12 | MCP, web, images, and browser | 49 | 0 | 10 | 0 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 239. Skipped: 8. Done: 280. Already: 46. Deferred: 10.
+Catalog rows: 583. Pending: 238. Skipped: 8. Done: 281. Already: 46. Deferred: 10.
 
-**Next:** W12 MCP, web, images, and browser. First open row: **Tool search** activity now correctly folds as "Ran N tool searches" instead of claiming MCP tool results (`v46-x02`).
+**Next:** W12 MCP, web, images, and browser. First open row: **Enter on video cards** no longer attempts playback in terminals that cannot show it or lack ffmpeg (`v46-x06`).
 
 ## Waves
 
@@ -887,7 +887,7 @@ Pending: 0. Done: 35 (`v46-x05`, `v48-x03`, `v48-x05`, `v50-f07`, `v50-x02`, `v5
 
 ### W12 — MCP, web, images, and browser
 
-Pending: 50. Done: 9. Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing.
+Pending: 49. Done: 10 (`v46-x02`). Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing. A folded run of tool searches says `Ran N tool searches`. The count is the searches, not the MCP tools they returned (`v46-x02`).
 
 ### W13 — Update, install, and sign-in
 
@@ -1227,7 +1227,7 @@ id | status | wave | kind | flag | covered | note
 - v74-x20 | done | W11 | Bug Fixes |  |  | **Headless runs stopped by Ctrl-C or SIGTERM** end their `json`, `streaming-json` or `streaming-messages-json` output with a closing record that keeps the run's outcome, instead of cutting off the stream.
 - v74-x33 | done | W11 | Bug Fixes |  |  | **Context window**: a larger window picked with `/context-window` or set with `context_window` in a `[model."<id>"]` table stays in effect, so compaction no longer starts early after the session sits idle, after a failed request such as a rate limit, or until you restart.
 - v76-x01 | done | W11 | Bug Fixes |  |  | **Shell commands** correctly handle startup functions containing special characters.
-- v46-x02 | pending | W12 | Bug Fixes |  |  | **Tool search** activity now correctly folds as "Ran N tool searches" instead of claiming MCP tool results.
+- v46-x02 | done | W12 | Bug Fixes |  |  | **Tool search** activity now correctly folds as "Ran N tool searches" instead of claiming MCP tool results.
 - v46-x06 | pending | W12 | Bug Fixes |  |  | **Enter on video cards** no longer attempts playback in terminals that cannot show it or lack ffmpeg.
 - v46-x07 | pending | W12 | Bug Fixes |  |  | **Video cards** now open the file in the default player on Enter in terminals without inline playback support, and no longer get stuck trying to extract posters without ffmpeg.
 - v48-x04 | pending | W12 | Bug Fixes |  |  | **Ask rules for WebSearch and WebFetch** now correctly show a prompt instead of auto-running.
