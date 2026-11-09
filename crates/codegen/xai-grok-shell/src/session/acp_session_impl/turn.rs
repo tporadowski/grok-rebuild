@@ -364,7 +364,8 @@ impl SessionActor {
         }
     }
     /// Run the image-normalization pipeline (re-encode caps, min-side and integrity checks) and return the surviving images.
-    /// Compression, re-encode-fallback, and dropped notices are appended to `text_out` and mirrored as `ImageCompressed`/`ImageDropped`.
+    /// Compression and re-encode-fallback notices are appended to `text_out` and mirrored as `ImageCompressed`.
+    /// A dropped image is only an `ImageDropped` session notice, so the reason is not stored inside the user's own message.
     /// Only text is appended; image data never enters a string.
     pub(crate) async fn normalize_images_with_notices(
         &self,
@@ -408,11 +409,10 @@ impl SessionActor {
             })
             .await;
         }
-        if let Some((notice, notes)) = crate::session::image_normalize::dropped_to_envelope(
+        if let Some((_notice, notes)) = crate::session::image_normalize::dropped_to_envelope(
             std::mem::take(&mut norm_result.dropped),
             is_cursor,
         ) {
-            text_out.push_str(&notice);
             self.send_xai_notification(XaiSessionUpdate::ImageDropped { notes })
                 .await;
         }

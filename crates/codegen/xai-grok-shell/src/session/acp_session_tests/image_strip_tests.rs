@@ -917,3 +917,46 @@ async fn multi_image_blame_is_judged_on_unique_urls() {
         })
         .await;
 }
+
+/// A 1×1 PNG is under the vision floor, so normalization drops it.
+const TINY_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+    0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+    0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+    0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+    0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+#[tokio::test(flavor = "current_thread")]
+async fn dropped_image_notice_stays_out_of_the_user_text() {
+    use base64::Engine as _;
+
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (gateway_tx, mut gateway_rx) =
+                tokio::sync::mpsc::unbounded_channel::<xai_acp_lib::AcpClientMessage>();
+            let (persistence_tx, _) = tokio::sync::mpsc::unbounded_channel::<PersistenceMsg>();
+            let actor =
+                Arc::new(create_test_actor(0, 256_000, 85, gateway_tx, persistence_tx).await);
+            let image = agent_client_protocol::ImageContent::new(
+                base64::engine::general_purpose::STANDARD.encode(TINY_PNG),
+                "image/png",
+            );
+            let mut text = "look at this".to_string();
+            let kept = actor
+                .normalize_images_with_notices(&mut text, vec![image], false)
+                .await;
+            assert!(kept.is_empty(), "an undersized image is dropped, kept {kept:?}");
+            assert_eq!(
+                text, "look at this",
+                "the drop reason must not be written into the user text"
+            );
+            let sent = drain_gateway_debug(&mut gateway_rx);
+            assert!(
+                sent.contains("was dropped before send"),
+                "the session still reports the drop, sent: {sent}"
+            );
+        })
+        .await;
+}
