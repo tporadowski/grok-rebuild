@@ -47,6 +47,17 @@ use std::fmt;
 /// using one id across tool kinds keeps multi-line drag/copy grouping simple.
 pub(crate) const TOOL_HEADER_RANGE: u16 = 0;
 
+/// Cut-off row for Fetch, Web Search, and MCP output.
+/// One hidden line reads `+1 line`. The name is the Open block viewer key.
+pub(crate) fn cutoff_view_row(hidden: usize) -> String {
+    let noun = if hidden == 1 { "line" } else { "lines" };
+    let key = crate::actions::ActionRegistry::defaults()
+        .key_for(crate::actions::ActionId::OpenBlockViewer)
+        .map(|shortcut| shortcut.display())
+        .unwrap_or_else(|| "Enter".to_string());
+    format!("\u{2026} +{hidden} {noun} \u{00b7} {key} to view all")
+}
+
 /// Collapsed-header error suffix (e.g. `" — does not exist"`, `" — Permission denied"`).
 ///
 /// Failed tool rows stay collapsed by default and were previously red-bullet

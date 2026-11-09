@@ -269,9 +269,7 @@ impl BlockContent for WebSearchToolCallBlock {
                             let remaining = content_lines.len() - max_inline;
                             lines.push(
                                 BlockLine::from(Line::from(Span::styled(
-                                    format!(
-                                        "{indent}... ({remaining} more lines, press Enter to view)",
-                                    ),
+                                    format!("{indent}{}", super::cutoff_view_row(remaining)),
                                     theme.dim(),
                                 )))
                                 .with_panel_background(theme.bg_dark),
@@ -429,13 +427,28 @@ mod tests {
         assert!(truncated.contains("l03"), "truncated:\n{truncated}");
         assert!(!truncated.contains("l04"), "truncated:\n{truncated}");
         assert!(
-            truncated.contains("(9 more lines"),
+            truncated.contains("\u{2026} +9 lines \u{00b7} Enter to view all"),
             "truncated:\n{truncated}"
         );
 
         let expanded = rendered_text(&block, DisplayMode::Expanded);
         assert!(expanded.contains("l10"), "expanded:\n{expanded}");
         assert!(!expanded.contains("l11"), "expanded:\n{expanded}");
-        assert!(expanded.contains("(2 more lines"), "expanded:\n{expanded}");
+        assert!(
+            expanded.contains("\u{2026} +2 lines \u{00b7} Enter to view all"),
+            "expanded:\n{expanded}"
+        );
+
+        let one_hidden: Vec<String> = (1..=4).map(|i| format!("only{i}")).collect();
+        block.content = Some(one_hidden.join("\n"));
+        let singular = rendered_text(&block, DisplayMode::Truncated);
+        assert!(
+            singular.contains("\u{2026} +1 line \u{00b7} Enter to view all"),
+            "one hidden search line:\n{singular}"
+        );
+        assert!(
+            !singular.contains("+1 lines"),
+            "one hidden line is singular:\n{singular}"
+        );
     }
 }

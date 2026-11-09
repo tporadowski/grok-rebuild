@@ -243,8 +243,8 @@ impl BlockContent for WebFetchToolCallBlock {
                             lines.push(
                                 BlockLine::from(Line::from(Span::styled(
                                     format!(
-                                        "{indent}... ({} more lines, press Enter to view)",
-                                        total_lines - max_inline
+                                        "{indent}{}",
+                                        super::cutoff_view_row(total_lines - max_inline)
                                     ),
                                     theme.dim(),
                                 )))
@@ -379,13 +379,25 @@ mod tests {
         assert!(truncated.contains("l03"), "truncated:\n{truncated}");
         assert!(!truncated.contains("l04"), "truncated:\n{truncated}");
         assert!(
-            truncated.contains("(9 more lines"),
+            truncated.contains("\u{2026} +9 lines \u{00b7} Enter to view all"),
             "truncated:\n{truncated}"
         );
 
         let expanded = rendered_text(&block, DisplayMode::Expanded);
         assert!(expanded.contains("l10"), "expanded:\n{expanded}");
         assert!(!expanded.contains("l11"), "expanded:\n{expanded}");
-        assert!(expanded.contains("(2 more lines"), "expanded:\n{expanded}");
+        assert!(
+            expanded.contains("\u{2026} +2 lines \u{00b7} Enter to view all"),
+            "expanded:\n{expanded}"
+        );
+
+        let one = WebFetchToolCallBlock::new("https://example.com")
+            .with_output((1..=4).map(|i| format!("only{i}")).collect::<Vec<_>>().join("\n"));
+        let singular = rendered_text(&one, DisplayMode::Truncated);
+        assert!(
+            singular.contains("\u{2026} +1 line \u{00b7} Enter to view all"),
+            "one hidden fetch line:\n{singular}"
+        );
+        assert!(!singular.contains("+1 lines"), "singular fetch:\n{singular}");
     }
 }
