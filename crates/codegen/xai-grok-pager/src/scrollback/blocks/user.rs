@@ -180,64 +180,340 @@ impl TranscriptImageHover {
     }
 }
 
-struct PlaceholderHit {
-    bytes: Range<usize>,
-    col_start: usize,
-    col_end: usize,
-    number: usize,
-}
-
 fn display_cols(text: &str, bytes: Range<usize>) -> Option<(usize, usize)> {
     let slice = text.get(bytes.clone())?;
     let start = UnicodeWidthStr::width(text.get(..bytes.start).unwrap_or(""));
     Some((start, start + UnicodeWidthStr::width(slice)))
 }
 
-/// Display column of an `[Image #N]` or `[Image #N: path]` in `text`, if `col` lands inside one.
-fn image_placeholder_number_at_display_col(text: &str, col: usize) -> Option<usize> {
-    let mut hits = Vec::new();
+fn image_placeholder_ranges(text: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
     for placeholder in xai_grok_shell::session::placeholder_images::extract_placeholders(text) {
-        let bytes = placeholder.span.0..placeholder.span.1;
-        let Some((col_start, col_end)) = display_cols(text, bytes.clone()) else {
-            continue;
-        };
-        hits.push(PlaceholderHit {
-            bytes,
-            col_start,
-            col_end,
-            number: placeholder.display_number,
-        });
+        ranges.push(placeholder.span.0..placeholder.span.1);
     }
     for capture in chip_image_placeholder_regex().captures_iter(text) {
         let Some(whole) = capture.get(0) else {
             continue;
         };
-        let Some(number) = capture
-            .get(1)
-            .and_then(|matched| matched.as_str().parse::<usize>().ok())
-        else {
-            continue;
-        };
         let bytes = whole.start()..whole.end();
-        if hits
+        if ranges
             .iter()
-            .any(|hit| bytes.start < hit.bytes.end && hit.bytes.start < bytes.end)
+            .any(|range| bytes.start < range.end && range.start < bytes.end)
         {
             continue;
         }
-        let Some((col_start, col_end)) = display_cols(text, bytes.clone()) else {
+        ranges.push(bytes);
+    }
+    ranges.sort_by_key(|range| range.start);
+    ranges
+}
+
+/// Display column of an `[Image #N]` or `[Image #N: path]` in `text`, if `col` lands inside one.
+fn image_placeholder_number_at_display_col(text: &str, col: usize) -> Option<usize> {
+    image_placeholder_ranges(text).into_iter().find_map(|bytes| {
+        let (col_start, col_end) = display_cols(text, bytes.clone())?;
+        (col >= col_start && col < col_end).then(|| {
+            text.get(bytes)
+                .and_then(image_number_in_placeholder)
+                .unwrap_or(0)
+        })
+    })
+}
+
+fn image_number_in_placeholder(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix("[Image #")?;
+    let digits = rest.split(|ch: char| !ch.is_ascii_digit()).next()?;
+    digits.parse().ok()
+}
+
+struct ImageTok {
+    start: usize,
+    end: usize,
+    space_end: usize,
+    atomic: bool,
+}
+
+fn trailing_spaces(text: &str, from: usize, limit: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut end = from;
+    while end < limit && bytes.get(end) == Some(&b' ') {
+        end += 1;
+    }
+    end
+}
+
+fn image_tokens(text: &str, chips: &[Range<usize>]) -> Vec<ImageTok> {
+    let mut tokens = Vec::new();
+    let mut index = 0usize;
+    let mut chip_index = 0usize;
+    while index < text.len() {
+        if let Some(chip) = chips.get(chip_index)
+            && index >= chip.end
+        {
+            chip_index += 1;
+            continue;
+        }
+        let limit = chips.get(chip_index).map(|chip| chip.start).unwrap_or(text.len());
+        if chips.get(chip_index).is_some_and(|chip| index == chip.start) {
+            let end = chips[chip_index].end;
+            let space_end = trailing_spaces(text, end, text.len());
+            tokens.push(ImageTok {
+                start: index,
+                end,
+                space_end,
+                atomic: true,
+            });
+            index = space_end;
+            chip_index += 1;
+            continue;
+        }
+        if index >= limit {
+            continue;
+        }
+        let mut end = index;
+        while end < limit {
+            let Some(ch) = text.get(end..).and_then(|rest| rest.chars().next()) else {
+                break;
+            };
+            if ch == ' ' {
+                break;
+            }
+            end += ch.len_utf8();
+        }
+        if end == index {
+            let space_end = trailing_spaces(text, index, limit);
+            if let Some(previous) = tokens.last_mut() {
+                previous.space_end = space_end;
+            } else {
+                tokens.push(ImageTok {
+                    start: index,
+                    end: index,
+                    space_end,
+                    atomic: false,
+                });
+            }
+            index = space_end;
+            continue;
+        }
+        let space_end = trailing_spaces(text, end, limit);
+        tokens.push(ImageTok {
+            start: index,
+            end,
+            space_end,
+            atomic: false,
+        });
+        index = space_end;
+    }
+    tokens
+}
+
+fn span_bounds(line: &Line) -> (String, Vec<(Range<usize>, Style)>) {
+    let mut flat = String::new();
+    let mut bounds = Vec::new();
+    for span in &line.spans {
+        let start = flat.len();
+        flat.push_str(span.content.as_ref());
+        bounds.push((start..flat.len(), span.style));
+    }
+    (flat, bounds)
+}
+
+fn slice_styled(flat: &str, bounds: &[(Range<usize>, Style)], range: Range<usize>) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (bound, style) in bounds {
+        let start = range.start.max(bound.start);
+        let end = range.end.min(bound.end);
+        if end <= start {
+            continue;
+        }
+        let local_start = start - bound.start;
+        let local_end = end - bound.start;
+        let Some(source) = flat.get(bound.start..bound.end) else {
             continue;
         };
-        hits.push(PlaceholderHit {
-            bytes,
-            col_start,
-            col_end,
-            number,
-        });
+        let Some(piece) = source.get(local_start..local_end) else {
+            continue;
+        };
+        if !piece.is_empty() {
+            spans.push(Span::styled(piece.to_string(), *style));
+        }
     }
-    hits.into_iter()
-        .find(|hit| col >= hit.col_start && col < hit.col_end)
-        .map(|hit| hit.number)
+    Line::from(spans)
+}
+
+fn line_width(line: &Line) -> usize {
+    line.spans
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum()
+}
+
+fn owned_spans(line: &Line) -> Vec<Span<'static>> {
+    line.spans
+        .iter()
+        .map(|span| Span::styled(span.content.as_ref().to_string(), span.style))
+        .collect()
+}
+
+fn strip_trailing_spaces(spans: &mut Vec<Span<'static>>) -> String {
+    let mut spaces = String::new();
+    while let Some(span) = spans.last_mut() {
+        let text = span.content.as_ref();
+        let trimmed = text.trim_end_matches(' ');
+        let removed = text.len() - trimmed.len();
+        if removed == 0 {
+            break;
+        }
+        spaces.insert_str(0, &text[trimmed.len()..]);
+        if trimmed.is_empty() {
+            spans.pop();
+        } else {
+            span.content = std::borrow::Cow::Owned(trimmed.to_string());
+            break;
+        }
+    }
+    spaces
+}
+
+/// Wrap one user-message line. `[Image #N]` and `[Image #N: path]` stay on a single row.
+fn wrap_keeping_image_chips(line: &Line, width: usize) -> (Vec<Line<'static>>, Vec<Option<String>>) {
+    let width = width.max(1);
+    let (flat, bounds) = span_bounds(line);
+    let chips = image_placeholder_ranges(&flat);
+    if chips.is_empty() {
+        let (wrapped, joiners) = word_wrap_line_with_joiners(line, RtOptions::new(width));
+        return (
+            wrapped.iter().map(owned_line).collect(),
+            joiners,
+        );
+    }
+
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    let mut joiners: Vec<Option<String>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
+    let mut col = 0usize;
+    let mut pending = String::new();
+
+    let emit = |current: &mut Vec<Span<'static>>,
+                col: &mut usize,
+                pending: &mut String,
+                rows: &mut Vec<Line<'static>>,
+                joiners: &mut Vec<Option<String>>| {
+        if current.is_empty() {
+            return;
+        }
+        let joiner = if rows.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(pending))
+        };
+        rows.push(Line::from(std::mem::take(current)));
+        joiners.push(joiner);
+        *col = 0;
+    };
+
+    for token in image_tokens(&flat, &chips) {
+        let content = flat.get(token.start..token.end).unwrap_or("");
+        let content_width = UnicodeWidthStr::width(content);
+        if col > 0 && col + content_width > width {
+            let spaces = strip_trailing_spaces(&mut current);
+            col = col.saturating_sub(UnicodeWidthStr::width(spaces.as_str()));
+            emit(&mut current, &mut col, &mut pending, &mut rows, &mut joiners);
+            pending = spaces;
+        }
+        if !token.atomic && content_width > width {
+            let piece = slice_styled(&flat, &bounds, token.start..token.end);
+            let (wrapped, wrapped_joiners) =
+                word_wrap_line_with_joiners(&piece, RtOptions::new(width));
+            let last = wrapped.len().saturating_sub(1);
+            for (index, wrapped_line) in wrapped.iter().enumerate() {
+                if index == last {
+                    current = owned_spans(wrapped_line);
+                    col = line_width(wrapped_line);
+                    break;
+                }
+                current = owned_spans(wrapped_line);
+                let next_joiner = wrapped_joiners
+                    .get(index + 1)
+                    .and_then(|joiner| joiner.clone())
+                    .unwrap_or_default();
+                emit(&mut current, &mut col, &mut pending, &mut rows, &mut joiners);
+                pending = next_joiner;
+            }
+        } else {
+            current.extend(owned_spans(&slice_styled(
+                &flat,
+                &bounds,
+                token.start..token.end,
+            )).into_iter());
+            col += content_width;
+            if token.atomic && content_width > width {
+                emit(&mut current, &mut col, &mut pending, &mut rows, &mut joiners);
+            }
+        }
+        let spaces = flat.get(token.end..token.space_end).unwrap_or("");
+        if spaces.is_empty() {
+            continue;
+        }
+        let space_width = UnicodeWidthStr::width(spaces);
+        if col + space_width <= width {
+            push_styled(
+                &mut current,
+                spaces,
+                trailing_style(&bounds, token.end),
+            );
+            col += space_width;
+        } else if !current.is_empty() {
+            emit(&mut current, &mut col, &mut pending, &mut rows, &mut joiners);
+            pending = spaces.to_string();
+        } else {
+            pending.push_str(spaces);
+        }
+    }
+    emit(&mut current, &mut col, &mut pending, &mut rows, &mut joiners);
+    if !pending.is_empty() {
+        if let Some(last) = rows.last_mut() {
+            let style = last
+                .spans
+                .last()
+                .map(|span| span.style)
+                .unwrap_or_default();
+            push_styled(&mut last.spans, &pending, style);
+        }
+    }
+    if rows.is_empty() {
+        rows.push(Line::default());
+        joiners.push(None);
+    }
+    (rows, joiners)
+}
+
+fn owned_line(line: &Line) -> Line<'static> {
+    Line::from(owned_spans(line))
+}
+
+fn push_styled(spans: &mut Vec<Span<'static>>, text: &str, style: Style) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(last) = spans.last_mut()
+        && last.style == style
+    {
+        let mut combined = last.content.as_ref().to_string();
+        combined.push_str(text);
+        last.content = std::borrow::Cow::Owned(combined);
+        return;
+    }
+    spans.push(Span::styled(text.to_string(), style));
+}
+
+fn trailing_style(bounds: &[(Range<usize>, Style)], at: usize) -> Style {
+    bounds
+        .iter()
+        .find(|(range, _)| range.start <= at && at < range.end)
+        .or_else(|| bounds.iter().rev().find(|(range, _)| range.end == at))
+        .map(|(_, style)| *style)
+        .unwrap_or_default()
 }
 
 /// How an image placeholder in a user prompt was sent.
@@ -630,7 +906,7 @@ impl UserPromptBlock {
                 range_styled_line(line_text, line_start, &marks, text_style)
             };
             let (wrapped, wrap_joiners) =
-                word_wrap_line_with_joiners(&content_line, RtOptions::new(base_content_width));
+                wrap_keeping_image_chips(&content_line, base_content_width);
             let wrapped_count = wrapped.len();
 
             for (wrap_idx, (wrapped_line, wrap_joiner)) in
@@ -670,7 +946,7 @@ impl UserPromptBlock {
                     // Re-wrapping the styled line (not flattened text) keeps token spans teal here
                     let reduced_width = base_content_width.saturating_sub(ellipsis_width);
                     let (re_wrapped_lines, _) =
-                        word_wrap_line_with_joiners(&wrapped_line, RtOptions::new(reduced_width));
+                        wrap_keeping_image_chips(&wrapped_line, reduced_width);
 
                     let final_content = re_wrapped_lines
                         .into_iter()
@@ -1696,5 +1972,78 @@ mod tests {
             session_image_path: None,
             preview: crate::prompt_images::PromptImagePreview::default(),
         }
+    }
+
+    #[test]
+    fn image_chip_stays_whole_when_the_message_wraps() {
+        let _guard = crate::theme::cache::pin_theme();
+        // "hello " is 6 columns and "[Image #1]" is 10. Width 12 cannot hold both, so the chip moves.
+        let moved = wrapped_prompt("hello [Image #1] there", 12);
+        assert_eq!(
+            moved.joined, "hello [Image #1] there",
+            "soft wraps keep the spaces, got {:?}",
+            moved.rows
+        );
+        assert!(
+            moved.rows.iter().any(|line| line.contains("[Image #1]")),
+            "the chip must stay intact, got {:?}",
+            moved.rows
+        );
+        assert!(
+            moved.rows.iter().all(|line| image_chip_is_whole_or_absent(line)),
+            "a wrap must not split the chip, got {:?}",
+            moved.rows
+        );
+
+        // Wider than the row: the chip still occupies one row.
+        let overflows = wrapped_prompt("xx [Image #1]", 8);
+        assert_eq!(overflows.joined, "xx [Image #1]");
+        assert!(
+            overflows.rows.iter().any(|line| line.contains("[Image #1]")),
+            "a chip wider than the row stays whole, got {:?}",
+            overflows.rows
+        );
+
+        let path = "[Image #2: /tmp/my pic.png]";
+        let with_path = wrapped_prompt(&format!("hi {path}"), 16);
+        assert_eq!(with_path.joined, format!("hi {path}"));
+        assert!(
+            with_path.rows.iter().any(|line| line.contains(path)),
+            "a path chip with a space stays whole, got {:?}",
+            with_path.rows
+        );
+    }
+
+    struct WrappedPrompt {
+        rows: Vec<String>,
+        joined: String,
+    }
+
+    fn wrapped_prompt(text: &str, width: u16) -> WrappedPrompt {
+        let mut block = UserPromptBlock::new(text);
+        block.mark_image_placeholders(&[]);
+        let lines = block.wrap_prompt_lines(width, None, false, false);
+        let rows: Vec<String> = lines.iter().map(|line| line_text(&line.content)).collect();
+        let mut joined = String::new();
+        for (index, line) in lines.iter().enumerate() {
+            if index > 0 {
+                joined.push_str(line.joiner.as_deref().unwrap_or("\n"));
+            }
+            joined.push_str(&line_text(&line.content));
+        }
+        WrappedPrompt { rows, joined }
+    }
+
+    /// `[Image #N]` and `[Image #N: path]` are either complete on this row or not on it.
+    fn image_chip_is_whole_or_absent(line: &str) -> bool {
+        let mut rest = line;
+        while let Some(idx) = rest.find("[Image") {
+            let after = &rest[idx..];
+            let Some(end) = after.find(']') else {
+                return false;
+            };
+            rest = &after[end + 1..];
+        }
+        true
     }
 }
