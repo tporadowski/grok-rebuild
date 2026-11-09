@@ -2594,7 +2594,7 @@ impl PromptWidget {
         self.image_counter += 1;
         let display_number = self.image_counter;
         let placeholder = crate::prompt_images::display_text(display_number);
-        let display_line = chip_line(format!("Image #{display_number}"));
+        let display_line = image_chip_line(format!("Image #{display_number}"));
 
         let buf_len_before = self.textarea.text().len();
         self.textarea.begin_undo_group();
@@ -4079,6 +4079,19 @@ fn chip_line(label: String) -> Line<'static> {
         Span::styled("[", bracket),
         Span::styled(label, text),
         Span::styled("]", bracket),
+    ])
+}
+
+/// `[Image #N]` chip. The letters and brackets use the same green as a sent image placeholder in the transcript.
+fn image_chip_line(label: String) -> Line<'static> {
+    let theme = Theme::current();
+    let green = Style::default()
+        .fg(theme.accent_success)
+        .bg(theme.paste_bg);
+    Line::from(vec![
+        Span::styled("[", green),
+        Span::styled(label, green),
+        Span::styled("]", green),
     ])
 }
 

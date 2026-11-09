@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use xai_ratatui_textarea::ElementId;
 
 use crate::views::prompt_widget::{
-    KIND_IMAGE, PROMPT_IMAGES_TRACING_TARGET, PromptWidget, chip_line, images_high_water,
+    KIND_IMAGE, PROMPT_IMAGES_TRACING_TARGET, PromptWidget, image_chip_line, images_high_water,
     parse_image_display_number,
 };
 
@@ -100,7 +100,7 @@ impl PromptWidget {
                 }
             };
             // The record is resolved first so a refused registration never leaves a chip without one.
-            let display = chip_line(format!("Image #{number}"));
+            let display = image_chip_line(format!("Image #{number}"));
             let Some(id) = self
                 .textarea
                 .restore_element(range, KIND_IMAGE, Some(display))

@@ -5585,6 +5585,75 @@
         assert_eq!(pw.textarea.selection_range(), None);
     }
 
+    /// Foreground colors of the first run of `needle` in the buffer.
+    fn fgs_of(buf: &Buffer, needle: &str) -> Vec<ratatui::style::Color> {
+        let area = *buf.area();
+        for y in area.top()..area.bottom() {
+            let mut row = String::new();
+            for x in area.left()..area.right() {
+                let symbol = buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or(" ");
+                row.push_str(symbol);
+            }
+            let Some(start) = row.find(needle) else {
+                continue;
+            };
+            return (0..needle.len())
+                .map(|offset| {
+                    buf.cell((area.left() + (start + offset) as u16, y))
+                        .map(|cell| cell.fg)
+                        .unwrap_or(ratatui::style::Color::Reset)
+                })
+                .collect();
+        }
+        panic!("buffer does not contain {needle:?}");
+    }
+
+    #[test]
+    fn image_chip_uses_the_sent_placeholder_green() {
+        let _guard = crate::theme::cache::pin_theme();
+        let theme = Theme::current();
+        assert_ne!(
+            theme.accent_success, theme.paste_fg,
+            "the pinned theme must distinguish sent green from paste chips"
+        );
+        let style = ghost_test_style();
+        let area = Rect::new(0, 0, 80, 2);
+
+        let mut inserted = PromptWidget::new();
+        inserted.handle_paste("a\nb\nc\nd\ne");
+        inserted.insert_image(test_image()).expect("image fits");
+        let mut buf = Buffer::empty(area);
+        inserted.draw(&mut buf, area, None, &style, None, None);
+        let image = fgs_of(&buf, "[Image #1]");
+        assert!(
+            image.iter().all(|fg| *fg == theme.accent_success),
+            "a prompt image chip is the sent-placeholder green, got {image:?}"
+        );
+        let pasted = fgs_of(&buf, "Pasted");
+        assert!(
+            pasted.iter().all(|fg| *fg == theme.paste_fg),
+            "a paste chip keeps the paste color, got {pasted:?}"
+        );
+
+        let mut rechipped = PromptWidget::new();
+        rechipped.set_text("see [Image #1] now");
+        let mut img = test_image();
+        img.display_number = 1;
+        rechipped.set_images(vec![img]);
+        let mut buf = Buffer::empty(area);
+        rechipped.draw(&mut buf, area, None, &style, None, None);
+        let again = fgs_of(&buf, "[Image #1]");
+        assert!(
+            again.iter().all(|fg| *fg == theme.accent_success),
+            "a restored image chip is the same green, got {again:?}"
+        );
+        let body = fgs_of(&buf, "see");
+        assert!(
+            body.iter().all(|fg| *fg != theme.accent_success),
+            "text around the chip stays the body color, got {body:?}"
+        );
+    }
+
     /// Shift/Alt+Enter replaces the selection like typing does.
     #[test]
     fn mod_enter_replaces_selection_with_newline() {
