@@ -251,14 +251,14 @@
     }
 
     #[test]
-    fn superseded_elicitation_is_cancelled_and_leaves_a_notice() {
-        let open = |app: &mut AppView, tool_call_id: &str| {
+    fn parallel_mcp_elicits_each_show_their_own_prompt() {
+        let open = |app: &mut AppView, tool_call_id: &str, message: &str| {
             let (tx, rx) = tokio::sync::oneshot::channel();
             let raw = serde_json::value::to_raw_value(&serde_json::json!({
                 "sessionId": "sess-A",
                 "toolCallId": tool_call_id,
                 "serverName": "airlock",
-                "message": "Create ticket?",
+                "message": message,
                 "mode": "form",
                 "requestedSchema": { "type": "object", "properties": { "title": { "type": "string" } } }
             }))
@@ -273,32 +273,96 @@
             rx
         };
         let mut app = make_app_with_agent("sess-A");
-        let mut first = open(&mut app, "mcp-elicit-1");
-        let _second = open(&mut app, "mcp-elicit-2");
+        let mut first = open(&mut app, "mcp-elicit-1", "Create the first ticket?");
+        let mut second = open(&mut app, "mcp-elicit-2", "Create the second ticket?");
+        let mut third = open(&mut app, "mcp-elicit-3", "Create the third ticket?");
 
-        let answer = first
+        {
+            let agent = test_agent(&app, AgentId(0));
+            let ev = agent.elicitation_view.as_ref().expect("first card stays up");
+            assert_eq!(ev.tool_call_id, "mcp-elicit-1");
+            assert_eq!(ev.message, "Create the first ticket?");
+            let queued: Vec<_> = agent
+                .pending_elicitation
+                .iter()
+                .map(|(req, _)| (req.tool_call_id.as_str(), req.message.as_str()))
+                .collect();
+            assert_eq!(
+                queued,
+                vec![
+                    ("mcp-elicit-2", "Create the second ticket?"),
+                    ("mcp-elicit-3", "Create the third ticket?"),
+                ]
+            );
+            assert!(
+                matches!(first.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)),
+                "the open request stays unanswered"
+            );
+            assert!(matches!(
+                second.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ));
+            assert!(matches!(
+                third.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ));
+            let notes: Vec<String> = (0..agent.scrollback.len())
+                .filter_map(|i| agent.scrollback.get(i))
+                .filter_map(|entry| entry.block.searchable_text())
+                .collect();
+            assert!(
+                notes.iter().all(|note| !note.contains("newer one")),
+                "a later prompt must not cancel the open card: {notes:?}"
+            );
+        }
+
+        // A peer answers the card that is showing. The next queued prompt opens.
+        handle_session_notification(&interaction_resolved_ext("sess-A", "mcp-elicit-1"), &mut app);
+        assert!(
+            matches!(first.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Closed)),
+            "the resolved card's responder is dropped"
+        );
+        {
+            let agent = test_agent(&app, AgentId(0));
+            let ev = agent.elicitation_view.as_ref().expect("second prompt opens");
+            assert_eq!(ev.tool_call_id, "mcp-elicit-2");
+            assert_eq!(ev.message, "Create the second ticket?");
+            assert_eq!(agent.pending_elicitation.len(), 1);
+            assert_eq!(
+                agent.pending_elicitation.front().map(|(req, _)| req.tool_call_id.as_str()),
+                Some("mcp-elicit-3")
+            );
+        }
+
+        // The user dismisses that card. The last queued prompt opens, still unanswered.
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            agent.active_pane = crate::views::agent::ActivePane::Prompt;
+            let _ = agent.handle_input(
+                &crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+                    crossterm::event::KeyCode::Char('c'),
+                    crossterm::event::KeyModifiers::CONTROL,
+                )),
+                &crate::actions::ActionRegistry::defaults(),
+            );
+        }
+        let answer = second
             .try_recv()
-            .expect("the superseded request is answered")
+            .expect("dismissing the second card answers it")
             .expect("not an error");
         assert_eq!(
             serde_json::json!({ "outcome": "cancel" }),
             serde_json::from_str::<serde_json::Value>(answer.0.get()).unwrap()
         );
+        assert!(matches!(
+            third.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
         let agent = test_agent(&app, AgentId(0));
-        assert_eq!(
-            Some("mcp-elicit-2"),
-            agent.elicitation_view.as_ref().map(|ev| ev.tool_call_id.as_str())
-        );
-        let notes: Vec<String> = (0..agent.scrollback.len())
-            .filter_map(|i| agent.scrollback.get(i))
-            .filter_map(|entry| entry.block.searchable_text())
-            .collect();
-        assert_eq!(
-            vec![
-                "Cancelled MCP “airlock” request for input to show a newer one.".to_owned()
-            ],
-            notes
-        );
+        let ev = agent.elicitation_view.as_ref().expect("third prompt opens");
+        assert_eq!(ev.tool_call_id, "mcp-elicit-3");
+        assert_eq!(ev.message, "Create the third ticket?");
+        assert!(agent.pending_elicitation.is_empty());
     }
 
     #[test]
@@ -357,7 +421,7 @@
         let ev = agent.elicitation_view.as_ref().unwrap();
         assert!(ev.is_url_waiting());
         assert_eq!(ev.elicitation_id(), Some("eid-1"));
-        assert!(agent.pending_elicitation.is_some());
+        assert!(!agent.pending_elicitation.is_empty());
         assert!(
             rx2.try_recv().is_err(),
             "the next elicit must wait until Waiting chrome is dismissed"
@@ -545,7 +609,7 @@
             }),
             &mut app,
         );
-        assert!(test_agent(&app, AgentId(0)).pending_elicitation.is_some());
+        assert!(!test_agent(&app, AgentId(0)).pending_elicitation.is_empty());
 
         let changed = handle_session_notification(
             &interaction_resolved_ext("sess-A", "mcp-elicit-form"),
@@ -553,7 +617,7 @@
         );
         assert!(changed);
         assert!(
-            test_agent(&app, AgentId(0)).pending_elicitation.is_none(),
+            test_agent(&app, AgentId(0)).pending_elicitation.is_empty(),
             "peer resolve must drop the parked form"
         );
         match rx2.try_recv() {

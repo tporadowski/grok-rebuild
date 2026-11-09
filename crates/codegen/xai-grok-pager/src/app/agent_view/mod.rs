@@ -1264,7 +1264,8 @@ pub struct AgentView {
     /// prompt area shows a structured question UI and input is modal.
     pub(crate) question_view: Option<QuestionViewState>,
     pub(crate) elicitation_view: Option<ElicitationViewState>,
-    pub(crate) pending_elicitation: Option<(
+    /// MCP elicitations waiting behind [`Self::elicitation_view`]. Each opens in arrival order when the card in front closes.
+    pub(crate) pending_elicitation: VecDeque<(
         xai_grok_tools::mcp_elicitation::McpElicitExtRequest,
         tokio::sync::oneshot::Sender<xai_acp_lib::AcpResult<agent_client_protocol::ExtResponse>>,
     )>,

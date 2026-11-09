@@ -1097,14 +1097,15 @@ impl AgentView {
                 let _ = ev.take_response_tx();
                 self.restore_elicitation_prompt(ev.stashed_prompt);
             }
+            self.promote_pending_elicitation();
             return true;
         }
-        if self
+        if let Some(pos) = self
             .pending_elicitation
-            .as_ref()
-            .is_some_and(|(req, _)| req.tool_call_id == tool_call_id)
+            .iter()
+            .position(|(req, _)| req.tool_call_id == tool_call_id)
         {
-            if let Some((_, tx)) = self.pending_elicitation.take() {
+            if let Some((_, tx)) = self.pending_elicitation.remove(pos) {
                 drop(tx);
             }
             return true;

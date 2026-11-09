@@ -382,7 +382,7 @@ impl AgentView {
             hit_sb_view: Default::default(),
             question_view: None,
             elicitation_view: None,
-            pending_elicitation: None,
+            pending_elicitation: VecDeque::new(),
             elicit_hits: Vec::new(),
             hit_question_scrollbar: Default::default(),
             hovered_question_item: None,

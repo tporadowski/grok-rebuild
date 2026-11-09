@@ -14,8 +14,6 @@ pub(crate) enum UnansweredElicitation {
     Cancelled,
     /// The server stopped waiting (its own timeout), or another window answered.
     ClosedElsewhere,
-    /// This window cancelled it to show a newer request.
-    Superseded,
 }
 
 impl AgentView {
@@ -307,7 +305,10 @@ impl AgentView {
 
     pub(crate) fn promote_pending_elicitation(&mut self) {
         use crate::views::elicitation_view::ElicitationViewState;
-        let Some((req, tx)) = self.pending_elicitation.take() else {
+        if self.elicitation_view.is_some() {
+            return;
+        }
+        let Some((req, tx)) = self.pending_elicitation.pop_front() else {
             return;
         };
         // An open `/feedback` form keeps the keyboard. The promoted elicitation waits underneath.
@@ -436,9 +437,6 @@ impl AgentView {
             UnansweredElicitation::ClosedElsewhere => format!(
                 "MCP “{server}” request for input closed before it was answered here (it timed out or was answered elsewhere)."
             ),
-            UnansweredElicitation::Superseded => {
-                format!("Cancelled MCP “{server}” request for input to show a newer one.")
-            }
         };
         crate::app::mode_switch::push_block_behind_live_stream(
             &mut self.scrollback,

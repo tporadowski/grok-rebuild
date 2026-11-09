@@ -1,15 +1,5 @@
 use super::*;
 
-/// Resolve a superseded elicitation's reverse-request with `Cancel` so the awaiting MCP server is released before a replacement takes the slot.
-fn cancel_elicitation_request(
-    response_tx: tokio::sync::oneshot::Sender<xai_acp_lib::AcpResult<acp::ExtResponse>>,
-) {
-    let cancelled = xai_grok_tools::mcp_elicitation::McpElicitExtResponse::Cancel;
-    if let Ok(raw) = serde_json::value::to_raw_value(&cancelled) {
-        response_tx.send(Ok(acp::ExtResponse::new(raw.into()))).ok();
-    }
-}
-
 pub(crate) fn handle_mcp_elicit(
     ext: xai_acp_lib::AcpArgs<acp::ExtRequest>,
     app: &mut AppView,
@@ -42,32 +32,16 @@ pub(crate) fn handle_mcp_elicit(
         return false;
     };
 
-    let waiting = agent
-        .elicitation_view
-        .as_ref()
-        .is_some_and(|ev| ev.is_url_waiting());
-    if waiting {
-        if let Some((_, old_tx)) = agent.pending_elicitation.take() {
-            cancel_elicitation_request(old_tx);
-        }
-        agent.pending_elicitation = Some((ext_req, ext.response_tx));
+    // A card already on screen keeps its prompt. Later parallel requests wait
+    // and each opens, in arrival order, when the card in front closes.
+    if agent.elicitation_view.is_some() {
+        agent
+            .pending_elicitation
+            .push_back((ext_req, ext.response_tx));
         return is_active;
     }
 
-    if let Some((_, old_tx)) = agent.pending_elicitation.take() {
-        cancel_elicitation_request(old_tx);
-    }
-
     // An open `/feedback` form keeps the keyboard. This elicitation waits underneath.
-    if let Some(mut old) =
-        agent.take_unanswered_elicitation(crate::app::agent_view::UnansweredElicitation::Superseded)
-    {
-        if let Some(old_tx) = old.take_response_tx() {
-            cancel_elicitation_request(old_tx);
-        }
-        agent.restore_elicitation_prompt(old.stashed_prompt);
-    }
-
     let stashed = agent.stash_prompt_for_elicitation();
     agent.elicitation_view = Some(ElicitationViewState::from_request(
         ext_req,
