@@ -353,6 +353,17 @@ impl HeadlessEmitter {
         self.on_error(message, None);
         anyhow::Error::new(HeadlessFailureAlreadyReported)
     }
+    /// A failure whose record is already on stdout.
+    /// JSON formats keep the exit status and do not add a second `Error:` line on stderr.
+    /// Plain mode still returns `err` so the process can print it.
+    fn outcome_error(&self, err: anyhow::Error) -> anyhow::Error {
+        if self.format == OutputFormat::Plain {
+            err
+        } else {
+            let _ = err;
+            anyhow::Error::new(HeadlessFailureAlreadyReported)
+        }
+    }
     /// `--output-format json` error object. The worktree folder is present only
     /// after [`Self::note_opened_worktree`].
     fn json_error(&self, message: &str) -> serde_json::Value {
@@ -489,6 +500,71 @@ fn stop_reason_wire(reason: acp::StopReason) -> String {
         }
     }
     .to_string()
+}
+/// Stop reason written into headless JSON.
+/// A turn limit arrives as `Cancelled` plus the max-turns category. JSON names that
+/// outcome `max_turn_requests`, the ACP token for hitting the turn limit.
+fn headless_result_stop_reason(reason: acp::StopReason, is_max_turns: bool) -> String {
+    if is_max_turns {
+        "max_turn_requests".to_string()
+    } else {
+        stop_reason_wire(reason)
+    }
+}
+/// Sentence for a headless JSON error.
+/// ACP `Display` prefixes the JSON-RPC label and then pretty-prints `data`, so a
+/// detail that already states the failure is printed twice. The detail is the
+/// message. A repeated leading `Error:` is dropped.
+fn headless_error_message(err: &acp::Error) -> String {
+    let owned = err
+        .data
+        .as_ref()
+        .and_then(error_detail_from_data)
+        .filter(|detail| !detail.trim().is_empty())
+        .unwrap_or_else(|| err.to_string());
+    strip_duplicate_error_prefix(owned.trim()).to_string()
+}
+/// Drop an outer error label when the remainder repeats one.
+/// `Error: Error: file is missing` stays `Error: file is missing`.
+/// `Internal error: "Error: file is missing"` stays `Error: file is missing`.
+fn strip_duplicate_error_prefix(message: &str) -> &str {
+    let mut rest = message.trim();
+    loop {
+        let Some(after_label) = strip_one_error_label(rest) else {
+            break;
+        };
+        let inner = unquote_json_string(after_label.trim_start());
+        if strip_one_error_label(inner).is_some() {
+            rest = inner;
+            continue;
+        }
+        break;
+    }
+    rest
+}
+fn strip_one_error_label(message: &str) -> Option<&str> {
+    const LABELS: [&str; 2] = ["internal error:", "error:"];
+    let bytes = message.as_bytes();
+    for label in LABELS {
+        let width = label.len();
+        if let Some(head) = bytes.get(..width)
+            && head.eq_ignore_ascii_case(label.as_bytes())
+        {
+            return message.get(width..);
+        }
+    }
+    None
+}
+fn unquote_json_string(message: &str) -> &str {
+    let message = message.trim();
+    if message.len() >= 2
+        && message.as_bytes().first() == Some(&b'"')
+        && message.as_bytes().last() == Some(&b'"')
+    {
+        message.get(1..message.len() - 1).unwrap_or(message)
+    } else {
+        message
+    }
 }
 /// Line printed when headless refuses a permission prompt instead of asking.
 pub(crate) fn refused_approval_line(req: &acp::RequestPermissionRequest) -> String {
@@ -1023,7 +1099,7 @@ pub async fn run_single_turn(
             report_startup_failure(&timer);
             let msg = format!("Couldn't start session: {e}");
             emitter.on_error(&msg, None);
-            anyhow::bail!("{msg}");
+            return Err(emitter.outcome_error(anyhow::anyhow!("{msg}")));
         }
     };
     let agent_guard = AgentShutdownGuard::new(cancel.clone(), Some(spawned.thread_handle));
@@ -1047,7 +1123,7 @@ pub async fn run_single_turn(
             report_startup_failure(&timer);
             let msg = format!("Couldn't initialize: {e}");
             emitter.on_error(&msg, None);
-            anyhow::bail!("{msg}");
+            return Err(emitter.outcome_error(anyhow::anyhow!("{msg}")));
         }
     };
     tracing::debug!(
@@ -1068,7 +1144,7 @@ pub async fn run_single_turn(
         Err(e) => {
             report_startup_failure(&timer);
             emitter.on_error(&e.to_string(), None);
-            return Err(e);
+            return Err(emitter.outcome_error(e));
         }
     };
     tracing::debug!(
@@ -1210,7 +1286,7 @@ pub async fn run_single_turn(
                 return Err(emitter.fail_json_before_open(&msg));
             }
             emitter.on_error(&msg, None);
-            anyhow::bail!("{msg}");
+            return Err(emitter.outcome_error(anyhow::anyhow!("{msg}")));
         }
     };
     PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Ok);
@@ -1305,7 +1381,7 @@ pub async fn run_single_turn(
     {
         let msg = e.to_string();
         emitter.on_error(&msg, None);
-        anyhow::bail!("{msg}");
+        return Err(emitter.outcome_error(anyhow::anyhow!("{msg}")));
     }
     let t_prompt = Instant::now();
     emitter.mark_prompt_started();
@@ -1525,7 +1601,13 @@ pub async fn run_single_turn(
     let mut outcome: Result<()> = match prompt_result {
         _ if connection_closed => Err(anyhow::anyhow!("Connection closed unexpectedly")),
         Some(Ok(resp)) => {
-            let stop_reason = stop_reason_wire(resp.stop_reason);
+            let is_max_turns = resp
+                .meta
+                .as_ref()
+                .and_then(|m| m.get(crate::app::CANCELLATION_CATEGORY_KEY))
+                .and_then(|v| v.as_str())
+                == Some(xai_grok_shell::session::commands::MAX_TURNS_REACHED_CATEGORY);
+            let stop_reason = headless_result_stop_reason(resp.stop_reason, is_max_turns);
             emitter.set_structured_output_from_meta(resp.meta.as_ref());
             emitter.set_usage_from_meta(resp.meta.as_ref());
             let sid = resp
@@ -1550,16 +1632,10 @@ pub async fn run_single_turn(
                     ""
                 }
             };
-            let is_max_turns = resp
-                .meta
-                .as_ref()
-                .and_then(|m| m.get(crate::app::CANCELLATION_CATEGORY_KEY))
-                .and_then(|v| v.as_str())
-                == Some(xai_grok_shell::session::commands::MAX_TURNS_REACHED_CATEGORY);
             if is_max_turns {
                 emitter.on_max_turns();
                 emitter.on_end(&stop_reason, sid, rid);
-                Err(anyhow::anyhow!("max turns reached"))
+                Err(emitter.outcome_error(anyhow::anyhow!("max turns reached")))
             } else {
                 emitter.on_end(&stop_reason, sid, rid);
                 Ok(())
@@ -1568,12 +1644,13 @@ pub async fn run_single_turn(
         Some(Err(err)) => {
             let msg = if i32::from(err.code) == RATE_LIMITED_ERROR_CODE {
                 let detail = err.data.as_ref().and_then(error_detail_from_data);
-                crate::app::sanitize_user_error(&format_rate_limited_user_message(
+                let sanitized = crate::app::sanitize_user_error(&format_rate_limited_user_message(
                     detail.as_deref(),
                     is_api_key_auth,
-                ))
+                ));
+                strip_duplicate_error_prefix(&sanitized).to_string()
             } else {
-                err.to_string()
+                headless_error_message(&err)
             };
             if let Some(usage) = xai_grok_shell::sampling::error::prompt_usage_from_error(&err) {
                 match serde_json::to_value(&usage) {
@@ -1590,7 +1667,7 @@ pub async fn run_single_turn(
                 (xai_grok_shell::sampling::error::stop_reason_for_turn_error(&err) == "MaxTokens")
                     .then_some("max_tokens");
             emitter.on_error(&msg, stop_reason_override);
-            Err(anyhow::anyhow!("{msg}"))
+            Err(emitter.outcome_error(anyhow::anyhow!("{msg}")))
         }
         None => Ok(()),
     };

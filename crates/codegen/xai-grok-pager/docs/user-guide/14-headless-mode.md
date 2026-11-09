@@ -132,7 +132,8 @@ A single JSON object emitted after the response completes: response text,
 stop reason, session ID, request ID (plus `thought` when reasoning is present).
 When the prompt reached the model, the same object also carries spend fields
 (`usage`, `num_turns`, `modelUsage`, cost). `stopReason` is the snake_case
-ACP/Messages token (`end_turn`, `max_tokens`, …).
+ACP/Messages token (`end_turn`, `max_tokens`, `max_turn_requests`, …).
+Reaching the turn limit reports `max_turn_requests`.
 
 ```json
 {
@@ -203,7 +204,9 @@ Usage notes:
 The `sessionId` field is useful for resuming the conversation later.
 
 On failure, Grok emits an error object (process exit non-zero). Prompt-level
-failures may also include frozen spend fields when usage was recorded:
+failures may also include frozen spend fields when usage was recorded. The
+`message` does not repeat a leading `Error:` prefix, and stderr does not
+print that same failure again:
 
 ```json
 {"type":"error","message":"Couldn't start session: ..."}

@@ -851,6 +851,125 @@ fn json_error_includes_the_worktree_folder_after_the_session_starts() {
     );
 }
 
+/// The shell reports a turn limit as `Cancelled`. JSON names it `max_turn_requests`.
+/// A repeated `Error:` prefix is not copied into the error record, and that record
+/// is the failure the process exits with.
+#[test]
+fn turn_limit_json_reports_max_turn_requests_without_a_repeated_error_prefix() {
+    let reason = super::headless_result_stop_reason(acp::StopReason::Cancelled, true);
+    assert_eq!(reason, "max_turn_requests");
+    let emitter = HeadlessEmitter::new(OutputFormat::Json, false);
+    let result = emitter.build_json_result(&reason, "sess-1", "req-1");
+    assert_eq!(result["stopReason"], "max_turn_requests");
+    assert_eq!(
+        super::headless_result_stop_reason(acp::StopReason::Cancelled, false),
+        "cancelled"
+    );
+    assert_eq!(
+        super::headless_result_stop_reason(acp::StopReason::EndTurn, false),
+        "end_turn"
+    );
+
+    let doubled = acp::Error::internal_error().data(serde_json::json!({
+        "message": "Error: Error: file is missing",
+        "http_status": 500
+    }));
+    let displayed = doubled.to_string();
+    assert!(
+        displayed.contains("Internal error"),
+        "ACP display still prefixes the JSON-RPC label: {displayed}"
+    );
+    assert!(
+        displayed.contains("http_status"),
+        "ACP display still dumps data: {displayed}"
+    );
+    let message = super::headless_error_message(&doubled);
+    assert_eq!(message, "Error: file is missing");
+    assert!(!message.contains("Internal error"), "{message}");
+    assert!(!message.contains("http_status"), "{message}");
+    let reported = emitter.json_error(&message);
+    assert_eq!(reported["type"], "error");
+    assert_eq!(reported["message"], "Error: file is missing");
+
+    let wrapped = acp::Error::internal_error().data("Internal error: \"Error: file is missing\"");
+    assert_eq!(
+        super::headless_error_message(&wrapped),
+        "Error: file is missing"
+    );
+    assert_eq!(
+        super::headless_error_message(&acp::Error::internal_error().data("disk full")),
+        "disk full"
+    );
+
+    let json_failure = emitter.outcome_error(anyhow::anyhow!("max turns reached"));
+    assert!(super::failure_already_reported(&json_failure));
+    let plain = HeadlessEmitter::new(OutputFormat::Plain, false);
+    let plain_failure = plain.outcome_error(anyhow::anyhow!("max turns reached"));
+    assert!(!super::failure_already_reported(&plain_failure));
+    assert_eq!(plain_failure.to_string(), "max turns reached");
+
+    let mut messages = super::reducer::reducer_for(OutputFormat::StreamingMessagesJson)
+        .expect("messages reducer");
+    let _ = messages.begin(super::reducer::SessionContext {
+        session_id: "sess-1".into(),
+        model: None,
+        cwd: "/tmp".into(),
+        permission_mode: None,
+        mcp_servers: Vec::new(),
+        include_partial_messages: false,
+        api_key_auth: false,
+        context_window: None,
+    });
+    let _ = messages.reduce(super::reducer::StreamEvent::AgentMessage(
+        "working".into(),
+    ));
+    assert!(messages.max_turns().is_empty());
+    let lines = messages.finish(&super::reducer::TurnEnd {
+        stop_reason: &reason,
+        session_id: "sess-1",
+        request_id: "req-1",
+        usage: None,
+        structured_output: None,
+        result_text: "working",
+        duration_ms: 4,
+    });
+    let assistant = lines
+        .iter()
+        .find(|line| line.get("type").and_then(|v| v.as_str()) == Some("assistant"))
+        .expect("assistant frame");
+    assert!(
+        assistant
+            .pointer("/message/stop_reason")
+            .is_none_or(serde_json::Value::is_null),
+        "assistant stop stays null at the turn limit: {assistant}"
+    );
+    let result_line = lines.last().expect("result line");
+    assert_eq!(result_line["subtype"], "error_max_turns");
+    assert_eq!(result_line["is_error"], true);
+    assert_eq!(result_line["stop_reason"], "max_turn_requests");
+    let error_lines = messages.error(&message, None, 4, None);
+    let error_line = error_lines.last().expect("error line");
+    assert_eq!(error_line["errors"][0], "Error: file is missing");
+
+    let mut streaming = super::reducer::reducer_for(OutputFormat::StreamingJson).expect("acp");
+    let max_turns = streaming.max_turns();
+    assert_eq!(max_turns[0]["type"], "max_turns_reached");
+    let end = streaming.finish(&super::reducer::TurnEnd {
+        stop_reason: &reason,
+        session_id: "sess-1",
+        request_id: "req-1",
+        usage: None,
+        structured_output: None,
+        result_text: "",
+        duration_ms: 4,
+    });
+    assert_eq!(end[0]["type"], "end");
+    assert_eq!(end[0]["stopReason"], "max_turn_requests");
+    let acp_error = streaming.error(&message, None, 4, None);
+    assert_eq!(acp_error[0]["type"], "error");
+    assert_eq!(acp_error[0]["message"], "Error: file is missing");
+}
+
 #[test]
 fn streaming_json_structured_output_emits_from_meta() {
     let mut emitter = HeadlessEmitter::new(OutputFormat::StreamingJson, true);
