@@ -613,6 +613,60 @@ fn voice_error_hint_lands_in_bound_agent_scrollback() {
     assert_eq!(app.agents.get(&id).unwrap().scrollback.len(), before);
 }
 
+/// A message that already ends a sentence keeps that punctuation when the hint is appended.
+/// A message with no closing mark gets one period, so the hint does not run into it.
+#[test]
+fn voice_error_hint_keeps_message_punctuation() {
+    let cases = [
+        (
+            "No speech was detected. Voice stopped.",
+            "check the default input device",
+            "Voice: No speech was detected. Voice stopped. check the default input device",
+        ),
+        (
+            "Microphone unavailable?",
+            "check the input device",
+            "Voice: Microphone unavailable? check the input device",
+        ),
+        (
+            "no speech detected",
+            "check the mic",
+            "Voice: no speech detected. check the mic",
+        ),
+    ];
+    for (message, hint, expected) in cases {
+        let mut app = test_app_with_agent();
+        let id = AgentId(0);
+        app.voice_state = VoiceState::Recording {
+            hold: false,
+            target: VoiceTarget::Agent(id),
+            partial: Partial::None,
+            route: None,
+        };
+        crate::voice::handle_voice_event(
+            &mut app,
+            xai_grok_voice::VoiceEvent::Error {
+                message: message.into(),
+                hint: Some(hint.into()),
+            },
+        );
+        let agent = app.agents.get(&id).unwrap();
+        let text = match agent
+            .scrollback
+            .get(agent.scrollback.len() - 1)
+            .map(|e| &e.block)
+        {
+            Some(crate::scrollback::block::RenderBlock::System(b)) => b.text.as_str(),
+            other => panic!("expected system hint block, got {other:?}"),
+        };
+        assert_eq!(text, expected, "{message}");
+        assert!(
+            !text.contains(".."),
+            "a finished sentence must not gain a second period: {text}"
+        );
+    }
+}
+
 #[test]
 fn voice_error_hint_dropped_for_dashboard_dispatch() {
     // The dispatch box has no scrollback; only the dashboard toast survives.

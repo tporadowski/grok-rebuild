@@ -271,13 +271,40 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
                 && let Some(VoiceTarget::Agent(id) | VoiceTarget::DashboardPeekReply(id)) = target
                 && let Some(agent) = app.agents.get_mut(&id)
             {
-                agent
-                    .scrollback
-                    .push_block(crate::scrollback::block::RenderBlock::system(format!(
-                        "Voice: {message}. {hint}"
-                    )));
+                agent.scrollback.push_block(
+                    crate::scrollback::block::RenderBlock::system(voice_error_with_hint(
+                        &message, &hint,
+                    )),
+                );
             }
             true
         }
     }
+}
+
+/// Scrollback text for a voice error and its longer hint.
+/// A message that already ends a sentence keeps that mark. One that does not gets a single period
+/// before the hint, so the sentences stay separate and a finished sentence is not doubled.
+fn voice_error_with_hint(message: &str, hint: &str) -> String {
+    let message = message.trim();
+    let hint = hint.trim();
+    if hint.is_empty() {
+        return format!("Voice: {message}");
+    }
+    if message.is_empty() {
+        return format!("Voice: {hint}");
+    }
+    if ends_sentence(message) {
+        format!("Voice: {message} {hint}")
+    } else {
+        format!("Voice: {message}. {hint}")
+    }
+}
+
+/// True when `message` already ends with sentence punctuation.
+fn ends_sentence(message: &str) -> bool {
+    matches!(
+        message.chars().next_back(),
+        Some('.' | '!' | '?' | '…' | '。' | '！' | '？')
+    )
 }
