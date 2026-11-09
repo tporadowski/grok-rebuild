@@ -828,16 +828,16 @@ Refresh these numbers at the end of a session.
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 33 | 3 | 0 |
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
-| W12 | MCP, web, images, and browser | 42 | 0 | 16 | 1 | 0 |
+| W12 | MCP, web, images, and browser | 41 | 0 | 16 | 2 | 0 |
 | W13 | Update, install, and sign-in | 22 | 0 | 5 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 231. Skipped: 8. Done: 287. Already: 47. Deferred: 10.
+Catalog rows: 583. Pending: 230. Skipped: 8. Done: 287. Already: 48. Deferred: 10.
 
-**Next:** W12 MCP, web, images, and browser. First open row: Web fetch approval cards now include "always allow" and "never allow" domain options that persist for the folder (`v51-f05`).
+**Next:** W12 MCP, web, images, and browser. First open row: Chrome profiles can now be persisted across restarts using durable state directories (`v51-f08`).
 
 ## Waves
 
@@ -887,7 +887,7 @@ Pending: 0. Done: 35 (`v46-x05`, `v48-x03`, `v48-x05`, `v50-f07`, `v50-x02`, `v5
 
 ### W12 — MCP, web, images, and browser
 
-Pending: 42. Done: 16 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`, `v50-x20`, `v50-x21`, `v51-f03`). Already: 1 (`v49-x02`). Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing. A folded run of tool searches says `Ran N tool searches`. The count is the searches, not the MCP tools they returned (`v46-x02`). Enter on a video card starts inline playback only when the terminal can show images and ffmpeg is available (`v46-x06`). Otherwise Enter opens the file in the default player, and a missing ffmpeg does not spawn a poster extract (`v46-x07`). An ask rule for a web search, or for a web fetch whose host is already allowed, prompts instead of running on its own (`v48-x04`). A web search still runs under `dontAsk`. An allowlisted fetch does too. A fetch that is not allowed, and image generation, follow `prompt_policy` and matching allow or deny rules before a prompt (`v49-x02`). Searching for a tool name that several MCP servers expose returns every server's copy (`v50-x20`). A settings save re-reads `config.toml` under the config-init lock, so MCP servers and permission rules written by another window stay in the file (`v50-x21`). `/imagine` runs the bundled skill of the same name when `image_gen` is not in the session tool list, and the builtin returns when the tool is (`v51-f03`).
+Pending: 41. Done: 16 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`, `v50-x20`, `v50-x21`, `v51-f03`). Already: 2 (`v49-x02`, `v51-f05`). Look first: MCP crate `xai-grok-mcp`. Web and image tools in `xai-grok-tools`. Browser/Chrome state in the workspace server. `/imagine` is already a reserved slash name; the new behavior is the bundled-skill fallback when the tool is missing. A folded run of tool searches says `Ran N tool searches`. The count is the searches, not the MCP tools they returned (`v46-x02`). Enter on a video card starts inline playback only when the terminal can show images and ffmpeg is available (`v46-x06`). Otherwise Enter opens the file in the default player, and a missing ffmpeg does not spawn a poster extract (`v46-x07`). An ask rule for a web search, or for a web fetch whose host is already allowed, prompts instead of running on its own (`v48-x04`). A web search still runs under `dontAsk`. An allowlisted fetch does too. A fetch that is not allowed, and image generation, follow `prompt_policy` and matching allow or deny rules before a prompt (`v49-x02`). Searching for a tool name that several MCP servers expose returns every server's copy (`v50-x20`). A settings save re-reads `config.toml` under the config-init lock, so MCP servers and permission rules written by another window stay in the file (`v50-x21`). `/imagine` runs the bundled skill of the same name when `image_gen` is not in the session tool list, and the builtin returns when the tool is (`v51-f03`). A web-fetch approval card already offers always-allow and never-allow for the prompted domain, and the choice is saved in the folder's permission state (`v51-f05`).
 
 ### W13 — Update, install, and sign-in
 
@@ -1238,7 +1238,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x29 | done | W12 | Bug Fixes |  |  | **Re-encoded images** are now oriented correctly using their EXIF tags instead of appearing sideways.
 - v50-x32 | done | W12 | Bug Fixes |  |  | **Transparent images** are now kept as PNG when re-encoded instead of turning black.
 - v51-f03 | done | W12 | Features |  |  | **`/imagine`** and similar commands now run the matching bundled skill when the required tools are unavailable.
-- v51-f05 | pending | W12 | Features |  |  | **Web fetch approval cards** now include "always allow" and "never allow" domain options that persist for the folder.
+- v51-f05 | already | W12 | Features |  |  | **Web fetch approval cards** now include "always allow" and "never allow" domain options that persist for the folder.
 - v51-f08 | pending | W12 | Features |  |  | **Chrome profiles** can now be persisted across restarts using durable state directories.
 - v51-f09 | pending | W12 | Features |  |  | Workspace server sessions now share one Chrome instance for cookies and storage.
 - v51-f31 | pending | W12 | Features |  |  | Browser tabs can now be restored on demand instead of all at once when a session resumes.

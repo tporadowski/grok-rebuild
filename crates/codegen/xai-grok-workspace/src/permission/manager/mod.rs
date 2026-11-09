@@ -7946,6 +7946,82 @@ mod tests {
             .await;
     }
 
+    /// The web-fetch card offers always-allow and never-allow for the prompted domain.
+    /// Choosing always-allow writes that domain into the folder's permission state, and a later
+    /// fetch of another path on the same host does not prompt again.
+    #[tokio::test]
+    async fn allow_always_domain_persists_for_the_folder() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let tmp = tempfile::tempdir().unwrap();
+                let cwd = AbsPathBuf::new(tmp.path().to_path_buf()).unwrap();
+
+                let client = IdSelectingClient::new("allow-always-domain");
+                let prompts = client.prompts.clone();
+                let (mgr, _e) = manager_with_recording_client_remember(
+                    &cwd,
+                    None,
+                    client,
+                    ClientType::GrokPager,
+                    true,
+                );
+                let d = decide(
+                    &mgr,
+                    AccessKind::WebFetch("https://Example.COM/docs".into()),
+                    tool_call(),
+                )
+                .await;
+                assert!(
+                    matches!(d, Decision::Allow),
+                    "always-allow for the domain must allow this fetch, got {d:?}"
+                );
+                let asked = prompts.borrow();
+                assert_eq!(asked.len(), 1);
+                let labels: Vec<&str> = asked[0].options.iter().map(|opt| opt.name.as_str()).collect();
+                assert!(
+                    labels.iter().any(|label| {
+                        label.contains("always allow")
+                            && label.contains("example.com")
+                            && label.contains("for this project")
+                    }),
+                    "card must offer always-allow for the domain, got {labels:?}"
+                );
+                assert!(
+                    labels.iter().any(|label| {
+                        label.contains("never allow")
+                            && label.contains("example.com")
+                            && label.contains("for this project")
+                    }),
+                    "card must offer never-allow for the domain, got {labels:?}"
+                );
+                drop(asked);
+
+                let persisted = crate::permission::state::load_state_from_disk(&cwd, None).await;
+                assert!(
+                    persisted
+                        .allowed_web_fetch_domains
+                        .contains("example.com"),
+                    "the domain must be saved for the folder, got {:?}",
+                    persisted.allowed_web_fetch_domains
+                );
+                assert!(persisted.disallowed_web_fetch_domains.is_empty());
+
+                let d2 = decide(
+                    &mgr,
+                    AccessKind::WebFetch("https://example.com/other-page".into()),
+                    tool_call(),
+                )
+                .await;
+                assert!(
+                    matches!(d2, Decision::Allow),
+                    "a later fetch on the saved domain must be allowed, got {d2:?}"
+                );
+                assert_eq!(prompts.borrow().len(), 1, "the saved domain must not prompt again");
+            })
+            .await;
+    }
+
     #[tokio::test]
     async fn auto_bash_disallow_still_rejects_despite_grant() {
         use crate::permission::auto_mode::LlmPermissionClassifier;
