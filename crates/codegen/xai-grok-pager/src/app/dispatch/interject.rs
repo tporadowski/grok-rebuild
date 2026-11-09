@@ -178,11 +178,21 @@ pub(super) fn dispatch_send_prompt_now(
     // Expect the shell's send-now cancel so the turn-end handling suppresses its marker
     super::queue::arm_send_now_and_paint_dispatched(agent, &prompt_id, &text);
 
+    let images_for_restore = images.clone();
     let build = crate::prompt_images::build_content_blocks_with_workspace_report(
         text.clone(),
         images,
         Some(std::path::Path::new(&agent.session.cwd)),
     );
+    let sent_numbers = super::queue::sent_image_display_numbers(&build.blocks);
+    if let Some(&(entry_id, _)) = agent.send_now_painted_blocks.get(&prompt_id) {
+        super::queue::mark_painted_image_placeholders(
+            agent,
+            &[entry_id],
+            &sent_numbers,
+            &images_for_restore,
+        );
+    }
     app.pending_image_notices
         .extend(agent.notice_skipped_sends(&build));
     let blocks = build.blocks;

@@ -362,11 +362,18 @@ pub(super) fn dispatch_rewind_success(
 
     let target = response.target_prompt_index;
     let stashed_draft = agent.rewind_state.take().and_then(|s| s.stashed_draft);
+    let target_idx = find_user_prompt_entry_for_shell_index(&agent.scrollback, target);
+    let restored_images = target_idx
+        .and_then(|idx| agent.scrollback.entry(idx))
+        .and_then(|entry| match &entry.block {
+            RenderBlock::UserPrompt(block) => Some(block.sent_images.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
 
     // The summary describes turns the rewind just removed (the shell clears its persisted copy on the same branch)
     // Bump gen so a late SessionMetaFromDisk hydrate cannot restore the pre-rewind summary.json value into the cleared field
     agent.set_last_turn_summary(None);
-    let target_idx = find_user_prompt_entry_for_shell_index(&agent.scrollback, target);
     if let Some(anchor_idx) = target_idx {
         let removed = agent.scrollback.remove_from(anchor_idx);
         // Explicit drop BEFORE the purge: the rewound tail must be freed for the release below to return its pages
@@ -390,6 +397,9 @@ pub(super) fn dispatch_rewind_success(
         // set_text keeps the previous cursor. A rewind restores a prompt the user will edit, so the caret belongs at the end.
         let end = agent.prompt.textarea.text().len();
         agent.prompt.set_cursor(end);
+        if !restored_images.is_empty() {
+            agent.prompt.set_images(restored_images);
+        }
     } else if let Some(draft) = stashed_draft {
         agent.prompt.restore(draft);
     }

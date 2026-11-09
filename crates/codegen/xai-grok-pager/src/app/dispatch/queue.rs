@@ -514,6 +514,7 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
             agent.scrollback.follow_new_turn(Some(prompt_idx), flip);
 
             let combined_segs = queued.combined_texts.clone();
+            let images_for_restore = queued.images.clone();
             let mut sent_image_numbers = Vec::new();
             let effects = if let Some(mut blocks) = queued.wire_blocks {
                 // Skill injection: send structured blocks.
@@ -604,7 +605,12 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
                     skill_token_ranges: queued.skill_token_ranges,
                 }]
             };
-            mark_painted_image_placeholders(agent, &combined_entries, &sent_image_numbers);
+            mark_painted_image_placeholders(
+                agent,
+                &combined_entries,
+                &sent_image_numbers,
+                &images_for_restore,
+            );
             QueueDrain {
                 effects,
                 page_flip_entry: flip.then_some(prompt_entry_id),
@@ -752,7 +758,7 @@ fn trailing_user_prompts(
     None
 }
 
-fn sent_image_display_numbers(blocks: &[acp::ContentBlock]) -> Vec<usize> {
+pub(super) fn sent_image_display_numbers(blocks: &[acp::ContentBlock]) -> Vec<usize> {
     blocks
         .iter()
         .filter_map(|block| {
@@ -765,20 +771,41 @@ fn sent_image_display_numbers(blocks: &[acp::ContentBlock]) -> Vec<usize> {
 }
 
 /// Record which image placeholders in the painted bubbles were sent and which were only typed.
-fn mark_painted_image_placeholders(
+pub(super) fn mark_painted_image_placeholders(
     agent: &mut AgentView,
     ids: &[crate::scrollback::EntryId],
     sent_numbers: &[usize],
+    images: &[crate::prompt_images::PastedImage],
 ) {
+    let sent_images: Vec<crate::prompt_images::PastedImage> = images
+        .iter()
+        .filter(|image| sent_numbers.contains(&image.display_number))
+        .cloned()
+        .collect();
     for id in ids {
         let Some(entry) = agent.scrollback.get_by_id_mut(*id) else {
             continue;
         };
         if let crate::scrollback::RenderBlock::UserPrompt(block) = &mut entry.block {
             block.mark_image_placeholders(sent_numbers);
+            block.sent_images.clone_from(&sent_images);
         }
         entry.invalidate_cache();
     }
+}
+
+pub(super) fn sent_images_on_entry(
+    agent: &AgentView,
+    id: crate::scrollback::EntryId,
+) -> Vec<crate::prompt_images::PastedImage> {
+    agent
+        .scrollback
+        .get_by_id(id)
+        .and_then(|entry| match &entry.block {
+            crate::scrollback::RenderBlock::UserPrompt(block) => Some(block.sent_images.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// Paint one user bubble per combined segment, or reuse matching trailing bubbles.
@@ -1009,11 +1036,11 @@ pub(crate) fn apply_turn_start_shim(
                 xai_prompt_queue::join_texts(segments.iter().map(String::as_str))
             });
             let earlier = all_ids.into_iter().filter(|id| *id != last_id).collect();
-            // An adopted turn arrives with text only, never the original attachments, so a Ctrl+C rewind restores just the joined text
-            // The local drain path, which owns the data, restores images/chips.
+            // Images saved on the painted bubble when this client sent them. A later Ctrl+C puts those chips back.
+            let images = sent_images_on_entry(agent, last_id);
             agent.session.in_flight_prompt = Some(crate::app::agent::InFlightPrompt {
                 text: restore,
-                images: Vec::new(),
+                images,
                 scrollback_entry: last_id,
                 combined_scrollback_entries: earlier,
                 chip_elements: Vec::new(),
@@ -1099,9 +1126,10 @@ pub(crate) fn apply_turn_start_shim(
                 Some(RenderBlock::UserPrompt(ub)) if ub.text != text => ub.text.clone(),
                 _ => text,
             };
+            let images = sent_images_on_entry(agent, prompt_entry_id);
             agent.session.in_flight_prompt = Some(crate::app::agent::InFlightPrompt {
                 text: restore_text,
-                images: Vec::new(),
+                images,
                 scrollback_entry: prompt_entry_id,
                 combined_scrollback_entries: Vec::new(),
                 chip_elements: Vec::new(),

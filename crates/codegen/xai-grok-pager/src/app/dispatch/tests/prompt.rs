@@ -5137,6 +5137,102 @@ fn image_prompt_during_sendable_wait_routes_to_send_now() {
     );
 }
 
+/// Send Now paints the prompt before the shell echoes it. An image that went out is marked sent,
+/// and a rewind of that turn puts the chip back in the composer.
+#[test]
+fn send_now_marks_the_sent_image_and_rewind_restores_it() {
+    use crate::app::agent_view::test_fixtures::simulate_task_output_wait;
+    use crate::scrollback::blocks::ImagePlaceholderMark;
+
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    dispatch(Action::SendPrompt("first".into()), &mut app);
+    simulate_task_output_wait(app.agents.get_mut(&id).unwrap(), "bg-1");
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent
+            .prompt
+            .insert_image(crate::app::agent_view::test_fixtures::test_pasted_image())
+            .unwrap();
+    }
+    let text = agent_ref(&app, id).prompt.text().to_string();
+    let effects = dispatch(Action::SendPrompt(text.clone()), &mut app);
+    let prompt_id = match effects.as_slice() {
+        [Effect::SendPromptNow { prompt_id, blocks, .. }] => {
+            assert!(
+                blocks
+                    .iter()
+                    .any(|block| matches!(block, acp::ContentBlock::Image(_))),
+                "the image must be on the send-now wire"
+            );
+            prompt_id.clone()
+        }
+        other => panic!("expected SendPromptNow, got {other:?}"),
+    };
+
+    let agent = agent_ref(&app, id);
+    let mut shell_index = None;
+    let mut seen = 0usize;
+    let mut sent = false;
+    let mut kept = 0usize;
+    for idx in 0..agent.scrollback.len() {
+        let Some(entry) = agent.scrollback.entry(idx) else {
+            continue;
+        };
+        let crate::scrollback::RenderBlock::UserPrompt(block) = &entry.block else {
+            continue;
+        };
+        if block.is_interjection {
+            continue;
+        }
+        if block.text == text {
+            shell_index = Some(seen);
+            sent = block.image_marks.iter().any(|(range, mark)| {
+                block.text.get(range.clone()) == Some("[Image #1]")
+                    && *mark == ImagePlaceholderMark::Sent
+            });
+            kept = block.sent_images.len();
+        }
+        seen += 1;
+    }
+    let shell_index = shell_index.expect("send-now paints the prompt");
+    assert!(sent, "the sent image is marked on the send-now prompt");
+    assert_eq!(kept, 1, "the painted prompt keeps the image for a rewind");
+
+    dispatch(
+        Action::TaskComplete(TaskResult::RewindExecuteComplete {
+            agent_id: id,
+            response: crate::views::rewind::RewindResponse {
+                success: true,
+                target_prompt_index: shell_index,
+                reverted_files: vec![],
+                clean_files: vec![],
+                conflicts: vec![],
+                error: None,
+                mode: Some("conversation_only".into()),
+                prompt_text: Some(text),
+            },
+        }),
+        &mut app,
+    );
+    let agent = agent_ref(&app, id);
+    assert_eq!(
+        agent.prompt.images.len(),
+        1,
+        "rewind puts the sent image back into the composer"
+    );
+    assert!(
+        agent
+            .prompt
+            .textarea
+            .elements()
+            .iter()
+            .any(|element| element.kind == crate::views::prompt_widget::KIND_IMAGE),
+        "the restored image is a chip, not bare placeholder text"
+    );
+    let _ = prompt_id;
+}
+
 /// The local drip-feed drain must hold while a non-running server row exists.
 /// The shell owns the next turn (its `running_prompt_id` broadcast starts it).
 /// Draining locally would promote a bogus local turn that swallows the real turn's deltas.

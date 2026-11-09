@@ -155,6 +155,8 @@ pub struct UserPromptBlock {
     pub skill_token_ranges: Vec<Range<usize>>,
     /// `[Image #N]` and `[Image #N: path]` spans in `text`, and whether that image went out with the prompt.
     pub image_marks: Vec<(Range<usize>, ImagePlaceholderMark)>,
+    /// Copies of the images that were sent with this prompt, so a rewind can put the chips back.
+    pub sent_images: Vec<crate::prompt_images::PastedImage>,
 }
 
 /// How an image placeholder in a user prompt was sent.
@@ -176,6 +178,7 @@ impl UserPromptBlock {
             prompt_index: None,
             skill_token_ranges: Vec::new(),
             image_marks: Vec::new(),
+            sent_images: Vec::new(),
         }
     }
 
@@ -192,6 +195,7 @@ impl UserPromptBlock {
             prompt_index: None,
             skill_token_ranges: Vec::new(),
             image_marks: Vec::new(),
+            sent_images: Vec::new(),
         }
     }
 
@@ -216,6 +220,7 @@ impl UserPromptBlock {
             prompt_index: None,
             skill_token_ranges,
             image_marks: Vec::new(),
+            sent_images: Vec::new(),
         }
     }
 
@@ -232,6 +237,7 @@ impl UserPromptBlock {
             prompt_index: None,
             skill_token_ranges,
             image_marks: Vec::new(),
+            sent_images: Vec::new(),
         }
     }
 
@@ -283,6 +289,7 @@ impl UserPromptBlock {
             prompt_index: None,
             skill_token_ranges: Vec::new(),
             image_marks: Vec::new(),
+            sent_images: Vec::new(),
         }
     }
 
@@ -295,6 +302,7 @@ impl UserPromptBlock {
             prompt_index: None,
             skill_token_ranges: Vec::new(),
             image_marks: Vec::new(),
+            sent_images: Vec::new(),
         }
     }
 
