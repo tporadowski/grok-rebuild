@@ -36,6 +36,7 @@ impl DoctorCommand {
         );
         let mut report = crate::diagnostics::view(snapshot.into());
         crate::diagnostics::merge_tui_runtime_findings(&mut report, runtime_findings);
+        crate::doctor_cmd::append_legacy_ui_findings(&mut report);
         report
     }
 }

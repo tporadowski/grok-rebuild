@@ -7,7 +7,10 @@ use crate::diagnostics::{DiagnosticReport, FixActivation, FixPlan, ShellKind};
 
 mod human;
 mod json;
+mod legacy_ui;
 mod startup;
+
+pub(crate) use legacy_ui::append_legacy_ui_findings;
 
 pub const SCHEMA_VERSION: &str = "1";
 
@@ -69,6 +72,7 @@ pub fn collect_report() -> DiagnosticReport {
     let report = collect_report_with(crate::diagnostics::probes::collect_standalone(&terminal));
     let mut report = configured_report_for_terminal(report, &terminal);
     startup::append_startup_config_findings(&mut report);
+    legacy_ui::append_legacy_ui_findings(&mut report);
     report
 }
 

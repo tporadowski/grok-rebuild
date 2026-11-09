@@ -841,15 +841,15 @@ Refresh these numbers at the end of a session.
 | W10 | Transcript, density, and copy | 0 | 0 | 43 | 2 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 39 | 12 | 8 |
-| W13 | Update, install, and sign-in | 14 | 0 | 13 | 0 | 0 |
+| W13 | Update, install, and sign-in | 13 | 0 | 14 | 0 | 0 |
 | W14 | Pager and remaining bug fixes | 147 | 0 | 0 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 181. Skipped: 8. Done: 318. Already: 58. Deferred: 18.
+Catalog rows: 583. Pending: 180. Skipped: 8. Done: 319. Already: 58. Deferred: 18.
 
-**Next:** W13 Update, install, and sign-in. First open row: `grok doctor` and `/doctor` point out a leftover `[ui] vim_mode` key (now `[keys] vim`) or the retired `[ui] simple_mode` key (`v69-x02`).
+**Next:** W13 Update, install, and sign-in. First open row: Automatic updates stop retrying a new version that fails to start on this machine until a newer version is out, and each launch says to run `grok update` to see why (`v73-f04`).
 
 ## Waves
 
@@ -903,7 +903,7 @@ Pending: 0. Done: 39 (`v46-x02`, `v46-x06`, `v46-x07`, `v48-x04`, `v50-x20`, `v5
 
 ### W13 — Update, install, and sign-in
 
-Pending: 14. Done: 13. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download. `grok inspect` and the MCP doctor name the file that declares each MCP server. A project `config.toml`, a parent `.mcp.json`, and a Cursor project file keep that path (`v46-x01`, `project_definitions_keep_their_declaring_file`). After login, a refused prompt returns to an empty composer and is not sent. A draft already in the composer stays (`v48-x06`, `auth_complete_restores_refused_prompt_for_manual_resend`). `grok doctor` names the config file or setting that stops startup, instead of reporting 0 issues (`v50-x38`, `a_config_file_that_blocks_startup_is_an_issue`). `/doctor fix` opens its confirmation card on Cancel, so Enter does not edit shell or tmux config (`v50-x40`, `doctor_fix_confirmation_opens_on_cancel`). `grok -p` sends the external-provider login when no login is stored, so the shell runs `auth_provider_command`. A browser login is still refused (`v51-f29`, `headless_sends_provider_login_when_no_login_is_stored`). A sign-in failure is one plain sentence that names the next step. A token-exchange dump, a URL, and an HTTP body are not shown (`v51-x12`, `authenticate_failure_is_plain_english_with_a_next_step`). A directory left by an interrupted `git clone` is removed before the next clone, so `grok plugin install` can retry (`v53-x14`, `clone_replaces_a_partial_directory_left_by_an_interrupted_clone`). A failed `println!` or `eprintln!`, including a closed pipe, a permission error, or a full disk, ends `grok update` and `grok login` instead of aborting (`v62-x05`, `closed_or_unwritable_print_panics_are_stdio_failures`).
+Pending: 13. Done: 14. Look first: `xai-grok-update` and login in `xai-grok-auth`. Installer scripts under `crates/codegen/xai-grok-pager/scripts/`. Do not replace a good local binary with an empty or failed download. `grok inspect` and the MCP doctor name the file that declares each MCP server. A project `config.toml`, a parent `.mcp.json`, and a Cursor project file keep that path (`v46-x01`, `project_definitions_keep_their_declaring_file`). After login, a refused prompt returns to an empty composer and is not sent. A draft already in the composer stays (`v48-x06`, `auth_complete_restores_refused_prompt_for_manual_resend`). `grok doctor` names the config file or setting that stops startup, instead of reporting 0 issues (`v50-x38`, `a_config_file_that_blocks_startup_is_an_issue`). `/doctor fix` opens its confirmation card on Cancel, so Enter does not edit shell or tmux config (`v50-x40`, `doctor_fix_confirmation_opens_on_cancel`). `grok -p` sends the external-provider login when no login is stored, so the shell runs `auth_provider_command`. A browser login is still refused (`v51-f29`, `headless_sends_provider_login_when_no_login_is_stored`). A sign-in failure is one plain sentence that names the next step. A token-exchange dump, a URL, and an HTTP body are not shown (`v51-x12`, `authenticate_failure_is_plain_english_with_a_next_step`). A directory left by an interrupted `git clone` is removed before the next clone, so `grok plugin install` can retry (`v53-x14`, `clone_replaces_a_partial_directory_left_by_an_interrupted_clone`). A failed `println!` or `eprintln!`, including a closed pipe, a permission error, or a full disk, ends `grok update` and `grok login` instead of aborting (`v62-x05`, `closed_or_unwritable_print_panics_are_stdio_failures`). `grok doctor` and `/doctor` name a leftover `[ui] vim_mode` and a retired `[ui] simple_mode`, with the file that still sets them (`v69-x02`, `leftover_vim_mode_and_retired_simple_mode_are_named`).
 
 ### W14 — Pager and remaining bug fixes
 
@@ -1311,7 +1311,7 @@ id | status | wave | kind | flag | covered | note
 - v60-x01 | done | W13 | Bug Fixes |  |  | **`grok --resume <title>`** with a title that matches no local session reports the miss right away instead of trying a remote restore and asking you to sign in.
 - v62-x05 | done | W13 | Bug Fixes |  |  | **`grok update`** and **`grok login`** no longer crash when stdout or stderr is closed or unwritable.
 - v64-f06 | done | W13 | Features |  |  | **Plugin install suggestions** above the prompt are off when `disable_plugins = true` is set.
-- v69-x02 | pending | W13 | Bug Fixes |  |  | **`grok doctor`** and `/doctor` now point out a leftover `[ui] vim_mode` key (now `[keys] vim`) or the retired `[ui] simple_mode` key in your config.
+- v69-x02 | done | W13 | Bug Fixes |  |  | **`grok doctor`** and `/doctor` now point out a leftover `[ui] vim_mode` key (now `[keys] vim`) or the retired `[ui] simple_mode` key in your config.
 - v73-f04 | pending | W13 | Features |  |  | **Automatic updates** stop retrying a new version that fails to start on this machine until a newer version is out, and each launch says to run `grok update` to see why.
 - v74-f03 | pending | W13 | Features |  |  | **`/mcps`**: when a browser can't open an MCP server's sign-in URL, the URL shows in a panel you can copy with `c` or the `[copy the url]` button.
 - v74-f06 | pending | W13 | Features |  |  | **`!` mode Tab completion** offers commands installed as symlinks, such as Homebrew, npm, rustup and Debian alternatives binaries.

@@ -55,6 +55,7 @@ pub(crate) const VSCODE_SSH_NON_ASCII_ID: DiagnosticId =
 pub(crate) const VOICE_NO_INPUT_DEVICE_ID: DiagnosticId =
     DiagnosticId::new("voice", "no-input-device");
 pub(crate) const CONFIG_STARTUP_ID: DiagnosticId = DiagnosticId::new("config", "startup");
+pub(crate) const CONFIG_LEGACY_UI_ID: DiagnosticId = DiagnosticId::new("config", "legacy-ui");
 
 impl DiagnosticReport {
     pub fn issue_count(&self) -> usize {
