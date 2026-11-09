@@ -652,6 +652,12 @@ pub async fn check_update_background(update_config: &UpdateConfig) -> Background
         }
     };
 
+    if let Some(notice) = crate::failed_start::hold_notice(&target_version) {
+        // This version already failed to start. Do not download it again.
+        eprintln!("{notice}");
+        return BackgroundUpdateCheck::none();
+    }
+
     let allow_downgrade = installer_allows_downgrade(installer);
     if !needs_update(
         &current_version,
@@ -1469,15 +1475,23 @@ pub async fn install_internal_from_bases(
     let mut last_err: Option<anyhow::Error> = None;
     for (i, base) in bases.iter().enumerate() {
         match download_verified_from_base(target, update_config, base).await {
-            Ok(download) => {
-                return activate_verified_download(&download)
-                    .await
-                    .map(|()| download.version)
-                    .map_err(|e| InstallPhaseError::Activate(e).into());
-            }
+            Ok(download) => match activate_verified_download(&download).await {
+                Ok(()) => {
+                    crate::failed_start::clear_recorded();
+                    return Ok(download.version);
+                }
+                Err(error) if error.is::<SmokeTestFailure>() => {
+                    crate::failed_start::record(&download.version);
+                    return Err(error);
+                }
+                Err(error) => return Err(InstallPhaseError::Activate(error).into()),
+            },
             Err(e) if e.is::<SmokeTestFailure>() => {
-                // Same published artifact on every base; retrying will not change a --version timeout or crash
-                // Left unwrapped so telemetry classification sees the typed failure
+                // Same published artifact on every base; retrying will not change a --version timeout or crash.
+                // Left unwrapped so telemetry classification sees the typed failure.
+                if let Some(version) = target {
+                    crate::failed_start::record(version);
+                }
                 return Err(e);
             }
             Err(e) => {
