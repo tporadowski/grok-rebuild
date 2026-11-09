@@ -4879,6 +4879,35 @@ pub(crate) fn resolve_web_search_sampling_config(
     }
     resolved.map(crate::tools::config::web_search_sampling_config)
 }
+/// Mint the search model's external auth provider when its cache is cold, then resolve.
+/// Session start and subagent spawn both call this. A sync resolve alone sees an empty cache on the
+/// first turn and in a child, and would turn web search off.
+pub(crate) async fn resolve_web_search_sampling_config_ready(
+    model_id: &str,
+    models: &IndexMap<String, ModelEntry>,
+    session_key: Option<&str>,
+    disable_api_key_auth: bool,
+    alpha_test_key: Option<String>,
+    client_version: Option<String>,
+    endpoints: &EndpointsConfig,
+) -> Option<SamplerConfig> {
+    if let Some(provider) = find_model_by_id(models, model_id)
+        .and_then(|entry| entry.effective_auth_provider())
+    {
+        let _ = provider
+            .ensure_fresh_token(provider.cached_token().as_deref())
+            .await;
+    }
+    resolve_web_search_sampling_config(
+        model_id,
+        models,
+        session_key,
+        disable_api_key_auth,
+        alpha_test_key,
+        client_version,
+        endpoints,
+    )
+}
 pub(crate) fn to_acp_model_info(
     models: &IndexMap<String, ModelEntry>,
 ) -> IndexMap<acp::ModelId, acp::ModelInfo> {

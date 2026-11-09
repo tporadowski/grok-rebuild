@@ -659,6 +659,63 @@ async fn web_search_with_auth_provider_requires_warm_cache() {
     .expect("warm cache resolves");
     assert_eq!(resolved.api_key.as_deref(), Some("ws-token"));
 }
+/// The first turn and a subagent mint a cold external-auth cache before they snapshot web search.
+#[tokio::test]
+async fn web_search_auth_provider_mints_for_the_first_turn_and_a_subagent() {
+    let endpoints = EndpointsConfig::default();
+    let provider = xai_grok_login::AuthProviderRef::new(
+        "web-search-first-turn".into(),
+        xai_grok_login::AuthProviderConfig {
+            command: "printf search-token".into(),
+            args: None,
+            token_ttl_secs: Some(3600),
+            timeout_secs: None,
+            cwd: None,
+        },
+    );
+    let mut entry = test_model_entry("m", "https://litellm.example/v1", None, None, None);
+    entry.auth_provider = Some(provider);
+    let mut catalog = IndexMap::new();
+    catalog.insert("proxied-search".to_string(), entry);
+    assert!(
+        resolve_web_search_sampling_config(
+            "proxied-search",
+            &catalog,
+            Some("session-jwt"),
+            false,
+            None,
+            None,
+            &endpoints,
+        )
+        .is_none(),
+        "a sync read of a cold cache still does not send an empty bearer"
+    );
+    let resolved = resolve_web_search_sampling_config_ready(
+        "proxied-search",
+        &catalog,
+        Some("session-jwt"),
+        false,
+        None,
+        None,
+        &endpoints,
+    )
+    .await
+    .expect("the first turn mints the provider token");
+    assert_eq!(resolved.api_key.as_deref(), Some("search-token"));
+    assert_eq!(resolved.base_url, "https://litellm.example/v1");
+    let subagent = resolve_web_search_sampling_config(
+        "proxied-search",
+        &catalog,
+        Some("session-jwt"),
+        false,
+        None,
+        None,
+        &endpoints,
+    )
+    .expect("a subagent snapshot after the mint keeps the provider token");
+    assert_eq!(subagent.api_key.as_deref(), Some("search-token"));
+    assert_eq!(subagent.base_url, "https://litellm.example/v1");
+}
 /// Bad `[mcp_servers.*]` entries are dropped, not fatal.
 #[test]
 fn invalid_mcp_server_stub_does_not_fail_config_load() {

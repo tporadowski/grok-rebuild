@@ -2275,6 +2275,34 @@ impl MvpAgent {
         );
         Some(cfg)
     }
+    /// Same as [`Self::prepare_web_search_sampling_config`], after minting a cold external-auth token.
+    /// The first turn and a subagent both need that mint: the sync read only sees a cache that is already warm.
+    pub(crate) async fn prepare_web_search_sampling_config_ready(&self) -> Option<SamplingConfig> {
+        let model_id = self.cfg.borrow().web_search_model.clone();
+        let models = self.models_manager.models();
+        let session = self.current_or_buffered_auth();
+        let alpha_test_key = self.cfg.borrow().endpoints.alpha_test_key.clone();
+        let client_version = self.cfg.borrow().client_version.clone();
+        let disable_api_key_auth = self.cfg.borrow().grok_com_config.api_key_auth_disabled();
+        let endpoints = self.cfg.borrow().endpoints.clone();
+        let mut cfg = config::resolve_web_search_sampling_config_ready(
+            &model_id,
+            &models,
+            session.as_ref().map(|a| a.key.as_str()),
+            disable_api_key_auth,
+            alpha_test_key.clone(),
+            client_version,
+            &endpoints,
+        )
+        .await?;
+        crate::agent::proxy_headers::inject_proxy_headers(
+            &mut cfg.extra_headers,
+            cfg.client_version.as_deref(),
+            alpha_test_key.as_deref(),
+            &cfg.base_url,
+        );
+        Some(cfg)
+    }
     /// The caller at the process boundary renders the [`crate::agent::init::BootstrapError`] and exits.
     pub fn new(
         gateway: GatewaySender,
@@ -4661,7 +4689,7 @@ impl MvpAgent {
             .find(|entry| entry.info.has_model_id(&sampling_config.model))
             .and_then(|entry| entry.info.max_retries);
         let origin_client = self.origin_client_info_from_meta(init.meta.as_ref());
-        let web_search_sampling_config = self.prepare_web_search_sampling_config();
+        let web_search_sampling_config = self.prepare_web_search_sampling_config_ready().await;
         let image_gen_config = self.prepare_image_gen_config();
         let video_gen_config = self.prepare_video_gen_config();
         let app_builder_deployer_config = self.prepare_app_builder_deployer_config();

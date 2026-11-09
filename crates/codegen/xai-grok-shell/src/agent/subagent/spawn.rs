@@ -126,6 +126,9 @@ impl coordinator::ChildRunner for ShellChildRunner {
                     parent_session_id = %parent_sid,
                     subagent_id = %run.request.id,
                 ));
+                // Mint the search model's external auth token before the sync snapshot.
+                // A cold cache would otherwise turn web search off for the child.
+                this.prepare_web_search_sampling_config_ready().await;
                 this.try_build_subagent_spawn_context(&parent_sid)
             };
             let Some(mut ctx) = ctx else {
