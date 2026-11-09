@@ -1,5 +1,33 @@
 use super::*;
 
+#[tokio::test]
+async fn npm_channel_switch_explains_the_npm_steps() {
+    // SAFETY: this test is the only one in the filtered run that reads GROK_INSTALLER.
+    unsafe { std::env::set_var("GROK_INSTALLER", "npm") };
+    let mut config = UpdateConfig {
+        proxy_base_url: String::new(),
+        auth_scope: String::new(),
+        deployment_key: None,
+        alpha_test_key: None,
+        channel: "stable".to_string(),
+        npm_registry: None,
+    };
+    let err = apply_channel_switch(Some("alpha"), &mut config)
+        .await
+        .expect_err("npm must refuse a channel switch");
+    unsafe { std::env::remove_var("GROK_INSTALLER") };
+    let message = err.to_string();
+    assert_eq!(message, npm_channel_switch_error("alpha"));
+    assert!(message.contains("bin/grok was installed by npm"), "{message}");
+    assert!(message.contains("grok update --channel"), "{message}");
+    assert!(
+        message.contains("npm i -g @xai-official/grok@alpha"),
+        "{message}"
+    );
+    assert_eq!(config.channel, "stable");
+    assert!(npm_channel_switch_error("stable").contains("@latest"));
+}
+
 #[test]
 fn failed_same_version_reinstall_keeps_the_live_binary() {
     let dir = tempfile::tempdir().unwrap();

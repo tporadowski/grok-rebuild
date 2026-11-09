@@ -2581,13 +2581,34 @@ fn install_npm(target: Option<&str>, channel: &str, npm_registry: Option<&str>) 
     Ok(())
 }
 
-pub async fn apply_channel_switch(channel_switch: Option<&str>, update_config: &mut UpdateConfig) {
+/// npm owns `bin/grok`. `grok update --channel` cannot retarget that install.
+pub fn npm_channel_switch_error(channel: &str) -> String {
+    let tag = if channel == "stable" || channel == "latest" {
+        "latest"
+    } else {
+        channel
+    };
+    format!(
+        "bin/grok was installed by npm, so `grok update --channel` cannot switch it.\n\
+         Install that channel with npm:\n  \
+         npm i -g @xai-official/grok@{tag}"
+    )
+}
+
+pub async fn apply_channel_switch(
+    channel_switch: Option<&str>,
+    update_config: &mut UpdateConfig,
+) -> Result<()> {
     if let Some(ch) = channel_switch
         && update_config.channel != ch
     {
-        if get_installer().await == Some(WINGET) {
+        let installer = get_installer().await;
+        if installer == Some(WINGET) {
             eprint!("{}", crate::winget::ignored_channel_note(ch));
-            return;
+            return Ok(());
+        }
+        if installer == Some("npm") {
+            anyhow::bail!("{}", npm_channel_switch_error(ch));
         }
         let _ = config::update_config(|st| {
             st.cli.channel = Some(ch.to_string());
@@ -2596,6 +2617,7 @@ pub async fn apply_channel_switch(channel_switch: Option<&str>, update_config: &
         update_config.channel = ch.to_string();
         eprintln!("Switched to {} channel.", ch);
     }
+    Ok(())
 }
 
 /// Returns `Ok(Some(version))` when the target version is present on disk afterwards. Callers use the returned version to
@@ -2656,7 +2678,7 @@ pub async fn run_update(
         eprint!("{}", crate::winget::hand_off_message(target, channel));
         return Ok(None);
     }
-    apply_channel_switch(channel_switch, update_config).await;
+    apply_channel_switch(channel_switch, update_config).await?;
     let installer = match installer {
         Some(i) => i,
         None => {
