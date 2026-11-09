@@ -310,6 +310,44 @@ fn long_title_and_long_branch_leave_the_path_visible() {
         "the hit rect starts where the path is painted"
     );
 }
+/// A narrow header shortens a long branch with an ellipsis. The click still copies the whole name.
+#[test]
+fn long_branch_names_abbreviate_on_a_narrow_header() {
+    let _theme = crate::theme::cache::pin_theme();
+    let registry = ActionRegistry::defaults();
+    let full = "feature/very-long-branch-name-that-the-row-clips";
+    let mut agent = agent_at(48);
+    agent.current_branch = Some(full.into());
+    let buf = draw(&mut agent, &registry, false, OverlayHeader::default());
+    let hit = agent.hit_branch.rect.expect("the abbreviated branch stays clickable");
+    let painted = text_at(&buf, hit);
+    assert!(
+        painted.contains('\u{2026}'),
+        "a narrow row abbreviates the branch, painted={painted:?}"
+    );
+    assert!(
+        !painted.contains(full),
+        "the painted label is shorter than the branch, painted={painted:?}"
+    );
+    struct Capture;
+    impl Capture {
+        fn arm() -> Self {
+            crate::clipboard::set_copy_capture(true);
+            Self
+        }
+    }
+    impl Drop for Capture {
+        fn drop(&mut self) {
+            crate::clipboard::set_copy_capture(false);
+        }
+    }
+    let _capture = Capture::arm();
+    agent.handle_input(&click(hit.x, hit.y), &registry);
+    assert_eq!(
+        crate::clipboard::take_captured_copy().as_deref(),
+        Some(full)
+    );
+}
 /// A click on the branch copies the full name, including the part the row does not have room to paint.
 #[test]
 fn clicking_the_git_branch_copies_the_full_name() {

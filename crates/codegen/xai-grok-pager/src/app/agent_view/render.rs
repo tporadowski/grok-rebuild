@@ -1466,34 +1466,55 @@ impl AgentView {
         let lazy_git = probe_local_git
             .then(|| crate::git_info::cwd_git_info_lazy(&self.session.cwd))
             .flatten();
+        const PATH_MIN: u16 = 12;
+        let path_width = short.width() as u16;
+        let show_worktree_label = self.is_worktree
+            || self.session.is_worktree
+            || lazy_git.as_ref().is_some_and(|i| i.is_worktree);
+        let worktree_width = if show_worktree_label {
+            "worktree ".width() as u16
+        } else {
+            0
+        };
+        let sandbox_label =
+            xai_grok_sandbox::profile_name().map(|profile| format!("sandbox:{profile} "));
+        let sandbox_width = sandbox_label
+            .as_ref()
+            .map(|label| label.width() as u16)
+            .unwrap_or(0);
         let raw_branch = self
             .current_branch
             .clone()
             .or_else(|| lazy_git.as_ref().and_then(|i| i.branch.clone()));
-        self.branch_click_text = raw_branch.clone().filter(|name| !name.is_empty());
+        let copy_name = raw_branch.clone().filter(|name| !name.is_empty());
         let branch = raw_branch.map(crate::views::location::branch_label);
+        let branch_gap = if branch.is_some() { 1 } else { 0 };
+        let branch_budget = location_budget.saturating_sub(
+            worktree_width + sandbox_width + path_width.min(PATH_MIN) + branch_gap,
+        );
+        let branch = branch.map(|branch| {
+            if branch.width() <= branch_budget as usize {
+                branch
+            } else {
+                crate::util::truncate_to_width(&branch, branch_budget as usize).into_owned()
+            }
+        });
         let mut branch_width = 0u16;
-        if let Some(branch) = branch {
+        self.branch_click_text = None;
+        if let Some(branch) = branch.filter(|branch| !branch.is_empty()) {
             branch_width = branch.width() as u16;
+            self.branch_click_text = copy_name;
             location.push(Span::styled(branch, dim));
             location.push(Span::styled(" ", bg));
         }
-        let show_worktree_label = self.is_worktree
-            || self.session.is_worktree
-            || lazy_git.as_ref().is_some_and(|i| i.is_worktree);
         if show_worktree_label {
             location.push(crate::views::location::worktree_badge(&theme).patch_style(bg));
         }
-        if let Some(profile) = xai_grok_sandbox::profile_name() {
-            location.push(Span::styled(
-                format!("sandbox:{profile} "),
-                bg.fg(theme.warning),
-            ));
+        if let Some(label) = sandbox_label {
+            location.push(Span::styled(label, bg.fg(theme.warning)));
         }
         let prefix_width: u16 = location.iter().map(|s| s.width() as u16).sum();
-        let path_width = short.width() as u16;
         let title = overlay_header.title.and_then(|title| {
-            const PATH_MIN: u16 = 12;
             let sep_width = crate::views::agent_status::separator(&theme).width() as u16;
             let location_min = prefix_width + path_width.min(PATH_MIN) + sep_width;
             let title_cap = (location_budget / 2).min(location_budget.saturating_sub(location_min));

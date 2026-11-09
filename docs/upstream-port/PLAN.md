@@ -862,14 +862,14 @@ Refresh these numbers at the end of a session.
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 39 | 12 | 8 |
 | W13 | Update, install, and sign-in | 0 | 0 | 22 | 5 | 0 |
-| W14 | Pager and remaining bug fixes | 143 | 0 | 4 | 0 | 0 |
+| W14 | Pager and remaining bug fixes | 142 | 0 | 5 | 0 | 0 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 163. Skipped: 8. Done: 331. Already: 63. Deferred: 18.
+Catalog rows: 583. Pending: 162. Skipped: 8. Done: 332. Already: 63. Deferred: 18.
 
-**Next:** W14 Pager and remaining bug fixes. First open row: Long branch names now abbreviate on narrow terminals while remaining copyable (`v50-f03`).
+**Next:** W14 Pager and remaining bug fixes. First open row: Targeted cancels now stop only the specific response when requested by clients (`v50-f04`).
 
 ## Waves
 
@@ -927,7 +927,7 @@ Pending: 0. Done: 22. Already: 5. Look first: `xai-grok-update` and login in `xa
 
 ### W14 — Pager and remaining bug fixes
 
-Pending: 143. Done: 4. Look first: Everything that did not match a feature wave. Clicking the git branch in the header copies the full name, including the part the row clips (`v50-f02`, `clicking_the_git_branch_copies_the_full_name`). `/rewind` lists the prompts you typed and skips automatic runtime turns (`v48-x01`, `rewind_points_list_only_prompts_the_user_typed`). A model-switch response refreshes the displayed model list and sets the context window from that response (`v47-f01`, `reported_model_state_updates_the_displayed_list_and_window`). Client rules from session start stay in the rebuilt system prompt (`v46-x03`, `rebuilt_prompt_keeps_client_rules_from_session_start`). Work in version order. Many items are one behavior in `xai-grok-pager`. If an item clearly belongs in an earlier wave, move its wave field, record a decision, and leave it pending for that wave if the wave is already finished; otherwise do it now.
+Pending: 142. Done: 5. Look first: Everything that did not match a feature wave. A long branch on a narrow header abbreviates with an ellipsis and a click still copies the full name (`v50-f03`, `long_branch_names_abbreviate_on_a_narrow_header`). Clicking the git branch in the header copies the full name, including the part the row clips (`v50-f02`, `clicking_the_git_branch_copies_the_full_name`). `/rewind` lists the prompts you typed and skips automatic runtime turns (`v48-x01`, `rewind_points_list_only_prompts_the_user_typed`). A model-switch response refreshes the displayed model list and sets the context window from that response (`v47-f01`, `reported_model_state_updates_the_displayed_list_and_window`). Client rules from session start stay in the rebuilt system prompt (`v46-x03`, `rebuilt_prompt_keeps_client_rules_from_session_start`). Work in version order. Many items are one behavior in `xai-grok-pager`. If an item clearly belongs in an earlier wave, move its wave field, record a decision, and leave it pending for that wave if the wave is already finished; otherwise do it now.
 
 ### W15 — Performance
 
@@ -1349,7 +1349,7 @@ id | status | wave | kind | flag | covered | note
 - v47-f01 | done | W14 | Features |  |  | **Model switch responses** from the agent now update the displayed model list and context window.
 - v48-x01 | done | W14 | Bug Fixes |  |  | **`/rewind`** now only lists prompts you typed yourself and skips automatic runtime turns.
 - v50-f02 | done | W14 | Features |  |  | **Clicking the git branch** in the header now copies the full branch name.
-- v50-f03 | pending | W14 | Features |  |  | **Long branch names** now abbreviate on narrow terminals while remaining copyable.
+- v50-f03 | done | W14 | Features |  |  | **Long branch names** now abbreviate on narrow terminals while remaining copyable.
 - v50-f04 | pending | W14 | Features |  |  | **Targeted cancels** now stop only the specific response when requested by clients.
 - v50-f08 | pending | W14 | Features |  |  | **Live preview pins** now include whether an app was observed behind the URL.
 - v50-x03 | pending | W14 | Bug Fixes |  |  | **Long error messages** in the /usage and /session-info modals now wrap instead of being truncated.
