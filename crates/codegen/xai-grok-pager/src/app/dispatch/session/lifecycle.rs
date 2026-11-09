@@ -1899,6 +1899,7 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
     choice: ModelChoice,
     result: Result<(), SwitchModelError>,
     prev_model_id: Option<acp::ModelId>,
+    reported: Option<acp::SessionModelState>,
 ) -> Vec<Effect> {
     let ModelChoice {
         model_id,
@@ -1911,6 +1912,13 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
             std::mem::take(&mut agent.session.models.model_changed_during_switch);
         let mut effects = match result {
             Ok(()) => {
+                if let Some(state) = reported {
+                    let applied = crate::acp::model_state::ModelState::from(Some(state));
+                    agent.session.models.update_catalog(applied.available);
+                    if let Some(window) = applied.context_window_selection {
+                        agent.session.models.context_window_selection = Some(window);
+                    }
+                }
                 agent.session.user_model_preference = Some(model_id.clone());
                 let display_name = agent
                     .session

@@ -1968,27 +1968,32 @@ pub(crate) fn execute(
                             choice.model_id.clone(),
                         )
                         .meta(meta);
-                    let result = acp_send(req, &tx)
-                        .await
-                        .map(|_| ())
-                        .map_err(|e| {
-                            use xai_grok_shell::agent::config::ModelSwitchIncompatibleAgentError;
-                            if let Some(typed) = ModelSwitchIncompatibleAgentError::from_acp_error(
-                                &e,
-                            ) {
-                                SwitchModelError::IncompatibleAgent {
-                                    error: typed,
-                                    prev_model_id: prev_model_id.clone(),
+                    let sent = acp_send(req, &tx).await;
+                    let (result, reported) = match sent {
+                        Ok(resp) => (Ok(()), reported_model_state(&resp)),
+                        Err(e) => (
+                            Err({
+                                use xai_grok_shell::agent::config::ModelSwitchIncompatibleAgentError;
+                                if let Some(typed) =
+                                    ModelSwitchIncompatibleAgentError::from_acp_error(&e)
+                                {
+                                    SwitchModelError::IncompatibleAgent {
+                                        error: typed,
+                                        prev_model_id: prev_model_id.clone(),
+                                    }
+                                } else {
+                                    SwitchModelError::Other(sanitize_user_error(&e.to_string()))
                                 }
-                            } else {
-                                SwitchModelError::Other(sanitize_user_error(&e.to_string()))
-                            }
-                        });
+                            }),
+                            None,
+                        ),
+                    };
                     TaskResult::SwitchModelComplete {
                         agent_id,
                         choice,
                         result,
                         prev_model_id,
+                        reported,
                     }
                 });
         }
@@ -5725,6 +5730,16 @@ pub(crate) fn take_coalesced_interjects(
     }
     spawn_ordered_interjects(tasks, acp_tx, agent_id, session_id, items);
     None
+}
+/// Model list and context window carried on a `session/set_model` response.
+pub(crate) fn reported_model_state(
+    resp: &acp::SetSessionModelResponse,
+) -> Option<acp::SessionModelState> {
+    resp.meta.as_ref().and_then(|meta| {
+        meta.get("modelState")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok())
+    })
 }
 /// Build the `x.ai/interject` params.
 /// The optional structured `content` (text and images) is omitted ENTIRELY when `None` so the legacy wire shape stays byte-identical.

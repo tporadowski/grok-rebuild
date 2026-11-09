@@ -2709,6 +2709,8 @@ pub enum TaskResult {
         result: Result<(), SwitchModelError>,
         /// Forwarded from `Effect::SwitchModel.prev_model_id` for rollback on `IncompatibleAgent`.
         prev_model_id: Option<acp::ModelId>,
+        /// Model list and context window from the agent's switch response.
+        reported: Option<acp::SessionModelState>,
     },
     /// Changelog fetched from CDN (both formats).
     ChangelogFetched {

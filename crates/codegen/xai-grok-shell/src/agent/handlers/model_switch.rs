@@ -288,9 +288,11 @@ pub(crate) async fn apply(
             .set_current_reasoning_effort(applied_effort);
     }
     agent.sync_process_static_api_key(Some(model_id.0.as_ref()));
+    let model_state = agent.model_state(Some(&session_id));
     Ok(acp::SetSessionModelResponse::new().meta(
         serde_json::json!({
             "model": updated_model,
+            "modelState": model_state,
         })
         .as_object()
         .cloned(),

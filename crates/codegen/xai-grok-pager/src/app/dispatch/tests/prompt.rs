@@ -3505,6 +3505,7 @@ fn switch_model_holds_prompt_until_complete() {
             choice: ModelChoice::new(model_id),
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );

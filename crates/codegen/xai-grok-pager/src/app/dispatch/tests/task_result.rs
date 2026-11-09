@@ -1221,6 +1221,7 @@ fn switch_model_complete_resizes_the_context_bar_to_the_new_window() {
             choice: ModelChoice::new(model_id),
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1233,6 +1234,80 @@ fn switch_model_complete_resizes_the_context_bar_to_the_new_window() {
         (40_000, 1_000_000),
         (context.used, context.total),
         "the count stays, the denominator follows the new model"
+    );
+}
+
+#[test]
+fn reported_model_state_updates_the_displayed_list_and_window() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    let model_id = acp::ModelId::new(std::sync::Arc::from("reported-only-model"));
+    let other_id = acp::ModelId::new(std::sync::Arc::from("also-reported"));
+    let old_id = acp::ModelId::new(std::sync::Arc::from("old-catalog-model"));
+    {
+        let agent = test_agent_mut(&mut app, id);
+        agent.session.models.available.insert(
+            old_id.clone(),
+            acp::ModelInfo::new(old_id.clone(), "Old".to_string()),
+        );
+        agent.apply_context_used(1_000, 128_000);
+    }
+
+    let current = acp::ModelInfo::new(model_id.clone(), "Reported".to_string()).meta(
+        serde_json::json!({
+            "totalContextTokens": 256_000,
+            "contextWindows": [256_000, 500_000],
+            "contextWindow": 500_000,
+        })
+        .as_object()
+        .cloned(),
+    );
+    let other = acp::ModelInfo::new(other_id.clone(), "Also reported".to_string());
+    let state = acp::SessionModelState::new(model_id.clone(), vec![current, other]);
+    let resp = acp::SetSessionModelResponse::new().meta(
+        serde_json::json!({
+            "model": model_id.0.as_ref(),
+            "modelState": state,
+        })
+        .as_object()
+        .cloned(),
+    );
+    let reported = crate::app::effects::reported_model_state(&resp);
+
+    dispatch(
+        Action::TaskComplete(TaskResult::SwitchModelComplete {
+            agent_id: id,
+            choice: ModelChoice::new(model_id.clone()),
+            result: Ok(()),
+            prev_model_id: None,
+            reported,
+        }),
+        &mut app,
+    );
+
+    let agent = expect_agent(&app, id);
+    let models = &agent.session.models;
+    assert!(
+        !models.available.contains_key(&old_id),
+        "the displayed list follows the switch response"
+    );
+    assert_eq!(
+        models.available.get(&model_id).map(|info| info.name.as_str()),
+        Some("Reported")
+    );
+    assert_eq!(
+        models
+            .available
+            .get(&other_id)
+            .map(|info| info.name.as_str()),
+        Some("Also reported")
+    );
+    assert_eq!(models.available.len(), 2);
+    assert_eq!(models.current.as_ref(), Some(&model_id));
+    assert_eq!(models.context_window_selection, Some(500_000));
+    assert_eq!(
+        agent.context_state.as_ref().map(|context| context.total),
+        Some(500_000)
     );
 }
 
@@ -1277,6 +1352,7 @@ fn context_window_selection_survives_a_switch_through_a_model_that_does_not_supp
             },
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1298,6 +1374,7 @@ fn context_window_selection_survives_a_switch_through_a_model_that_does_not_supp
                 choice: ModelChoice::new(model_id),
                 result: Ok(()),
                 prev_model_id: None,
+                reported: None,
             }),
             &mut app,
         );
@@ -1340,6 +1417,7 @@ fn switch_model_complete_success_updates_model_and_pushes_message() {
             choice: ModelChoice::new(model_id.clone()),
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1384,6 +1462,7 @@ fn switch_model_complete_skips_message_and_persist_when_unchanged() {
             choice: ModelChoice::new(model_id.clone()),
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1441,6 +1520,7 @@ fn switch_model_complete_persists_resolved_effort_from_catalog_meta() {
             choice: ModelChoice::new(model_id.clone()), // user typed `/model Blackbox 4.7` with no effort
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1506,6 +1586,7 @@ fn switch_to_non_reasoning_model_clears_persisted_effort() {
             choice: ModelChoice::new(model_id.clone()),
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1550,6 +1631,7 @@ fn switch_model_complete_failure_pushes_error_and_clears_pending() {
             choice: ModelChoice::new(model_id),
             result: Err(SwitchModelError::Other("model not found".into())),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1593,6 +1675,7 @@ fn switch_model_incompatible_agent_shows_question_modal() {
                 prev_model_id: None,
             }),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1636,6 +1719,7 @@ fn incompatible_agent_switch_with_a_window_says_the_window_waits() {
                 prev_model_id: None,
             }),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1687,6 +1771,7 @@ fn incompatible_agent_rollback_restores_previous_model() {
                 prev_model_id: Some(prev_model.clone()),
             }),
             prev_model_id: Some(prev_model.clone()),
+            reported: None,
         }),
         &mut app,
     );
@@ -1731,6 +1816,7 @@ fn incompatible_agent_closes_active_modal() {
                 prev_model_id: None,
             }),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1773,6 +1859,7 @@ fn same_agent_type_switch_no_modal() {
             choice: ModelChoice::new(model_b.clone()),
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -1811,6 +1898,7 @@ fn switch_model_pending_lifecycle() {
             choice: ModelChoice::new(model_id),
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );

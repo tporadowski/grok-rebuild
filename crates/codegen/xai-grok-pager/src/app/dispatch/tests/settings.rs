@@ -322,6 +322,7 @@ fn model_switch_pending_resets_correctly_across_success_and_failure() {
             choice: ModelChoice::new(model_a),
             result: Ok(()),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );
@@ -337,6 +338,7 @@ fn model_switch_pending_resets_correctly_across_success_and_failure() {
             choice: ModelChoice::new(model_b),
             result: Err(SwitchModelError::Other("network error".into())),
             prev_model_id: None,
+            reported: None,
         }),
         &mut app,
     );

@@ -422,6 +422,7 @@
                 },
                 result: Ok(()),
                 prev_model_id: None,
+                reported: None,
             }),
             &mut app,
         );
@@ -451,6 +452,7 @@
                 },
                 result: Ok(()),
                 prev_model_id: None,
+                reported: None,
             }),
             &mut app,
         );
