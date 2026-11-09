@@ -106,6 +106,25 @@ dump_bash_state() {
   env_vars=$(builtin export -p 2>/dev/null | command grep -viE '_proxy=|GROK_SANDBOX|GROK_AGENT=|SUDO_ASKPASS|GROK_ASKPASS|ELECTRON_RUN_AS_NODE|SSH_AUTH_SOCK|DBUS_SESSION_BUS_ADDRESS|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|GPG_TTY' || true)
   _emit_encoded "$env_vars" "ENV_VARS_B64"
 
+  # Function bodies are parsed before the option blocks below restore the
+  # user's settings. Extglob patterns (`@(a|b)`, `!(*.o)`) and `!` are special
+  # while bash reads a function. Applying `shopt -u extglob` or `set -o
+  # histexpand` first makes that body a syntax error and drops every function
+  # after it. The prelude is printed, not quoted around `declare -f`, so
+  # backslashes in the bodies stay literal. Declare twice so an empty list
+  # does not leave extglob on.
+  local fn_body all_functions
+  fn_body=$(builtin declare -f 2>/dev/null || true)
+  all_functions=
+  if [[ -n "$fn_body" ]]; then
+    all_functions=$(
+      builtin printf '%s\n' 'builtin shopt -s extglob'
+      builtin printf '%s\n' 'builtin set +o histexpand'
+      builtin declare -f 2>/dev/null || true
+    )
+  fi
+  _emit_encoded "$all_functions" "FUNCTIONS_B64"
+
   # errexit/pipefail here are this function's own `set -euo pipefail` (set is
   # shell-global in bash); replaying them would abort later user commands.
   local posix_opts
@@ -115,10 +134,6 @@ dump_bash_state() {
   local bash_opts
   bash_opts=$(builtin shopt -p 2>/dev/null || true)
   _emit_encoded "$bash_opts" "BASH_OPTS_B64"
-
-  local all_functions
-  all_functions=$(builtin declare -f 2>/dev/null || true)
-  _emit_encoded "$all_functions" "FUNCTIONS_B64"
 
   local aliases
   aliases=$(builtin alias -p 2>/dev/null || true)
@@ -1397,6 +1412,77 @@ later_fn () { echo LATER_OK; }\n\
         assert!(
             stdout.contains("LATER_OK"),
             "later_fn must survive the state dump: {stdout:?}"
+        );
+    }
+
+    /// Extglob patterns and `!` in a startup function must not drop the
+    /// functions that follow when the captured options turn extglob off.
+    /// A body that contains a SOH byte must still run. The user's extglob
+    /// and histexpand settings are restored after the functions are parsed.
+    #[tokio::test]
+    async fn startup_functions_with_special_characters_still_run() {
+        if !bash_available() {
+            return;
+        }
+        let script = format!(
+            "{dump}\n\
+             builtin shopt -s extglob\n\
+             f_at() {{ echo @(a|b); }}\n\
+             f_bang() {{ printf '%s\\n' 'hello!'; }}\n\
+             f_raw() {{ printf $'\\001'; }}\n\
+             later() {{ printf '%s\\n' LATER_OK; }}\n\
+             builtin shopt -u extglob\n\
+             builtin set -o histexpand\n\
+             dump_bash_state\n",
+            dump = DUMP_BASH_STATE_SCRIPT,
+        );
+        let output = tokio::process::Command::new("bash")
+            .args(["--noprofile", "--norc", "-O", "extglob", "-c", &script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .unwrap();
+        let dump_stdout = String::from_utf8_lossy(&output.stdout);
+        let dump_stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "dump failed: stdout={dump_stdout:?} stderr={dump_stderr:?}"
+        );
+        let (cwd, snapshot) =
+            parse_dump(ShellKind::Bash, dump_stdout.trim_start()).expect("dump markers");
+        let mut state = ShellState {
+            cwd,
+            snapshot,
+            shell: ShellKind::Bash,
+        };
+        let (code, stdout) = run_command(
+            &mut state,
+            "later; f_bang; f_at; f_raw | od -An -tx1; shopt extglob; set -o | grep histexpand",
+        )
+        .await;
+        assert_eq!(code, 0, "{stdout}");
+        assert!(stdout.contains("LATER_OK"), "{stdout:?}");
+        assert!(stdout.contains("hello!"), "{stdout:?}");
+        assert!(stdout.contains("@(a|b)"), "{stdout:?}");
+        assert!(
+            stdout.contains("01"),
+            "replayed function must still emit SOH: {stdout:?}"
+        );
+        assert!(
+            stdout.contains("extglob") && stdout.contains("off"),
+            "extglob must be restored off after the functions are parsed: {stdout:?}"
+        );
+        assert!(
+            stdout.contains("histexpand") && stdout.contains("on"),
+            "histexpand must be restored on after the functions are parsed: {stdout:?}"
+        );
+        let (code, stdout) = run_command(&mut state, "later; f_bang").await;
+        assert_eq!(code, 0, "next command after the dump: {stdout}");
+        assert!(
+            stdout.contains("LATER_OK") && stdout.contains("hello!"),
+            "special-character functions must survive the state dump: {stdout:?}"
         );
     }
 

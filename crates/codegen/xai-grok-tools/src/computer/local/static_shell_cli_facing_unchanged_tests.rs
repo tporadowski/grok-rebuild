@@ -6,25 +6,15 @@ use std::path::Path;
 use std::process::Stdio;
 
 use tokio::io::AsyncReadExt;
-use xai_grok_config::shell::UnixShellKind;
 
-use super::{StaticShellSnapshot, rc_file_name, shell_binary};
+use super::{
+    StaticShellSnapshot, shell_binary, snapshot_from_capture_stdout, static_capture_script,
+};
 
 /// `StaticShellSnapshot::init` without the seam.
 async fn main_static_shell_init(cwd: &Path) -> StaticShellSnapshot {
     let shell = xai_grok_config::shell::detect_unix_shell_kind();
-    let capture = match shell {
-        UnixShellKind::Bash => "builtin alias -p 2>/dev/null; builtin declare -f 2>/dev/null",
-        UnixShellKind::Zsh => {
-            "{ builtin alias -L; builtin alias -gL; builtin alias -sL } 2>/dev/null; \
-             builtin typeset -f 2>/dev/null"
-        }
-    };
-    let script = format!(
-        "source \"$HOME/{rc}\" 2>/dev/null; \
-         printf '\\x01'; {capture}; printf '\\x01'",
-        rc = rc_file_name(shell)
-    );
+    let script = static_capture_script(shell);
     let mut cmd = tokio::process::Command::new(shell_binary(shell));
     cmd.args(["-lc", &script])
         .current_dir(cwd)
@@ -43,9 +33,8 @@ async fn main_static_shell_init(cwd: &Path) -> StaticShellSnapshot {
     }
     assert!(child.wait().await.unwrap().success());
     let stdout = String::from_utf8_lossy(&stdout_buf);
-    let parts: Vec<&str> = stdout.split('\x01').collect();
     StaticShellSnapshot {
-        snapshot: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
+        snapshot: snapshot_from_capture_stdout(&stdout),
         shell,
     }
 }

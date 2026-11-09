@@ -13,6 +13,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::Path;
 use std::time::Duration;
 
+use base64::Engine as _;
 use command_fds::FdMapping;
 use nix::libc;
 use tokio::io::AsyncReadExt;
@@ -47,9 +48,58 @@ fn sudo_alias_injection() -> String {
     }
 }
 
+fn capture_command(shell: UnixShellKind) -> &'static str {
+    match shell {
+        UnixShellKind::Bash => "builtin alias -p 2>/dev/null; builtin declare -f 2>/dev/null",
+        UnixShellKind::Zsh => {
+            "{ builtin alias -L; builtin alias -gL; builtin alias -sL } 2>/dev/null; \
+             builtin typeset -f 2>/dev/null"
+        }
+    }
+}
+
+/// Print the alias and function capture as one base64 blob between markers.
+/// `declare -f` emits a raw SOH byte for a body that contains one. Splitting
+/// the capture on that byte kept only the text before the first such function.
+fn framed_capture(capture: &str) -> String {
+    format!(
+        "printf '%s\\n' '{marker}'; {{ {capture}; }} 2>/dev/null | command base64 | command tr -d '\\n'; printf '\\n%s\\n' '{marker}'",
+        marker = INIT_MARKER,
+        capture = capture,
+    )
+}
+
+fn static_capture_script(shell: UnixShellKind) -> String {
+    format!(
+        "source \"$HOME/{rc}\" 2>/dev/null; {framed}",
+        rc = rc_file_name(shell),
+        framed = framed_capture(capture_command(shell)),
+    )
+}
+
+/// Decode the base64 blob between the capture markers. Missing markers or
+/// undecodable text become an empty snapshot.
+fn snapshot_from_capture_stdout(stdout: &str) -> String {
+    let marker_line = format!("{INIT_MARKER}\n");
+    let Some((_, rest)) = stdout.split_once(&marker_line) else {
+        return String::new();
+    };
+    let Some((payload, _)) = rest.split_once(&marker_line) else {
+        return String::new();
+    };
+    let b64: String = payload.chars().filter(|c| !c.is_whitespace()).collect();
+    if b64.is_empty() {
+        return String::new();
+    }
+    match base64::engine::general_purpose::STANDARD.decode(b64) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(_) => String::new(),
+    }
+}
+
 impl StaticShellSnapshot {
     /// Source the rc once in a login shell and capture alias and function
-    /// definitions between SOH markers. Returns an empty snapshot on any
+    /// definitions as base64 between markers. Returns an empty snapshot on any
     /// failure or timeout, degrading to a plain shell.
     pub async fn init(
         cwd: &Path,
@@ -57,18 +107,7 @@ impl StaticShellSnapshot {
     ) -> Self {
         let shell = xai_grok_config::shell::detect_unix_shell_kind();
 
-        let capture = match shell {
-            UnixShellKind::Bash => "builtin alias -p 2>/dev/null; builtin declare -f 2>/dev/null",
-            UnixShellKind::Zsh => {
-                "{ builtin alias -L; builtin alias -gL; builtin alias -sL } 2>/dev/null; \
-                 builtin typeset -f 2>/dev/null"
-            }
-        };
-        let script = format!(
-            "source \"$HOME/{rc}\" 2>/dev/null; \
-             printf '\\x01'; {capture}; printf '\\x01'",
-            rc = rc_file_name(shell)
-        );
+        let script = static_capture_script(shell);
 
         let result = tokio::time::timeout(INIT_TIMEOUT, async {
             let mut cmd = tokio::process::Command::new(shell_binary(shell));
@@ -94,8 +133,11 @@ impl StaticShellSnapshot {
             }
 
             let stdout = String::from_utf8_lossy(&stdout_buf);
-            let parts: Vec<&str> = stdout.split('\x01').collect();
-            parts.get(1).map(|s| s.to_string())
+            if stdout.contains(INIT_MARKER) {
+                Some(snapshot_from_capture_stdout(&stdout))
+            } else {
+                None
+            }
         })
         .await;
 
@@ -113,7 +155,6 @@ impl StaticShellSnapshot {
                 String::new()
             }
         };
-        let _ = INIT_MARKER;
         Self { snapshot, shell }
     }
 
@@ -340,6 +381,61 @@ later_fn () { echo LATER_OK; }\n\
         assert!(
             !stdout.contains("defining function based on alias"),
             "run-help must not be a parse error: {stdout:?}"
+        );
+    }
+
+    /// A startup function whose body contains a raw SOH byte, an extglob
+    /// pattern, or `!` must still be defined, and so must a function after it.
+    #[tokio::test]
+    async fn startup_functions_with_special_characters_survive_static_capture() {
+        if !bash_available() {
+            return;
+        }
+        let framed = framed_capture(capture_command(UnixShellKind::Bash));
+        let script = format!(
+            "builtin shopt -s extglob\n\
+             f_at() {{ echo @(a|b); }}\n\
+             f_bang() {{ printf '%s\\n' 'hello!'; }}\n\
+             f_raw() {{ printf $'\\001'; }}\n\
+             later() {{ printf '%s\\n' LATER_OK; }}\n\
+             {framed}\n"
+        );
+        let output = tokio::process::Command::new("bash")
+            .args(["--noprofile", "--norc", "-c", &script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "capture failed: stdout={stdout:?} stderr={stderr:?}"
+        );
+        let snapshot = snapshot_from_capture_stdout(&stdout);
+        assert!(
+            snapshot.contains("LATER_OK"),
+            "function after a special byte must stay in the snapshot: {snapshot:?}"
+        );
+        assert!(
+            snapshot.as_bytes().contains(&1),
+            "the SOH byte in the function body must round-trip: {snapshot:?}"
+        );
+        let output = run_static(&snapshot, "later; f_bang; f_at; f_raw | od -An -tx1").await;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "replay failed: stdout={stdout:?} stderr={stderr:?}"
+        );
+        assert!(stdout.contains("LATER_OK"), "{stdout:?}");
+        assert!(stdout.contains("hello!"), "{stdout:?}");
+        assert!(stdout.contains("@(a|b)"), "{stdout:?}");
+        assert!(
+            stdout.contains("01"),
+            "replayed function must still emit SOH: {stdout:?}"
         );
     }
 
