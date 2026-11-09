@@ -1467,6 +1467,15 @@ impl LocalTerminalActor {
         request: TerminalRunRequest,
         reply: oneshot::Sender<Result<BackgroundHandle, ComputerError>>,
     ) {
+        // A missing directory must fail this call before a process starts.
+        // Foreground commands still fall back to a directory that exists.
+        if !path_is_dir(&request.working_directory).await {
+            let _ = reply.send(Err(ComputerError::io(format!(
+                "working directory {} does not exist",
+                request.working_directory.display()
+            ))));
+            return;
+        }
         // Background commands fork the current shell state but don't update it on exit.
         let SpawnResult {
             child,
@@ -5479,6 +5488,58 @@ mod tests {
                 .combined_output
                 .contains(&gone_path.display().to_string()),
             "warning must name the deleted workspace: {:?}",
+            result.combined_output
+        );
+    }
+
+    #[tokio::test]
+    async fn background_command_fails_immediately_when_the_cwd_is_gone() {
+        let backend = LocalTerminalBackend::new();
+        let gone = tempfile::TempDir::new().unwrap();
+        let gone_path = gone.path().to_path_buf();
+        let marker = std::env::temp_dir().join(format!(
+            "grok-bg-cwd-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let command = format!("touch {}", marker.display());
+        drop(gone);
+        let mut req = make_request(&command);
+        req.working_directory = gone_path.clone();
+
+        let err = match backend.run_background(req).await {
+            Err(err) => err,
+            Ok(_) => panic!("a background command must not start in a missing directory"),
+        };
+        let message = err.to_string();
+        assert!(
+            message.contains("does not exist"),
+            "refusal must say the directory is gone: {message}"
+        );
+        assert!(
+            message.contains(&gone_path.display().to_string()),
+            "refusal must name the directory: {message}"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            !marker.exists(),
+            "the command must not have run: {}",
+            marker.display()
+        );
+
+        let foreground = LocalTerminalBackend::new();
+        let mut still = make_request("pwd");
+        still.working_directory = gone_path;
+        let result = foreground.run(still).await.unwrap_or_else(|err| {
+            panic!("a foreground command still runs after the workspace is deleted, got: {err}")
+        });
+        assert_eq!(result.exit_code, Some(0), "{:?}", result.combined_output);
+        assert!(
+            result.combined_output.contains("no longer exists"),
+            "foreground still explains the fallback: {:?}",
             result.combined_output
         );
     }
