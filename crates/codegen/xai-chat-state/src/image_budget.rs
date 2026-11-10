@@ -113,11 +113,13 @@ pub struct BudgetedConversation {
 
 const TRIGGER_HEADROOM_BYTES: usize = MAX_REQUEST_BYTES - IMAGE_COMPACT_TRIGGER_BYTES;
 
-/// Below this cap the reclaim mark would meet the trigger, so smaller caps are raised to it.
+/// At this cap the fixed 3 MiB headroom still leaves the reclaim mark under the trigger.
+/// Smaller caps scale both marks. Raising them let the body grow past the configured limit.
 const MIN_REQUEST_BYTES: usize = 4 * TRIGGER_HEADROOM_BYTES;
 
 /// Trigger and reclaim target for a provider request-body cap.
 /// Model resolution fills the cap from `api_backend` when unset, so `None` only reaches here from a config that skipped it and gets the 50 MiB proxy default.
+/// A configured cap is the ceiling: the trigger never sits above it.
 pub fn image_budget_limits(max_request_bytes: Option<NonZeroU64>) -> (usize, usize) {
     let Some(max_request_bytes) = max_request_bytes else {
         return (
@@ -125,10 +127,15 @@ pub fn image_budget_limits(max_request_bytes: Option<NonZeroU64>) -> (usize, usi
             IMAGE_COMPACT_RECLAIM_TARGET_BYTES,
         );
     };
-    let cap = usize::try_from(max_request_bytes.get())
-        .unwrap_or(usize::MAX)
-        .max(MIN_REQUEST_BYTES);
-    (cap - TRIGGER_HEADROOM_BYTES, cap / 2)
+    let cap = usize::try_from(max_request_bytes.get()).unwrap_or(usize::MAX);
+    if cap >= MIN_REQUEST_BYTES {
+        return (cap - TRIGGER_HEADROOM_BYTES, cap / 2);
+    }
+    // A quarter of a small cap is envelope headroom. Eviction reclaims to
+    // half of the trigger, which stays strictly under the configured cap.
+    let trigger = cap.saturating_sub(cap / 4).max(1);
+    let reclaim = (trigger / 2).min(trigger.saturating_sub(1));
+    (trigger, reclaim)
 }
 
 /// Applies the trigger and reclaim target derived from `max_request_bytes`.
@@ -424,9 +431,35 @@ mod tests {
             image_budget_limits(NonZeroU64::new(30_000_000)),
             (30_000_000 - TRIGGER_HEADROOM_BYTES, 15_000_000)
         );
-        assert_eq!(
-            image_budget_limits(NonZeroU64::new(1)),
-            image_budget_limits(NonZeroU64::new(MIN_REQUEST_BYTES as u64))
+        let (small_trigger, small_reclaim) = image_budget_limits(NonZeroU64::new(1_000_000));
+        assert!(small_trigger <= 1_000_000, "{small_trigger}");
+        assert!(small_reclaim < small_trigger, "{small_reclaim} {small_trigger}");
+        assert_ne!(
+            (small_trigger, small_reclaim),
+            image_budget_limits(NonZeroU64::new(MIN_REQUEST_BYTES as u64)),
+            "a small cap must not be raised to the 12 MiB floor"
+        );
+    }
+
+    #[test]
+    fn small_request_cap_keeps_the_body_under_the_limit() {
+        let history = vec![
+            ConversationItem::user_with_parts(vec![
+                ContentPart::Text {
+                    text: "keep this text".into(),
+                },
+                data_image('A', 8_000),
+            ]),
+            ConversationItem::user_with_parts(vec![data_image('B', 8_000)]),
+        ];
+        let cap = 2_000u64;
+        let budgeted = apply_image_budget(history, NonZeroU64::new(cap));
+        let body = serde_json::to_vec(&budgeted.items).unwrap().len();
+        assert!(budgeted.outcome.evicted > 0, "{:?}", budgeted.outcome);
+        assert_eq!(budgeted.outcome.body_bytes_after, body);
+        assert!(
+            body <= cap as usize,
+            "body {body} grew past configured max_request_bytes {cap}"
         );
     }
 
