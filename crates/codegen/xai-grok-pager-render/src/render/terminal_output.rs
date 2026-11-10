@@ -141,12 +141,10 @@ impl TermSink {
                 line.truncate(self.col.min(len));
                 self.rows.truncate(self.row + 1);
             }
-            2 | 3 => {
-                self.rows.clear();
-                self.rows.push(Vec::new());
-                self.row = 0;
-                self.col = 0;
-            }
+            // A command transcript is not a live screen. `clear` and many programs
+            // emit ED 2 (`ESC[2J`) or ED 3 (`ESC[3J`). Applying those would drop
+            // every line already printed. Leave the transcript and the cursor alone.
+            2 | 3 => {}
             _ => {}
         }
     }
@@ -569,5 +567,14 @@ mod tests {
     #[test]
     fn progress_erase_entire_line_collapses() {
         assert_eq!(lines("loading 99%\x1b[2K\rdone\n"), vec!["done"]);
+    }
+
+    /// `clear` emits ED 2 / ED 3. Those codes must not throw away the lines already printed, or the lines after them.
+    #[test]
+    fn clear_screen_keeps_the_command_output() {
+        assert_eq!(lines("before\n\x1b[2Jafter\n"), vec!["before", "after"]);
+        assert_eq!(lines("kept\n\x1b[3J\x1b[Hstill\n"), vec!["kept", "still"]);
+        assert_eq!(plain("only\x1b[2J"), "only");
+        assert_eq!(plain("\x1b[2J\x1b[3Jvisible"), "visible");
     }
 }
