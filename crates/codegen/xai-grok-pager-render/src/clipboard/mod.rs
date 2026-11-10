@@ -500,6 +500,22 @@ pub fn write_text_to_copy_file(
     Ok(expanded)
 }
 
+/// Like [`write_text_to_copy_file`], but refuses when the file is already there.
+/// The clipboard backup path keeps the rewriting writer. A path the user named with `/copy` does not.
+pub fn write_new_text_file(
+    text: &str,
+    path: &std::path::Path,
+) -> std::io::Result<std::path::PathBuf> {
+    let expanded = std::path::PathBuf::from(shellexpand::tilde(&path.to_string_lossy()).as_ref());
+    if let Some(parent) = expanded.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    write_owner_only_new(&expanded, text)?;
+    Ok(expanded)
+}
+
 /// Unix `0600`, including tightening a pre-existing `0644` file (create-time mode does not). Non-unix is a plain write.
 fn write_owner_only(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     #[cfg(unix)]
@@ -517,6 +533,29 @@ fn write_owner_only(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     }
     #[cfg(not(unix))]
     std::fs::write(path, text)
+}
+
+/// `create_new` so an existing file is left untouched. Unix mode `0600`, matching [`write_owner_only`].
+fn write_owner_only_new(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(text.as_bytes())
+    }
+    #[cfg(not(unix))]
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        file.write_all(text.as_bytes())
+    }
 }
 
 /// `NotFound` when no path resolves, rather than a predictable temp location. Unix creates a missing parent `0700`.
@@ -2361,6 +2400,21 @@ mod tests {
             std::fs::read_to_string(&path).expect("read"),
             "hello fallback"
         );
+    }
+
+    #[test]
+    fn write_new_text_file_refuses_an_existing_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("notes.md");
+        std::fs::write(&path, "keep me").expect("seed");
+        let err = write_new_text_file("replacement", &path).expect_err("existing file");
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "keep me");
+
+        let fresh = dir.path().join("nested").join("fresh.md");
+        let written = write_new_text_file("new text", &fresh).expect("create");
+        assert_eq!(written, fresh);
+        assert_eq!(std::fs::read_to_string(&fresh).expect("read"), "new text");
     }
 
     /// Copied text can be sensitive and the fallback path is predictable, so the file must be owner-only (`0600`).

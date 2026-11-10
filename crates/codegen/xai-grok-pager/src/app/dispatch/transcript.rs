@@ -159,7 +159,7 @@ pub(super) fn dispatch_copy_assistant_message(
 
         if let Some(p) = file_path {
             let stats = crate::clipboard::clipboard_stats_suffix(text);
-            match crate::clipboard::write_text_to_copy_file(text, &p) {
+            match crate::clipboard::write_new_text_file(text, &p) {
                 Ok(path) => {
                     agent.scrollback.push_block(RenderBlock::system(format!(
                         "Copied to {}{stats}",
@@ -169,7 +169,7 @@ pub(super) fn dispatch_copy_assistant_message(
                 Err(e) => {
                     agent
                         .scrollback
-                        .push_block(RenderBlock::system(format!("Failed to write file: {e}")));
+                        .push_block(RenderBlock::system(file_write_failure(&p, &e)));
                 }
             }
             return;
@@ -262,30 +262,17 @@ pub(super) fn dispatch_export_conversation(
         }
 
         if let Some(p) = file_path {
-            // All fs logic (tilde, mkdir, write) lives here so the slash-command layer stays thin
-            let expanded =
-                std::path::PathBuf::from(shellexpand::tilde(&p.to_string_lossy()).as_ref());
-            if let Some(parent) = expanded.parent()
-                && let Err(e) = std::fs::create_dir_all(parent)
-            {
-                agent.scrollback.push_block(RenderBlock::system(format!(
-                    "Failed to create directory: {e}"
-                )));
-                return;
-            }
-            match std::fs::write(&expanded, &md) {
-                Ok(()) => {
+            match crate::clipboard::write_new_text_file(&md, &p) {
+                Ok(path) => {
                     agent.scrollback.push_block(RenderBlock::system(format!(
                         "Conversation exported to {}",
-                        expanded.display()
+                        path.display()
                     )));
                 }
                 Err(e) => {
-                    // Do not re-emit a user-supplied path in the error message (it may contain secrets or PII)
-                    // The generic failure is sufficient
                     agent
                         .scrollback
-                        .push_block(RenderBlock::system(format!("Failed to write file: {}", e)));
+                        .push_block(RenderBlock::system(file_write_failure(&p, &e)));
                 }
             }
         } else {
@@ -313,6 +300,19 @@ pub(super) fn dispatch_export_conversation(
             agent.scrollback.push_block(RenderBlock::system(block_msg));
         }
     });
+}
+
+/// A path the user named must not replace a file that is already there.
+fn file_write_failure(path: &std::path::Path, err: &std::io::Error) -> String {
+    let expanded = std::path::PathBuf::from(shellexpand::tilde(&path.to_string_lossy()).as_ref());
+    if err.kind() == std::io::ErrorKind::AlreadyExists {
+        format!(
+            "Refused to overwrite {}: file already exists",
+            expanded.display()
+        )
+    } else {
+        format!("Failed to write file: {err}")
+    }
 }
 
 /// Open the full transcript in `$PAGER`.

@@ -593,6 +593,76 @@ fn last_system_text(agent: &crate::app::agent_view::AgentView) -> String {
 }
 
 #[test]
+fn export_and_copy_refuse_to_overwrite_an_existing_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let export_path = dir.path().join("notes.md");
+    let copy_path = dir.path().join("reply.md");
+    std::fs::write(&export_path, "keep export").unwrap();
+    std::fs::write(&copy_path, "keep copy").unwrap();
+
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    app.agents.get_mut(&id).unwrap().scrollback.push_block(
+        RenderBlock::agent_message("hello from the assistant"),
+    );
+
+    dispatch(
+        Action::ExportConversation {
+            file_path: Some(export_path.clone()),
+        },
+        &mut app,
+    );
+    let agent = app.agents.get(&id).unwrap();
+    let export_notice = last_system_text(agent);
+    assert!(
+        export_notice.contains("Refused to overwrite") && export_notice.contains("notes.md"),
+        "export notice: {export_notice}"
+    );
+    assert_eq!(std::fs::read_to_string(&export_path).unwrap(), "keep export");
+
+    dispatch(
+        Action::CopyAssistantMessage {
+            n: 1,
+            file_path: Some(copy_path.clone()),
+        },
+        &mut app,
+    );
+    let agent = app.agents.get(&id).unwrap();
+    let copy_notice = last_system_text(agent);
+    assert!(
+        copy_notice.contains("Refused to overwrite") && copy_notice.contains("reply.md"),
+        "copy notice: {copy_notice}"
+    );
+    assert_eq!(std::fs::read_to_string(&copy_path).unwrap(), "keep copy");
+
+    let fresh_export = dir.path().join("fresh-export.md");
+    let fresh_copy = dir.path().join("fresh-copy.md");
+    dispatch(
+        Action::ExportConversation {
+            file_path: Some(fresh_export.clone()),
+        },
+        &mut app,
+    );
+    assert!(
+        std::fs::read_to_string(&fresh_export)
+            .unwrap()
+            .contains("hello from the assistant")
+    );
+    dispatch(
+        Action::CopyAssistantMessage {
+            n: 1,
+            file_path: Some(fresh_copy.clone()),
+        },
+        &mut app,
+    );
+    assert!(
+        std::fs::read_to_string(&fresh_copy)
+            .unwrap()
+            .contains("hello from the assistant")
+    );
+}
+
+#[test]
 fn copy_markdown_source_prefers_the_selected_message_over_the_latest() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);
