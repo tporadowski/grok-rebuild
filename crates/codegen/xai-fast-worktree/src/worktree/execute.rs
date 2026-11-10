@@ -193,6 +193,9 @@ fn walkdir_recurse(
     )
 )]
 pub(crate) fn execute_create_worktree(plan: WorktreePlan) -> Result<CreateWorktreeResult> {
+    if let Some(reason) = git::worktree_source_refusal(&plan.source) {
+        anyhow::bail!("{reason}");
+    }
     let source = plan.source.clone();
     let start = std::time::Instant::now();
     let result = execute_create_worktree_dispatch(plan)?;

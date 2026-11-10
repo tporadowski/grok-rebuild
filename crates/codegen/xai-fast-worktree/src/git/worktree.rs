@@ -6,6 +6,44 @@ use anyhow::{Context, Result};
 
 use crate::git::checkout::git_command;
 
+/// `-w` says this when the directory is not inside a git repository. Nothing is created.
+pub(crate) const WORKTREE_OUTSIDE_REPOSITORY: &str =
+    "No worktree was created: this directory is not a git repository";
+
+/// `-w` says this when the repository has no commits yet. Nothing is created.
+pub(crate) const WORKTREE_EMPTY_REPOSITORY: &str =
+    "No worktree was created: this repository has no commits";
+
+/// Why worktree creation must stop before it touches the disk.
+///
+/// `None` means `source` is a checkout with at least one commit. A repository
+/// whose git directory lives outside the working tree (`git init
+/// --separate-git-dir`) is that kind of checkout: `rev-parse` follows the
+/// `.git` file, so it is not reported as "not a git repository".
+pub(crate) fn worktree_source_refusal(source: &Path) -> Option<&'static str> {
+    let inside = match git_command()
+        .current_dir(source)
+        .args(["rev-parse", "--git-dir"])
+        .output()
+    {
+        Ok(output) => output,
+        // A missing `git` binary is reported by the create path that spawns it.
+        Err(_) => return None,
+    };
+    if !inside.status.success() {
+        return Some(WORKTREE_OUTSIDE_REPOSITORY);
+    }
+    match git_command()
+        .current_dir(source)
+        .args(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+        .output()
+    {
+        Ok(output) if output.status.success() => None,
+        Ok(_) => Some(WORKTREE_EMPTY_REPOSITORY),
+        Err(_) => None,
+    }
+}
+
 /// Create a git worktree with `--no-checkout`. Blocking.
 pub(crate) fn worktree_add_no_checkout(source: &Path, dest: &str, git_ref: &str) -> Result<()> {
     if git_ref.trim().starts_with('-') {

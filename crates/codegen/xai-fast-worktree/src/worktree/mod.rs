@@ -1621,4 +1621,96 @@ mod tests {
             "partial standalone dest must be reclaimed on a hard error"
         );
     }
+
+    #[test]
+    fn separate_git_dir_worktree_creates_and_empty_or_nongit_sources_are_refused() {
+        xai_test_utils::require_git!();
+        use xai_test_utils::git::{git_commit_all, run_git};
+
+        let temp = TempDir::new().unwrap();
+        let checkout = temp.path().join("checkout");
+        let gitdir = temp.path().join("gitdir");
+        std::fs::create_dir_all(&checkout).unwrap();
+        run_git(
+            temp.path(),
+            &[
+                "init",
+                "-b",
+                "main",
+                "--separate-git-dir",
+                gitdir.to_str().unwrap(),
+                checkout.to_str().unwrap(),
+            ],
+        );
+        assert!(
+            checkout.join(".git").is_file(),
+            "separate-git-dir leaves a gitdir file, not a .git directory"
+        );
+        std::fs::create_dir(checkout.join("nested")).unwrap();
+        std::fs::write(checkout.join("file.txt"), "content").unwrap();
+        std::fs::write(checkout.join("nested/inside.txt"), "in").unwrap();
+        git_commit_all(&checkout, "initial");
+
+        let empty = temp.path().join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        run_git(&empty, &["init", "-b", "main"]);
+        let empty_dest = temp.path().join("empty-wt");
+        let empty_err = WorktreeBuilder::new(&empty, &empty_dest)
+            .create()
+            .expect_err("an empty repository must not create a worktree");
+        assert_eq!(
+            empty_err.to_string(),
+            crate::git::worktree::WORKTREE_EMPTY_REPOSITORY
+        );
+        assert!(!empty_dest.exists(), "refusal must not create a directory");
+
+        let outside = temp.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+        let outside_dest = temp.path().join("outside-wt");
+        let outside_err = WorktreeBuilder::new(&outside, &outside_dest)
+            .create()
+            .expect_err("a directory that is not a repository must not create a worktree");
+        assert_eq!(
+            outside_err.to_string(),
+            crate::git::worktree::WORKTREE_OUTSIDE_REPOSITORY
+        );
+        assert!(!outside_dest.exists());
+
+        let dest = temp.path().join("wt");
+        let result = WorktreeBuilder::new(&checkout, &dest)
+            .create()
+            .expect("separate-git-dir checkout must create a worktree");
+        assert!(result.worktree_path.join("file.txt").is_file());
+        assert!(result.worktree_path.join(".git").is_file());
+        let top = run_git(&result.worktree_path, &["rev-parse", "--show-toplevel"]);
+        assert_eq!(
+            dunce::canonicalize(top).unwrap(),
+            dunce::canonicalize(&result.worktree_path).unwrap()
+        );
+        let source_common = run_git(
+            &checkout,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        );
+        let dest_common = run_git(
+            &result.worktree_path,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        );
+        assert_eq!(
+            dunce::canonicalize(source_common).unwrap(),
+            dunce::canonicalize(dest_common).unwrap()
+        );
+        std::fs::write(result.worktree_path.join("file.txt"), "only in the worktree").unwrap();
+        let source_status = run_git(&checkout, &["status", "--porcelain"]);
+        assert!(
+            source_status.is_empty(),
+            "an edit in the new worktree must not show up in the original checkout: {source_status}"
+        );
+
+        let from_subdir = temp.path().join("wt-nested");
+        let nested = WorktreeBuilder::new(checkout.join("nested"), &from_subdir)
+            .create()
+            .expect("separate-git-dir must work from a subdirectory");
+        assert!(nested.worktree_path.join("nested/inside.txt").is_file());
+        assert!(nested.worktree_path.join(".git").is_file());
+    }
 }

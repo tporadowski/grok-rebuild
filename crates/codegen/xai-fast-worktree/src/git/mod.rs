@@ -33,5 +33,6 @@ pub(crate) use safety::safe_to_delete_worktree;
 pub(crate) use status::get_modified_files;
 pub(crate) use worktree::{
     normalized_for_match, registration_worktree_path, worktree_add_no_checkout,
+    worktree_source_refusal,
 };
 pub use worktree::{remove_stale_worktree_registration, remove_stale_worktree_registrations_under};
