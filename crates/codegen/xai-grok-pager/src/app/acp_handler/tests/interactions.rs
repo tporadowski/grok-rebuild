@@ -170,6 +170,46 @@
     }
 
     #[test]
+    fn approval_card_closes_the_block_viewer() {
+        let mut app = make_app_with_agent("sess-1");
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            agent.block_viewer = Some(crate::views::block_viewer::BlockViewerPane::for_plain_text(
+                "edit",
+                "diff content",
+            ));
+        }
+
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        let request = acp::RequestPermissionRequest::new(
+            acp::SessionId::new("sess-1"),
+            acp::ToolCallUpdate::new(
+                acp::ToolCallId::new(std::sync::Arc::from("call-approve")),
+                acp::ToolCallUpdateFields::default(),
+            ),
+            vec![acp::PermissionOption::new(
+                acp::PermissionOptionId::new(std::sync::Arc::from("allow-once")),
+                "Allow once",
+                acp::PermissionOptionKind::AllowOnce,
+            )],
+        );
+        handle(
+            AcpClientMessage::RequestPermission(xai_acp_lib::AcpArgs {
+                request,
+                response_tx: tx,
+            }),
+            &mut app,
+        );
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        assert!(agent.permission_queue.front().is_some());
+        assert!(
+            agent.block_viewer.is_none(),
+            "an approval card closes the block viewer so the card is visible"
+        );
+    }
+
+    #[test]
     fn ask_user_question_routes_to_background_session_not_active_view() {
         // Repro of the dashboard bug: a session started but not entered asks a question
         // Active view is agent A (sess-A); the question is for the BACKGROUND agent B (sess-B)

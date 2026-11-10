@@ -148,6 +148,9 @@ fn enqueue_permission(
         || perm.request.tool_call.fields.kind == Some(acp::ToolKind::Execute);
     let auto_review = auto_review_for_card(&perm.request, is_shell);
 
+    // The block viewer covers the session. Close it so this approval card is visible.
+    agent.dismiss_block_viewer();
+
     agent.permission_queue.push_back(PermissionViewState {
         request: perm,
         id: perm_id,
