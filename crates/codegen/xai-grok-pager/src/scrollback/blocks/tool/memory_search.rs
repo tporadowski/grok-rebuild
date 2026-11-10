@@ -83,6 +83,10 @@ impl MemorySearchToolCallBlock {
             theme.fg(theme.command)
         };
 
+        let show_failure = max_width.is_some();
+        let max_width = max_width.map(|w| {
+            w.saturating_sub(super::collapsed_failure_columns(self.error.as_deref()))
+        });
         let prefix = "Memory Search ";
         let count = self.results.len();
         let suffix = if count > 0 {
@@ -92,7 +96,7 @@ impl MemorySearchToolCallBlock {
             String::new()
         };
 
-        match max_width {
+        let line = match max_width {
             Some(w) => {
                 let suffix_fits = prefix.len() + suffix.len() < w;
                 let effective_suffix = if suffix_fits { &suffix } else { "" };
@@ -115,6 +119,11 @@ impl MemorySearchToolCallBlock {
                 Span::styled(self.query.clone(), query_style),
                 Span::styled(suffix, theme.dim()),
             ]),
+        };
+        if show_failure {
+            super::push_collapsed_failure(line, self.error.as_deref(), theme, muted)
+        } else {
+            line
         }
     }
 

@@ -127,9 +127,13 @@ impl SearchToolCallBlock {
             theme.fg(theme.command)
         };
 
+        let show_failure = max_width.is_some();
+        let max_width = max_width.map(|w| {
+            w.saturating_sub(super::collapsed_failure_columns(self.error.as_deref()))
+        });
         let prefix = "Search Tools ";
 
-        match max_width {
+        let line = match max_width {
             Some(w) => {
                 let s = if self.result_count == 1 { "" } else { "s" };
                 let suffix = format!(" ({} result{s})", self.result_count);
@@ -155,6 +159,11 @@ impl SearchToolCallBlock {
                 Span::styled(prefix, bold_style),
                 Span::styled(self.query.clone(), query_style),
             ]),
+        };
+        if show_failure {
+            super::push_collapsed_failure(line, self.error.as_deref(), theme, muted)
+        } else {
+            line
         }
     }
 

@@ -35,11 +35,16 @@ pub use use_tool::UseToolCallBlock;
 pub use web_fetch::WebFetchToolCallBlock;
 pub use web_search::WebSearchToolCallBlock;
 
+use ratatui::style::Style;
+use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthStr;
+
 use crate::appearance::AppearanceConfig;
 use crate::scrollback::block::{BlockContent, join_searchable};
 use crate::scrollback::types::{
     AccentStyle, BlockBackground, BlockContext, BlockOutput, DisplayMode,
 };
+use crate::theme::Theme;
 use std::fmt;
 
 /// Shared selection-range id for tool-call header lines.
@@ -177,6 +182,37 @@ fn short_collapsed_error_reason(cleaned: &str) -> String {
     s
 }
 
+/// Display columns a collapsed failure or cancel suffix will occupy.
+pub(crate) fn collapsed_failure_columns(error: Option<&str>) -> usize {
+    error
+        .map(|error| collapsed_error_suffix(error, 48).width())
+        .unwrap_or(0)
+}
+
+/// Keep a short failure or cancel reason on a collapsed header.
+/// Expanded headers leave the full message in the body.
+pub(crate) fn push_collapsed_failure(
+    mut line: Line<'static>,
+    error: Option<&str>,
+    theme: &Theme,
+    muted: bool,
+) -> Line<'static> {
+    let Some(error) = error else {
+        return line;
+    };
+    let suffix = collapsed_error_suffix(error, 48);
+    if suffix.is_empty() {
+        return line;
+    }
+    let style = if muted {
+        theme.muted()
+    } else {
+        Style::default().fg(theme.accent_error)
+    };
+    line.spans.push(Span::styled(suffix, style));
+    line
+}
+
 #[cfg(test)]
 mod collapsed_error_suffix_tests {
     use super::collapsed_error_suffix;
@@ -246,6 +282,123 @@ mod collapsed_error_suffix_tests {
             collapsed_error_suffix("Error: binary file cannot be displayed as text", 48),
             " — binary file cannot be displayed as text"
         );
+    }
+}
+
+#[cfg(test)]
+mod collapsed_row_state_tests {
+    use super::{
+        IntegrationSearchToolCallBlock, ListDirToolCallBlock, MemorySearchToolCallBlock,
+        OtherToolCallBlock, SearchToolCallBlock, UseToolCallBlock, WebFetchToolCallBlock,
+        WebSearchToolCallBlock,
+    };
+    use crate::scrollback::block::BlockContent;
+    use crate::scrollback::types::{BlockContext, DisplayMode};
+    use unicode_width::UnicodeWidthStr;
+
+    fn ctx(width: u16, mode: DisplayMode) -> BlockContext {
+        BlockContext {
+            width,
+            mode,
+            is_running: false,
+            raw: false,
+            max_lines: None,
+            appearance: Default::default(),
+            is_selected: false,
+            cwd: None,
+        }
+    }
+
+    fn first_line(block: &impl BlockContent, width: u16) -> String {
+        block
+            .output(&ctx(width, DisplayMode::Collapsed))
+            .lines
+            .first()
+            .map(|line| {
+                line.content
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .unwrap_or_default()
+    }
+
+    fn fits(text: &str, width: u16) -> bool {
+        UnicodeWidthStr::width(text) <= ctx(width, DisplayMode::Collapsed).content_width()
+    }
+
+    #[test]
+    fn collapsed_rows_keep_the_file_name_and_the_failure() {
+        let mut search = SearchToolCallBlock::new("token").with_error("Cancelled");
+        search.meta.path = Some(
+            r"C:\Users\me\project\src\very_long_directory\note.rs".to_string(),
+        );
+        let search_line = first_line(&search, 64);
+        assert!(
+            search_line.contains("note.rs"),
+            "path lost the file name: {search_line}"
+        );
+        assert!(
+            search_line.contains("Cancelled"),
+            "cancel state hidden: {search_line}"
+        );
+        assert!(
+            fits(&search_line, 64),
+            "row wider than the terminal: {search_line}"
+        );
+        assert!(
+            !first_line(&SearchToolCallBlock::new("token"), 64).contains("Cancelled"),
+            "a successful search must not show a cancel state"
+        );
+
+        let list = ListDirToolCallBlock::new(
+            r"C:\Users\me\project\src\very_long_directory\note.rs",
+        )
+        .with_error("Cancelled");
+        let list_line = first_line(&list, 64);
+        assert!(
+            list_line.contains("note.rs") && list_line.contains("Cancelled"),
+            "list row: {list_line}"
+        );
+        assert!(fits(&list_line, 64), "list row wider than the terminal: {list_line}");
+
+        let rows = [
+            first_line(
+                &WebSearchToolCallBlock::new("weather").with_error("user rejected"),
+                48,
+            ),
+            first_line(
+                &WebFetchToolCallBlock::new("https://example.com/guide.html")
+                    .with_error("Cancelled"),
+                48,
+            ),
+            {
+                let mut memory = MemorySearchToolCallBlock::new("deploy notes");
+                memory.set_error(Some("Cancelled".to_string()));
+                first_line(&memory, 48)
+            },
+            first_line(
+                &IntegrationSearchToolCallBlock::new("issues").with_error("Cancelled"),
+                48,
+            ),
+            first_line(
+                &UseToolCallBlock::new("linear__save_issue").with_error("Cancelled"),
+                48,
+            ),
+            {
+                let mut other = OtherToolCallBlock::new("AskUserQuestion", "");
+                other.error = Some("Cancelled".to_string());
+                first_line(&other, 48)
+            },
+        ];
+        for line in rows {
+            assert!(
+                line.contains("Cancelled") || line.contains("user rejected"),
+                "failure hidden: {line}"
+            );
+            assert!(fits(&line, 48), "row wider than the terminal: {line}");
+        }
     }
 }
 

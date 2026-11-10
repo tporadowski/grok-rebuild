@@ -129,7 +129,13 @@ pub fn shorten_path(path: &str, budget: usize) -> String {
         return path.to_string();
     }
 
-    let parts: Vec<&str> = path.split('/').collect();
+    // `\` is a separator too. Cutting a Windows path at the end hides the file name.
+    let sep = if path.contains('\\') && !path.contains('/') {
+        '\\'
+    } else {
+        '/'
+    };
+    let parts: Vec<&str> = path.split(sep).collect();
     if parts.len() <= 1 {
         return truncate_str(path, budget);
     }
@@ -148,17 +154,21 @@ pub fn shorten_path(path: &str, budget: usize) -> String {
         }
     }
 
-    let joined = shortened.join("/");
+    let joined = match sep {
+        '\\' => shortened.join("\\"),
+        _ => shortened.join("/"),
+    };
     if joined.width() <= budget {
         return joined;
     }
 
+    let sep_byte = sep as u8;
     let mut tail_start = 0;
     for (i, _) in path.char_indices() {
         if i == 0 {
             continue;
         }
-        if path.as_bytes().get(i.wrapping_sub(1)) == Some(&b'/') {
+        if path.as_bytes().get(i.wrapping_sub(1)) == Some(&sep_byte) {
             let Some(j) = i.checked_sub(1) else {
                 continue;
             };
@@ -252,6 +262,17 @@ mod tests {
     #[test]
     fn shorten_path_zero_budget() {
         assert_eq!(shorten_path("src/main.rs", 0), "");
+    }
+
+    #[test]
+    fn shorten_path_keeps_the_windows_file_name() {
+        let path = r"C:\Users\me\project\src\very_long_directory\note.rs";
+        let result = shorten_path(path, 20);
+        assert!(result.width() <= 20, "got: {result}");
+        assert!(
+            result.ends_with("note.rs"),
+            "file name was cut off: {result}"
+        );
     }
 
     #[test]

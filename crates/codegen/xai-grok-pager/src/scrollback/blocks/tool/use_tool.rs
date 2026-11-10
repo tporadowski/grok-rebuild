@@ -113,31 +113,39 @@ impl UseToolCallBlock {
             theme.fg(theme.command)
         };
 
+        let show_failure = max_width.is_some();
+        let max_width = max_width.map(|w| {
+            w.saturating_sub(super::collapsed_failure_columns(self.error.as_deref()))
+        });
         let (server, action) = self.split_name();
 
-        if server.is_empty() {
+        let line = if server.is_empty() {
             let display = match max_width {
                 Some(w) => truncate_str(&action, w),
                 None => action,
             };
-            return Line::from(vec![Span::styled(display, bold_style)]);
-        }
-
-        let prefix = format!("{server} ");
-
-        match max_width {
-            Some(w) => {
-                let budget = w.saturating_sub(prefix.len());
-                let display_action = truncate_str(&action, budget);
-                Line::from(vec![
+            Line::from(vec![Span::styled(display, bold_style)])
+        } else {
+            let prefix = format!("{server} ");
+            match max_width {
+                Some(w) => {
+                    let budget = w.saturating_sub(prefix.len());
+                    let display_action = truncate_str(&action, budget);
+                    Line::from(vec![
+                        Span::styled(prefix, bold_style),
+                        Span::styled(display_action, action_style),
+                    ])
+                }
+                None => Line::from(vec![
                     Span::styled(prefix, bold_style),
-                    Span::styled(display_action, action_style),
-                ])
+                    Span::styled(action, action_style),
+                ]),
             }
-            None => Line::from(vec![
-                Span::styled(prefix, bold_style),
-                Span::styled(action, action_style),
-            ]),
+        };
+        if show_failure {
+            super::push_collapsed_failure(line, self.error.as_deref(), theme, muted)
+        } else {
+            line
         }
     }
 }

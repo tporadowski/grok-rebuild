@@ -129,6 +129,11 @@ impl OtherToolCallBlock {
         };
         let bold_style = text_style.add_modifier(ratatui::style::Modifier::BOLD);
 
+        let show_failure = width.is_some();
+        let width = width.map(|w| {
+            w.saturating_sub(super::collapsed_failure_columns(self.error.as_deref()))
+        });
+
         let mut spans = if let Some((label, content)) = self.name.split_once(": ") {
             vec![
                 Span::styled(format!("{} ", label), bold_style),
@@ -155,8 +160,13 @@ impl OtherToolCallBlock {
         }
 
         let line = Line::from(spans);
-        if let Some(w) = width {
+        let line = if let Some(w) = width {
             crate::render::line_utils::truncate_line(line, w)
+        } else {
+            line
+        };
+        if show_failure {
+            super::push_collapsed_failure(line, self.error.as_deref(), theme, muted)
         } else {
             line
         }

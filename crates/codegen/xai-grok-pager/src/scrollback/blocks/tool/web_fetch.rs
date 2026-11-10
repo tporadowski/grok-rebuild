@@ -110,16 +110,26 @@ impl WebFetchToolCallBlock {
             theme.fg(theme.command)
         };
 
+        let show_failure = max_width.is_some();
+        let max_width = max_width.map(|w| {
+            w.saturating_sub(super::collapsed_failure_columns(self.error.as_deref()))
+        });
+
         let prefix = "Fetch ";
         let display_url = match max_width {
             Some(w) => truncate_str(&self.url, w.saturating_sub(prefix.len())),
             None => self.url.clone(),
         };
 
-        Line::from(vec![
+        let line = Line::from(vec![
             Span::styled(prefix, bold_style),
             Span::styled(display_url, url_style),
-        ])
+        ]);
+        if show_failure {
+            super::push_collapsed_failure(line, self.error.as_deref(), theme, muted)
+        } else {
+            line
+        }
     }
 
     /// Header line with only the URL span selectable (exclude "Fetch " prefix).
