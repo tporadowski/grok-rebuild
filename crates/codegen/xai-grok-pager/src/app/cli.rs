@@ -918,10 +918,14 @@ impl PagerArgs {
         if let Some(file) = self.debug_file.take() {
             self.debug_file = Some(anchor_to_launch_dir(file, launch_dir));
         }
-        if let Some(ref cwd) = self.cwd {
-            std::env::set_current_dir(cwd).map_err(|e| {
+        if let Some(cwd) = self.cwd.take() {
+            // Anchor before chdir. A later canonicalize of the same relative path would
+            // otherwise join it onto the directory we just entered (`a/a`).
+            let cwd = anchor_to_launch_dir(cwd, launch_dir);
+            std::env::set_current_dir(&cwd).map_err(|e| {
                 anyhow::anyhow!("Failed to set working directory to {:?}: {}", cwd, e)
             })?;
+            self.cwd = Some(cwd);
         }
         Ok(self)
     }
@@ -1386,6 +1390,27 @@ mod tests {
                 .startup_sandbox_profile(None),
             SandboxStartup::Apply(None)
         );
+    }
+    #[test]
+    fn relative_cwd_is_the_launch_child_not_a_nested_copy() {
+        let launch = tempfile::tempdir().unwrap();
+        let child = launch.path().join("a");
+        std::fs::create_dir(&child).unwrap();
+        let previous = std::env::current_dir().unwrap();
+        struct RestoreCwd(std::path::PathBuf);
+        impl Drop for RestoreCwd {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.0);
+            }
+        }
+        let _restore = RestoreCwd(previous);
+        let args = PagerArgs::try_parse_from(["grok", "--cwd", "a"])
+            .unwrap()
+            .apply_cwd_from(Some(launch.path()))
+            .unwrap();
+        assert_eq!(args.cwd.as_deref(), Some(child.as_path()));
+        assert_eq!(std::env::current_dir().unwrap(), child);
+        assert_ne!(std::env::current_dir().unwrap(), child.join("a"));
     }
     #[test]
     fn launch_directory_anchoring_precedes_cwd_change() {
