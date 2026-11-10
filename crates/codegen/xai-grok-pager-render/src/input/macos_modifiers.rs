@@ -1,3 +1,4 @@
+#![cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
 //! Native macOS modifier key detection via CoreGraphics.
 //!
 //! Reads modifier state straight from the OS rather than from the PTY's key events.

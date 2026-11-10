@@ -78,7 +78,8 @@ fn process_identity(command: Option<&Command>, is_interactive: bool) -> Option<P
             | Command::Worktree(_)
             | Command::DiskUsage(_)
             | Command::Workspace(_)
-            | Command::Worker(_),
+            | Command::Worker(_)
+            | Command::Help { .. },
         ) => (Entrypoint::Cli, Interactivity::Unattended),
         None if is_interactive => return None,
         None => (Entrypoint::Headless, Interactivity::Unattended),
@@ -117,7 +118,8 @@ fn command_needs_pre_sandbox_policy_heal(command: Option<&Command>) -> bool {
             | Command::Completions { .. }
             | Command::DiskUsage(_)
             | Command::Workspace(_)
-            | Command::Worker(_),
+            | Command::Worker(_)
+            | Command::Help { .. },
         ) => false,
     }
 }
@@ -2139,6 +2141,19 @@ fn dispatch_version_if_requested(args: &PagerArgs) -> bool {
     }
     true
 }
+fn dispatch_help_if_requested(args: &PagerArgs) -> bool {
+    let Some(Command::Help { command }) = &args.command else {
+        return false;
+    };
+    match xai_grok_pager::app::cli::render_subcommand_help(command) {
+        Ok(text) => print!("{text}"),
+        Err(text) => {
+            eprint!("{text}");
+            std::process::exit(2);
+        }
+    }
+    true
+}
 fn dispatch_doctor_if_requested(args: &PagerArgs) -> bool {
     let Some(Command::Doctor(doctor_args)) = &args.command else {
         return false;
@@ -2163,7 +2178,10 @@ fn main() {
         xai_grok_update::channel_name().unwrap_or_default(),
     ));
     let args = PagerArgs::parse_cli();
-    if dispatch_version_if_requested(&args) || dispatch_doctor_if_requested(&args) {
+    if dispatch_version_if_requested(&args)
+        || dispatch_doctor_if_requested(&args)
+        || dispatch_help_if_requested(&args)
+    {
         return;
     }
     xai_grok_pager_minimal::install();
@@ -2580,6 +2598,16 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
             Command::Dashboard => {
                 args.command = Some(Command::Dashboard);
                 flag_dashboard_at_startup_if_requested(&mut args)?;
+            }
+            Command::Help { command } => {
+                match xai_grok_pager::app::cli::render_subcommand_help(&command) {
+                    Ok(text) => print!("{text}"),
+                    Err(text) => {
+                        eprint!("{text}");
+                        std::process::exit(2);
+                    }
+                }
+                return Ok(());
             }
         }
     }

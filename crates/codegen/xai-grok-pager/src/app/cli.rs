@@ -143,6 +143,12 @@ See ~/.grok/README.md for more information.
     /// The dashboard shows every session, top-level and subagents.
     /// Disabled when `[dashboard].enabled = false` in `~/.grok/config.toml` or when the `GROK_AGENT_DASHBOARD=0` env var is set.
     Dashboard,
+    /// Print this message or the help of the given subcommand(s)
+    Help {
+        /// Print help for the subcommand(s).
+        #[arg(value_name = "COMMAND", num_args = 0..)]
+        command: Vec<String>,
+    },
 }
 /// Arguments for the `wrap` subcommand: the command to run, then its args.
 #[derive(Debug, clap::Args, Clone)]
@@ -459,6 +465,7 @@ pub struct LeaderArgs {
     version = xai_grok_version::full_version(),
     about = "Grok Build TUI",
     disable_version_flag = true,
+    disable_help_subcommand = true,
     next_display_order = None,
     help_template = "\
 {before-help}{about-with-newline}
@@ -869,6 +876,37 @@ fn anchor_to_launch_dir(path: PathBuf, launch_dir: Option<&std::path::Path>) -> 
         strip_cur_dir(path)
     }
 }
+fn first_summary_line(text: &str) -> Option<String> {
+    let line = text.lines().next()?.trim();
+    if line.is_empty() {
+        None
+    } else {
+        Some(line.to_string())
+    }
+}
+/// Keep each top-level command and option description to the first line, so `--help` can show it beside the name.
+fn shorten_top_level_summaries(cmd: clap::Command) -> clap::Command {
+    let cmd = cmd.mut_args(|arg| {
+        let help = arg.get_help().map(|text| text.to_string());
+        let arg = match help.as_deref().and_then(first_summary_line) {
+            Some(line) => arg.help(line),
+            None => arg,
+        };
+        // `--help` otherwise prints the long form, which puts each option's text on the next line.
+        if arg.get_long() == Some("help") {
+            arg.action(ArgAction::HelpShort)
+        } else {
+            arg
+        }
+    });
+    cmd.mut_subcommands(|sub| {
+        let about = sub.get_about().map(|text| text.to_string());
+        match about.as_deref().and_then(first_summary_line) {
+            Some(line) => sub.about(line),
+            None => sub,
+        }
+    })
+}
 fn strip_cur_dir(path: PathBuf) -> PathBuf {
     path.components()
         .filter(|component| !matches!(component, std::path::Component::CurDir))
@@ -904,7 +942,37 @@ impl PagerArgs {
             .filter(|n| *n == "grok" || *n == "agent")
             .unwrap_or("grok")
             .to_owned();
-        Self::parse_from(std::iter::once(bin_name).chain(std::env::args().skip(1)))
+        match Self::try_parse_prepared(std::iter::once(bin_name).chain(std::env::args().skip(1))) {
+            Ok(args) => args,
+            Err(err) => err.exit(),
+        }
+    }
+    /// The command `parse_cli` uses. Top-level `--help` prints one-line summaries.
+    pub(crate) fn cli_command() -> clap::Command {
+        use clap::CommandFactory;
+        shorten_top_level_summaries(<Self as CommandFactory>::command())
+    }
+    fn try_parse_prepared<I, T>(itr: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        let matches = Self::cli_command().try_get_matches_from(itr)?;
+        <Self as clap::FromArgMatches>::from_arg_matches(&matches)
+    }
+    /// Help for `grok help [COMMAND...]`. An empty list is the top-level summary.
+    pub fn render_subcommand_help(topics: &[String]) -> Result<String, String> {
+        let mut cmd = Self::cli_command();
+        for topic in topics {
+            let Some(sub) = cmd.find_subcommand(topic).cloned() else {
+                return Err(format!(
+                    "error: unrecognized subcommand '{topic}'\n\n{}",
+                    cmd.render_help()
+                ));
+            };
+            cmd = sub;
+        }
+        Ok(cmd.render_help().to_string())
     }
     /// Apply launch-directory path anchoring and `--cwd` after early commands have been dispatched without filesystem or process initialization.
     pub fn apply_cwd(self) -> anyhow::Result<Self> {
@@ -1171,6 +1239,93 @@ mod tests {
         assert!(
             help.contains("--allowed-tools"),
             "help must show the alias: {help}"
+        );
+    }
+    #[test]
+    fn help_gives_each_command_and_option_a_one_line_summary() {
+        let err = PagerArgs::try_parse_prepared(["grok", "--help"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
+        let help = err.to_string();
+        let cmd = PagerArgs::cli_command().term_width(200);
+        let rendered = cmd.clone().render_help().to_string();
+        for sub in cmd.get_subcommands().filter(|sub| !sub.is_hide_set()) {
+            let name = sub.get_name();
+            let about = sub
+                .get_about()
+                .map(|text| text.to_string())
+                .unwrap_or_default();
+            assert!(
+                !about.is_empty() && !about.contains('\n'),
+                "{name} needs a one-line summary, got {about:?}"
+            );
+            assert!(
+                rendered
+                    .lines()
+                    .any(|line| line.contains(name) && line.contains(about.as_str())),
+                "{name} summary is not on one line in:\n{rendered}"
+            );
+            assert!(
+                help.contains(about.as_str()),
+                "--help should include the {name} summary"
+            );
+        }
+        for arg in cmd.get_arguments().filter(|arg| !arg.is_hide_set()) {
+            let Some(flag) = arg
+                .get_long()
+                .map(|name| format!("--{name}"))
+                .or_else(|| arg.get_short().map(|name| format!("-{name}")))
+            else {
+                continue;
+            };
+            let summary = arg
+                .get_help()
+                .map(|text| text.to_string())
+                .unwrap_or_default();
+            assert!(
+                !summary.is_empty() && !summary.contains('\n'),
+                "{flag} needs a one-line summary, got {summary:?}"
+            );
+            assert!(
+                rendered
+                    .lines()
+                    .any(|line| line.contains(&flag) && line.contains(summary.as_str())),
+                "{flag} summary is not on one line in:\n{rendered}"
+            );
+        }
+    }
+    #[test]
+    fn help_command_dash_h_and_dash_dash_help_print_its_own_help() {
+        for flag in ["-h", "--help"] {
+            let err = PagerArgs::try_parse_prepared(["grok", "help", flag]).unwrap_err();
+            assert_eq!(
+                err.kind(),
+                clap::error::ErrorKind::DisplayHelp,
+                "{flag} should print help, got {err}"
+            );
+            let text = err.to_string();
+            assert!(
+                text.contains("Print this message or the help of the given subcommand(s)"),
+                "{flag} should describe the help command, got {text}"
+            );
+            assert!(
+                text.contains("Print help for the subcommand(s)"),
+                "{flag} should describe the help command's argument, got {text}"
+            );
+            assert!(
+                !text.to_lowercase().contains("unexpected"),
+                "{flag} must not be an error, got {text}"
+            );
+        }
+        let args = PagerArgs::try_parse_prepared(["grok", "help", "doctor"]).expect("grok help doctor");
+        assert!(matches!(
+            args.command,
+            Some(Command::Help { command }) if command == ["doctor"]
+        ));
+        let doctor = PagerArgs::render_subcommand_help(&["doctor".to_string()])
+            .expect("doctor help renders");
+        assert!(
+            doctor.contains("Check terminal, clipboard, color, and input support"),
+            "grok help doctor should show that command's summary, got {doctor}"
         );
     }
     #[test]
