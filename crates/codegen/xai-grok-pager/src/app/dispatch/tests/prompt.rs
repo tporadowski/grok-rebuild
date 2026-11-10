@@ -813,6 +813,55 @@ fn focus_prompt_under_takeover_is_refused_on_the_child() {
 }
 
 #[test]
+#[test]
+fn send_prompt_fails_immediately_when_the_working_directory_is_gone() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    let path = std::env::temp_dir().join(format!(
+        "grok-missing-cwd-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&path);
+    assert!(!path.exists());
+    app.agents.get_mut(&id).unwrap().session.cwd = path.clone();
+    app.agents
+        .get_mut(&id)
+        .unwrap()
+        .prompt
+        .textarea
+        .insert_str("hello");
+
+    let effects = dispatch(Action::SendPrompt("hello".into()), &mut app);
+
+    assert!(
+        effects.is_empty(),
+        "the prompt must not be sent, got {effects:?}"
+    );
+    assert!(
+        !path.exists(),
+        "the missing directory must not be recreated"
+    );
+    assert_eq!(agent_ref(&app, id).prompt.text(), "hello");
+    assert!(!agent_ref(&app, id).session.state.is_turn_running());
+    let toast = agent_ref(&app, id)
+        .toast
+        .as_ref()
+        .map(|(message, _)| message.as_str())
+        .unwrap_or("");
+    assert!(
+        toast.contains("no longer exists"),
+        "the refusal must say the directory is gone: {toast}"
+    );
+    assert!(
+        toast.contains(&path.display().to_string()),
+        "the refusal must name the directory: {toast}"
+    );
+}
+
 fn send_prompt_produces_effect_and_clears_input() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);

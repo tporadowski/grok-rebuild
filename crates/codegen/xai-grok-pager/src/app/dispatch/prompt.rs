@@ -30,6 +30,19 @@ use xai_grok_telemetry::session_ctx::log_event;
 /// Shared by every submit guard that refuses while the session reconnects.
 pub(super) const RECONNECTING_NOTICE: &str = "Reconnecting, please wait...";
 
+/// `None` when `cwd` is a directory. A missing path is not created.
+pub(super) fn missing_session_cwd_notice(cwd: &std::path::Path) -> Option<String> {
+    if cwd.is_dir() {
+        return None;
+    }
+    let path = cwd.display();
+    Some(if cwd.exists() {
+        format!("The working directory {path} is not a directory. The prompt was not sent.")
+    } else {
+        format!("The working directory {path} no longer exists. The prompt was not sent.")
+    })
+}
+
 pub(super) use crate::app::agent_view::{
     BUILD_IN_FLIGHT_ABANDON_NOTICE, BUILD_IN_FLIGHT_REVISE_NOTICE, LEAVE_PLAN_REVISE_NOTICE,
 };
@@ -734,6 +747,22 @@ pub(super) fn dispatch_send_prompt_submission(
                 return vec![];
             }
         }
+    }
+
+    // A deleted session directory used to be recreated, or the prompt failed later inside a tool.
+    // Refuse before the composer is cleared and before anything is sent.
+    if !runs_locally
+        && let Some(cwd) = app.agents.get(&id).map(|agent| agent.session.cwd.clone())
+        && let Some(notice) = missing_session_cwd_notice(&cwd)
+    {
+        if app.screen_mode.is_minimal() {
+            if let Some(agent) = app.agents.get_mut(&id) {
+                agent.scrollback.push_block(RenderBlock::system(notice));
+            }
+        } else {
+            app.show_toast(&notice);
+        }
+        return prelude;
     }
 
     // Promote the interim and hard-reset; merge only when consuming the composer.
