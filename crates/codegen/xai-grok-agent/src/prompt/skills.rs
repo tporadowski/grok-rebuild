@@ -586,7 +586,8 @@ fn merge_skills_with_plugins(
     deduped
 }
 
-/// Filter a list of skills, removing any whose canonical path matches or is within the ignore paths
+/// Filter a list of skills, removing any whose path matches or is within the ignore paths.
+/// A symlinked `SKILL.md` also matches by the folder that holds the link, not only by the file it points at.
 pub fn filter_skills(skills: Vec<SkillInfo>, ignore_paths: &[String]) -> Vec<SkillInfo> {
     if ignore_paths.is_empty() {
         return skills;
@@ -600,13 +601,24 @@ pub fn filter_skills(skills: Vec<SkillInfo>, ignore_paths: &[String]) -> Vec<Ski
         .collect();
     skills
         .into_iter()
-        .filter(|skill| {
-            let canonical =
-                dunce::canonicalize(&skill.path).unwrap_or_else(|_| PathBuf::from(&skill.path));
-            // >MAX_PATH caveat (see workspace clippy.toml); fail-open here: over-long ignored skills stay included
-            !expanded.iter().any(|ignore| canonical.starts_with(ignore))
-        })
+        .filter(|skill| !skill_is_ignored(&skill.path, &expanded))
         .collect()
+}
+
+/// `>MAX_PATH` caveat (see workspace clippy.toml); fail-open here: an over-long ignored skill stays included.
+fn skill_is_ignored(skill_path: &str, ignore_roots: &[PathBuf]) -> bool {
+    let listed = PathBuf::from(skill_path);
+    let canonical_file = dunce::canonicalize(&listed).unwrap_or_else(|_| listed.clone());
+    // The parent is the folder that holds the link. Canonicalizing that directory does not follow `SKILL.md`.
+    let holding_folder = listed.parent().map(|folder| {
+        dunce::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf())
+    });
+    ignore_roots.iter().any(|ignore| {
+        canonical_file.starts_with(ignore)
+            || holding_folder
+                .as_ref()
+                .is_some_and(|folder| folder.starts_with(ignore))
+    })
 }
 
 /// Format a skill for prompt injection (if body is populated).
@@ -1759,6 +1771,35 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result.first().map(|s| s.name.as_str()), Some("keeper"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn filter_skills_ignores_a_symlinked_skill_md_by_the_folder_that_holds_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tmp.path().join("outside");
+        write_skill_md(&outside, "linked");
+        let holder = tmp.path().join("holder");
+        fs::create_dir_all(&holder).unwrap();
+        let link = holder.join("SKILL.md");
+        std::os::unix::fs::symlink(outside.join("SKILL.md"), &link).unwrap();
+        let kept = tmp.path().join("kept");
+        write_skill_md(&kept, "kept");
+
+        let result = filter_skills(
+            vec![
+                make_skill("linked", link.to_str().unwrap()),
+                make_skill("kept", kept.join("SKILL.md").to_str().unwrap()),
+            ],
+            &[holder.to_str().unwrap().to_string()],
+        );
+        assert_eq!(
+            result
+                .iter()
+                .map(|skill| skill.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["kept"]
+        );
     }
 
     #[tokio::test]
