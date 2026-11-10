@@ -398,7 +398,7 @@ impl OtlpExportFactory for OtlpLogExporterBuilder<'_> {
     fn export(&self, transport: OtlpExportTransport<'_>) -> BuildResult<Self::Exporter> {
         match transport {
             OtlpExportTransport::HttpProtobuf(http_client) => {
-                opentelemetry_otlp::LogExporter::builder()
+                let mut builder = opentelemetry_otlp::LogExporter::builder()
                     .with_http()
                     // Pin http/protobuf: opentelemetry-otlp's default protocol is compile-time, feature-gated
                     // `http-json` (unified into the Bazel build) flips the default to JSON, while a pure-cargo build defaults to protobuf
@@ -408,12 +408,16 @@ impl OtlpExportFactory for OtlpLogExporterBuilder<'_> {
                     // gRPC below has no such client and sets its own `.with_timeout`.
                     .with_http_client(http_client.clone())
                     .with_endpoint(&self.cfg.logs_endpoint)
-                    .with_headers(customer_headers(&self.cfg.logs_headers))
-                    .build()
+                    .with_headers(customer_headers(&self.cfg.logs_headers));
+                if let Some(compression) = self.cfg.logs_compression {
+                    builder = builder.with_compression(compression);
+                }
+                builder.build()
             }
             OtlpExportTransport::Grpc(runtime) => {
                 let endpoint = self.cfg.logs_endpoint.clone();
                 let timeout = self.cfg.timeout;
+                let compression = self.cfg.logs_compression;
                 let metadata = customer_metadata(&self.cfg.logs_headers);
                 let tls_candidates = grpc_tls_candidates(
                     &endpoint,
@@ -428,6 +432,9 @@ impl OtlpExportFactory for OtlpLogExporterBuilder<'_> {
                             .with_endpoint(endpoint.clone())
                             .with_timeout(timeout)
                             .with_metadata(metadata.clone());
+                        if let Some(compression) = compression {
+                            builder = builder.with_compression(compression);
+                        }
                         if let Some(tls) = tls {
                             builder = builder.with_tls_config(tls);
                         }
@@ -450,19 +457,23 @@ impl OtlpExportFactory for OtlpMetricExporterBuilder<'_> {
     fn export(&self, transport: OtlpExportTransport<'_>) -> BuildResult<Self::Exporter> {
         match transport {
             OtlpExportTransport::HttpProtobuf(http_client) => {
-                opentelemetry_otlp::MetricExporter::builder()
+                let mut builder = opentelemetry_otlp::MetricExporter::builder()
                     .with_http()
                     // Pin http/protobuf (see the logs exporter above for the feature-unification rationale)
                     .with_protocol(Protocol::HttpBinary)
                     .with_http_client(http_client.clone())
                     .with_endpoint(&self.cfg.metrics_endpoint)
                     .with_headers(customer_headers(&self.cfg.metrics_headers))
-                    .with_temporality(self.temporality)
-                    .build()
+                    .with_temporality(self.temporality);
+                if let Some(compression) = self.cfg.metrics_compression {
+                    builder = builder.with_compression(compression);
+                }
+                builder.build()
             }
             OtlpExportTransport::Grpc(runtime) => {
                 let endpoint = self.cfg.metrics_endpoint.clone();
                 let timeout = self.cfg.timeout;
+                let compression = self.cfg.metrics_compression;
                 let metadata = customer_metadata(&self.cfg.metrics_headers);
                 let temporality = self.temporality;
                 let tls_candidates = grpc_tls_candidates(
@@ -479,6 +490,9 @@ impl OtlpExportFactory for OtlpMetricExporterBuilder<'_> {
                             .with_timeout(timeout)
                             .with_metadata(metadata.clone())
                             .with_temporality(temporality);
+                        if let Some(compression) = compression {
+                            builder = builder.with_compression(compression);
+                        }
                         if let Some(tls) = tls {
                             builder = builder.with_tls_config(tls);
                         }
@@ -789,6 +803,50 @@ mod tests {
         let health = Arc::new(ExportHealth::default());
         let built = super::build(&cfg, gates, health)
             .expect("https gRPC exporters must build (GB-4580 regression)");
+        assert!(built.logger_provider.is_some());
+        assert!(built.meter_provider.is_some());
+    }
+
+    fn compression_exporters(protocol: &str) -> crate::external::providers::BuiltProviders {
+        let cfg = ExternalOtelConfig::resolve_with(
+            |name| match name {
+                "GROK_EXTERNAL_OTEL" => Some("1".into()),
+                "OTEL_LOGS_EXPORTER" | "OTEL_METRICS_EXPORTER" => Some("otlp".into()),
+                "OTEL_EXPORTER_OTLP_PROTOCOL" => Some(protocol.into()),
+                "OTEL_EXPORTER_OTLP_ENDPOINT" => Some(match protocol {
+                    "grpc" => "https://localhost:1".into(),
+                    _ => "http://127.0.0.1:4318".into(),
+                }),
+                "OTEL_EXPORTER_OTLP_LOGS_COMPRESSION" => Some("gzip".into()),
+                "OTEL_EXPORTER_OTLP_METRICS_COMPRESSION" => Some("zstd".into()),
+                _ => None,
+            },
+            None,
+        )
+        .expect("config must resolve");
+        assert_eq!(
+            cfg.logs_compression,
+            Some(opentelemetry_otlp::Compression::Gzip)
+        );
+        assert_eq!(
+            cfg.metrics_compression,
+            Some(opentelemetry_otlp::Compression::Zstd)
+        );
+        let gates: SharedGates = Arc::new(parking_lot::RwLock::new(Default::default()));
+        let health = Arc::new(ExportHealth::default());
+        super::build(&cfg, gates, health).expect("compressed exporters must build")
+    }
+
+    #[test]
+    fn http_exporters_build_when_otlp_compression_is_gzip_or_zstd() {
+        let built = compression_exporters("http/protobuf");
+        assert!(built.logger_provider.is_some());
+        assert!(built.meter_provider.is_some());
+    }
+
+    #[test]
+    fn grpc_exporters_build_when_otlp_compression_is_gzip_or_zstd() {
+        let built = compression_exporters("grpc");
         assert!(built.logger_provider.is_some());
         assert!(built.meter_provider.is_some());
     }

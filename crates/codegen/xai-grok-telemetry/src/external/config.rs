@@ -171,6 +171,11 @@ pub struct ExternalOtelConfig {
     /// Customer collector headers for metric exports, parsed from `OTEL_EXPORTER_OTLP_HEADERS` plus `OTEL_EXPORTER_OTLP_METRICS_HEADERS`.
     /// These are the **only** headers the external metric exporter ever sends.
     pub metrics_headers: Vec<(String, String)>,
+    /// `OTEL_EXPORTER_OTLP_LOGS_COMPRESSION`, else `OTEL_EXPORTER_OTLP_COMPRESSION`.
+    /// Only `gzip` and `zstd` are stored. The exporter build applies them so the stream stays up.
+    pub logs_compression: Option<opentelemetry_otlp::Compression>,
+    /// `OTEL_EXPORTER_OTLP_METRICS_COMPRESSION`, else `OTEL_EXPORTER_OTLP_COMPRESSION`.
+    pub metrics_compression: Option<opentelemetry_otlp::Compression>,
     /// PEM file with additional trusted CA certificate(s) for verifying the logs collector, additive to the default roots.
     /// `OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE` overrides `OTEL_EXPORTER_OTLP_CERTIFICATE`.
     pub logs_ca_certificate: Option<String>,
@@ -216,6 +221,27 @@ fn parse_ms(raw: Option<String>, default: Duration) -> Duration {
     raw.and_then(|s| s.trim().parse::<u64>().ok())
         .map(Duration::from_millis)
         .unwrap_or(default)
+}
+
+/// `gzip` and `zstd` only. A signal-specific value wins, including when it is not a known algorithm.
+/// An unknown signal value does not fall through to the generic variable.
+fn resolve_otlp_compression(
+    getenv: &impl Fn(&str) -> Option<String>,
+    signal_var: &str,
+) -> Option<opentelemetry_otlp::Compression> {
+    let raw = if let Some(signal) = getenv(signal_var) {
+        signal
+    } else {
+        let Some(generic) = getenv("OTEL_EXPORTER_OTLP_COMPRESSION") else {
+            return None;
+        };
+        generic
+    };
+    match raw.trim() {
+        "gzip" => Some(opentelemetry_otlp::Compression::Gzip),
+        "zstd" => Some(opentelemetry_otlp::Compression::Zstd),
+        _ => None,
+    }
 }
 
 /// Parse `k=v,k2=v2` header lists (OTLP env spec); blank keys are skipped.
@@ -528,6 +554,10 @@ impl ExternalOtelConfig {
         };
         let logs_headers = resolve_signal_headers("OTEL_EXPORTER_OTLP_LOGS_HEADERS");
         let metrics_headers = resolve_signal_headers("OTEL_EXPORTER_OTLP_METRICS_HEADERS");
+        let logs_compression =
+            resolve_otlp_compression(&getenv, "OTEL_EXPORTER_OTLP_LOGS_COMPRESSION");
+        let metrics_compression =
+            resolve_otlp_compression(&getenv, "OTEL_EXPORTER_OTLP_METRICS_COMPRESSION");
 
         let base_certificate = getenv("OTEL_EXPORTER_OTLP_CERTIFICATE")
             .filter(|s| !s.trim().is_empty())
@@ -675,6 +705,8 @@ impl ExternalOtelConfig {
             metrics_endpoint,
             logs_headers,
             metrics_headers,
+            logs_compression,
+            metrics_compression,
             logs_ca_certificate,
             metrics_ca_certificate,
             logs_client_certificate,
@@ -990,6 +1022,48 @@ mod tests {
             )
             .is_none(),
             "active signal with no override must fail on invalid base"
+        );
+    }
+
+    #[test]
+    fn otlp_compression_uses_signal_value_then_generic() {
+        let cfg = ExternalOtelConfig::resolve_with(
+            env(&[
+                ("GROK_EXTERNAL_OTEL", "1"),
+                ("OTEL_LOGS_EXPORTER", "otlp"),
+                ("OTEL_METRICS_EXPORTER", "otlp"),
+                ("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip"),
+                ("OTEL_EXPORTER_OTLP_LOGS_COMPRESSION", "zstd"),
+                ("OTEL_EXPORTER_OTLP_METRICS_COMPRESSION", "nope"),
+            ]),
+            None,
+        )
+        .expect("config must resolve");
+        assert_eq!(
+            cfg.logs_compression,
+            Some(opentelemetry_otlp::Compression::Zstd)
+        );
+        assert_eq!(
+            cfg.metrics_compression, None,
+            "an unknown signal value must not fall through to gzip"
+        );
+        let generic = ExternalOtelConfig::resolve_with(
+            env(&[
+                ("GROK_EXTERNAL_OTEL", "1"),
+                ("OTEL_LOGS_EXPORTER", "otlp"),
+                ("OTEL_METRICS_EXPORTER", "otlp"),
+                ("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip"),
+            ]),
+            None,
+        )
+        .expect("config must resolve");
+        assert_eq!(
+            generic.logs_compression,
+            Some(opentelemetry_otlp::Compression::Gzip)
+        );
+        assert_eq!(
+            generic.metrics_compression,
+            Some(opentelemetry_otlp::Compression::Gzip)
         );
     }
 

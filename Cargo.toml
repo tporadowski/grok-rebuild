@@ -221,7 +221,9 @@ obfstr = "0.4"
 once_cell = "1"
 opentelemetry = "0.32"
 opentelemetry-http = { version = "0.32", features = ["reqwest-blocking"] }
-opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "reqwest-blocking-client", "tls-roots"] }
+# gzip/zstd: `OTEL_EXPORTER_OTLP_COMPRESSION` is read when an exporter is built.
+# Without these features that build fails and the external stream is disabled.
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "reqwest-blocking-client", "tls-roots", "gzip-http", "zstd-http", "gzip-tonic", "zstd-tonic"] }
 opentelemetry-proto = { version = "0.32", features = ["gen-tonic"] }
 opentelemetry_sdk = { version = "0.32.1", features = ["spec_unstable_metrics_views"] }
 parking_lot = "0.12.4"
