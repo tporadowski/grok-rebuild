@@ -413,6 +413,7 @@ fn herdr_pane_reports_native_osc8_so_links_are_clickable() {
     );
 }
 
+#[test]
 fn mux_herdr_from_herdr_env() {
     let env = env_from(&[("HERDR_ENV", "1")]);
     assert_eq!(detect_multiplexer_from_env(&env), MultiplexerKind::Herdr);

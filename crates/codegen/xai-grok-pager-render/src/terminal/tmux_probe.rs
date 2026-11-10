@@ -32,7 +32,86 @@ struct LiveTmuxCommandRunner;
 
 impl TmuxCommandRunner for LiveTmuxCommandRunner {
     fn run(&self, command: TmuxCommand<'_>) -> Result<TmuxCommandOutput, String> {
+        let named = std::env::var("TMUX").ok();
+        if let Some(skipped) = skip_stopped_tmux_server(command, named.as_deref()) {
+            return Ok(skipped);
+        }
         run_tmux_bounded(command, TMUX_QUERY_TIMEOUT)
+    }
+}
+
+/// `tmux -V` does not talk to a server. Every other query does, and a `TMUX` value whose server has stopped makes that client wait out the probe timeout.
+fn skip_stopped_tmux_server(
+    command: TmuxCommand<'_>,
+    tmux: Option<&str>,
+) -> Option<TmuxCommandOutput> {
+    if matches!(command, TmuxCommand::Version) {
+        return None;
+    }
+    if classify_named_tmux_server(tmux) != NamedTmuxServer::Stopped {
+        return None;
+    }
+    Some(TmuxCommandOutput {
+        status_success: false,
+        stdout: Vec::new(),
+        stderr: b"no server running\n".to_vec(),
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NamedTmuxServer {
+    NotNamed,
+    Running,
+    Stopped,
+}
+
+/// `TMUX` is `socket,server_pid,session`. A missing socket or a dead server pid is a stopped server.
+fn classify_named_tmux_server(tmux: Option<&str>) -> NamedTmuxServer {
+    let Some(value) = tmux.map(str::trim).filter(|value| !value.is_empty()) else {
+        return NamedTmuxServer::NotNamed;
+    };
+    if let Some((socket, pid)) = split_tmux_socket_and_pid(value) {
+        if !std::path::Path::new(socket).exists() || !pid_is_alive(pid) {
+            return NamedTmuxServer::Stopped;
+        }
+        return NamedTmuxServer::Running;
+    }
+    if std::path::Path::new(value).exists() {
+        NamedTmuxServer::Running
+    } else {
+        NamedTmuxServer::Stopped
+    }
+}
+
+fn split_tmux_socket_and_pid(value: &str) -> Option<(&str, u32)> {
+    let (head, session) = value.rsplit_once(',')?;
+    if session.is_empty() {
+        return None;
+    }
+    let (socket, pid) = head.rsplit_once(',')?;
+    if socket.is_empty() {
+        return None;
+    }
+    let pid = pid.parse().ok()?;
+    Some((socket, pid))
+}
+
+fn pid_is_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(pid) = i32::try_from(pid) else {
+            return false;
+        };
+        if pid <= 0 {
+            return false;
+        }
+        let ret = unsafe { libc::kill(pid, 0) };
+        ret == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        true
     }
 }
 
@@ -382,6 +461,41 @@ mod tests {
             query_version_with(&runner),
             TmuxQueryResult::Error("spawn failed".to_owned())
         );
+    }
+
+    #[test]
+    fn stopped_tmux_server_skips_server_queries_and_keeps_version() {
+        let missing = format!("/tmp/grok-port-missing-tmux-socket,{},0", u32::MAX);
+        let skipped = skip_stopped_tmux_server(
+            TmuxCommand::OptionValue("extended-keys"),
+            Some(&missing),
+        )
+        .expect("a missing socket is a stopped server");
+        assert_eq!(parse_value(Ok(skipped)), TmuxQueryResult::Unavailable);
+        assert!(
+            skip_stopped_tmux_server(TmuxCommand::Version, Some(&missing)).is_none(),
+            "tmux -V does not need the server"
+        );
+        assert!(
+            skip_stopped_tmux_server(TmuxCommand::ControlMode, None).is_none(),
+            "no TMUX value is not a named stopped server"
+        );
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let socket = dir.path().join("default");
+        std::fs::write(&socket, b"").unwrap();
+        let dead = format!("{},{},0", socket.display(), u32::MAX);
+        assert_eq!(
+            classify_named_tmux_server(Some(&dead)),
+            NamedTmuxServer::Stopped,
+            "a leftover socket whose server pid is dead has stopped"
+        );
+        let live = format!("{},{},0", socket.display(), std::process::id());
+        assert_eq!(
+            classify_named_tmux_server(Some(&live)),
+            NamedTmuxServer::Running
+        );
+        assert!(skip_stopped_tmux_server(TmuxCommand::ClientFeatures, Some(&live)).is_none());
     }
 
     #[test]
