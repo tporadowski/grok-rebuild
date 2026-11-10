@@ -1682,7 +1682,10 @@ fn restore_dashboard_attach_after_orphan_remove(
 }
 /// Put queued prompts and the leftover composer draft back on Welcome
 /// before an orphan create placeholder is removed.
-fn restore_orphan_create_draft_to_welcome(app: &mut AppView, agent_id: AgentId) {
+/// Returns whether a draft was written. A caller that then switches to a
+/// surviving agent moves that draft onto the prompt the user returns to.
+/// A background failure (this id is not the active view) writes nothing.
+fn restore_orphan_create_draft_to_welcome(app: &mut AppView, agent_id: AgentId) -> bool {
     if app.home_session_agent == Some(agent_id) {
         app.home_session_agent = None;
     }
@@ -1690,22 +1693,25 @@ fn restore_orphan_create_draft_to_welcome(app: &mut AppView, agent_id: AgentId) 
         app.optimistic_home_husk = None;
     }
     if !matches!(app.active_view, ActiveView::Agent(id) if id == agent_id) {
-        return;
+        return false;
     }
     let Some(agent) = app.agents.get_mut(&agent_id) else {
-        return;
+        return false;
     };
     let draft_text = agent.prompt.text().to_string();
     let draft_images = agent.prompt.drain_images();
     let mut queued = agent.session.pending_prompts.drain(..);
     let Some(first) = queued.next() else {
+        let mut placed = false;
         if !draft_text.trim().is_empty() {
             app.welcome_prompt.set_text(&draft_text);
+            placed = true;
         }
         if !draft_images.is_empty() {
             app.welcome_prompt.set_images(draft_images);
+            placed = true;
         }
-        return;
+        return placed;
     };
     app.welcome_prompt.set_text(&first.text);
     app.welcome_prompt
@@ -1725,6 +1731,7 @@ fn restore_orphan_create_draft_to_welcome(app: &mut AppView, agent_id: AgentId) 
     for image in draft_images {
         let _ = app.welcome_prompt.insert_image(image);
     }
+    true
 }
 /// Emits the create-failure event and returns the stalled phase's user-facing copy, if any.
 fn report_session_create_failed(
@@ -1775,13 +1782,17 @@ pub(in crate::app::dispatch) fn handle_session_failed(
         .get(&agent_id)
         .is_some_and(|a| a.session.session_id.is_none() && a.session.forked_from.is_none());
     if is_orphan {
-        restore_orphan_create_draft_to_welcome(app, agent_id);
+        let restored_draft = restore_orphan_create_draft_to_welcome(app, agent_id);
         let failed_was_active = matches!(app.active_view, ActiveView::Agent(id) if id == agent_id);
         let fallback = app.agents.keys().copied().find(|id| *id != agent_id);
         remove_agent_and_cleanup(app, agent_id);
         if let Some(target) = fallback {
             if failed_was_active {
                 switch_to_agent(app, target, SwitchCause::Picker);
+                // Welcome is not on screen. The draft belongs in this prompt.
+                if restored_draft {
+                    take_welcome_composer_onto_agent(app, target);
+                }
             }
             restore_dashboard_attach_after_orphan_remove(app, agent_id, Some(target));
             if matches!(app.active_view, ActiveView::Welcome) {
@@ -1852,11 +1863,15 @@ pub(in crate::app::dispatch) fn handle_worktree_session_failed(
         .get(&agent_id)
         .is_some_and(|a| a.session.session_id.is_none() && a.session.forked_from.is_none());
     if is_orphan {
-        restore_orphan_create_draft_to_welcome(app, agent_id);
+        let restored_draft = restore_orphan_create_draft_to_welcome(app, agent_id);
         let fallback = app.agents.keys().copied().find(|id| *id != agent_id);
         remove_agent_and_cleanup(app, agent_id);
         if let Some(target) = fallback {
             switch_to_agent(app, target, SwitchCause::Picker);
+            // Welcome is not on screen. The draft belongs in this prompt.
+            if restored_draft {
+                take_welcome_composer_onto_agent(app, target);
+            }
             restore_dashboard_attach_after_orphan_remove(app, agent_id, Some(target));
         } else {
             show_welcome(app);

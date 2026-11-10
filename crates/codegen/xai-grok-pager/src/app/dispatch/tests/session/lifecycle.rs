@@ -569,6 +569,52 @@ fn worktree_session_failed_without_session_returns_to_welcome() {
     );
 }
 #[test]
+fn failed_worktree_session_puts_typed_text_on_the_agent_you_return_to() {
+    let mut app = test_app_git();
+    let keep_id = AgentId(0);
+    let session = make_test_agent_session(&app, keep_id, "keep");
+    app.agents
+        .insert(keep_id, AgentView::new(session, ScrollbackState::new()));
+    app.next_agent_id = 1;
+    app.active_view = ActiveView::Welcome;
+    app.welcome_prompt.set_text("worktree draft");
+    let _ = dispatch(
+        Action::NewWorktreeSession {
+            load_session_id: None,
+            label: None,
+            git_ref: None,
+        },
+        &mut app,
+    );
+    let ActiveView::Agent(fail_id) = app.active_view else {
+        panic!(
+            "worktree session should open, got {:?}",
+            app.active_view
+        );
+    };
+    assert_ne!(fail_id, keep_id);
+    assert_eq!(
+        app.agents.get(&fail_id).unwrap().prompt.text(),
+        "worktree draft"
+    );
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::WorktreeSessionFailed {
+            agent_id: fail_id,
+            error: "worktree add failed".into(),
+            orphaned_worktree_root: None,
+            timed_out: false,
+        }),
+        &mut app,
+    );
+    assert!(matches!(app.active_view, ActiveView::Agent(id) if id == keep_id));
+    assert_eq!(expect_agent(&app, keep_id).prompt.text(), "worktree draft");
+    assert!(
+        app.welcome_prompt.text().trim().is_empty(),
+        "the draft must not stay on the hidden welcome prompt, got {:?}",
+        app.welcome_prompt.text()
+    );
+}
+#[test]
 fn worktree_session_failed_with_fork_parent_keeps_agent() {
     let mut app = test_app_git();
     dispatch(
@@ -882,6 +928,90 @@ fn session_failed_orphan_with_fallback_toasts() {
             .map(|(m, _)| m.as_str()),
         Some("Session creation failed: No space left on device"),
     );
+}
+#[test]
+fn failed_new_session_puts_typed_text_on_the_agent_you_return_to() {
+    let mut app = test_app_with_agent();
+    let keep_id = AgentId(0);
+    app.agents
+        .get_mut(&keep_id)
+        .unwrap()
+        .prompt
+        .set_text("older draft");
+    app.active_view = ActiveView::Welcome;
+    app.welcome_prompt.set_text("from home");
+    let _ = dispatch(Action::NewSession, &mut app);
+    let ActiveView::Agent(fail_id) = app.active_view else {
+        panic!("new session should open, got {:?}", app.active_view);
+    };
+    assert_ne!(fail_id, keep_id);
+    assert!(
+        app.welcome_prompt.text().trim().is_empty(),
+        "home draft leaves welcome with the new session, got {:?}",
+        app.welcome_prompt.text()
+    );
+    assert_eq!(app.agents.get(&fail_id).unwrap().prompt.text(), "from home");
+    {
+        let agent = app.agents.get_mut(&fail_id).unwrap();
+        agent.session.enqueue_prompt("from home".into());
+        agent.prompt.set_text("still typing");
+    }
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::SessionFailed {
+            agent_id: fail_id,
+            error: "No space left on device".into(),
+            timed_out: false,
+        }),
+        &mut app,
+    );
+    assert!(matches!(app.active_view, ActiveView::Agent(id) if id == keep_id));
+    let returned = expect_agent(&app, keep_id).prompt.text();
+    assert!(
+        returned.contains("from home") && returned.contains("still typing"),
+        "the prompt you return to keeps the queued line and the leftover draft, got {returned:?}"
+    );
+    assert!(
+        !returned.contains("older draft"),
+        "the failed attempt replaces the hidden composer, got {returned:?}"
+    );
+    assert!(
+        app.welcome_prompt.text().trim().is_empty(),
+        "the draft must not stay on the hidden welcome prompt, got {:?}",
+        app.welcome_prompt.text()
+    );
+}
+#[test]
+fn failed_background_session_does_not_steal_the_prompt_you_stayed_on() {
+    let mut app = test_app_with_agent();
+    let keep_id = AgentId(0);
+    app.agents
+        .get_mut(&keep_id)
+        .unwrap()
+        .prompt
+        .set_text("stay");
+    app.welcome_prompt.set_text("home draft");
+    let fail_id = AgentId(1);
+    let mut session = make_test_agent_session(&app, fail_id, "unused");
+    session.session_id = None;
+    app.agents
+        .insert(fail_id, AgentView::new(session, ScrollbackState::new()));
+    app.agents
+        .get_mut(&fail_id)
+        .unwrap()
+        .prompt
+        .set_text("typed on the failed one");
+    app.active_view = ActiveView::Agent(keep_id);
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::SessionFailed {
+            agent_id: fail_id,
+            error: "No space left on device".into(),
+            timed_out: false,
+        }),
+        &mut app,
+    );
+    assert!(matches!(app.active_view, ActiveView::Agent(id) if id == keep_id));
+    assert_eq!(expect_agent(&app, keep_id).prompt.text(), "stay");
+    assert_eq!(app.welcome_prompt.text(), "home draft");
 }
 #[test]
 fn session_failed_orphan_does_not_steal_other_active_agent() {
