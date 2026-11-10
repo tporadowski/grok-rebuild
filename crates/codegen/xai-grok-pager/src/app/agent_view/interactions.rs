@@ -1081,9 +1081,7 @@ impl AgentView {
             self.restore_card_prompt(qv.stashed_prompt);
         }
         self.cleanup_question_state();
-        if self.question_view.is_none() {
-            crate::app::turn_completion::reopen_blocked_card_if_held(self);
-        }
+        self.settle_after_question();
         InputOutcome::Changed
     }
     /// Retract an interaction modal (permission, question, or plan approval) that another connected client already resolved.
@@ -1201,6 +1199,7 @@ impl AgentView {
             if !answered_blocked_card && self.question_view.is_none() {
                 crate::app::turn_completion::reopen_blocked_card_if_held(self);
             }
+            self.open_post_turn_plan_review();
             return outcome;
         }
         let response = if skipped {
@@ -1211,9 +1210,7 @@ impl AgentView {
         qv.send_ext_response(response);
         self.prompt.restore(qv.stashed_prompt);
         self.cleanup_question_state();
-        if self.question_view.is_none() {
-            crate::app::turn_completion::reopen_blocked_card_if_held(self);
-        }
+        self.settle_after_question();
         let action = if skipped {
             "interview_skip"
         } else {
@@ -1308,10 +1305,16 @@ impl AgentView {
         qv.send_ext_response(response);
         self.prompt.restore(qv.stashed_prompt);
         self.cleanup_question_state();
+        self.settle_after_question();
+        PeekAnswerOutcome::Submitted
+    }
+
+    /// A question just closed. A held hook card comes back first, and a plan review waits until that card is gone too.
+    fn settle_after_question(&mut self) {
         if self.question_view.is_none() {
             crate::app::turn_completion::reopen_blocked_card_if_held(self);
         }
-        PeekAnswerOutcome::Submitted
+        self.open_post_turn_plan_review();
     }
 }
 #[cfg(test)]

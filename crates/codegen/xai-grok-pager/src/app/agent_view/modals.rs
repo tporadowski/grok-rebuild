@@ -139,6 +139,7 @@ impl AgentView {
         match outcome {
             FeedbackModalOutcome::Cancel => {
                 self.feedback_modal = None;
+                self.open_post_turn_plan_review();
                 InputOutcome::Changed
             }
             FeedbackModalOutcome::Submit => InputOutcome::Action(Action::SubmitFeedbackModal {
@@ -158,6 +159,7 @@ impl AgentView {
         }
         if outcome == FeedbackModalOutcome::Cancel {
             self.feedback_modal = None;
+            self.open_post_turn_plan_review();
         }
         InputOutcome::Changed
     }

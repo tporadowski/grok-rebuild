@@ -372,6 +372,7 @@ pub(super) fn restore_permission_stashes(agent: &mut AgentView) {
     if let Some(pane) = agent.permission_stashed_pane.take() {
         agent.set_active_pane(pane, true);
     }
+    agent.open_post_turn_plan_review();
 }
 
 #[cfg(test)]
@@ -380,6 +381,31 @@ mod plan_prefill_after_permission_tests {
     use crate::app::agent_view::test_fixtures::{
         make_agent, make_followup_permission_state, make_plan_approval_view_state,
     };
+
+    #[test]
+    fn closing_a_tool_prompt_opens_the_waiting_plan_review() {
+        let mut agent = make_agent();
+        agent.post_turn_plan_review = true;
+        agent.plan_mode_active = true;
+        agent.kept_plan =
+            crate::app::agent_view::KeptPlan::kept(Some("# Build it\n".to_owned()), None);
+        agent.prompt.set_text("draft");
+        agent
+            .permission_queue
+            .push_back(make_followup_permission_state());
+        agent.open_post_turn_plan_review();
+        assert!(agent.plan_approval_view.is_none());
+        assert_eq!(agent.prompt.text(), "draft");
+        agent.permission_queue.pop_front();
+        restore_permission_stashes(&mut agent);
+        assert!(
+            agent
+                .plan_approval_view
+                .as_ref()
+                .is_some_and(|pav| pav.is_after_turn()),
+            "closing the tool prompt opens the plan review"
+        );
+    }
 
     #[test]
     fn emptying_permission_prefills_plan_freeform_from_session_draft() {

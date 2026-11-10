@@ -277,9 +277,21 @@ impl AgentView {
         }
         true
     }
+    /// A feedback dialog, question, tool prompt, or queued-prompt edit still owns the keyboard.
+    fn post_turn_plan_review_waits(&self) -> bool {
+        self.feedback_modal.is_some()
+            || self.question_view.is_some()
+            || !self.permission_queue.is_empty()
+            || matches!(
+                self.prompt_mode,
+                crate::app::queue_edit::PromptMode::EditingQueued { .. }
+            )
+    }
+
     /// EndTurn / fail-reopen. Stay closed while leave-Plan is pending or a
     /// build is already in flight (`execute_plan_prompt_id`): re-entering Plan
     /// must not remount approve/build or let PromptResponse write a second row.
+    /// Also stay closed while another surface owns the keyboard. Closing that surface opens the review.
     pub(crate) fn open_post_turn_plan_review(&mut self) {
         if self
             .plan_approval_view
@@ -287,6 +299,9 @@ impl AgentView {
             .is_some_and(|pav| pav.is_after_turn())
         {
             self.refresh_post_turn_plan_review();
+            return;
+        }
+        if self.post_turn_plan_review_waits() {
             return;
         }
         if !self.post_turn_plan_review
@@ -2810,6 +2825,106 @@ mod plan_approval_optimistic_mode_tests {
             "a later keep must remount after the stale build id is dropped"
         );
     }
+    fn ready_for_post_turn_review() -> AgentView {
+        let mut agent = make_agent();
+        agent.plan_mode_active = true;
+        agent.kept_plan =
+            crate::app::agent_view::KeptPlan::kept(Some("# Build it\n".to_owned()), None);
+        agent.prompt.set_text("draft");
+        agent
+    }
+
+    fn review_is_open(agent: &AgentView) -> bool {
+        agent
+            .plan_approval_view
+            .as_ref()
+            .is_some_and(|pav| pav.is_after_turn())
+    }
+
+    #[test]
+    fn post_turn_plan_review_waits_until_the_open_surface_closes() {
+        use crate::app::agent::QueueEntryKind;
+        use crate::app::queue_edit::PromptMode;
+        use crate::views::feedback_modal::{FeedbackModalState, OpenFeedbackModal};
+        use crate::views::question_view::QuestionViewState;
+        use xai_grok_tools::implementations::grok_build::ask_user_question::{
+            Question, QuestionOption,
+        };
+
+        let mut agent = ready_for_post_turn_review();
+        agent.feedback_modal = Some(FeedbackModalState::new(OpenFeedbackModal::default()));
+        agent.open_post_turn_plan_review();
+        assert!(!review_is_open(&agent));
+        assert_eq!(agent.prompt.text(), "draft");
+        let outcome = agent.handle_feedback_modal_key(&KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        ));
+        assert!(matches!(outcome, InputOutcome::Changed));
+        assert!(agent.feedback_modal.is_none());
+        assert!(
+            review_is_open(&agent),
+            "closing feedback opens the plan review"
+        );
+
+        let mut agent = ready_for_post_turn_review();
+        let stashed = agent.prompt.stash();
+        agent.prompt.set_text("draft");
+        agent.question_view = Some(QuestionViewState::new(
+            "q1".into(),
+            vec![Question {
+                question: "Continue?".into(),
+                options: vec![QuestionOption {
+                    label: "Yes".into(),
+                    description: "go".into(),
+                    preview: None,
+                    id: None,
+                }],
+                multi_select: Some(false),
+                id: None,
+            }],
+            stashed,
+        ));
+        agent.open_post_turn_plan_review();
+        assert!(!review_is_open(&agent));
+        assert_eq!(agent.prompt.text(), "draft");
+        let _ = agent.submit_question_answers(true);
+        assert!(agent.question_view.is_none());
+        assert!(
+            review_is_open(&agent),
+            "closing the question opens the plan review"
+        );
+
+        let mut agent = ready_for_post_turn_review();
+        agent.prompt_mode = PromptMode::EditingQueued {
+            id: 1,
+            original: "queued".into(),
+            server_id: None,
+            kind: QueueEntryKind::Prompt,
+        };
+        agent.open_post_turn_plan_review();
+        assert!(!review_is_open(&agent));
+        assert_eq!(agent.prompt.text(), "draft");
+        agent.exit_editing_mode();
+        assert!(matches!(agent.prompt_mode, PromptMode::Normal));
+        assert!(
+            review_is_open(&agent),
+            "leaving the queued-prompt edit opens the plan review"
+        );
+
+        let mut agent = ready_for_post_turn_review();
+        agent
+            .permission_queue
+            .push_back(super::test_fixtures::make_followup_permission_state());
+        agent.open_post_turn_plan_review();
+        assert!(!review_is_open(&agent));
+        assert_eq!(
+            agent.prompt.text(),
+            "draft",
+            "a tool prompt keeps the composer"
+        );
+    }
+
     #[test]
     fn leave_plan_pending_does_not_open_post_turn_review() {
         let mut agent = make_agent();

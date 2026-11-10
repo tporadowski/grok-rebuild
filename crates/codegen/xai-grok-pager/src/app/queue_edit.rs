@@ -654,6 +654,7 @@ impl AgentView {
         // Focus the composer: on the queue pane the next Enter re-opens the row edit instead of sending
         // Pane-switch exits (modal confirm, clean-edit pane switch) re-target their own pane right after this
         self.set_active_pane(AgentPane::Prompt, true);
+        self.open_post_turn_plan_review();
     }
 }
 

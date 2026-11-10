@@ -314,6 +314,7 @@ pub(super) fn dispatch_submit_feedback_modal(
         modal.mark_draft_submit_pending();
     } else {
         agent.feedback_modal = None;
+        agent.open_post_turn_plan_review();
         agent
             .scrollback
             .push_block(RenderBlock::system(

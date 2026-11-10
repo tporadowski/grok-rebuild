@@ -1732,6 +1732,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                         match outcome {
                             xai_grok_shell::session::FeedbackOutcome::Submitted => {
                                 agent.feedback_modal = None;
+                                agent.open_post_turn_plan_review();
                                 agent.scrollback.push_block(
                                     crate::scrollback::block::RenderBlock::system(
                                         super::notes::FEEDBACK_THANKS_NOTICE.to_owned(),
