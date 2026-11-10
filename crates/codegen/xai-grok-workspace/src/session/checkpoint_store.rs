@@ -360,17 +360,13 @@ fn copy_checkpoint_blobs(src: &Path, dest: &Path) -> bool {
     true
 }
 
-/// Run the blocking disk rehydrate without starving the async runtime.
-/// [`load_capped_from_disk`] uses blocking `std::fs`, but the constructor is sync and reached from async paths.
-/// On a multi-thread runtime hand it to `block_in_place`; otherwise (current-thread, where that panics) run inline.
+/// Load checkpoints on this thread.
+///
+/// New sessions run on a `LocalSet`. `block_in_place` panics there even when the
+/// process runtime is multi-thread (`can call blocking only when running on the
+/// multi-threaded runtime`). The store is a handful of json files, read once.
 fn rehydrate_off_runtime(dir: &Path, cap: usize) -> BTreeMap<usize, RewindCheckpoint> {
-    use tokio::runtime::{Handle, RuntimeFlavor};
-    match Handle::try_current() {
-        Ok(handle) if handle.runtime_flavor() == RuntimeFlavor::MultiThread => {
-            tokio::task::block_in_place(|| load_capped_from_disk(dir, cap))
-        }
-        _ => load_capped_from_disk(dir, cap),
-    }
+    load_capped_from_disk(dir, cap)
 }
 
 /// Load persisted checkpoints from `dir`, trimmed to the newest `cap` (older blobs are deleted, bounding on-disk size).
@@ -493,6 +489,45 @@ mod tests {
     use super::*;
     use crate::session::file_state::{FileSnapshot, RewindPoint};
     use xai_grok_paths::RelPathBuf;
+
+    /// Durable rehydrate runs while a new session is constructed. That task
+    /// lives on a `LocalSet` inside the multi-thread runtime, which is where
+    /// `block_in_place` used to panic.
+    #[test]
+    fn new_session_rehydrate_does_not_panic_on_a_local_set() {
+        let previous = std::env::var_os("GROK_WORKSPACE_REWIND_DURABLE");
+        unsafe { std::env::set_var("GROK_WORKSPACE_REWIND_DURABLE", "1") };
+        struct Restore(Option<std::ffi::OsString>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                match self.0.take() {
+                    Some(value) => unsafe {
+                        std::env::set_var("GROK_WORKSPACE_REWIND_DURABLE", value)
+                    },
+                    None => unsafe { std::env::remove_var("GROK_WORKSPACE_REWIND_DURABLE") },
+                }
+            }
+        }
+        let _restore = Restore(previous);
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            tokio::task::LocalSet::new()
+                .run_until(async {
+                    let tmp = tempfile::tempdir().unwrap();
+                    let store = CheckpointStore::new(tmp.path(), "new-session");
+                    assert!(
+                        crate::session::checkpoint::rewind_durable_enabled(),
+                        "the fixture must take the durable constructor path"
+                    );
+                    assert_eq!(store.cached_len().await, 0);
+                })
+                .await;
+        });
+    }
 
     /// A minimal FS-only checkpoint (no hunk delta) for store-mechanics tests.
     /// Distinct content per prompt so a disk round-trip is meaningfully checked.
