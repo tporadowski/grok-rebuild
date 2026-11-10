@@ -54,9 +54,13 @@ pub(in crate::app::dispatch) fn drop_other_agents_in_minimal(
     }
     effects
 }
-/// A closed tab's session is left as it is.
-fn quiesce_session_effect(_session_id: Option<&acp::SessionId>) -> Vec<Effect> {
-    Vec::new()
+/// A closed tab's running turn is left in place. Prompts waiting behind it are cleared,
+/// so closing a busy tab does not send them to the model when that turn ends.
+fn quiesce_session_effect(session_id: Option<&acp::SessionId>) -> Vec<Effect> {
+    let Some(session_id) = session_id.cloned() else {
+        return Vec::new();
+    };
+    vec![Effect::QueueClear { session_id }]
 }
 /// Close (drop from this pager's in-memory list) the given agent.
 /// Refuse to close the only alive agent (toast "Cannot close the only session -- use /home to exit").

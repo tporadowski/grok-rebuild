@@ -252,6 +252,38 @@ fn drop_other_agents_in_minimal_unregisters_leftovers() {
     assert!(app.agents.contains_key(&AgentId(0)));
 }
 #[test]
+fn closing_a_busy_tab_clears_queued_prompts_instead_of_sending_them() {
+    let mut app = three_agent_app();
+    {
+        let agent = app
+            .agents
+            .get_mut(&AgentId(2))
+            .expect("three_agent_app registers agent 2");
+        agent.session.session_id = Some("sess-busy".into());
+        agent.session.state = AgentState::TurnRunning;
+        agent.session.enqueue_prompt("follow up".into());
+    }
+    let effects = dispatch_sessions_confirm_close(&mut app, AgentId(2));
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::QueueClear { session_id } if session_id.0.as_ref() == "sess-busy"
+        )),
+        "closing a busy tab must clear the server queue, got {effects:?}"
+    );
+    assert!(
+        !effects.iter().any(|effect| matches!(
+            effect,
+            Effect::SendPrompt { .. }
+                | Effect::SendPromptBlocks { .. }
+                | Effect::SendPromptNow { .. }
+                | Effect::QueueInterject { .. }
+        )),
+        "closing a busy tab must not send a queued prompt, got {effects:?}"
+    );
+    assert!(!app.agents.contains_key(&AgentId(2)));
+}
+#[test]
 fn close_inactive_agent_drops_it() {
     let mut app = three_agent_app();
     app.agents
