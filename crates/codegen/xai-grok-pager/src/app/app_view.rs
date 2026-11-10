@@ -5954,11 +5954,16 @@ impl AppView {
             ActiveView::Welcome => TickDemand::Slow,
         }
     }
+/// A session is waiting on approval when a permission card or a plan approval is open.
+fn agent_waiting_on_approval(agent: &crate::app::agent_view::AgentView) -> bool {
+    !agent.permission_queue.is_empty() || agent.plan_approval_view.is_some()
+}
+
     /// Update the terminal tab title and OSC 9;4 progress bar.
     /// Stores any resulting escape sequences in `pending_notification_escapes`.
     /// Also clears the permission notification flag when no permissions remain queued, so the next batch fires a fresh bell/popup.
     pub fn update_notifications(&mut self) {
-        let (session_name, model, activity, has_perms, turn_elapsed, is_busy) =
+        let (session_name, model, activity, turn_elapsed, is_busy) =
             if let ActiveView::Agent(id) = self.active_view
                 && let Some(agent) = self.agents.get(&id)
             {
@@ -5973,23 +5978,24 @@ impl AppView {
                 } else {
                     agent.resolve_turn_activity()
                 };
-                let has_perms = !agent.permission_queue.is_empty();
                 let elapsed = if parked { None } else { agent.turn_elapsed() };
                 let is_busy = agent.session.state.is_busy() && !parked;
-                (name, model, activity, has_perms, elapsed, is_busy)
+                (name, model, activity, elapsed, is_busy)
             } else {
-                (None, None, None, false, None, false)
+                (None, None, None, None, false)
             };
         let any_agent_has_perms = self.agents.values().any(|a| !a.permission_queue.is_empty());
         if !any_agent_has_perms {
             self.notification_service.clear_permission_notification();
         }
+        // A background tab waiting on approval still needs the title, not only the tab on screen.
+        let waiting_on_approval = self.agents.values().any(Self::agent_waiting_on_approval);
         let cwd_str = self.cwd.to_string_lossy();
         let title_state = crate::notifications::TitleState {
             session_name,
             model: model.as_deref(),
             activity: activity.as_ref(),
-            has_pending_permissions: has_perms,
+            has_pending_permissions: waiting_on_approval,
             cwd: Some(&cwd_str),
             turn_elapsed,
             is_busy,

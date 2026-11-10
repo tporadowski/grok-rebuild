@@ -10,6 +10,22 @@ use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 #[test]
+fn background_session_waiting_on_approval_sets_the_title() {
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    app.agents.get_mut(&id).unwrap().permission_queue.push_back(
+        crate::app::agent_view::test_fixtures::make_followup_permission_state(),
+    );
+    app.active_view = ActiveView::Welcome;
+    app.pending_notification_escapes = None;
+    app.update_notifications();
+    let escapes = app.pending_notification_escapes.as_deref().unwrap_or("");
+    assert!(
+        escapes.contains("Action Required"),
+        "a session that is not on screen and is waiting on approval must set the title, got {escapes:?}"
+    );
+}
+#[test]
 fn welcome_show_toast_scrubs_control_chars() {
     let mut app = test_app();
     assert!(matches!(app.active_view, ActiveView::Welcome));
