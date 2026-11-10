@@ -159,6 +159,25 @@ fn render_uses_feedback_chrome_and_write_tab() {
 }
 
 #[test]
+fn short_terminal_still_shows_the_feedback_dialog() {
+    let area = Rect::new(0, 0, 80, 12);
+    let mut buf = Buffer::empty(area);
+    let mut modal = open_with_text("keep me");
+
+    modal
+        .render(&mut buf, area, &Theme::current(), false)
+        .expect("a short terminal still draws the dialog");
+
+    let rendered = buffer_text(&buf);
+    assert!(
+        rendered.contains("Feedback"),
+        "the dialog title stays on screen:\n{rendered}"
+    );
+    assert_eq!(modal.text(), "keep me");
+    assert!(modal.window.popup_area.is_some());
+}
+
+#[test]
 fn narrow_render_preserves_state() {
     let area = Rect::new(0, 0, 18, 5);
     let mut buf = Buffer::empty(area);

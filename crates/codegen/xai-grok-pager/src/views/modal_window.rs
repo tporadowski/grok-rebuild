@@ -90,6 +90,10 @@ pub const SETTINGS_MODAL_WIDTH_PCT: f32 = 0.70;
 /// Column cap of the settings modal. The command palette and model picker use it too.
 pub const SETTINGS_MODAL_MAX_WIDTH: u16 = 110;
 
+/// Below this, the chrome has no room for a border and a title, so the dialog is not drawn.
+const MIN_MODAL_WIDTH: u16 = 20;
+const MIN_MODAL_HEIGHT: u16 = 6;
+
 /// Sizing parameters for the modal popup.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ModalSizing {
@@ -269,7 +273,7 @@ pub fn render_modal_window(
         compute_modal_dims(area, sizing)
     };
 
-    if modal_width < 20 || modal_height < 6 {
+    if modal_width < MIN_MODAL_WIDTH || modal_height < MIN_MODAL_HEIGHT {
         // Clear stale hit-test rects so mouse handlers don't act on positions from a previous (larger) render
         state.popup_area = None;
         state.close_button_rect = None;
@@ -590,7 +594,7 @@ pub(crate) fn predict_shortcut_rows(
     shortcuts: &[Shortcut<'_>],
 ) -> u16 {
     let (modal_width, modal_height) = compute_modal_dims(area, sizing);
-    if modal_width < 20 || modal_height < 6 {
+    if modal_width < MIN_MODAL_WIDTH || modal_height < MIN_MODAL_HEIGHT {
         return 0;
     }
     // Border on each side eats 1 column, so inner_width = modal_width - 2
@@ -623,7 +627,14 @@ fn compute_modal_dims(area: Rect, sizing: &ModalSizing) -> (u16, u16) {
         .min(max_width)
         .max(sizing.min_width)
         .min(area.width);
-    let modal_height = area.height.saturating_sub(sizing.v_margin * 2);
+    // A tall terminal keeps the requested margin. A short one used to subtract that
+    // margin until the box fell under the draw floor, and dialogs such as /feedback vanished.
+    let mut margin = sizing.v_margin;
+    let mut modal_height = area.height.saturating_sub(margin.saturating_mul(2));
+    while modal_height < MIN_MODAL_HEIGHT && margin > 0 {
+        margin -= 1;
+        modal_height = area.height.saturating_sub(margin.saturating_mul(2));
+    }
     (modal_width, modal_height)
 }
 
@@ -1347,6 +1358,20 @@ mod tests {
         let unchanged = base.with_compact(false);
         assert_eq!(unchanged.v_margin, 5);
         assert_eq!(unchanged.h_pad, 3);
+    }
+
+    #[test]
+    fn short_terminal_keeps_a_dialog_tall_enough_to_draw() {
+        let sizing = ModalSizing::large();
+        let (_, short) = compute_modal_dims(Rect::new(0, 0, 80, 12), &sizing);
+        assert!(
+            short >= MIN_MODAL_HEIGHT,
+            "a 12-row terminal must still produce a drawable dialog, got {short}"
+        );
+        let (_, tall) = compute_modal_dims(Rect::new(0, 0, 80, 40), &sizing);
+        assert_eq!(tall, 40 - sizing.v_margin * 2);
+        let (_, tiny) = compute_modal_dims(Rect::new(0, 0, 80, 5), &sizing);
+        assert!(tiny < MIN_MODAL_HEIGHT);
     }
 
     #[test]
