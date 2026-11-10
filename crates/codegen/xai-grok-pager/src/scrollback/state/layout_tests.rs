@@ -1848,6 +1848,40 @@ fn goto_bottom_reaches_end_past_u16_max_rows_gb3236() {
 }
 
 #[test]
+fn follow_indicator_hides_when_only_padding_is_below() {
+    let mut state = ScrollbackState::new();
+    for i in 0..12 {
+        state.push_block(stub_block(&format!("line {i}")));
+    }
+    state.prepare_layout(40, 6);
+    let trailing = state
+        .layout_cache
+        .as_ref()
+        .and_then(|cache| cache.entries.last())
+        .map(|entry| entry.gap_after as usize)
+        .expect("trailing gap");
+    assert_eq!(trailing, 1, "the last entry keeps a blank trailing gap");
+    state.pin_reserve_pad = 4;
+    state.total_height += 4;
+    state.follow_mode = false;
+
+    let content_height = state.total_height - state.pin_reserve_pad - trailing;
+    let viewport = state.viewport_height as usize;
+    assert!(content_height > viewport, "the fixture has real rows past the viewport");
+    state.scroll_offset = content_height - viewport;
+    assert!(
+        !state.has_content_below(),
+        "blank padding below the viewport is not content"
+    );
+
+    state.scroll_offset -= 1;
+    assert!(
+        state.has_content_below(),
+        "a real row still below the viewport keeps the indicator"
+    );
+}
+
+#[test]
 fn lazy_dirty_case2_settle_measures_revealed_region() {
     let _theme = pin_theme();
     // A streaming chunk (Case 2: dirty heights, cache kept) while scrolled up into an unmeasured region must still measure the visible region

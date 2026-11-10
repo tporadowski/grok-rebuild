@@ -606,11 +606,31 @@ impl ScrollbackState {
         self.follow_preserve_scroll
     }
 
+    /// Blank rows after the last real line: the trailing selection gap, plus any pin-reserve pad.
+    /// Those rows are padding. They are not content the follow indicator should point at.
+    fn blank_padding_rows(&self) -> usize {
+        let trailing = self
+            .layout_cache
+            .as_ref()
+            .and_then(|cache| {
+                let range = self.visible_entry_range();
+                let last = range.end.checked_sub(1)?;
+                if !range.contains(&last) {
+                    return None;
+                }
+                cache
+                    .entries
+                    .get(last)
+                    .map(|entry| entry.gap_after as usize)
+            })
+            .unwrap_or(0);
+        self.pin_reserve_pad.saturating_add(trailing)
+    }
+
     pub fn has_content_below(&self) -> bool {
-        let max_offset = self
-            .total_height
-            .saturating_sub(self.viewport_height as usize);
-        self.total_height > self.viewport_height as usize && self.scroll_offset < max_offset
+        let content_height = self.total_height.saturating_sub(self.blank_padding_rows());
+        let max_offset = content_height.saturating_sub(self.viewport_height as usize);
+        content_height > self.viewport_height as usize && self.scroll_offset < max_offset
     }
 
     /// Ensure the selected entry is visible in the viewport, using minimal scrolling. large entries that exceed it
