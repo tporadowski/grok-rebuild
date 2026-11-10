@@ -58,6 +58,100 @@ fn draft_row_preview<'a>(title: &'a str, details: &'a str) -> &'a str {
         .unwrap_or("")
 }
 
+/// One drafts-list row. The title is last, so a narrow dialog used to clip it.
+fn draft_row_text(draft: &super::FeedbackDraft, selected: bool) -> String {
+    let marker = if selected { "❯" } else { " " };
+    let preview = draft_row_preview(&draft.title, &draft.details);
+    let failure = draft
+        .failure_mode
+        .map(|value| format!(" · {}", value.label()))
+        .unwrap_or_default();
+    let r#type = draft.r#type.map_or("Unclassified", |value| value.label());
+    let task = draft.task_category.map_or("Other", |value| value.label());
+    format!("{marker} {type} · {task}{failure} · {preview}")
+}
+
+fn draft_row_height(draft: &super::FeedbackDraft, width: u16) -> usize {
+    usize::from(status_row_count(&draft_row_text(draft, false), width)).max(1)
+}
+
+fn row_span(heights: &[usize], start: usize, end: usize) -> usize {
+    heights
+        .iter()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .fold(0usize, |sum, height| sum.saturating_add((*height).max(1)))
+}
+
+/// Scroll the drafts list by wrapped row height so the selected draft stays fully in view.
+fn fit_draft_viewport(heights: &[usize], selected: usize, previous: usize, rows: usize) -> usize {
+    if heights.is_empty() || rows == 0 {
+        return 0;
+    }
+    let last = heights.len().saturating_sub(1);
+    let selected = selected.min(last);
+    let mut start = previous.min(last);
+    if selected < start {
+        start = selected;
+    }
+    while start > 0 && row_span(heights, start, heights.len()) < rows {
+        start -= 1;
+    }
+    while start < selected && row_span(heights, start, selected.saturating_add(1)) > rows {
+        start += 1;
+    }
+    start
+}
+
+/// Wrap a confirm question and its answer. The answer stays on screen when the question needs more than one row.
+fn paint_confirm(
+    buf: &mut Buffer,
+    content: Rect,
+    prompt: &str,
+    answer: &str,
+    prompt_style: ratatui::style::Style,
+    answer_style: ratatui::style::Style,
+) {
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
+    let prompt_rows = status_row_count(prompt, content.width);
+    let answer_rows = status_row_count(answer, content.width).max(1);
+    let (prompt_keep, gap, answer_keep) =
+        if prompt_rows.saturating_add(1).saturating_add(answer_rows) <= content.height {
+            (prompt_rows, 1u16, answer_rows)
+        } else if prompt_rows.saturating_add(answer_rows) <= content.height {
+            (prompt_rows, 0, answer_rows)
+        } else {
+            let answer_keep = answer_rows.min(content.height);
+            (content.height.saturating_sub(answer_keep), 0, answer_keep)
+        };
+    if prompt_keep > 0 {
+        paint_wrapped_status(
+            buf,
+            Rect {
+                height: prompt_keep,
+                ..content
+            },
+            prompt,
+            prompt_style,
+        );
+    }
+    if answer_keep > 0 {
+        paint_wrapped_status(
+            buf,
+            Rect {
+                x: content.x,
+                y: content.y.saturating_add(prompt_keep).saturating_add(gap),
+                width: content.width,
+                height: answer_keep,
+            },
+            answer,
+            answer_style,
+        );
+    }
+}
+
 impl FeedbackModalState {
     pub fn render(
         &mut self,
@@ -159,6 +253,36 @@ impl FeedbackModalState {
         })
     }
 
+    fn measure_draft_list(
+        &self,
+        width: u16,
+        content_height: u16,
+    ) -> Option<(Vec<usize>, usize, usize)> {
+        let browse_error = match &self.drafts {
+            DraftsState::Browse { error, .. } => error.clone(),
+            _ => return None,
+        };
+        let error_rows = browse_error
+            .as_deref()
+            .or(self.error.as_deref())
+            .map_or(0, |text| usize::from(status_row_count(text, width)));
+        let selected_id = match &self.drafts {
+            DraftsState::Browse { selected_id, .. } => selected_id.clone(),
+            _ => None,
+        };
+        let visible = self.visible_drafts();
+        let selected = selected_id
+            .as_ref()
+            .and_then(|id| visible.iter().position(|draft| &draft.id == id))
+            .unwrap_or(0);
+        let heights = visible
+            .iter()
+            .map(|draft| draft_row_height(draft, width))
+            .collect();
+        let list_rows = usize::from(content_height).saturating_sub(2 + error_rows);
+        Some((heights, selected, list_rows))
+    }
+
     fn render_drafts(
         &mut self,
         buf: &mut Buffer,
@@ -204,18 +328,12 @@ impl FeedbackModalState {
         let normal = ratatui::style::Style::default().fg(theme.text_secondary);
         let dim = ratatui::style::Style::default().fg(theme.gray);
         if self.discard_confirm.is_some() {
-            buf.set_stringn(
-                content.x,
-                content.y,
+            paint_confirm(
+                buf,
+                content,
                 "Discard the current Write composition and open the selected draft?",
-                content.width as usize,
-                normal,
-            );
-            buf.set_stringn(
-                content.x,
-                content.y.saturating_add(2),
                 "y discard  |  n cancel",
-                content.width as usize,
+                normal,
                 dim,
             );
             return Some(FeedbackModalRender {
@@ -229,30 +347,22 @@ impl FeedbackModalState {
             } else {
                 "Delete this feedback draft?"
             };
-            buf.set_stringn(content.x, content.y, prompt, content.width as usize, normal);
-            buf.set_stringn(
-                content.x,
-                content.y.saturating_add(2),
-                if self.draft_delete.is_some() {
-                    "Deleting…"
-                } else {
-                    "y delete  |  n cancel"
-                },
-                content.width as usize,
-                dim,
-            );
+            let answer = if self.draft_delete.is_some() {
+                "Deleting…"
+            } else {
+                "y delete  |  n cancel"
+            };
+            paint_confirm(buf, content, prompt, answer, normal, dim);
             return Some(FeedbackModalRender {
                 cursor: None,
                 post_flush: None,
             });
         }
-        if let DraftsState::Browse { error, .. } = &self.drafts {
-            let error_rows = error
-                .as_deref()
-                .or(self.error.as_deref())
-                .map_or(0, |text| usize::from(status_row_count(text, content.width)));
-            let header_rows = 2 + error_rows;
-            self.update_drafts_viewport((content.height as usize).saturating_sub(header_rows));
+        if let Some((heights, selected, list_rows)) =
+            self.measure_draft_list(content.width, content.height)
+        {
+            self.drafts_viewport_start =
+                fit_draft_viewport(&heights, selected, self.drafts_viewport_start, list_rows);
         }
         match &self.drafts {
             DraftsState::Unloaded => {
@@ -323,26 +433,16 @@ impl FeedbackModalState {
                     );
                     y = y.saturating_add(painted);
                 }
-                let capacity = content.bottom().saturating_sub(y) as usize;
                 let visible: Vec<_> = self.visible_drafts().into_iter().cloned().collect();
                 let mut rendered = 0usize;
-                for draft in visible
-                    .into_iter()
-                    .skip(self.drafts_viewport_start)
-                    .take(capacity)
-                {
+                for draft in visible.into_iter().skip(self.drafts_viewport_start) {
+                    if y >= content.bottom() || content.width == 0 {
+                        break;
+                    }
                     let is_selected = selected_id.as_ref() == Some(&draft.id);
-                    let marker = if is_selected { "❯" } else { " " };
                     // A model draft stores its title separately from the
                     // structured details, which start at "What happened:".
-                    let preview = draft_row_preview(&draft.title, &draft.details);
-                    let failure = draft
-                        .failure_mode
-                        .map(|value| format!(" · {}", value.label()))
-                        .unwrap_or_default();
-                    let r#type = draft.r#type.map_or("Unclassified", |value| value.label());
-                    let task = draft.task_category.map_or("Other", |value| value.label());
-                    let line = format!("{marker} {type} · {task}{failure} · {preview}");
+                    // The title is last on the row, so wrap instead of clipping it.
                     let style = if is_selected {
                         ratatui::style::Style::default()
                             .fg(theme.text_primary)
@@ -350,11 +450,31 @@ impl FeedbackModalState {
                     } else {
                         normal
                     };
-                    buf.set_stringn(content.x, y, line, content.width as usize, style);
-                    self.draft_row_areas
-                        .push((draft.id.clone(), Rect::new(content.x, y, content.width, 1)));
-                    y += 1;
+                    let text = draft_row_text(&draft, is_selected);
+                    let styled = ratatui::text::Line::styled(text, style);
+                    let row_top = y;
+                    let mut painted = 0u16;
+                    for wrapped_line in
+                        crate::render::wrapping::word_wrap_line(&styled, usize::from(content.width))
+                    {
+                        if y >= content.bottom() {
+                            break;
+                        }
+                        buf.set_line(content.x, y, &wrapped_line, content.width);
+                        y += 1;
+                        painted += 1;
+                    }
+                    if painted == 0 {
+                        break;
+                    }
+                    self.draft_row_areas.push((
+                        draft.id.clone(),
+                        Rect::new(content.x, row_top, content.width, painted),
+                    ));
                     rendered += 1;
+                    if y >= content.bottom() {
+                        break;
+                    }
                 }
                 if rendered == 0 && y < content.bottom() {
                     let empty = if rows.is_empty() {

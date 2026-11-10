@@ -1323,6 +1323,199 @@ fn model_draft_row_shows_the_stored_title() {
     );
 }
 
+fn collapse_ws(text: &str) -> String {
+    let stripped: String = text
+        .chars()
+        .map(|c| {
+            if "│┌┐└┘─├┤┬┴┼".contains(c) {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    stripped.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn render_area(modal: &mut FeedbackModalState, area: Rect) -> (Buffer, String) {
+    let mut buf = Buffer::empty(area);
+    modal
+        .render(&mut buf, area, &Theme::current(), false)
+        .unwrap_or_else(|| panic!("dialog must render at {area:?}"));
+    let rendered = buffer_text(&buf);
+    (buf, rendered)
+}
+
+fn assert_rows_stay_inside_border(buf: &Buffer, popup: Rect, rendered: &str, needles: &[&str]) {
+    let right = popup.x + popup.width - 1;
+    for (y, line) in rendered.lines().enumerate() {
+        if !needles.iter().any(|needle| line.contains(needle)) {
+            continue;
+        }
+        let symbol = buf
+            .cell((right, y as u16))
+            .map(|cell| cell.symbol())
+            .unwrap_or("");
+        assert_eq!(
+            symbol, "│",
+            "row {y} must not paint through the border ({symbol:?}): {line}"
+        );
+    }
+}
+
+#[test]
+fn narrow_feedback_dialog_shows_the_full_draft_title() {
+    let area = Rect::new(0, 0, 64, 36);
+    let mut modal = FeedbackModalState::new(OpenFeedbackModal::default());
+    modal.window.active_tab = FeedbackTab::Drafts.index();
+    let mut stored = draft(
+        "model",
+        "What happened:\nThe queued prompt disappeared.",
+        FeedbackTaxonomy {
+            r#type: Some(FeedbackType::MissingCapability),
+            task_category: Some(FeedbackTaskCategory::CodeEdit),
+            failure_mode: Some(FeedbackFailureMode::Hallucinated),
+        },
+    );
+    stored.title = "Queued prompt vanished".to_owned();
+    modal.drafts = DraftsState::Browse {
+        rows: vec![stored],
+        selected_id: Some("model".to_owned().into()),
+        query: LineEditor::default(),
+        search_focused: false,
+        error: None,
+    };
+
+    let (buf, rendered) = render_area(&mut modal, area);
+    let collapsed = collapse_ws(&rendered);
+    assert!(
+        collapsed.contains("Queued prompt vanished"),
+        "the full title must survive a narrow row:\n{rendered}"
+    );
+    assert!(
+        !rendered
+            .lines()
+            .any(|line| {
+                line.contains("Missing capability") && line.contains("Queued prompt vanished")
+            }),
+        "the title must wrap onto its own rows instead of sharing the clipped metadata line:\n{rendered}"
+    );
+    let popup = modal.window.popup_area.expect("popup");
+    assert_rows_stay_inside_border(&buf, popup, &rendered, &["Queued prompt vanished"]);
+
+    let row = modal
+        .draft_row_areas
+        .first()
+        .map(|(_, row)| *row)
+        .expect("wrapped draft row");
+    assert!(
+        row.height > 1,
+        "a title past the row width occupies more than one row: {row:?}\n{rendered}"
+    );
+    modal.handle_mouse(&left_click(row.x, row.y.saturating_add(1)));
+    assert_eq!(
+        match &modal.drafts {
+            DraftsState::Browse { selected_id, .. } => selected_id.as_ref().map(|id| id.as_str()),
+            _ => None,
+        },
+        Some("model"),
+        "a click on the wrapped title still hits that draft"
+    );
+}
+
+#[test]
+fn narrow_feedback_dialog_wraps_confirm_prompts() {
+    let area = Rect::new(0, 0, 64, 36);
+    let mut discard = FeedbackModalState::new(OpenFeedbackModal {
+        text: Some("unsaved composition".to_owned()),
+        ..Default::default()
+    });
+    discard.window.active_tab = FeedbackTab::Drafts.index();
+    discard.drafts = DraftsState::Browse {
+        rows: vec![draft("stored", "stored text", FeedbackTaxonomy::default())],
+        selected_id: Some("stored".to_owned().into()),
+        query: LineEditor::default(),
+        search_focused: false,
+        error: None,
+    };
+    discard.handle_key(&key(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(discard.discard_confirm, Some("stored".to_owned().into()));
+
+    let (buf, rendered) = render_area(&mut discard, area);
+    let collapsed = collapse_ws(&rendered);
+    assert!(
+        collapsed.contains("Discard the current Write composition and open the selected draft?"),
+        "the discard question must stay readable:\n{rendered}"
+    );
+    assert!(
+        collapsed.contains("y discard") && collapsed.contains("n cancel"),
+        "the discard answers must stay readable:\n{rendered}"
+    );
+    let prompt_rows = rendered
+        .lines()
+        .filter(|line| {
+            line.contains("Discard")
+                || line.contains("composition")
+                || line.contains("selected draft")
+        })
+        .count();
+    assert!(
+        prompt_rows > 1,
+        "the discard question wraps instead of clipping, saw {prompt_rows}:\n{rendered}"
+    );
+    let popup = discard.window.popup_area.expect("popup");
+    assert_rows_stay_inside_border(
+        &buf,
+        popup,
+        &rendered,
+        &[
+            "Discard",
+            "composition",
+            "selected draft",
+            "y discard",
+            "n cancel",
+        ],
+    );
+
+    let mut delete = FeedbackModalState::new(OpenFeedbackModal::default());
+    delete.window.active_tab = FeedbackTab::Drafts.index();
+    delete.metadata.draft_id = Some("stored".to_owned().into());
+    delete.drafts = DraftsState::Browse {
+        rows: vec![draft("stored", "stored text", FeedbackTaxonomy::default())],
+        selected_id: Some("stored".to_owned().into()),
+        query: LineEditor::default(),
+        search_focused: false,
+        error: None,
+    };
+    delete.handle_key(&key(KeyCode::Char('d'), KeyModifiers::NONE));
+
+    let (buf, rendered) = render_area(&mut delete, area);
+    let collapsed = collapse_ws(&rendered);
+    assert!(
+        collapsed.contains("Delete the stored recovery copy? Your current edits will remain."),
+        "the delete question must stay readable:\n{rendered}"
+    );
+    assert!(
+        collapsed.contains("y delete") && collapsed.contains("n cancel"),
+        "the delete answers must stay readable:\n{rendered}"
+    );
+    let prompt_rows = rendered
+        .lines()
+        .filter(|line| line.contains("Delete the stored") || line.contains("will remain"))
+        .count();
+    assert!(
+        prompt_rows > 1,
+        "the delete question wraps instead of clipping, saw {prompt_rows}:\n{rendered}"
+    );
+    let popup = delete.window.popup_area.expect("popup");
+    assert_rows_stay_inside_border(
+        &buf,
+        popup,
+        &rendered,
+        &["Delete the stored", "will remain", "y delete"],
+    );
+}
+
 #[test]
 fn draft_search_bar_is_always_visible_and_click_focuses_it() {
     let mut modal = FeedbackModalState::new(OpenFeedbackModal::default());

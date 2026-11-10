@@ -411,25 +411,6 @@ impl FeedbackModalState {
             .collect()
     }
 
-    pub(super) fn update_drafts_viewport(&mut self, capacity: usize) {
-        let visible = self.visible_draft_ids();
-        if capacity == 0 || visible.is_empty() {
-            self.drafts_viewport_start = 0;
-            return;
-        }
-        let selected = self
-            .selected_draft_id()
-            .and_then(|id| visible.iter().position(|candidate| *candidate == id))
-            .unwrap_or(0);
-        let max_start = visible.len().saturating_sub(capacity);
-        self.drafts_viewport_start = self.drafts_viewport_start.min(max_start);
-        if selected < self.drafts_viewport_start {
-            self.drafts_viewport_start = selected;
-        } else if selected >= self.drafts_viewport_start + capacity {
-            self.drafts_viewport_start = selected + 1 - capacity;
-        }
-    }
-
     fn selected_draft_id(&self) -> Option<FeedbackDraftId> {
         let DraftsState::Browse { selected_id, .. } = &self.drafts else {
             return None;
