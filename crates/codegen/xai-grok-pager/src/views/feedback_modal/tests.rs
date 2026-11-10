@@ -1406,6 +1406,69 @@ fn draft_viewport_keeps_last_selection_visible() {
     assert!(!rendered.contains("draft row 0"), "{rendered}");
 }
 
+fn browse_thirty(selected: &str) -> FeedbackModalState {
+    let mut modal = FeedbackModalState::new(OpenFeedbackModal::default());
+    let rows: Vec<_> = (0..30)
+        .map(|index| {
+            draft(
+                &format!("draft-{index}"),
+                &format!("draft row {index}"),
+                FeedbackTaxonomy::default(),
+            )
+        })
+        .collect();
+    modal.window.active_tab = FeedbackTab::Drafts.index();
+    modal.drafts = DraftsState::Browse {
+        selected_id: Some(selected.to_owned().into()),
+        rows,
+        query: LineEditor::default(),
+        search_focused: false,
+        error: None,
+    };
+    modal
+}
+
+fn selected_draft(modal: &FeedbackModalState) -> Option<&str> {
+    match &modal.drafts {
+        DraftsState::Browse { selected_id, .. } => selected_id.as_ref().map(|id| id.as_str()),
+        _ => None,
+    }
+}
+
+#[test]
+fn home_and_end_jump_to_the_first_and_last_draft() {
+    let mut modal = browse_thirty("draft-4");
+    modal.handle_key(&key(KeyCode::End, KeyModifiers::NONE));
+    assert_eq!(selected_draft(&modal), Some("draft-29"));
+    let rendered = render_to_text(&mut modal);
+    assert!(rendered.contains("draft row 29"), "{rendered}");
+    assert!(!rendered.contains("draft row 0"), "{rendered}");
+
+    modal.handle_key(&key(KeyCode::Home, KeyModifiers::NONE));
+    assert_eq!(selected_draft(&modal), Some("draft-0"));
+    let rendered = render_to_text(&mut modal);
+    assert!(rendered.contains("draft row 0"), "{rendered}");
+    assert!(!rendered.contains("draft row 29"), "{rendered}");
+
+    modal.handle_key(&key(KeyCode::Char('G'), KeyModifiers::NONE));
+    assert_eq!(selected_draft(&modal), Some("draft-29"));
+    modal.handle_key(&key(KeyCode::Char('g'), KeyModifiers::NONE));
+    assert_eq!(selected_draft(&modal), Some("draft-0"));
+
+    if let DraftsState::Browse {
+        search_focused, ..
+    } = &mut modal.drafts
+    {
+        *search_focused = true;
+    }
+    modal.handle_key(&key(KeyCode::End, KeyModifiers::NONE));
+    assert_eq!(
+        selected_draft(&modal),
+        Some("draft-0"),
+        "End in the search box does not jump the list"
+    );
+}
+
 #[test]
 fn agent_input_is_owned_without_mutating_main_prompt() {
     let mut agent = crate::app::agent_view::test_fixtures::make_agent();

@@ -657,10 +657,10 @@ impl FeedbackModalState {
             }
             KeyCode::Down | KeyCode::Char('j') => self.move_draft_selection(DraftMove::Next),
             KeyCode::Up | KeyCode::Char('k') => self.move_draft_selection(DraftMove::Previous),
-            KeyCode::Char('g') if key.modifiers.is_empty() => {
+            KeyCode::Char('g') | KeyCode::Home if key.modifiers.is_empty() => {
                 self.move_draft_selection(DraftMove::First)
             }
-            KeyCode::Char('G') if key.modifiers.is_empty() => {
+            KeyCode::Char('G') | KeyCode::End if key.modifiers.is_empty() => {
                 self.move_draft_selection(DraftMove::Last)
             }
             KeyCode::Char('/') | KeyCode::Char('i') if key.modifiers.is_empty() => {
