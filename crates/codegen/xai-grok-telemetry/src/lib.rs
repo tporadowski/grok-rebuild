@@ -31,7 +31,9 @@ pub use client::{
 };
 pub use events::TelemetryEvent;
 pub(crate) use logs::appender;
-pub use logs::{debug_log, hooks_log, memory_log, sampling_log, unified_log};
+pub use logs::{
+    debug_log, hooks_log, log_line_uses_ansi, memory_log, no_color_is_set, sampling_log, unified_log,
+};
 pub use process::{memory_telemetry, process_info, process_metrics};
 pub use session::session_ctx::{
     EmitterOrigin, TelemetryCtx, emit_event, emit_event_with_origin, log_event, log_session_event,

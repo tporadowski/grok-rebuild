@@ -320,7 +320,8 @@ pub struct TracingHandle {
 }
 /// Initialize a `tracing-subscriber` that captures formatted log lines into a channel, ready for display in a
 /// [`TracingModel`]. This sets the global default subscriber. `Full` formatter (timestamp, level, target, message).
-/// ANSI colors enabled (`with_ansi(true)`). `RUST_LOG` env filter (defaults to `info` if unset).
+/// ANSI colors stay on for the on-screen log unless `NO_COLOR` is set.
+/// `RUST_LOG` env filter (defaults to `info` if unset).
 pub fn init_tracing() -> TracingHandle {
     use tracing_subscriber::{
         EnvFilter, Layer as _, filter::LevelFilter, fmt, layer::SubscriberExt as _,
@@ -332,7 +333,10 @@ pub fn init_tracing() -> TracingHandle {
         .parse_lossy(&directives);
     let fmt_layer = fmt::layer()
         .with_target(true)
-        .with_ansi(true)
+        .with_ansi(xai_grok_telemetry::log_line_uses_ansi(
+            true,
+            xai_grok_telemetry::no_color_is_set(),
+        ))
         .with_writer(make_writer);
     let otel_layer = xai_grok_telemetry::otel_layer::build_otel_layer(
         xai_grok_telemetry::otel_layer::OtelClientInfo {

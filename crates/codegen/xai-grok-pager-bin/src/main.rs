@@ -235,7 +235,10 @@ fn init_tracing_simple(app_entrypoint: &'static str) {
     };
     let fmt_layer = fmt::layer()
         .with_target(false)
-        .with_ansi(true)
+        .with_ansi(xai_grok_telemetry::log_line_uses_ansi(
+            std::io::IsTerminal::is_terminal(&std::io::stderr()),
+            xai_grok_telemetry::no_color_is_set(),
+        ))
         .with_writer(std::io::stderr);
     let registry = tracing_subscriber::registry()
         .with(fmt_layer.with_filter(env_filter))
