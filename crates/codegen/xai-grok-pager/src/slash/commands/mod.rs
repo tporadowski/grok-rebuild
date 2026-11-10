@@ -317,6 +317,27 @@ mod tests {
         ));
     }
     #[test]
+    fn delete_with_extra_text_is_an_error() {
+        let models = ModelState::default();
+        let cmd = delete::DeleteCommand;
+        let mut ctx = make_ctx(&models);
+        let session_id = acp::SessionId::new("sess-delete");
+        ctx.session_id = Some(&session_id);
+        match cmd.run(&mut ctx, "old notes") {
+            CommandResult::Error(text) => assert_eq!(text, "/delete takes no arguments."),
+            other => panic!("expected Error, got {other:?}"),
+        }
+        assert_eq!(
+            cmd.submission_refusal("old notes", false),
+            Some("/delete takes no arguments.")
+        );
+        assert!(matches!(
+            cmd.run(&mut ctx, "   "),
+            CommandResult::Action(Action::DeleteCurrentSession)
+        ));
+        assert_eq!(cmd.submission_refusal("   ", false), None);
+    }
+    #[test]
     fn view_plan_returns_show_plan_action() {
         let models = ModelState::default();
         let mut ctx = make_ctx(&models);
