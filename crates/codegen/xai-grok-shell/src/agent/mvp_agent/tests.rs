@@ -1078,6 +1078,33 @@ fn system_prompt_override_keeps_append_rules() {
     );
 }
 #[test]
+fn session_prompt_override_uses_only_that_sessions_rules() {
+    let init = serde_json::json!({ "rules": "from the other session" });
+    let session = serde_json::json!({ "systemPromptOverride": "you are terse" });
+    let spawned = build_spawn_system_prompt(
+        session.as_object(),
+        init.as_object(),
+        "agent prompt",
+    );
+    assert_eq!(spawned, "you are terse");
+
+    let session = serde_json::json!({
+        "systemPromptOverride": "you are terse",
+        "rules": "this session",
+    });
+    let spawned = build_spawn_system_prompt(
+        session.as_object(),
+        init.as_object(),
+        "agent prompt",
+    );
+    assert!(spawned.starts_with("you are terse\n"), "{spawned}");
+    assert!(
+        spawned.contains("<human_rules>\nthis session\n</human_rules>"),
+        "{spawned}"
+    );
+    assert!(!spawned.contains("other session"), "{spawned}");
+}
+#[test]
 fn blank_override_is_no_override() {
     let cases = [
         (

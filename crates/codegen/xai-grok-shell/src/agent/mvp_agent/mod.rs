@@ -1026,13 +1026,24 @@ pub mod system_prompt {
         rest.get(..end).filter(|rules| !rules.is_empty())
     }
     /// A non-blank `systemPromptOverride` replaces the agent prompt. `rules` are still appended.
-    /// Each key is read from `session_meta` first, then `init_meta`.
+    /// A session override uses only that session's `rules`. Rules stored on the process init by
+    /// another session are not copied onto it.
     pub fn requested_system_prompt<'a>(
         session_meta: Option<&'a acp::Meta>,
         init_meta: Option<&'a acp::Meta>,
     ) -> Option<RequestedSystemPrompt<'a>> {
+        let read = |meta: Option<&'a acp::Meta>, key: &str| -> Option<&'a str> {
+            meta.and_then(|meta| meta.get(key)).and_then(|value| value.as_str())
+        };
+        let nonblank = |value: Option<&'a str>| value.filter(|text| !text.trim().is_empty());
+        if let Some(prompt) = nonblank(read(session_meta, "systemPromptOverride")) {
+            return Some(RequestedSystemPrompt::Override {
+                prompt,
+                rules: nonblank(read(session_meta, "rules")),
+            });
+        }
         let rules = read_session_or_init_meta_str(session_meta, init_meta, "rules");
-        match system_prompt_override_from_meta(session_meta, init_meta) {
+        match nonblank(read(init_meta, "systemPromptOverride")) {
             Some(prompt) => Some(RequestedSystemPrompt::Override {
                 prompt,
                 rules: rules.filter(|rules| !rules.trim().is_empty()),
