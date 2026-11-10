@@ -462,6 +462,41 @@ fn auth_complete_resume_plus_worktree_creates_worktree_with_session() {
 }
 
 #[test]
+fn fork_while_an_approval_is_open_is_refused() {
+    let mut app = fork_test_app();
+    let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+    agent.set_active_pane(crate::app::agent_view::ActivePane::Prompt, true);
+    let mut rx = super::super::push_synthetic_permission(agent, 1, vec![("allow", "Allow")]);
+
+    for args in [fork_args(None, None), fork_args(Some(false), None)] {
+        let effects = dispatch(Action::Fork(args), &mut app);
+        assert!(effects.is_empty(), "fork must not start, got {effects:?}");
+    }
+    assert_eq!(app.agents.len(), 1, "no placeholder session");
+    let agent = app.agents.get(&AgentId(0)).unwrap();
+    assert!(agent.question_view.is_none());
+    assert_eq!(agent.permission_queue.len(), 1);
+    assert!(
+        matches!(
+            agent.key_owner(),
+            crate::app::agent_view::KeyOwner::Card(
+                crate::app::agent_view::BlockingCard::Permission
+            )
+        ),
+        "approval keys still answer the open request"
+    );
+    let Some(toast) = agent.toast.as_ref() else {
+        panic!("toast should be set");
+    };
+    assert!(
+        toast.0.contains("approval"),
+        "toast should name the approval, got {}",
+        toast.0
+    );
+    assert!(rx.try_recv().is_err(), "the approval must stay unanswered");
+}
+
+#[test]
 fn dispatch_fork_from_welcome_toasts_and_returns_no_effect() {
     let mut app = fork_test_app();
     app.active_view = ActiveView::Welcome;

@@ -26,6 +26,15 @@ pub(in crate::app::dispatch) fn dispatch_fork(
         app.show_toast("/fork only works inside a session");
         return vec![];
     };
+    // A fork question uses the same number keys as the approval card. Leave the card in place.
+    if app
+        .agents
+        .get(&parent_id)
+        .is_some_and(|agent| !agent.permission_queue.is_empty())
+    {
+        app.show_toast("Answer the approval request before /fork");
+        return vec![];
+    }
     let (has_session, in_git_repo) = app
         .agents
         .get(&parent_id)
