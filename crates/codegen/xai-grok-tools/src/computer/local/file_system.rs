@@ -1,4 +1,10 @@
-use std::{future::Future, io, path::Path, time::Duration};
+use std::{
+    future::Future,
+    io,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 
 use tokio::{fs, time::sleep};
 
@@ -53,9 +59,78 @@ fn is_test_transient_write_lock_error(e: &io::Error) -> bool {
     is_windows_transient_write_lock_raw_os_error(e.raw_os_error())
 }
 
+/// Write `data` to `path` by filling a sibling temp file and renaming it into place.
+/// A failure while that temp is written removes the temp and leaves `path` unchanged,
+/// so a torn write cannot replace the previous bytes with an empty file.
+pub async fn write_replacing_previous(path: &Path, data: &[u8]) -> io::Result<()> {
+    let dest = followed_write_target(path).await?;
+    if let Ok(meta) = fs::metadata(&dest).await
+        && meta.is_dir()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::IsADirectory,
+            "refusing to replace a directory",
+        ));
+    }
+    let tmp = sibling_temp_path(&dest);
+    if let Err(error) = fs::write(&tmp, data).await {
+        let _ = fs::remove_file(&tmp).await;
+        return Err(error);
+    }
+    if let Err(error) = finish_replace(&tmp, &dest).await {
+        let _ = fs::remove_file(&tmp).await;
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// `File::create` follows a symlink. A dangling link is an error and stays a link.
+async fn followed_write_target(path: &Path) -> io::Result<PathBuf> {
+    match fs::symlink_metadata(path).await {
+        Ok(meta) if meta.file_type().is_symlink() => fs::canonicalize(path).await,
+        Ok(_) => Ok(path.to_path_buf()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(path.to_path_buf()),
+        Err(error) => Err(error),
+    }
+}
+
+fn sibling_temp_path(path: &Path) -> PathBuf {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let nonce = SEQ.fetch_add(1, Ordering::Relaxed);
+    let file_name = format!(".{}.{nonce}.grok-write.tmp", std::process::id());
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir.join(file_name),
+        _ => PathBuf::from(file_name),
+    }
+}
+
+async fn finish_replace(tmp: &Path, dest: &Path) -> io::Result<()> {
+    copy_existing_mode(tmp, dest).await?;
+    fs::rename(tmp, dest).await
+}
+
+async fn copy_existing_mode(tmp: &Path, dest: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        match fs::symlink_metadata(dest).await {
+            Ok(meta) if meta.is_file() => {
+                fs::set_permissions(tmp, meta.permissions()).await?;
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (tmp, dest);
+    }
+    Ok(())
+}
+
 async fn write_file_with_transient_lock_retries(path: &Path, data: &[u8]) -> io::Result<()> {
     write_file_with_retry_hooks(
-        || fs::write(path, data),
+        || write_replacing_previous(path, data),
         |delay| sleep(delay),
         |retry_count| {
             tracing::debug!(
@@ -385,5 +460,138 @@ mod tests {
         assert_eq!(attempts.get(), WRITE_RETRY_DELAYS.len() + 1);
         assert_eq!(sleeps.get(), WRITE_RETRY_DELAYS.len());
         assert_eq!(exhausted_count.get(), WRITE_RETRY_DELAYS.len());
+    }
+
+    fn grok_write_temps(dir: &std::path::Path) -> Vec<std::ffi::OsString> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name())
+            .filter(|name| name.to_string_lossy().contains("grok-write"))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn preserving_file_write_replaces_contents_when_the_write_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.txt");
+        LocalFs.write_file(&path, b"previous").await.unwrap();
+        LocalFs
+            .write_file(&path, b"next\0byte")
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"next\0byte");
+        assert!(grok_write_temps(dir.path()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn preserving_file_write_creates_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub").join("new.txt");
+        LocalFs.write_file(&path, b"created").await.unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"created");
+        assert!(grok_write_temps(&dir.path().join("sub")).is_empty());
+    }
+
+    #[tokio::test]
+    async fn preserving_file_write_refuses_a_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("folder");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("inside.txt"), b"keep").unwrap();
+        assert!(LocalFs.write_file(&target, b"nope").await.is_err());
+        assert!(target.is_dir());
+        assert_eq!(std::fs::read(target.join("inside.txt")).unwrap(), b"keep");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn preserving_file_write_keeps_the_existing_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("script.sh");
+        LocalFs.write_file(&path, b"old").await.unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        LocalFs.write_file(&path, b"new").await.unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640);
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn preserving_file_write_follows_a_symlink_and_keeps_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.txt");
+        let link = dir.path().join("link.txt");
+        std::fs::write(&target, b"old").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        LocalFs.write_file(&link, b"new").await.unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(grok_write_temps(dir.path()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn preserving_file_write_leaves_a_dangling_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(dir.path().join("missing.txt"), &link).unwrap();
+        assert!(LocalFs.write_file(&link, b"new").await.is_err());
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(!dir.path().join("missing.txt").exists());
+    }
+
+    /// The directory cannot accept a new temp name, while the file itself stays writable.
+    /// An in-place truncate would replace `previous`. This write fails and leaves it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn preserving_file_write_leaves_previous_contents_when_the_write_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.txt");
+        LocalFs.write_file(&path, b"previous").await.unwrap();
+
+        struct RestoreMode {
+            path: std::path::PathBuf,
+            mode: u32,
+        }
+        impl Drop for RestoreMode {
+            fn drop(&mut self) {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(
+                    &self.path,
+                    std::fs::Permissions::from_mode(self.mode),
+                );
+            }
+        }
+        let original = std::fs::metadata(dir.path()).unwrap().permissions().mode();
+        let _restore = RestoreMode {
+            path: dir.path().to_path_buf(),
+            mode: original,
+        };
+        let mut locked = std::fs::metadata(dir.path()).unwrap().permissions();
+        locked.set_mode(0o555);
+        std::fs::set_permissions(dir.path(), locked).unwrap();
+
+        assert!(
+            LocalFs
+                .write_file(&path, b"replacement that must not land")
+                .await
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"previous");
+        assert!(grok_write_temps(dir.path()).is_empty());
     }
 }

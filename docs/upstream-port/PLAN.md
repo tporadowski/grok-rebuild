@@ -878,14 +878,14 @@ Refresh these numbers at the end of a session.
 | W11 | Headless mode and tools | 0 | 0 | 35 | 6 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 39 | 12 | 8 |
 | W13 | Update, install, and sign-in | 0 | 0 | 22 | 5 | 0 |
-| W14 | Pager and remaining bug fixes | 137 | 0 | 6 | 3 | 1 |
+| W14 | Pager and remaining bug fixes | 136 | 0 | 7 | 3 | 1 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
 
-Catalog rows: 583. Pending: 157. Skipped: 8. Done: 333. Already: 66. Deferred: 19.
+Catalog rows: 583. Pending: 156. Skipped: 8. Done: 334. Already: 66. Deferred: 19.
 
-**Next:** W14 Pager and remaining bug fixes. First open row: Failed file writes now leave the previous contents instead of an empty file (`v50-x10`).
+**Next:** W14 Pager and remaining bug fixes. First open row: Fixed /loop and scheduler_create so non-ASCII intervals like 5分 no longer crash the session (`v50-x11`).
 
 ## Waves
 
@@ -943,7 +943,7 @@ Pending: 0. Done: 22. Already: 5. Look first: `xai-grok-update` and login in `xa
 
 ### W14 — Pager and remaining bug fixes
 
-Pending: 137. Done: 6. Already: 3 (`v50-x07`, D-202; `v50-x05`, D-201; `v50-f04`, D-199). Deferred: 1 (`v50-f08`, D-200). Look first: Everything that did not match a feature wave. A session line larger than 4 MiB is delivered; the reader allows 64 MiB (`v50-x07`, `a_line_past_four_mib_stays_connected`, D-202). A stalled model call retries before the turn fails, and fails once that budget is spent (`v50-x05`, `idle_timeout_first_failure_requests_resubmit`, D-201). Long errors in `/usage` and `/session-info` wrap to the modal width (`v50-x03`, `long_errors_wrap_in_usage_and_session_info`). Live preview pins that record an app behind a URL are not in this tree (`v50-f08`, D-200). A cancel names one in-flight response and leaves the others running (`v50-f04`, `cancel_one_request_leaves_the_other`, D-199). A long branch on a narrow header abbreviates with an ellipsis and a click still copies the full name (`v50-f03`, `long_branch_names_abbreviate_on_a_narrow_header`). Clicking the git branch in the header copies the full name, including the part the row clips (`v50-f02`, `clicking_the_git_branch_copies_the_full_name`). `/rewind` lists the prompts you typed and skips automatic runtime turns (`v48-x01`, `rewind_points_list_only_prompts_the_user_typed`). A model-switch response refreshes the displayed model list and sets the context window from that response (`v47-f01`, `reported_model_state_updates_the_displayed_list_and_window`). Client rules from session start stay in the rebuilt system prompt (`v46-x03`, `rebuilt_prompt_keeps_client_rules_from_session_start`). Work in version order. Many items are one behavior in `xai-grok-pager`. If an item clearly belongs in an earlier wave, move its wave field, record a decision, and leave it pending for that wave if the wave is already finished; otherwise do it now.
+Pending: 136. Done: 7. Already: 3 (`v50-x07`, D-202; `v50-x05`, D-201; `v50-f04`, D-199). Deferred: 1 (`v50-f08`, D-200). Look first: Everything that did not match a feature wave. A failed file write leaves the previous contents; the new bytes replace the file only after they are written (`v50-x10`, `preserving_file_write_leaves_previous_contents_when_the_write_fails`). A session line larger than 4 MiB is delivered; the reader allows 64 MiB (`v50-x07`, `a_line_past_four_mib_stays_connected`, D-202). A stalled model call retries before the turn fails, and fails once that budget is spent (`v50-x05`, `idle_timeout_first_failure_requests_resubmit`, D-201). Long errors in `/usage` and `/session-info` wrap to the modal width (`v50-x03`, `long_errors_wrap_in_usage_and_session_info`). Live preview pins that record an app behind a URL are not in this tree (`v50-f08`, D-200). A cancel names one in-flight response and leaves the others running (`v50-f04`, `cancel_one_request_leaves_the_other`, D-199). A long branch on a narrow header abbreviates with an ellipsis and a click still copies the full name (`v50-f03`, `long_branch_names_abbreviate_on_a_narrow_header`). Clicking the git branch in the header copies the full name, including the part the row clips (`v50-f02`, `clicking_the_git_branch_copies_the_full_name`). `/rewind` lists the prompts you typed and skips automatic runtime turns (`v48-x01`, `rewind_points_list_only_prompts_the_user_typed`). A model-switch response refreshes the displayed model list and sets the context window from that response (`v47-f01`, `reported_model_state_updates_the_displayed_list_and_window`). Client rules from session start stay in the rebuilt system prompt (`v46-x03`, `rebuilt_prompt_keeps_client_rules_from_session_start`). Work in version order. Many items are one behavior in `xai-grok-pager`. If an item clearly belongs in an earlier wave, move its wave field, record a decision, and leave it pending for that wave if the wave is already finished; otherwise do it now.
 
 ### W15 — Performance
 
@@ -1371,7 +1371,7 @@ id | status | wave | kind | flag | covered | note
 - v50-x03 | done | W14 | Bug Fixes |  |  | **Long error messages** in the /usage and /session-info modals now wrap instead of being truncated.
 - v50-x05 | already | W14 | Bug Fixes |  |  | **Stalled model calls** during turns now retry before failing the turn.
 - v50-x07 | already | W14 | Bug Fixes |  |  | **Long sessions** no longer disconnect when the conversation exceeds 4 MiB.
-- v50-x10 | pending | W14 | Bug Fixes |  |  | **Failed file writes** now leave the previous contents instead of an empty file.
+- v50-x10 | done | W14 | Bug Fixes |  |  | **Failed file writes** now leave the previous contents instead of an empty file.
 - v50-x11 | pending | W14 | Bug Fixes |  |  | **Fixed /loop and scheduler_create** so non-ASCII intervals like 5分 no longer crash the session.
 - v50-x13 | pending | W14 | Bug Fixes |  |  | **Fixed closing a busy tab** so queued prompts are no longer sent to the model.
 - v50-x14 | pending | W14 | Bug Fixes |  |  | **Fixed relative --cwd** so `grok --cwd a` no longer ends up running inside `a/a`.

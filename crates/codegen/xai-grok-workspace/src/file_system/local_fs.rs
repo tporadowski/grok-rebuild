@@ -57,7 +57,7 @@ impl AsyncFileSystem for LocalFs {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir).await?;
         }
-        fs::write(path, data).await?;
+        xai_grok_tools::computer::local::file_system::write_replacing_previous(path, data).await?;
         Ok(())
     }
 

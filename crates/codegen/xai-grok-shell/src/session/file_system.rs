@@ -224,17 +224,14 @@ pub(crate) fn check_file_size_limits(
 }
 
 pub async fn write_file(abs_path: &Path, content: &str, create_dirs: bool) -> Result<()> {
-    let abs_path = abs_path.to_path_buf();
-    let content = content.to_string();
-
-    tokio::task::spawn_blocking(move || {
-        if create_dirs && let Some(parent) = abs_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&abs_path, content.as_bytes())
-    })
-    .await??;
-
+    if create_dirs && let Some(parent) = abs_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    xai_grok_tools::computer::local::file_system::write_replacing_previous(
+        abs_path,
+        content.as_bytes(),
+    )
+    .await?;
     Ok(())
 }
 
