@@ -20,12 +20,14 @@ fn page_flip_on_send() -> bool {
 }
 
 /// Slash output skips the prompt drain; pin it at the top when page-flip is on.
+/// A notice typed while an agent reply is still streaming stays below that reply, so the reply stays on screen.
 pub(super) fn push_and_page_flip(scrollback: &mut ScrollbackState, block: RenderBlock) {
+    let keep_streaming_reply = scrollback.has_streaming_agent_reply();
     scrollback.push_block(block);
-    if !page_flip_on_send() {
+    if keep_streaming_reply || !page_flip_on_send() {
         return;
     }
-    let idx = scrollback.len() - 1;
+    let idx = scrollback.len().saturating_sub(1);
     scrollback.page_flip_to_entry(idx);
 }
 
@@ -2227,6 +2229,58 @@ mod tests {
         crate::appearance::cache::set_page_flip_on_send(
             xai_grok_shell::agent::config::UiConfig::PAGE_FLIP_ON_SEND_DEFAULT,
         );
+    }
+
+    #[test]
+    fn slash_notice_during_a_streaming_reply_does_not_page_flip() {
+        fn scrolled_transcript(streaming: bool) -> AppView {
+            let mut app = test_app_with_agent();
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            for i in 0..40 {
+                agent
+                    .scrollback
+                    .push_block(RenderBlock::agent_message(format!("earlier {i}")));
+            }
+            if streaming {
+                let id = agent.scrollback.start_streaming_agent();
+                agent
+                    .scrollback
+                    .get_by_id_mut(id)
+                    .expect("streaming reply")
+                    .block
+                    .as_agent_message_mut()
+                    .expect("agent message")
+                    .push_chunk("The answer is still arriving.");
+            }
+            agent.scrollback.prepare_layout(80, 8);
+            agent.scrollback.goto_bottom();
+            app
+        }
+
+        let prev = crate::appearance::cache::load_page_flip_on_send();
+        crate::appearance::cache::set_page_flip_on_send(true);
+
+        let mut streaming = scrolled_transcript(true);
+        let held = test_agent(&streaming, AgentId(0)).scrollback.scroll_offset();
+        dispatch(Action::SendPrompt("/rename".into()), &mut streaming);
+        let sb = &test_agent(&streaming, AgentId(0)).scrollback;
+        let notice = sb.entry(sb.len().saturating_sub(1)).map(|entry| &entry.block);
+        assert!(
+            matches!(notice, Some(RenderBlock::System(block)) if block.text.contains("rename") || block.text.contains("session")),
+            "slash notice missing: {notice:?}"
+        );
+        assert_eq!(sb.scroll_offset(), held, "page-flip hid the streaming reply");
+        assert!(!sb.is_follow_preserve_scroll());
+        assert!(sb.has_streaming_agent_reply());
+
+        let mut idle = scrolled_transcript(false);
+        let before = test_agent(&idle, AgentId(0)).scrollback.scroll_offset();
+        dispatch(Action::SendPrompt("/rename".into()), &mut idle);
+        let sb = &test_agent(&idle, AgentId(0)).scrollback;
+        assert!(sb.is_follow_preserve_scroll(), "a finished transcript still page-flips");
+        assert_ne!(sb.scroll_offset(), before);
+
+        crate::appearance::cache::set_page_flip_on_send(prev);
     }
 
     #[test]

@@ -499,6 +499,13 @@ impl ScrollbackState {
         !self.running.is_empty()
     }
 
+    /// An agent reply that is still receiving chunks. A slash notice must not page-flip over it.
+    pub(crate) fn has_streaming_agent_reply(&self) -> bool {
+        self.entries.values().any(|entry| {
+            entry.is_running && matches!(entry.block, crate::scrollback::block::RenderBlock::AgentMessage(_))
+        })
+    }
+
     /// Whether any running entry is inside the current viewport window.
     /// Conservative: with no layout yet (before the first draw), every entry counts as visible.
     fn any_running_in_viewport(&self) -> bool {
