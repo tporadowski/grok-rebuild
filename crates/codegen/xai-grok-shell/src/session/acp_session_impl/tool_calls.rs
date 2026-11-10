@@ -3344,16 +3344,28 @@ impl SessionActor {
         Ok(())
     }
 }
+/// Shown on a write approval when the existing file is binary or cannot be read.
+const UNREADABLE_FILE: &str = "unreadable";
+
 /// Text a write approval shows as the file being replaced.
-/// A missing or unreadable path stays empty, so a new file is still a creation.
+/// A missing path stays empty, so a new file is still a creation.
+/// Binary bytes and a file that cannot be read show as `unreadable`.
 async fn write_approval_old_text(
     fs: &xai_grok_workspace::file_system::AsyncFsWrapper,
     path: &std::path::Path,
 ) -> String {
-    match fs.try_read_to_string(path).await {
-        Ok(Some(text)) => text,
-        Ok(None) | Err(_) => String::new(),
+    match fs.try_read_file(path).await {
+        Ok(None) => String::new(),
+        Ok(Some(bytes)) => approval_text_from_bytes(bytes),
+        Err(_) => UNREADABLE_FILE.to_string(),
     }
+}
+
+fn approval_text_from_bytes(bytes: Vec<u8>) -> String {
+    if bytes.contains(&0) {
+        return UNREADABLE_FILE.to_string();
+    }
+    String::from_utf8(bytes).unwrap_or_else(|_| UNREADABLE_FILE.to_string())
 }
 /// The title peels a redundant leading `cd <cwd>` for chrome only; `raw_input` is serialized separately and stays full.
 fn execute_tool_call_parts(
@@ -3987,5 +3999,43 @@ mod write_approval_old_text_tests {
         let fs = AsyncFsWrapper::new(Arc::new(LocalFs::new(tmp.path().to_path_buf())));
         let old = write_approval_old_text(&fs, &path).await;
         assert_eq!(old, "");
+    }
+
+    #[tokio::test]
+    async fn write_approval_old_text_says_unreadable_for_binary_and_unreadable_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fs = AsyncFsWrapper::new(Arc::new(LocalFs::new(tmp.path().to_path_buf())));
+
+        let binary = tmp.path().join("blob.bin");
+        std::fs::write(&binary, b"\x89PNG\r\n\x1a\n\x00\xff").unwrap();
+        assert_eq!(
+            write_approval_old_text(&fs, &binary).await,
+            "unreadable",
+            "binary bytes stay off the approval card"
+        );
+
+        let nul = tmp.path().join("nul.txt");
+        std::fs::write(&nul, b"hello\0world").unwrap();
+        assert_eq!(write_approval_old_text(&fs, &nul).await, "unreadable");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let locked = tmp.path().join("locked.txt");
+            std::fs::write(&locked, b"hidden").unwrap();
+            let mut perms = std::fs::metadata(&locked).unwrap().permissions();
+            perms.set_mode(0);
+            std::fs::set_permissions(&locked, perms).unwrap();
+            if std::fs::read(&locked).is_err() {
+                assert_eq!(
+                    write_approval_old_text(&fs, &locked).await,
+                    "unreadable",
+                    "a file that cannot be read says unreadable"
+                );
+            }
+            let mut restore = std::fs::metadata(&locked).unwrap().permissions();
+            restore.set_mode(0o644);
+            std::fs::set_permissions(&locked, restore).unwrap();
+        }
     }
 }
