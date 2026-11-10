@@ -67,6 +67,7 @@ impl AgentView {
     }
 
     /// Highlights the bottom row (last under the server-then-local merge order) and leaves the composer untouched.
+    /// The next layout scrolls that follow-up into the queue viewport.
     pub(super) fn try_focus_queue_from_prompt(&mut self) -> Option<InputOutcome> {
         self.sync_queue_pane();
         let id = *self.queue.entry_ids().last()?;
@@ -78,6 +79,7 @@ impl AgentView {
         self.queue.overlay.visible = true;
         self.queue.overlay.focused = true;
         self.queue.list_state.select_by_id(id);
+        self.queue.list_state.reveal_selection_on_next_layout();
         Some(InputOutcome::Changed)
     }
 

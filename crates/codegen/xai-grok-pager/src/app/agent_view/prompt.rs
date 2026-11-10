@@ -2166,6 +2166,56 @@ mod queue_recall_tests {
         assert_eq!(agent.queue.selected_id(), Some(bottom));
     }
 
+    /// The queue pane shows three rows. Up on a longer queue must scroll the selected follow-up into that window.
+    #[test]
+    fn up_scrolls_the_selected_follow_up_into_view() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let mut agent = make_running_agent();
+        for i in 0..4 {
+            agent.session.enqueue_prompt(format!("follow {i}"));
+        }
+        agent.active_pane = AgentPane::Prompt;
+        agent.queue.overlay.focused = false;
+
+        up(&mut agent);
+
+        let bottom = *agent.queue.entry_ids().last().unwrap();
+        assert_eq!(agent.queue.selected_id(), Some(bottom));
+        assert!(
+            agent.queue.entry_ids().len() > 3,
+            "the fixture must overflow the three-row queue pane"
+        );
+
+        let area = Rect::new(0, 0, 80, 3);
+        let mut buf = Buffer::empty(area);
+        agent.queue.render(
+            area,
+            &mut buf,
+            true,
+            &crate::appearance::LayoutConfig::default(),
+            None,
+            true,
+        );
+
+        let selected = agent
+            .queue
+            .list_state
+            .selected_index()
+            .expect("layout resolves the selected follow-up");
+        let visible = agent.queue.list_state.visible_range();
+        assert!(
+            visible.contains(&selected),
+            "selected follow-up {selected} must be on screen, visible {visible:?}, scroll {}",
+            agent.queue.list_state.scroll_offset()
+        );
+        assert!(
+            agent.queue.list_state.scroll_offset() > 0,
+            "a queue taller than the pane must scroll to the selected row"
+        );
+    }
+
     #[test]
     fn ctrl_shift_y_from_the_prompt_copies_markdown_source() {
         let mut agent = test_fixtures::make_agent();

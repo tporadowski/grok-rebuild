@@ -24,6 +24,7 @@ impl ListPaneState {
             filter_dirty: true, // force first build
             last_item_count: 0,
             scroll_anchor: None,
+            reveal_selection_on_layout: false,
             scroll_screen_y: None,
             follow_mode: follow_mode && config.follow_enabled,
             at_content_edge: false,
@@ -804,6 +805,12 @@ impl ListPaneState {
         if !self.follow_mode && items_shrunk {
             self.ensure_selected_visible();
         }
+        if self.reveal_selection_on_layout {
+            self.reveal_selection_on_layout = false;
+            if !self.follow_mode {
+                self.ensure_selected_visible();
+            }
+        }
     }
 
     /// Scroll down by `n` visual lines (viewport only, no follow logic). This is a low-level primitive.
@@ -1321,6 +1328,12 @@ impl ListPaneState {
 
     pub fn reveal_selection(&mut self) {
         self.ensure_selected_visible();
+    }
+
+    /// Scroll the selected row into view on the next [`prepare_layout`](Self::prepare_layout).
+    /// `select_by_id` stores only the id. The index, and this scroll, land when the pane lays out.
+    pub fn reveal_selection_on_next_layout(&mut self) {
+        self.reveal_selection_on_layout = true;
     }
 
     /// Return the range of visible-item indices that overlap the viewport. For `FixedHeight`, this is

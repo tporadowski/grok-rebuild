@@ -260,6 +260,10 @@ pub struct ListPaneState {
     /// Consumed by `prepare_layout` and reset to `None`.
     scroll_anchor: Option<usize>,
 
+    /// The next `prepare_layout` scrolls the selected row into view.
+    /// `select_by_id` only stores the id; opening the queue needs the scroll to land with that id.
+    reveal_selection_on_layout: bool,
+
     /// Pinned screen-y for viewport scrolling. Without this pin, the drift accumulates across every
     /// separator crossing.
     scroll_screen_y: Option<usize>,
