@@ -292,6 +292,9 @@ impl AgentsMdTracker {
 
                     for rule_path in rule_paths {
                         let canonical = normalize(&rule_path).await;
+                        if !canonical.starts_with(git_root.as_path()) {
+                            continue;
+                        }
                         if !self.is_ignored(&canonical)
                             && !self.initial_discovery.contains(&canonical)
                             && !self.reminded.contains(&canonical)
@@ -446,6 +449,37 @@ mod tests {
 
         let results = tracker.check_path(&root.join("foo.rs")).await;
         assert!(results.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn check_path_skips_a_rule_that_resolves_outside_the_git_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let outside = tmp.path().join("outside.md");
+        fs::create_dir_all(repo.join(".grok/rules")).unwrap();
+        fs::write(&outside, "secret-outside").unwrap();
+        fs::write(repo.join(".grok/rules/inside.md"), "inside-rule").unwrap();
+        std::os::unix::fs::symlink(&outside, repo.join(".grok/rules/escape.md")).unwrap();
+
+        let mut tracker = AgentsMdTracker::new();
+        tracker
+            .seed(vec![], Some(repo.clone()), vec![], None)
+            .await;
+        let results = tracker.check_path(&repo.join("src.rs")).await;
+        let joined = results
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            results.iter().any(|path| path.ends_with("inside.md")),
+            "an inside rule is still discovered: {joined}"
+        );
+        assert!(
+            results.iter().all(|path| !path.ends_with("outside.md")),
+            "a rule outside the git root is skipped: {joined}"
+        );
     }
 
     #[tokio::test]

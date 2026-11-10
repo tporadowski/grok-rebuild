@@ -82,6 +82,11 @@ fn canonical_for_dedup(path: &Path) -> PathBuf {
     dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// A project rule may be a symlink. Keep it only when that path still lands inside `boundary`.
+fn stays_inside(path: &Path, boundary: &Path) -> bool {
+    canonical_for_dedup(path).starts_with(canonical_for_dedup(boundary))
+}
+
 struct DiscoveryRoot {
     /// Dedup key: roots on the same canonical dir (with the same rules dirs, for `add_discovery_root`) merge.
     canonical_path: PathBuf,
@@ -330,6 +335,12 @@ async fn read_agents_config_with_roots(
             }
         }
         for path in find_rules_files(&root.rules_dirs) {
+            if source == InstructionSource::Project {
+                let boundary = git_root.as_deref().unwrap_or(cwd.as_path());
+                if !stays_inside(&path, boundary) {
+                    continue;
+                }
+            }
             if !honors_gitignore || !is_ignored(&path, gitignore.as_ref(), git_root.as_deref()) {
                 add_discovered_candidate(&mut candidates, &mut seen_candidates, path, true, source);
             }
@@ -975,6 +986,57 @@ mod tests {
         );
         assert!(cfg.file_name.eq_ignore_ascii_case("AGENTS.md"));
         assert_eq!(cfg.content, "canonical-collision-body");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn project_rule_that_resolves_outside_the_root_or_workspace_is_skipped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tmp.path().join("outside.md");
+        fs::write(&outside, "secret-outside").unwrap();
+
+        let repo = tmp.path().join("repo");
+        fs::create_dir_all(repo.join(".grok/rules")).unwrap();
+        init_git_repo(&repo);
+        fs::write(repo.join(".grok/rules/inside.md"), "inside-rule").unwrap();
+        std::os::unix::fs::symlink(&outside, repo.join(".grok/rules/escape.md")).unwrap();
+        let configs = read_agents_config_with_roots(
+            repo.to_str().unwrap(),
+            None,
+            CompatConfig::default(),
+            &PathsConfig::default(),
+            repo.clone(),
+            None,
+            true,
+        )
+        .await;
+        assert!(configs.iter().any(|config| config.content == "inside-rule"));
+        assert!(
+            configs.iter().all(|config| config.content != "secret-outside"),
+            "a rule outside the git root must be skipped: {configs:?}"
+        );
+
+        let workspace = tmp.path().join("workspace");
+        fs::create_dir_all(workspace.join(".grok/rules")).unwrap();
+        fs::write(workspace.join(".grok/rules/inside.md"), "workspace-rule").unwrap();
+        std::os::unix::fs::symlink(&outside, workspace.join(".grok/rules/escape.md")).unwrap();
+        let configs = read_agents_config_with_roots(
+            workspace.to_str().unwrap(),
+            None,
+            CompatConfig::default(),
+            &PathsConfig::default(),
+            workspace.clone(),
+            None,
+            true,
+        )
+        .await;
+        assert!(configs
+            .iter()
+            .any(|config| config.content == "workspace-rule"));
+        assert!(
+            configs.iter().all(|config| config.content != "secret-outside"),
+            "a rule outside the workspace must be skipped: {configs:?}"
+        );
     }
 
     #[tokio::test]
