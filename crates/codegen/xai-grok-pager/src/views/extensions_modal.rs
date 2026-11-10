@@ -2658,13 +2658,19 @@ fn skill_source_str(skill: &SkillInfo) -> String {
                 }
             }
             xai_grok_tools::types::config_source::ConfigSource::Project { path } => {
-                let s = path.display().to_string();
-                if s.contains("/.grok/") {
-                    ".grok/skills".into()
-                } else if s.contains("/.claude/") {
-                    ".claude/skills".into()
+                if let Some(nested) = xai_grok_tools::implementations::skills::types::nested_project_skill_label(
+                    &path.to_string_lossy(),
+                ) {
+                    nested
                 } else {
-                    "project".into()
+                    let s = path.display().to_string();
+                    if s.contains("/.grok/") {
+                        ".grok/skills".into()
+                    } else if s.contains("/.claude/") {
+                        ".claude/skills".into()
+                    } else {
+                        "project".into()
+                    }
                 }
             }
             xai_grok_tools::types::config_source::ConfigSource::Plugin { plugin_name, .. } => {
@@ -2672,8 +2678,11 @@ fn skill_source_str(skill: &SkillInfo) -> String {
             }
             _ => format!("{:?}", skill.scope).to_lowercase(),
         }
+    } else if skill.scope == xai_grok_tools::implementations::skills::types::SkillScope::Repo {
+        xai_grok_tools::implementations::skills::types::nested_project_skill_label(&skill.path)
+            .unwrap_or_else(|| skill.scope.as_ref().to_string())
     } else {
-        format!("{:?}", skill.scope).to_lowercase()
+        skill.scope.as_ref().to_string()
     }
 }
 
@@ -7978,6 +7987,50 @@ mod tests {
             })
             .collect();
         assert_eq!(plugin_names, ["alpha", "zeta"]);
+    }
+
+    #[test]
+    fn nested_project_skill_row_names_the_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let nested = repo
+            .join("packages")
+            .join("app")
+            .join(".grok")
+            .join("skills")
+            .join("lint")
+            .join("SKILL.md");
+        std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+
+        let mut discovered = make_skill("lint", "lint the package");
+        discovered.scope = xai_grok_tools::implementations::skills::types::SkillScope::Repo;
+        discovered.path = nested.to_string_lossy().into_owned();
+        assert_eq!(
+            super::skill_source_str(&discovered),
+            "packages/app/.grok/skills"
+        );
+
+        let mut stamped = discovered.clone();
+        stamped.config_source = Some(
+            xai_grok_tools::types::config_source::ConfigSource::Project {
+                path: std::path::PathBuf::from(&discovered.path),
+            },
+        );
+        assert_eq!(
+            super::skill_source_str(&stamped),
+            "packages/app/.grok/skills"
+        );
+
+        let root = repo.join(".grok").join("skills").join("root").join("SKILL.md");
+        let mut root_skill = make_skill("root", "repo root");
+        root_skill.scope = xai_grok_tools::implementations::skills::types::SkillScope::Repo;
+        root_skill.path = root.to_string_lossy().into_owned();
+        assert_eq!(super::skill_source_str(&root_skill), "repo");
+
+        let mut local = discovered.clone();
+        local.scope = xai_grok_tools::implementations::skills::types::SkillScope::Local;
+        assert_eq!(super::skill_source_str(&local), "local");
     }
 
     #[test]

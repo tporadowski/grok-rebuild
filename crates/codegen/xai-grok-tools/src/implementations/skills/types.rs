@@ -154,6 +154,62 @@ pub fn skill_name_from_path(path: &str) -> Option<&str> {
     }
 }
 
+/// Label for a project skill that lives under a nested directory of a git worktree.
+///
+/// A skill at the worktree root returns `None` so the caller keeps its ordinary
+/// `repo` or `.grok/skills` label. `packages/app/.grok/skills/lint/SKILL.md` inside
+/// a repo is `packages/app/.grok/skills`. A directory with its own `.git` is that
+/// project's root, not a nested folder of the parent.
+pub fn nested_project_skill_label(path: &str) -> Option<String> {
+    use std::ffi::OsStr;
+    use std::path::{Component, Path, PathBuf};
+
+    const MARKERS: &[&str] = &[".grok", ".claude", ".agents", ".cursor"];
+    let path = Path::new(path);
+    let comps: Vec<Component<'_>> = path.components().collect();
+    let idx = comps.iter().rposition(|component| match component {
+        Component::Normal(name) => MARKERS.iter().any(|marker| OsStr::new(marker) == *name),
+        _ => false,
+    })?;
+    if idx == 0 {
+        return None;
+    }
+    let project_dir: PathBuf = comps.iter().take(idx).copied().collect();
+    let root = git_worktree_root(&project_dir)?;
+    let relative = project_dir.strip_prefix(&root).ok()?;
+    if relative.as_os_str().is_empty() {
+        return None;
+    }
+    let mut parts: Vec<String> = relative
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect();
+    parts.push(comps[idx].as_os_str().to_string_lossy().into_owned());
+    if let Some(Component::Normal(next)) = comps.get(idx + 1)
+        && (*next == OsStr::new("skills") || *next == OsStr::new("commands"))
+    {
+        parts.push(next.to_string_lossy().into_owned());
+    }
+    Some(parts.join("/"))
+}
+
+/// The nearest directory at or above `start` that contains a `.git` file or directory.
+fn git_worktree_root(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut dir = start.to_path_buf();
+    loop {
+        let git = dir.join(".git");
+        if git.is_dir() || git.is_file() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
 impl Default for SkillInfo {
     fn default() -> Self {
         Self {
@@ -216,6 +272,52 @@ mod tests {
         assert_eq!(
             skill_name_from_path("/repo/.grok/skills/my-skill/SKILL.md"),
             Some("my-skill"),
+        );
+    }
+
+    #[test]
+    fn nested_project_skill_label_names_the_package_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let nested = repo
+            .join("packages")
+            .join("app")
+            .join(".grok")
+            .join("skills")
+            .join("lint")
+            .join("SKILL.md");
+        std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+        assert_eq!(
+            super::nested_project_skill_label(&nested.to_string_lossy()),
+            Some("packages/app/.grok/skills".to_owned())
+        );
+
+        let claude = repo
+            .join("services")
+            .join("api")
+            .join(".claude")
+            .join("commands")
+            .join("review.md");
+        std::fs::create_dir_all(claude.parent().unwrap()).unwrap();
+        assert_eq!(
+            super::nested_project_skill_label(&claude.to_string_lossy()),
+            Some("services/api/.claude/commands".to_owned())
+        );
+
+        let root = repo.join(".grok").join("skills").join("root").join("SKILL.md");
+        assert_eq!(
+            super::nested_project_skill_label(&root.to_string_lossy()),
+            None,
+            "a skill at the worktree root keeps the ordinary label"
+        );
+
+        let own_repo = repo.join("packages").join("app");
+        std::fs::write(own_repo.join(".git"), "gitdir: /elsewhere").unwrap();
+        assert_eq!(
+            super::nested_project_skill_label(&nested.to_string_lossy()),
+            None,
+            "a directory with its own .git is that project's root"
         );
     }
 

@@ -31,6 +31,23 @@ impl SkillIdentity {
     pub fn source(&self) -> &str {
         self.plugin_name.as_deref().unwrap_or(self.scope.as_ref())
     }
+
+    /// Slash-menu label. A repo skill under a nested directory names that directory.
+    /// A skill at the worktree root stays `repo`, and the start-folder scope stays `local`.
+    pub fn badge_source(&self) -> String {
+        if let Some(name) = self.plugin_name.as_deref().filter(|name| !name.is_empty()) {
+            return name.to_string();
+        }
+        if self.scope == SkillScope::Repo
+            && let Some(label) =
+                xai_grok_tools::implementations::skills::types::nested_project_skill_label(
+                    &self.path,
+                )
+        {
+            return label;
+        }
+        self.scope.as_ref().to_string()
+    }
 }
 
 /// Parsed ACP `_meta` skill fields.
@@ -102,7 +119,7 @@ impl SlashCommand for AcpSlashCommand {
     fn provenance(&self) -> CommandProvenance {
         match &self.skill {
             SkillMeta::Skill(identity) => CommandProvenance::Skill {
-                source: identity.source().to_string(),
+                source: identity.badge_source(),
             },
             _ => CommandProvenance::Shell,
         }
@@ -287,6 +304,50 @@ mod tests {
         assert_eq!(identity(SkillScope::Repo, Some("acme")).source(), "acme");
         assert_eq!(identity(SkillScope::Plugin, None).source(), "plugin");
         assert_eq!(identity(SkillScope::Local, None).source(), "local");
+    }
+
+    #[test]
+    fn nested_project_skill_badge_names_the_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let nested = repo
+            .join("packages")
+            .join("app")
+            .join(".grok")
+            .join("skills")
+            .join("lint")
+            .join("SKILL.md");
+        std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+        let nested_id = SkillIdentity {
+            path: nested.to_string_lossy().into_owned(),
+            scope: SkillScope::Repo,
+            plugin_name: None,
+        };
+        assert_eq!(nested_id.badge_source(), "packages/app/.grok/skills");
+        assert_eq!(
+            super::CommandProvenance::Skill {
+                source: nested_id.badge_source(),
+            }
+            .badge()
+            .as_ref(),
+            "skill · packages/app/.grok/skills"
+        );
+
+        let root = repo.join(".grok").join("skills").join("root").join("SKILL.md");
+        let root_id = SkillIdentity {
+            path: root.to_string_lossy().into_owned(),
+            scope: SkillScope::Repo,
+            plugin_name: None,
+        };
+        assert_eq!(root_id.badge_source(), "repo");
+
+        let local = SkillIdentity {
+            path: nested_id.path.clone(),
+            scope: SkillScope::Local,
+            plugin_name: None,
+        };
+        assert_eq!(local.badge_source(), "local");
     }
 
     #[test]
