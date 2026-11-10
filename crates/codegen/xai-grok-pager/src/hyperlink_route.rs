@@ -235,4 +235,16 @@ mod tests {
         assert!(!route.emit_osc8);
         assert_eq!(route.skip_reason, Some("unknown_terminal"));
     }
+
+    #[test]
+    fn herdr_pane_emits_clickable_links() {
+        let ctx = TerminalContext {
+            brand: TerminalName::Unknown,
+            multiplexer: MultiplexerKind::Herdr,
+            ..Default::default()
+        };
+        let route = resolve_hyperlink_route(&ctx);
+        assert!(route.emit_osc8, "herdr panes open OSC 8 links");
+        assert!(route.skip_reason.is_none());
+    }
 }

@@ -300,8 +300,14 @@ impl TerminalContext {
     }
 
     /// Per-terminal hyperlink (OSC 8) capabilities for this brand.
+    /// herdr does not set `TERM_PROGRAM`, so the brand stays unknown and OSC 8 would be skipped.
+    /// herdr's emulator opens those links, so an unknown brand inside a herdr pane is treated as native.
     pub fn hyperlink_capabilities(&self) -> HyperlinkCapabilities {
-        hyperlink_capabilities(self.brand)
+        let mut caps = hyperlink_capabilities(self.brand);
+        if self.multiplexer == MultiplexerKind::Herdr && caps.osc8 == Osc8Support::Unknown {
+            caps.osc8 = Osc8Support::Native;
+        }
+        caps
     }
 
     /// Returns `true` if the session is inside Byobu regardless of backend.

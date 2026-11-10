@@ -394,6 +394,25 @@ fn mux_tmux_nested_inside_cmux_wins() {
 }
 
 #[test]
+fn herdr_pane_reports_native_osc8_so_links_are_clickable() {
+    let ctx = TerminalContext {
+        brand: TerminalName::Unknown,
+        multiplexer: MultiplexerKind::Herdr,
+        ..Default::default()
+    };
+    assert_eq!(ctx.hyperlink_capabilities().osc8, Osc8Support::Native);
+    assert_eq!(ctx.hyperlink_skip_reason(), None);
+    let plain = TerminalContext {
+        brand: TerminalName::Unknown,
+        ..Default::default()
+    };
+    assert_eq!(
+        plain.hyperlink_skip_reason(),
+        Some("unknown_terminal"),
+        "an unknown brand outside herdr still skips OSC 8"
+    );
+}
+
 fn mux_herdr_from_herdr_env() {
     let env = env_from(&[("HERDR_ENV", "1")]);
     assert_eq!(detect_multiplexer_from_env(&env), MultiplexerKind::Herdr);
