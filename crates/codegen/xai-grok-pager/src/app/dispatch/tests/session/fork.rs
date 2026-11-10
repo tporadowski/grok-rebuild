@@ -462,6 +462,63 @@ fn auth_complete_resume_plus_worktree_creates_worktree_with_session() {
 }
 
 #[test]
+fn fork_keeps_the_parent_model_and_effort_when_started_with_cli_flags() {
+    use xai_grok_shell::sampling::types::ReasoningEffort;
+
+    let parent_model = acp::ModelId::new("parent-model");
+    let mut app = fork_test_app();
+    app.cli_model_override = Some(acp::ModelId::new("launch-model"));
+    app.cli_effort_token = Some("low".into());
+    {
+        let parent = app.agents.get_mut(&AgentId(0)).unwrap();
+        parent.session.models.current = Some(parent_model.clone());
+        parent.session.models.reasoning_effort = Some(ReasoningEffort::High);
+    }
+
+    let effects = dispatch(Action::Fork(fork_args(Some(false), None)), &mut app);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::ForkSession { .. })),
+        "fork should start, got {effects:?}"
+    );
+    let child = app
+        .agents
+        .values()
+        .find(|agent| agent.session.forked_from == Some(AgentId(0)))
+        .expect("fork placeholder");
+    assert_eq!(
+        child.session.deferred_model_switch,
+        Some(crate::app::agent::DeferredModelSwitch {
+            model_id: parent_model,
+            effort: Some(ReasoningEffort::High),
+            prev_model_id: None,
+            context_window_selection: None,
+        }),
+        "the child keeps the parent session, not the launch -m model or a dropped effort"
+    );
+
+    let mut plain = fork_test_app();
+    plain
+        .agents
+        .get_mut(&AgentId(0))
+        .unwrap()
+        .session
+        .models
+        .current = Some(acp::ModelId::new("plain-model"));
+    let _ = dispatch(Action::Fork(fork_args(Some(false), None)), &mut plain);
+    let plain_child = plain
+        .agents
+        .values()
+        .find(|agent| agent.session.forked_from == Some(AgentId(0)))
+        .expect("fork placeholder");
+    assert!(
+        plain_child.session.deferred_model_switch.is_none(),
+        "without -m or --effort the copied session keeps its own model"
+    );
+}
+
+#[test]
 fn fork_while_an_approval_is_open_is_refused() {
     let mut app = fork_test_app();
     let agent = app.agents.get_mut(&AgentId(0)).unwrap();

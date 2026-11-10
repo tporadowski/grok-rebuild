@@ -3,7 +3,7 @@ use super::lifecycle::{dispatch_new_session_inner_with_id, refuse_chat_mode_buil
 use super::load::session_opens_as_chat;
 use crate::acp::tracker::AcpUpdateTracker;
 use crate::app::actions::Effect;
-use crate::app::agent::{AgentCommand, AgentId, AgentSession, AgentState};
+use crate::app::agent::{AgentCommand, AgentId, AgentSession, AgentState, DeferredModelSwitch};
 use crate::app::agent_view::AgentView;
 use crate::app::app_view::{ActiveView, AppView};
 use crate::app::cancel_latency::TurnEnd;
@@ -245,6 +245,26 @@ pub(in crate::app::dispatch) fn dispatch_fork_resolved(
         }]
     }
 }
+/// A fork started under `-m` or `--effort` keeps the parent session's model and effort.
+/// The launch flags stay on the process, so restashing only `-m` would put the child back on the startup model and drop a later effort.
+fn fork_deferred_model_switch(app: &AppView, parent_id: AgentId) -> Option<DeferredModelSwitch> {
+    if app.cli_model_override.is_none() && app.cli_effort_token.is_none() {
+        return None;
+    }
+    let parent = app.agents.get(&parent_id)?;
+    let model_id = parent
+        .session
+        .models
+        .current
+        .clone()
+        .or_else(|| app.cli_model_override.clone())?;
+    Some(DeferredModelSwitch {
+        model_id,
+        effort: parent.session.models.reasoning_effort,
+        prev_model_id: None,
+        context_window_selection: None,
+    })
+}
 /// Build the placeholder [`AgentView`] for a fork.
 /// Centralises the `AgentSession`/spinner construction shared by the worktree and no-worktree branches so the parallel struct literal does not drift.
 fn build_fork_placeholder(
@@ -287,7 +307,7 @@ fn build_fork_placeholder(
             hook_block_hold: false,
             blocked_prompt: None,
             user_model_preference: None,
-            deferred_model_switch: app.deferred_model_switch_from_cli(),
+            deferred_model_switch: fork_deferred_model_switch(app, parent_id),
             bg_tasks: std::collections::BTreeMap::new(),
             bg_tool_call_to_task: std::collections::HashMap::new(),
             scheduled_tasks: std::collections::HashMap::new(),
