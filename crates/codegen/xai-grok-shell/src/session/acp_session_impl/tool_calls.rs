@@ -2610,18 +2610,18 @@ impl SessionActor {
                 vec![],
                 vec![],
             ),
-            ToolInput::Write(ref w) => (
-                format!("Write `{}`", w.file_path),
-                acp::ToolKind::Edit,
-                vec![acp::ToolCallLocation::new(w.file_path.clone())],
-                vec![acp::ToolCallContent::from(
-                    acp::Diff::new(
-                        self.tool_context.cwd.join(&w.file_path).to_path_buf(),
-                        w.content.clone(),
-                    )
-                    .old_text(Some(String::new())),
-                )],
-            ),
+            ToolInput::Write(ref w) => {
+                let display_path = self.tool_context.cwd.join(&w.file_path).to_path_buf();
+                let old_text = write_approval_old_text(&self.tool_context.fs, &display_path).await;
+                (
+                    format!("Write `{}`", w.file_path),
+                    acp::ToolKind::Edit,
+                    vec![acp::ToolCallLocation::new(w.file_path.clone())],
+                    vec![acp::ToolCallContent::from(
+                        acp::Diff::new(display_path, w.content.clone()).old_text(Some(old_text)),
+                    )],
+                )
+            }
             ToolInput::Workflow(ref w) => {
                 let script_name = |script: &str| -> Option<String> {
                     let head = script.get(..600).unwrap_or(script);
@@ -3344,6 +3344,17 @@ impl SessionActor {
         Ok(())
     }
 }
+/// Text a write approval shows as the file being replaced.
+/// A missing or unreadable path stays empty, so a new file is still a creation.
+async fn write_approval_old_text(
+    fs: &xai_grok_workspace::file_system::AsyncFsWrapper,
+    path: &std::path::Path,
+) -> String {
+    match fs.try_read_to_string(path).await {
+        Ok(Some(text)) => text,
+        Ok(None) | Err(_) => String::new(),
+    }
+}
 /// The title peels a redundant leading `cd <cwd>` for chrome only; `raw_input` is serialized separately and stays full.
 fn execute_tool_call_parts(
     command: &str,
@@ -3948,5 +3959,33 @@ mod wait_interrupt_tests {
         );
         drop(new);
         assert_eq!(depth.depth(), 0);
+    }
+}
+
+#[cfg(test)]
+mod write_approval_old_text_tests {
+    use std::sync::Arc;
+
+    use super::write_approval_old_text;
+    use xai_grok_workspace::file_system::{AsyncFsWrapper, LocalFs};
+
+    #[tokio::test]
+    async fn write_approval_old_text_keeps_the_file_that_will_be_replaced() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("note.txt");
+        let existing = "kept line\nsecond\n";
+        std::fs::write(&path, existing).unwrap();
+        let fs = AsyncFsWrapper::new(Arc::new(LocalFs::new(tmp.path().to_path_buf())));
+        let old = write_approval_old_text(&fs, &path).await;
+        assert_eq!(old, existing);
+    }
+
+    #[tokio::test]
+    async fn write_approval_old_text_is_empty_when_the_file_is_new() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("missing.txt");
+        let fs = AsyncFsWrapper::new(Arc::new(LocalFs::new(tmp.path().to_path_buf())));
+        let old = write_approval_old_text(&fs, &path).await;
+        assert_eq!(old, "");
     }
 }
