@@ -1,6 +1,7 @@
 use agent_client_protocol as acp;
 use xai_grok_tools::implementations::grok_build::{
     SCHEDULER_CREATE_TOOL_NAME, loop_schedule_instruction, loop_usage_message,
+    scheduler::interval::split_trailing_char,
 };
 
 use crate::slash::command::{
@@ -30,21 +31,22 @@ fn parse_loop_args(args: &str) -> (Option<&str>, &str) {
     (None, trimmed)
 }
 
-/// Whether a token is a schedulable interval: non-zero digits followed by one of s/m/h/d.
+/// Whether a token is a schedulable interval: non-zero digits followed by one of s/m/h/d/分.
 /// Zero is rejected so the preview never shows a cadence the tool would reject (`parse_interval` errors on zero).
 fn is_interval_token(s: &str) -> bool {
-    if s.len() < 2 {
+    let Some((digits, suffix)) = split_trailing_char(s) else {
         return false;
-    }
-    let (digits, suffix) = s.split_at(s.len() - 1);
-    matches!(suffix, "s" | "m" | "h" | "d")
+    };
+    matches!(suffix, "s" | "m" | "h" | "d" | "分")
         && digits.chars().all(|c| c.is_ascii_digit())
         && digits.parse::<u64>().is_ok_and(|n| n > 0)
 }
 
-/// Convert an interval token like "5m" to a human string like "every 5 minutes".
+/// Convert an interval token like "5m" or "5分" to a human string like "every 5 minutes".
 fn interval_to_human(token: &str) -> String {
-    let (digits, suffix) = token.split_at(token.len() - 1);
+    let Some((digits, suffix)) = split_trailing_char(token) else {
+        return format!("every {token}");
+    };
     let n: u64 = digits.parse().unwrap_or(0);
     match suffix {
         "s" => {
@@ -54,7 +56,7 @@ fn interval_to_human(token: &str) -> String {
                 format!("every {n} seconds")
             }
         }
-        "m" => {
+        "m" | "分" => {
             if n == 1 {
                 "every 1 minute".into()
             } else {
@@ -242,6 +244,20 @@ mod tests {
             pager_state: crate::settings::PagerLocalSnapshot::default(),
         };
         LoopCommand.run(&mut ctx, args)
+    }
+
+    #[test]
+    fn run_with_cjk_minute_interval_shows_minutes() {
+        match run_loop("5分 check deploy status") {
+            CommandResult::InjectSkill {
+                scheduled_task_preview: Some(preview),
+                ..
+            } => {
+                assert_eq!(preview.human_schedule, "every 5 minutes");
+                assert_eq!(preview.prompt, "check deploy status");
+            }
+            other => panic!("expected InjectSkill with preview, got {other:?}"),
+        }
     }
 
     #[test]

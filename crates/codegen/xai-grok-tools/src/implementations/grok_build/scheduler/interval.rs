@@ -2,7 +2,17 @@ use super::types::SchedulerError;
 
 const MINIMUM_INTERVAL_SECS: u64 = 60;
 
-/// Parse an interval string like "5m", "2h", "30s", "1d" into seconds.
+/// Split `s` before its last character.
+/// The cut is a character boundary, so a multibyte unit such as `分` is one suffix, not a panic.
+pub fn split_trailing_char(s: &str) -> Option<(&str, &str)> {
+    let (idx, _) = s.char_indices().next_back()?;
+    if idx == 0 {
+        return None;
+    }
+    Some((s.get(..idx)?, s.get(idx..)?))
+}
+
+/// Parse an interval string like "5m", "2h", "30s", "1d", or "5分" into seconds.
 /// Minimum interval is 60 seconds; values below are clamped.
 pub fn parse_interval(s: &str) -> Result<u64, SchedulerError> {
     let s = s.trim();
@@ -12,7 +22,11 @@ pub fn parse_interval(s: &str) -> Result<u64, SchedulerError> {
         ));
     }
 
-    let (digits, suffix) = s.split_at(s.len() - 1);
+    let Some((digits, suffix)) = split_trailing_char(s) else {
+        return Err(SchedulerError::InvalidInterval(format!(
+            "invalid interval format: {s:?} (expected e.g. 5m, 2h, 1d)"
+        )));
+    };
     let value: u64 = digits.parse().map_err(|_| {
         SchedulerError::InvalidInterval(format!(
             "invalid interval format: {s:?} (expected e.g. 5m, 2h, 1d)"
@@ -27,7 +41,7 @@ pub fn parse_interval(s: &str) -> Result<u64, SchedulerError> {
 
     let unit_secs: u64 = match suffix {
         "s" => 1,
-        "m" => 60,
+        "m" | "分" => 60,
         "h" => 3600,
         "d" => 86400,
         _ => {
@@ -161,5 +175,15 @@ mod tests {
     #[test]
     fn parse_with_whitespace() {
         assert_eq!(parse_interval("  5m  ").unwrap(), 300);
+    }
+
+    #[test]
+    fn non_ascii_minute_interval_parses() {
+        assert_eq!(parse_interval("5分").unwrap(), 300);
+        assert_eq!(parse_interval("1分").unwrap(), 60);
+        assert!(parse_interval("0分").is_err());
+        assert!(parse_interval("分").is_err());
+        // A longer unit still fails as a format error. It must not panic on a byte boundary.
+        assert!(parse_interval("5分钟").is_err());
     }
 }

@@ -5,6 +5,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub use xai_grok_config::grok_home;
+use xai_grok_tools::implementations::grok_build::scheduler::interval::split_trailing_char;
 pub use xai_grok_tools::util::format_bytes;
 
 /// A closed stdout (`grok du | head`) or a full output device is a clean stop, not a failure.
@@ -173,9 +174,8 @@ pub fn parse_schedule_interval_secs(human: &str) -> Option<u64> {
     let rest = s.get(6..)?.trim_start();
     let (num_str, unit) = if let Some(sp) = rest.find(char::is_whitespace) {
         (rest.get(..sp)?, rest.get(sp + 1..)?)
-    } else if rest.len() >= 2 {
-        let (d, u) = rest.split_at(rest.len() - 1);
-        (d, u)
+    } else if let Some((digits, suffix)) = split_trailing_char(rest) {
+        (digits, suffix)
     } else {
         return None;
     };
@@ -183,7 +183,7 @@ pub fn parse_schedule_interval_secs(human: &str) -> Option<u64> {
     let unit = unit.trim();
     let secs_per = match unit {
         "s" | "second" | "seconds" => 1,
-        "m" | "minute" | "minutes" => 60,
+        "m" | "minute" | "minutes" | "分" => 60,
         "h" | "hour" | "hours" => 3600,
         "d" | "day" | "days" => 86400,
         _ => return None,
@@ -412,6 +412,8 @@ mod tests {
             ("foo bar", None),
             ("every foo", None),
             ("every 5x", None),
+            ("every 5分", Some(300)),
+            ("every 5分钟", None),
         ];
         for (input, expected) in cases {
             assert_eq!(parse_schedule_interval_secs(input), expected, "{input:?}");
