@@ -1339,9 +1339,9 @@ pub(crate) enum SkillSlashRewrite {
     RewriteToRun,
     Passthrough,
 }
-/// Scan user input left-to-right for `/{word}` tokens where `word` matches a known registered skill name (bare or qualified).
-/// Unknown `/words` (like `/api/v2/users`, `/tmp/file`) are NOT treated as skill references; only tokens that resolve to a known skill count.
-/// Returns `None` when no known skill references are found.
+/// A skill triggers only when the message starts with `/{word}` and `word` is a known skill (bare or qualified).
+/// A later `/word`, including one after spaces, stays ordinary text. Unknown leading tokens (`/api/v2/users`, `/tmp/file`) are not skills.
+/// Returns `None` when the message does not start with a known skill.
 pub(crate) fn parse_skill_references(
     text: &str,
     skills: &[SkillInfo],
@@ -1374,13 +1374,9 @@ fn parse_skill_references_with_catalog(
             i += 1;
             continue;
         }
-        if i > 0
-            && i.checked_sub(1)
-                .and_then(|j| bytes.get(j))
-                .is_some_and(|prev| !prev.is_ascii_whitespace())
-        {
-            i += 1;
-            continue;
+        if i > 0 {
+            // Only the slash command at the start of the message triggers a skill.
+            break;
         }
         let start = i + 1;
         if start >= bytes.len() {
@@ -1394,11 +1390,7 @@ fn parse_skill_references_with_catalog(
         let Some(word) = trimmed.get(start..end) else {
             break;
         };
-        let hit = if i == 0 {
-            catalog.skill_resolvable(word)
-        } else {
-            catalog.skill(word)
-        };
+        let hit = catalog.skill_resolvable(word);
         if let Some(skill) = hit {
             hits.push(SkillHit {
                 offset: i,
@@ -1406,7 +1398,7 @@ fn parse_skill_references_with_catalog(
                 skill,
             });
         }
-        i = end.max(start);
+        break;
     }
     if hits.is_empty() {
         return None;

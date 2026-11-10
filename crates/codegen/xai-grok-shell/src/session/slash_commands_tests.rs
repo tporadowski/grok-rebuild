@@ -1594,13 +1594,11 @@ fn parse_skill_refs_multi_skill() {
     let skills = vec![make_skill("review", true), make_skill("lint", true)];
     let refs =
         parse_skill_references("/review fix auth /lint --strict", &skills, all_gated()).unwrap();
-    let [r0, r1] = refs.as_slice() else {
-        panic!("expected two skill refs: {refs:?}");
+    let [r0] = refs.as_slice() else {
+        panic!("expected only the leading skill: {refs:?}");
     };
     assert_eq!(r0.name, "review");
-    assert_eq!(r0.args, "fix auth");
-    assert_eq!(r1.name, "lint");
-    assert_eq!(r1.args, "--strict");
+    assert_eq!(r0.args, "fix auth /lint --strict");
 }
 
 #[test]
@@ -1656,23 +1654,30 @@ fn parse_skill_refs_carry_the_skill_origin() {
     generated.origin = Some("learn".into());
     let skills = vec![generated, make_skill("commit", true)];
     let refs = parse_skill_references("/triage then /commit", &skills, all_gated()).unwrap();
-    let [generated_ref, hand_written_ref] = refs.as_slice() else {
-        panic!("expected two skill refs: {refs:?}");
+    let [generated_ref] = refs.as_slice() else {
+        panic!("expected only the leading skill: {refs:?}");
     };
     assert_eq!(Some("learn"), generated_ref.origin.as_deref());
-    assert_eq!(None, hand_written_ref.origin);
+    assert_eq!(generated_ref.args, "then /commit");
 }
 
 #[test]
-fn parse_skill_refs_text_before_first_skill() {
-    // Text before the first skill reference is part of user query, not consumed as args
-    let skills = vec![make_skill("commit", true)];
-    let refs = parse_skill_references("please do /commit fix typo", &skills, all_gated()).unwrap();
+fn only_a_leading_slash_command_triggers_a_skill() {
+    let skills = vec![make_skill("commit", true), make_skill("lint", true)];
+    assert!(
+        parse_skill_references("please do /commit fix typo", &skills, all_gated()).is_none(),
+        "a slash command after prose must not trigger a skill"
+    );
+    assert!(
+        parse_skill_references("please do\n/commit fix typo", &skills, all_gated()).is_none(),
+        "a slash command on a later line must not trigger a skill"
+    );
+    let refs = parse_skill_references("/commit fix typo /lint", &skills, all_gated()).unwrap();
     let [r0] = refs.as_slice() else {
-        panic!("expected one skill ref: {refs:?}");
+        panic!("expected only the leading skill: {refs:?}");
     };
     assert_eq!(r0.name, "commit");
-    assert_eq!(r0.args, "fix typo");
+    assert_eq!(r0.args, "fix typo /lint");
 }
 
 // ── /goal command resolution ─────────────────────────────────
