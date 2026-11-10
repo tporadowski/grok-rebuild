@@ -414,11 +414,25 @@ pub struct BashOutput {
 }
 impl BashOutput {
     /// Compute `output_for_prompt` from raw output string.
-    /// Strips ANSI escapes and soft-wraps long lines.
+    /// Strips ANSI escapes and soft-wraps long lines. Tab characters stay,
+    /// so a command that printed a table still shows its columns to the model.
     pub fn make_output_for_prompt(raw: &str) -> String {
-        let stripped = strip_str(raw);
+        let stripped = strip_ansi_keep_tabs(raw);
         soft_wrap_lines(&stripped, DEFAULT_SOFT_WRAP_WIDTH)
     }
+}
+
+/// Strip ANSI escapes and keep tab characters.
+///
+/// `strip_ansi_escapes` feeds the bytes to a VTE parser that only writes
+/// newlines from the C0 execute set, so a tab in command output disappeared
+/// before the model saw it. A tab is never part of an escape sequence, so
+/// splitting on it and stripping each piece keeps the column separators.
+pub(crate) fn strip_ansi_keep_tabs(raw: &str) -> String {
+    if !raw.contains('\t') {
+        return strip_str(raw);
+    }
+    raw.split('\t').map(strip_str).collect::<Vec<_>>().join("\t")
 }
 /// Output when a background task is started (matches the vendor-compat XML format)
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -2659,6 +2673,32 @@ mod tests {
             Some(3)
         );
     }
+    #[test]
+    fn command_output_keeps_tabs_for_the_model() {
+        let raw = "name\tvalue\n\x1b[31mred\tcell\x1b[0m\na\t\tb";
+        assert_eq!(
+            BashOutput::make_output_for_prompt(raw),
+            "name\tvalue\nred\tcell\na\t\tb"
+        );
+        let mut bash = sample_bash(0, raw.as_bytes(), false);
+        bash.output_for_prompt = BashOutput::make_output_for_prompt(raw);
+        let shown = crate::implementations::grok_build::bash::format_default_prompt(&bash);
+        assert!(
+            shown.contains("name\tvalue\nred\tcell\na\t\tb"),
+            "{shown}"
+        );
+        assert!(!shown.contains('\u{1b}'), "{shown}");
+        assert!(shown.starts_with("exit: 0\n"), "{shown}");
+
+        let bare = sample_bash(0, raw.as_bytes(), false);
+        let fallback = crate::implementations::grok_build::bash::format_default_prompt(&bare);
+        assert!(
+            fallback.contains("name\tvalue\nred\tcell\na\t\tb"),
+            "{fallback}"
+        );
+        assert!(!fallback.contains('\u{1b}'), "{fallback}");
+    }
+
     fn sample_bash(exit_code: i32, output: &[u8], timed_out: bool) -> BashOutput {
         BashOutput {
             output: output.to_vec(),

@@ -409,7 +409,7 @@ fn annotations(bash: &BashOutput) -> String {
 pub(crate) fn format_default_prompt(bash: &BashOutput) -> String {
     let output_str = if bash.output_for_prompt.is_empty() {
         let raw = String::from_utf8_lossy(&bash.output);
-        strip_ansi_escapes::strip_str(&raw).to_string()
+        crate::types::output::strip_ansi_keep_tabs(&raw)
     } else {
         bash.output_for_prompt.clone()
     };

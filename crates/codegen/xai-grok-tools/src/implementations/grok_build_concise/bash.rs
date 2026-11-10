@@ -1,7 +1,5 @@
 //! Concise variant of the `run_terminal_cmd` (bash) tool.
 
-use strip_ansi_escapes::strip_str;
-
 use crate::implementations::grok_build::bash::{
     BashTool, BashToolInput, BashToolOutput, KillReason,
 };
@@ -36,7 +34,7 @@ fn annotations(bash: &BashOutput) -> String {
 /// killed (reason)` instead of `Exit code: -1 [signal=…]`.
 fn format_concise_foreground_prompt(bash: &BashOutput) -> String {
     let raw = String::from_utf8_lossy(&bash.output);
-    let output_str = strip_str(&raw).to_string();
+    let output_str = crate::types::output::strip_ansi_keep_tabs(&raw);
     let header = match bash
         .signal
         .as_deref()
@@ -60,7 +58,7 @@ fn format_concise_foreground_prompt(bash: &BashOutput) -> String {
 /// CONCISE backgrounded format: same as DEFAULT backgrounded (code-fenced partial output).
 fn format_concise_background_prompt(bash: &BashOutput) -> String {
     let raw = String::from_utf8_lossy(&bash.output);
-    let output_str = strip_str(&raw).to_string();
+    let output_str = crate::types::output::strip_ansi_keep_tabs(&raw);
     let shown = format_bytes(bash.output.len() as u64);
     let total = format_bytes(bash.total_bytes as u64);
     format!(
@@ -226,6 +224,24 @@ mod tests {
             output_delta: None,
             was_bare_echo: false,
         }
+    }
+
+    #[test]
+    fn concise_command_output_keeps_tabs_for_the_model() {
+        let raw = "name\tvalue\n\x1b[31mred\tcell\x1b[0m\n";
+        let bash = make_bash(0, raw);
+        let prompt = format_concise_foreground_prompt(&bash);
+        assert!(prompt.contains("name\tvalue\nred\tcell"), "{prompt}");
+        assert!(!prompt.contains('\u{1b}'), "{prompt}");
+
+        let mut background = make_bash(0, raw);
+        background.signal = Some("backgrounded".to_string());
+        let backgrounded = format_concise_background_prompt(&background);
+        assert!(
+            backgrounded.contains("name\tvalue\nred\tcell"),
+            "{backgrounded}"
+        );
+        assert!(!backgrounded.contains('\u{1b}'), "{backgrounded}");
     }
 
     #[test]
