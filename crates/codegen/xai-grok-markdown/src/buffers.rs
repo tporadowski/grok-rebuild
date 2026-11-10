@@ -174,9 +174,11 @@ impl TableState {
     }
 
     /// Push text with current styling to the cell.
+    /// Tabs expand here so column widths match the painted spaces. The markdown source still has the tabs.
     pub fn push_text(&mut self, text: &str) {
+        let painted = crate::paint_tabs::expand_paint_tabs(text);
         self.current_cell.spans.push(CellSpan::new(
-            text.to_string(),
+            painted.into_owned(),
             self.cell_bold,
             self.cell_italic,
             self.cell_code,

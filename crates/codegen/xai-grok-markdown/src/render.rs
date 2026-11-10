@@ -91,6 +91,14 @@ fn anstyle_to_ratatui_color(color: anstyle::Color) -> ratatui::style::Color {
     }
 }
 
+/// Tabs stay in the source so copy can return them.
+/// A painted span uses spaces because ratatui drops a tab, and the returned width matches those spaces.
+fn paint_user_segment(segment: &str) -> (String, usize) {
+    let painted = crate::paint_tabs::expand_paint_tabs(segment);
+    let width = unicode_display_width(painted.as_ref());
+    (painted.into_owned(), width)
+}
+
 /// Render raw highlighted spans to an ANSI string.
 fn render_replace_ansi(highlighted: &[Vec<(SyntectStyle, String)>]) -> String {
     let mut out = String::new();
@@ -773,10 +781,11 @@ fn spans_are_quote_chrome(spans: &[Span<'_>]) -> bool {
                                 }
 
                                 if !segment.is_empty() {
+                                    let (painted, width) = paint_user_segment(segment);
                                     self.buffers
                                         .current_spans
-                                        .push(Span::styled(segment.to_string(), ratatui_style));
-                                    cur_col_in_line += unicode_display_width(segment);
+                                        .push(Span::styled(painted, ratatui_style));
+                                    cur_col_in_line += width;
                                 }
                                 byte_offset += segment.len() + 1;
                                 seg_x_offset += segment.len() + 1;
@@ -872,10 +881,11 @@ fn spans_are_quote_chrome(spans: &[Span<'_>]) -> bool {
                                         quote_line_open = true;
                                     }
                                     if !segment.is_empty() {
+                                        let (painted, width) = paint_user_segment(segment);
                                         self.buffers
                                             .current_spans
-                                            .push(Span::styled(segment.to_string(), ratatui_style));
-                                        cur_col_in_line += unicode_display_width(segment);
+                                            .push(Span::styled(painted, ratatui_style));
+                                        cur_col_in_line += width;
                                     }
                                 }
                             }
@@ -1113,10 +1123,9 @@ fn spans_are_quote_chrome(spans: &[Span<'_>]) -> bool {
                     }
 
                     if !segment.is_empty() {
-                        self.buffers
-                            .current_spans
-                            .push(Span::raw(segment.to_string()));
-                        cur_col_in_line += unicode_display_width(segment);
+                        let (painted, width) = paint_user_segment(segment);
+                        self.buffers.current_spans.push(Span::raw(painted));
+                        cur_col_in_line += width;
                     }
                     byte_offset += segment.len() + 1;
                     seg_x_offset += segment.len() + 1;

@@ -46,8 +46,10 @@ pub fn tab_width() -> u8 {
 }
 
 /// Update the global tab width (called when config is loaded/reloaded).
+/// Markdown paint uses the same width, so a reply expands tabs on screen and still copies the original characters.
 pub fn set_tab_width(w: u8) {
     TAB_WIDTH.store(w, Ordering::Relaxed);
+    xai_grok_markdown::set_paint_tab_width(w);
 }
 
 /// Replaces tabs with spaces at [`tab_width`].

@@ -85,8 +85,8 @@ impl MarkdownContent {
         renderer.set_max_table_width(max_table_width);
         renderer.set_collapse_soft_breaks(collapse_soft_breaks);
         let text = text.into();
-        let expanded = xai_grok_pager_render::appearance::expand_tabs(&text);
-        renderer.push(&expanded);
+        // Tabs stay in the stored source. Copy reads that source. Paint expands them.
+        renderer.push(&text);
         // finish() (not render()) so the streaming LaTeX-delimiter normalizer flushes any trailing held-back delimiter bytes
         // This is a complete, one-shot document
         renderer.finish(Some(get_syntect()));
@@ -128,11 +128,10 @@ impl MarkdownContent {
 
     /// Append a streaming chunk and re-render.
     pub fn push_chunk(&mut self, chunk: &str) {
-        let expanded = xai_grok_pager_render::appearance::expand_tabs(chunk);
         self.state
             .get_mut()
             .renderer
-            .push_and_render(&expanded, Some(get_syntect()));
+            .push_and_render(chunk, Some(get_syntect()));
         self.generation += 1;
     }
 
@@ -140,8 +139,7 @@ impl MarkdownContent {
     ///
     /// Used for historical replay during `session/load` so the pager can batch markdown work and render once after replay completes.
     pub fn push_chunk_deferred(&mut self, chunk: &str) {
-        let expanded = xai_grok_pager_render::appearance::expand_tabs(chunk);
-        self.state.get_mut().renderer.push(&expanded);
+        self.state.get_mut().renderer.push(chunk);
         self.generation += 1;
     }
 

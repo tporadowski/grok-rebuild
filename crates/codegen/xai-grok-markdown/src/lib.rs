@@ -36,6 +36,7 @@ mod latex_delimiters;
 mod mermaid;
 mod open_code_highlighter;
 mod output;
+mod paint_tabs;
 mod parse;
 mod render;
 mod source_map;
@@ -57,6 +58,7 @@ pub use latex_delimiters::{LatexDelimiterNormalizer, normalize_latex_delimiters}
 pub use output::{
     CodeBlockSpan, HyperlinkTarget, MarkdownRenderOutput, MarkdownRenderView, QuoteSpan,
 };
+pub use paint_tabs::set_paint_tab_width;
 pub use parse::{MarkdownParser, ParsedMarkdown};
 pub use source_map::SourceMap;
 pub use streaming::StreamingMarkdownRenderer;

@@ -577,6 +577,61 @@ mod tests {
     }
 
     #[test]
+    fn copying_a_code_block_or_reply_keeps_original_tabs() {
+        crate::appearance::set_tab_width(4);
+        let source = "prose\tkeep\n\n```rust\nfn\tmain() {}\n```\n";
+        let check = |block: &AgentMessageBlock| {
+            let copied = block.copy_text(true);
+            assert!(
+                copied.contains("prose\tkeep"),
+                "whole reply copy lost a tab: {copied:?}"
+            );
+            assert!(
+                copied.contains("fn\tmain()"),
+                "whole reply copy lost a code tab: {copied:?}"
+            );
+            let pretty = ctx(80, false);
+            let affordances = block.code_copy_affordances(&pretty);
+            assert_eq!(affordances.len(), 1);
+            let code = affordances[0].clipboard_text();
+            assert!(
+                code.contains("fn\tmain()"),
+                "code copy lost a tab: {code:?}"
+            );
+            assert!(
+                !code.contains("fn    main()"),
+                "code copy expanded the tab: {code:?}"
+            );
+            let texts: Vec<String> = block.output(&pretty).lines.iter().map(line_text).collect();
+            assert!(
+                texts.iter().all(|text| !text.contains('\t')),
+                "painted lines kept a tab: {texts:?}"
+            );
+            assert!(
+                texts.iter().any(|text| text.contains("prose    keep")),
+                "prose tab was not painted as spaces: {texts:?}"
+            );
+            assert!(
+                texts.iter().any(|text| text.contains("fn    main()")),
+                "code tab was not painted as spaces: {texts:?}"
+            );
+        };
+
+        check(&AgentMessageBlock::new(source));
+
+        let mut streaming = AgentMessageBlock::streaming();
+        streaming.push_chunk("prose\tkeep\n\n```rust\nfn");
+        streaming.push_chunk("\tmain() {}\n```\n");
+        streaming.finish();
+        check(&streaming);
+
+        let mut deferred = AgentMessageBlock::streaming();
+        deferred.push_chunk_deferred(source);
+        deferred.finish();
+        check(&deferred);
+    }
+
+    #[test]
     fn finished_reply_puts_a_labeled_copy_button_under_each_code_block() {
         let block = AgentMessageBlock::new(
             "intro\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n\n```10:12:src/lib.rs\nlet x = 1;\n```\n\n```\nplain\n```\n\noutro\n",

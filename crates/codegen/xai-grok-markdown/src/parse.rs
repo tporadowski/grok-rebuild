@@ -907,9 +907,11 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                             .next()
                             .is_some_and(|t| t.eq_ignore_ascii_case("mermaid"))
                         && range.end < self.text.len()
-                        && self.try_push_mermaid(&text, &range)
                     {
-                        return;
+                        let painted = crate::paint_tabs::expand_paint_tabs(&text);
+                        if self.try_push_mermaid(painted.as_ref(), &range) {
+                            return;
+                        }
                     }
                     let highlighted = match parent_code_block {
                         Some(lang) => {

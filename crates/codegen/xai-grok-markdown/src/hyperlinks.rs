@@ -106,8 +106,13 @@ pub(crate) fn chunk_link_offsets(
     out
 }
 
+/// Display width of a segment after tabs expand to the paint width.
+fn painted_width(text: &str) -> usize {
+    unicode_display_width(crate::paint_tabs::expand_paint_tabs(text).as_ref())
+}
+
 /// Push one `HyperlinkTarget` per `ChunkLinkRange` that overlaps this segment (system #2 to system #3).
-/// `col` is the running display column on the in-progress line.
+/// `col` is the running display column on the in-progress line, after tabs have expanded to spaces.
 pub(crate) fn emit_segment_hyperlinks(
     chunk_links: &[ChunkLinkRange],
     link_targets: &[LinkTarget],
@@ -138,8 +143,8 @@ pub(crate) fn emit_segment_hyperlinks(
         let Some(mid) = segment.get(s_in..e_in) else {
             continue;
         };
-        let col_start = col + unicode_display_width(prefix);
-        let col_end = col_start + unicode_display_width(mid);
+        let col_start = col + painted_width(prefix);
+        let col_end = col_start + painted_width(mid);
         let Some(lt) = link_targets.get(clr.link_idx) else {
             continue;
         };
