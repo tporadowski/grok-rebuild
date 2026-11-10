@@ -507,25 +507,17 @@ impl AgentView {
                         if let Some(id) = self.queue.delete_click(mouse.column, mouse.row) {
                             let (is_server, row) = self.resolve_queue_row(id);
                             if row.as_ref().is_some_and(|row| {
-                                !self
-                                    .server_row_capabilities(row)
-                                    .is_some_and(|capabilities| capabilities.can_delete())
+                                self.server_row_capabilities(row)
+                                    .is_some_and(|capabilities| !capabilities.can_delete())
                             }) {
                                 return InputOutcome::Changed;
                             }
                             if is_server {
-                                if let (Some(_sid), Some(row)) =
-                                    (self.session.session_id.as_ref(), row)
+                                if let Some(row) = row
                                     && let Some(server_id) = row.server_id
+                                    && self.session.session_id.is_some()
                                 {
-                                    self.shared_queue.retain(|e| e.id != server_id);
-                                    if self.visible_queue_is_empty() {
-                                        self.hide_queue_pane();
-                                    }
-                                    return InputOutcome::Action(Action::QueueRemoveShared {
-                                        id: server_id,
-                                        expected_version: row.version,
-                                    });
+                                    return self.remove_mirrored_server_row(server_id);
                                 }
                                 return InputOutcome::Changed;
                             }

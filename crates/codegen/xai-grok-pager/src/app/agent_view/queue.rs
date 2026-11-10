@@ -66,6 +66,34 @@ impl AgentView {
         (is_server, row)
     }
 
+    /// Version of a server row in the reconciled `shared_queue` mirror.
+    /// The queue pane can keep painting a row a later snapshot already dropped.
+    /// Callers must not fall back to that pane version, or to 0, for a removal.
+    pub(in crate::app) fn mirrored_server_row_version(&self, server_id: &str) -> Option<u64> {
+        self.shared_queue
+            .iter()
+            .find(|entry| entry.id == server_id)
+            .map(|entry| entry.version)
+    }
+
+    /// Drop a server row from the local mirror and ask the shell to remove it.
+    /// A pane that still lists the id after the mirror lost it does not guess a version.
+    pub(in crate::app) fn remove_mirrored_server_row(&mut self, server_id: String) -> InputOutcome {
+        let Some(expected_version) = self.mirrored_server_row_version(&server_id) else {
+            self.sync_queue_pane();
+            self.show_toast("Queued prompt is no longer in the queue");
+            return InputOutcome::Changed;
+        };
+        self.shared_queue.retain(|entry| entry.id != server_id);
+        if self.visible_queue_is_empty() {
+            self.hide_queue_pane();
+        }
+        InputOutcome::Action(Action::QueueRemoveShared {
+            id: server_id,
+            expected_version,
+        })
+    }
+
     /// Highlights the bottom row (last under the server-then-local merge order) and leaves the composer untouched.
     /// The next layout scrolls that follow-up into the queue viewport.
     pub(super) fn try_focus_queue_from_prompt(&mut self) -> Option<InputOutcome> {
@@ -607,26 +635,23 @@ impl AgentView {
 
             match event {
                 QueueEvent::DeleteSelected { id } => {
+                    // Missing capabilities means the mirror dropped the row, not that it is protected.
+                    // A protected row still refuses. A stale pane falls through and does not guess a version.
                     if row.as_ref().is_some_and(|row| {
-                        !self
-                            .server_row_capabilities(row)
-                            .is_some_and(|capabilities| capabilities.can_delete())
+                        self.server_row_capabilities(row)
+                            .is_some_and(|capabilities| !capabilities.can_delete())
                     }) {
                         return InputOutcome::Unchanged;
                     }
                     if is_server {
                         // Optimistic remove; server rebroadcast is authoritative.
-                        if let (Some(_sid), Some(row)) = (self.session.session_id.as_ref(), row)
+                        // The version comes from the mirror, not the pane: a stale pane
+                        // must not delete a row the mirror has already dropped.
+                        if let Some(row) = row
                             && let Some(server_id) = row.server_id
+                            && self.session.session_id.is_some()
                         {
-                            self.shared_queue.retain(|e| e.id != server_id);
-                            if self.visible_queue_is_empty() {
-                                self.hide_queue_pane();
-                            }
-                            return InputOutcome::Action(Action::QueueRemoveShared {
-                                id: server_id,
-                                expected_version: row.version,
-                            });
+                            return self.remove_mirrored_server_row(server_id);
                         }
                         return InputOutcome::Changed;
                     }
@@ -879,6 +904,62 @@ mod queue_edit_routing_tests {
         assert!(agent.session.pending_prompts.is_empty());
         assert!(!agent.queue.overlay.visible);
         assert!(!agent.queue.overlay.focused);
+    }
+
+    /// Pane still shows p1 after the mirror dropped it. Delete must not guess the pane version.
+    #[test]
+    fn stale_pane_delete_does_not_remove_missing_mirror_row() {
+        let mut agent = make_running_agent();
+        let registry = ActionRegistry::defaults();
+        let ids = agent.queue.entry_ids();
+        agent.queue.list_state.select_by_id(
+            ids.first()
+                .copied()
+                .unwrap_or_else(|| panic!("missing index")),
+        );
+        agent.shared_queue.clear();
+
+        let outcome = agent.handle_queue_key(&delete_key(), &registry);
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "stale pane must not remove, got {outcome:?}"
+        );
+        assert!(agent.shared_queue.is_empty());
+        assert_eq!(
+            agent.toast.as_ref().map(|(message, _)| message.as_str()),
+            Some("Queued prompt is no longer in the queue")
+        );
+    }
+
+    /// Delete uses the mirror version when the pane is still on the previous one.
+    #[test]
+    fn delete_uses_mirror_version_when_pane_is_stale() {
+        let mut agent = make_running_agent();
+        let registry = ActionRegistry::defaults();
+        let ids = agent.queue.entry_ids();
+        agent.queue.list_state.select_by_id(
+            ids.first()
+                .copied()
+                .unwrap_or_else(|| panic!("missing index")),
+        );
+        let entry = agent
+            .shared_queue
+            .iter_mut()
+            .find(|entry| entry.id == "p1")
+            .expect("p1");
+        entry.version = 7;
+
+        let outcome = agent.handle_queue_key(&delete_key(), &registry);
+        match outcome {
+            InputOutcome::Action(Action::QueueRemoveShared {
+                id,
+                expected_version,
+            }) => {
+                assert_eq!(id, "p1");
+                assert_eq!(expected_version, 7);
+            }
+            other => panic!("expected QueueRemoveShared action, got {other:?}"),
+        }
     }
 
     fn server_wire(id: &str, position: usize) -> QueueEntryWire {

@@ -173,12 +173,16 @@ impl AgentView {
                         ..
                     } = self.prompt_mode.clone()
                     {
-                        let expected_version = self
-                            .shared_queue
-                            .iter()
-                            .find(|e| e.id == server_id)
-                            .map(|e| e.version)
-                            .unwrap_or(0);
+                        // The pane can still name a row the mirror dropped. Guessing version 0
+                        // would delete a live never-edited row the stale view no longer lists.
+                        let Some(expected_version) = self.mirrored_server_row_version(&server_id)
+                        else {
+                            self.show_toast("Queued prompt is no longer in the queue");
+                            self.exit_editing_mode();
+                            self.set_active_pane(pending_target, true);
+                            crate::app::turn_completion::reopen_blocked_card_if_held(self);
+                            return InputOutcome::Changed;
+                        };
                         // Keep the hold until remove lands; release would re-kick promote of the row we are deleting
                         self.exit_editing_mode_keeping_hold();
                         self.set_active_pane(pending_target, true);
@@ -362,13 +366,14 @@ impl AgentView {
             )
         {
             let mut submission = self.prompt.stash();
-            // A vanished server row has no version to check, so it carries no removal and dispatch just runs the command
+            // The queue pane is a stale client view once a snapshot has replaced `shared_queue`.
+            // A removal uses the mirror version only. A missing mirror row carries no removal:
+            // the pane's leftover version (often 0) would delete a live row.
             let server = server_id.as_ref().and_then(|sid| {
-                self.queue
-                    .row_ref(id)
-                    .map(|row| crate::app::actions::SharedQueueTarget {
+                self.mirrored_server_row_version(sid)
+                    .map(|expected_version| crate::app::actions::SharedQueueTarget {
                         id: sid.clone(),
-                        expected_version: row.version,
+                        expected_version,
                     })
             });
             if server.is_some() {
@@ -518,7 +523,8 @@ impl AgentView {
                     self.show_toast("Images can't be attached when editing a shared queued prompt");
                 }
                 // new_text carries the edit; without it the agent would interject the original server-side text
-                let expected_version = self.queue.row_ref(id).map(|r| r.version);
+                // Pane version is stale after the mirror drops the row; a versioned interject would still remove it
+                let expected_version = self.mirrored_server_row_version(&server_id);
                 match expected_version {
                     Some(expected_version) => {
                         // Hold until interject clears it; release would re-kick promote of the original text
@@ -1527,6 +1533,111 @@ mod tests {
                 assert_eq!(server, None);
             }
             other => panic!("expected RunEditedQueuedCommand, got {other:?}"),
+        }
+    }
+
+    /// The pane still lists the row after the mirror dropped it. Editing that stale view into a
+    /// builtin must not carry a removal: the leftover pane version would delete a live row.
+    #[test]
+    fn stale_pane_builtin_edit_does_not_remove_missing_mirror_row() {
+        let mut agent = make_running_agent();
+        let registry = non_vscode_registry();
+        let ids = agent.queue.entry_ids();
+        agent.queue.list_state.select_by_id(*nth(&ids, 0));
+        let _ = agent.handle_queue_key(&edit_key(), &registry);
+
+        agent.shared_queue.clear();
+        agent.prompt.set_text("/btw why");
+
+        let outcome = agent.handle_prompt_key_for_test(&enter_key());
+        match outcome {
+            InputOutcome::Action(Action::RunEditedQueuedCommand { server, .. }) => {
+                assert_eq!(
+                    server, None,
+                    "a stale pane must not supply a removal version"
+                );
+            }
+            other => panic!("expected RunEditedQueuedCommand, got {other:?}"),
+        }
+    }
+
+    /// Mirror moved on while the pane still shows the old version. The removal uses the mirror.
+    #[test]
+    fn edited_builtin_removal_uses_mirror_version_not_stale_pane() {
+        let mut agent = make_running_agent();
+        let registry = non_vscode_registry();
+        let ids = agent.queue.entry_ids();
+        agent.queue.list_state.select_by_id(*nth(&ids, 0));
+        let _ = agent.handle_queue_key(&edit_key(), &registry);
+        let entry = agent
+            .shared_queue
+            .iter_mut()
+            .find(|entry| entry.id == "p1")
+            .expect("p1 still mirrored");
+        entry.version = 7;
+        agent.prompt.set_text("/btw why");
+
+        let outcome = agent.handle_prompt_key_for_test(&enter_key());
+        match outcome {
+            InputOutcome::Action(Action::RunEditedQueuedCommand { server, .. }) => {
+                assert_eq!(
+                    server,
+                    Some(SharedQueueTarget {
+                        id: "p1".into(),
+                        expected_version: 7,
+                    })
+                );
+            }
+            other => panic!("expected RunEditedQueuedCommand, got {other:?}"),
+        }
+    }
+
+    /// Delete-while-editing must not guess version 0 when the mirror no longer lists the row.
+    #[test]
+    fn stale_pane_delete_while_editing_does_not_guess_version_zero() {
+        let mut agent = make_running_agent();
+        let registry = non_vscode_registry();
+        let ids = agent.queue.entry_ids();
+        agent.queue.list_state.select_by_id(*nth(&ids, 0));
+        let _ = agent.handle_queue_key(&edit_key(), &registry);
+        agent.shared_queue.clear();
+
+        let outcome = agent.handle_edit_confirm_choice(
+            ModalConfirmation::edit_confirm(),
+            AgentPane::Scrollback,
+            'x',
+        );
+        assert!(
+            !matches!(
+                outcome,
+                InputOutcome::Action(Action::QueueRemoveShared { .. })
+            ),
+            "stale delete must not remove the row, got {outcome:?}"
+        );
+        assert!(matches!(agent.prompt_mode, PromptMode::Normal));
+        assert_eq!(
+            agent.toast.as_ref().map(|(message, _)| message.as_str()),
+            Some("Queued prompt is no longer in the queue")
+        );
+    }
+
+    /// Interject while editing uses the mirror. A stale pane must not version-remove a missing row.
+    #[test]
+    fn stale_pane_interject_while_editing_does_not_remove_the_row() {
+        let mut agent = make_running_agent();
+        let registry = non_vscode_registry();
+        let ids = agent.queue.entry_ids();
+        agent.queue.list_state.select_by_id(*nth(&ids, 0));
+        let _ = agent.handle_queue_key(&edit_key(), &registry);
+        agent.shared_queue.clear();
+        agent.prompt.set_text("send this instead");
+
+        let outcome = agent.handle_prompt_key_for_test(&force_interject_key());
+        match outcome {
+            InputOutcome::Action(Action::Interject { text, .. }) => {
+                assert_eq!(text, "send this instead");
+            }
+            other => panic!("stale pane must not version-remove, got {other:?}"),
         }
     }
 
