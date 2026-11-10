@@ -33,7 +33,8 @@ use tokio_util::sync::CancellationToken;
 use xai_grok_pager::agent_runtime::AgentRuntime;
 use xai_grok_pager::app::{
     AgentCmd, Command, EARLY_PREFETCH_WAIT, HeadlessArgs, LeaderMgmtArgs, LeaderMgmtCommand,
-    LeaderMode, LeaderTargetArgs, PagerArgs, resolve_use_leader, warn_leader_disabled_by_sandbox,
+    LeaderMode, LeaderTargetArgs, PagerArgs, resolve_use_leader_with_pin,
+    warn_leader_disabled_by_sandbox,
 };
 use xai_grok_pager::app::{WorkspaceMgmtArgs, WorkspaceMgmtCommand, WorkspaceStartArgs};
 use xai_grok_pager::client_identity::PAGER_CLIENT_VERSION;
@@ -807,13 +808,14 @@ async fn spawn_and_connect_leader(
         .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
     let agent_config = AgentConfig::new_from_toml_cfg(&raw_config)
         .map_err(|e| anyhow::anyhow!("Failed to create agent config: {e}"))?;
-    let (use_leader, _) = resolve_use_leader(
+    let (use_leader, _) = resolve_use_leader_with_pin(
         leader,
         no_leader,
         &raw_config,
         remote_settings,
         true,
         xai_grok_sandbox::requested_confinement_profile(),
+        xai_grok_pager::app::loaded_use_leader_pin(),
     );
     if !use_leader {
         anyhow::bail!(

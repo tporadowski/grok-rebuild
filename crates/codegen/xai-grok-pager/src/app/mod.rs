@@ -491,21 +491,52 @@ fn seed_remote_ui_caches(remote_settings: Option<&xai_grok_shell::util::config::
     );
     xai_grok_shell::util::config::set_remote_campaigns_from_settings(remote_settings);
 }
+/// Last `[cli] use_leader` across requirements layers. Later layers win, matching the merge order.
+pub fn pinned_use_leader_from_layers<'a>(
+    layers: impl IntoIterator<Item = &'a toml::Value>,
+) -> Option<bool> {
+    let mut pin = None;
+    for layer in layers {
+        if let Some(value) = layer
+            .get("cli")
+            .and_then(|cli| cli.get("use_leader"))
+            .and_then(toml::Value::as_bool)
+        {
+            pin = Some(value);
+        }
+    }
+    pin
+}
+
+/// The admin `[cli] use_leader` pin from the requirements files this process loads.
+pub fn loaded_use_leader_pin() -> Option<bool> {
+    pinned_use_leader_from_layers(
+        xai_grok_config::requirements_layers()
+            .iter()
+            .map(|layer| &layer.value),
+    )
+}
+
 /// Resolve leader mode, reporting both why it is off and what turned it off.
 ///
-/// Precedence, highest first: `--no-leader`, `--leader`, eligibility, local config `use_leader`, remote `leader_mode` (release-dist), default off.
+/// Precedence, highest first: an admin pin of `[cli] use_leader = false`, `--no-leader`, `--leader`, eligibility, local config `use_leader`, remote `leader_mode` (release-dist), default off.
 /// `requested_confinement` then vetoes leader use when `Some` (in-process tools stay under the OS sandbox) without reclaiming a shared leader.
-/// `policy_disable_reason` is `Some("config"|"remote")` only when leader mode is *definitively* off by policy.
+/// `policy_disable_reason` is `Some("requirements"|"config"|"remote")` only when leader mode is *definitively* off by policy.
 /// Never reclaim a leader on an unknown signal.
-pub fn resolve_leader_mode<'p>(
+/// A missing pin is the same as [`resolve_leader_mode`].
+pub fn resolve_leader_mode_with_pin<'p>(
     leader_flag: bool,
     no_leader_flag: bool,
     raw_config: &toml::Value,
     _remote_settings: Option<&xai_grok_shell::util::config::RemoteSettings>,
     eligible: bool,
     requested_confinement: Option<&'p str>,
+    pinned_use_leader: Option<bool>,
 ) -> LeaderMode<'p> {
     let (use_leader, policy_disable_reason) = 'policy: {
+        if pinned_use_leader == Some(false) {
+            break 'policy (false, Some("requirements"));
+        }
         if no_leader_flag {
             break 'policy (false, None);
         }
@@ -537,6 +568,27 @@ pub fn resolve_leader_mode<'p>(
         disabled_by_confinement: None,
     }
 }
+
+/// [`resolve_leader_mode_with_pin`] with no admin pin.
+pub fn resolve_leader_mode<'p>(
+    leader_flag: bool,
+    no_leader_flag: bool,
+    raw_config: &toml::Value,
+    remote_settings: Option<&xai_grok_shell::util::config::RemoteSettings>,
+    eligible: bool,
+    requested_confinement: Option<&'p str>,
+) -> LeaderMode<'p> {
+    resolve_leader_mode_with_pin(
+        leader_flag,
+        no_leader_flag,
+        raw_config,
+        remote_settings,
+        eligible,
+        requested_confinement,
+        None,
+    )
+}
+
 /// Leader mode as resolved, plus the sandbox profile that overrode it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LeaderMode<'p> {
@@ -557,13 +609,36 @@ pub fn resolve_use_leader(
     eligible: bool,
     requested_confinement: Option<&str>,
 ) -> (bool, Option<&'static str>) {
-    let resolved = resolve_leader_mode(
+    resolve_use_leader_with_pin(
         leader_flag,
         no_leader_flag,
         raw_config,
         remote_settings,
         eligible,
         requested_confinement,
+        None,
+    )
+}
+
+/// [`resolve_use_leader`] when an admin `[cli] use_leader` pin is known.
+/// `Some(false)` keeps `--leader` from starting a leader process.
+pub fn resolve_use_leader_with_pin(
+    leader_flag: bool,
+    no_leader_flag: bool,
+    raw_config: &toml::Value,
+    remote_settings: Option<&xai_grok_shell::util::config::RemoteSettings>,
+    eligible: bool,
+    requested_confinement: Option<&str>,
+    pinned_use_leader: Option<bool>,
+) -> (bool, Option<&'static str>) {
+    let resolved = resolve_leader_mode_with_pin(
+        leader_flag,
+        no_leader_flag,
+        raw_config,
+        remote_settings,
+        eligible,
+        requested_confinement,
+        pinned_use_leader,
     );
     (resolved.use_leader, resolved.policy_disable_reason)
 }
@@ -806,13 +881,14 @@ pub async fn run(
         use_leader,
         policy_disable_reason,
         disabled_by_confinement,
-    } = resolve_leader_mode(
+    } = resolve_leader_mode_with_pin(
         args.leader,
         args.no_leader,
         &raw_config,
         remote_settings.as_ref(),
         true,
         requested_confinement,
+        loaded_use_leader_pin(),
     );
     tracing::info!(
         use_leader,
@@ -1873,6 +1949,18 @@ mod tests {
         let (use_leader, reason) = resolve_use_leader(true, false, &cfg, None, true, None);
         assert!(use_leader);
         assert_eq!(reason, None);
+    }
+    #[test]
+    fn admin_pin_false_blocks_the_leader_flag() {
+        let user = toml::from_str("[cli]\nuse_leader = true\n").unwrap();
+        let admin = toml::from_str("[cli]\nuse_leader = false\n").unwrap();
+        let pin = pinned_use_leader_from_layers([&user, &admin]);
+        assert_eq!(pin, Some(false));
+        let cfg = config_with_leader(true);
+        let (use_leader, reason) =
+            resolve_use_leader_with_pin(true, false, &cfg, None, true, None, pin);
+        assert!(!use_leader);
+        assert_eq!(reason, Some("requirements"));
     }
     #[test]
     fn sandbox_confinement_refuses_leader_even_with_leader_flag_and_config_on() {

@@ -29,13 +29,14 @@ fn shell_runtime_preserves_leader_resolution() {
     ] {
         let args = agent_args(&arguments);
         let runtime = Backend::Shell.resolve(&args, &config, &raw_config);
-        let expected = resolve_leader_mode(
+        let expected = resolve_leader_mode_with_pin(
             args.leader,
             args.no_leader,
             &raw_config,
             config.remote_settings.as_ref(),
             eligible,
             xai_grok_sandbox::requested_confinement_profile(),
+            crate::app::loaded_use_leader_pin(),
         );
         assert_eq!(
             (Backend::Shell, expected),

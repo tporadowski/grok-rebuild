@@ -1,5 +1,5 @@
 //! Agent commands use one runtime for backend selection and leader resolution.
-use crate::app::{AgentArgs, AgentCmd, LeaderMode, resolve_leader_mode};
+use crate::app::{AgentArgs, AgentCmd, LeaderMode, resolve_leader_mode_with_pin};
 use anyhow::Result;
 use xai_grok_shell::agent::config::Config;
 pub struct AgentRuntime {
@@ -37,7 +37,7 @@ impl Backend {
     fn resolve(self, args: &AgentArgs, config: &Config, raw_config: &toml::Value) -> AgentRuntime {
         let backend = self.for_command(args.mode.as_ref());
         let leader_mode = match backend {
-            Backend::Shell => resolve_leader_mode(
+            Backend::Shell => resolve_leader_mode_with_pin(
                 args.leader,
                 args.no_leader,
                 raw_config,
@@ -47,6 +47,7 @@ impl Backend {
                     None | Some(AgentCmd::Stdio) | Some(AgentCmd::Headless(_))
                 ),
                 xai_grok_sandbox::requested_confinement_profile(),
+                crate::app::loaded_use_leader_pin(),
             ),
         };
         AgentRuntime {
