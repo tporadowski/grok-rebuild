@@ -1474,6 +1474,7 @@ pub(crate) async fn persist_setting(
 /// Body for `Effect::PersistPermissionMode`. Factored out for testability.
 /// `BestEffort` fires ACP `x.ai/yolo_mode_changed` before the disk write (it fires regardless of the outcome, and a queued first prompt sent right after must not overtake it behind the config lock).
 /// `WithRollback` persists first and notifies only on disk success, so the agent never sees a value the UI is about to roll back.
+/// Turning bypass on with no session id stays silent until a session exists. Turning it off (`ask` or `default`) with no session id still notifies, so every open session prompts again.
 pub(crate) async fn persist_permission_mode_and_notify(
     canonical: &'static str,
     session_id: Option<acp::SessionId>,
@@ -1481,8 +1482,9 @@ pub(crate) async fn persist_permission_mode_and_notify(
     tx: AcpAgentTx,
 ) -> TaskResult {
     let config_str: &'static str = canonical;
-    let notify_first = session_id.is_some()
-        && matches!(persist, PermissionModePersist::BestEffort);
+    let reaches_open_sessions = session_id.is_some() || bypass_off_without_a_session(canonical);
+    let notify_first =
+        reaches_open_sessions && matches!(persist, PermissionModePersist::BestEffort);
     if notify_first {
         notify_permission_mode(config_str, session_id.clone(), tx.clone()).await;
     }
@@ -1491,12 +1493,18 @@ pub(crate) async fn persist_permission_mode_and_notify(
         })
         .await;
     let disk_outcome: Result<(), String> = disk_result.map_err(|e| e.to_string());
-    if !notify_first && session_id.is_some()
+    if !notify_first
+        && reaches_open_sessions
         && should_send_yolo_acp_notification(&disk_outcome, persist)
     {
         notify_permission_mode(config_str, session_id, tx).await;
     }
     route_permission_mode_result(disk_outcome, persist, config_str)
+}
+
+/// `ask` and `default` turn bypass off. With no session id, that change applies to every open session.
+fn bypass_off_without_a_session(canonical: &str) -> bool {
+    matches!(canonical, "ask" | "default")
 }
 pub(crate) async fn notify_permission_mode(
     canonical: &'static str,

@@ -1290,7 +1290,7 @@ async fn persist_permission_mode_acp_notification_gated_on_disk_for_with_rollbac
         }
     }
 }
-/// `session_id: None` suppresses ACP notification unconditionally.
+/// Turning bypass on with no session id stays silent until a session exists.
 #[tokio::test]
 async fn persist_permission_mode_no_session_id_suppresses_acp() {
     let _guard = setup_grok_home_in_tempdir();
@@ -1312,6 +1312,59 @@ async fn persist_permission_mode_no_session_id_suppresses_acp() {
              agents have no ACP channel to notify",
         );
 }
+/// Turning bypass off with no session id tells every open session to prompt again.
+#[tokio::test]
+async fn persist_permission_mode_unnamed_bypass_off_notifies_open_sessions() {
+    let _guard = setup_grok_home_in_tempdir();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let seen = Arc::new(std::sync::Mutex::new(None));
+    let seen_task = Arc::clone(&seen);
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if let xai_acp_lib::AcpAgentMessage::ExtNotification(args) = msg {
+                if args.request.method.as_ref() == "x.ai/yolo_mode_changed" {
+                    let params: serde_json::Value = serde_json::from_str(args.request.params.get())
+                        .expect("permission notification payload");
+                    *seen_task.lock().expect("payload lock") = Some(params);
+                }
+                let _ = args.response_tx.send(Ok(()));
+            }
+        }
+    });
+    let result = persist_permission_mode_and_notify(
+        "ask",
+        None,
+        PermissionModePersist::BestEffort,
+        tx,
+    )
+    .await;
+    let params = seen
+        .lock()
+        .expect("payload lock")
+        .clone()
+        .expect("unnamed bypass-off must notify");
+    assert!(
+        params.get("sessionId").is_none_or(serde_json::Value::is_null),
+        "an unnamed turn-off must not name a session, got {params}"
+    );
+    assert_eq!(
+        params.get("yolo_mode").and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
+    assert_eq!(
+        params.get("permission_mode").and_then(serde_json::Value::as_str),
+        Some("ask")
+    );
+    assert!(
+        matches!(
+            result,
+            TaskResult::SettingPersisted { .. }
+                | TaskResult::SettingPersistFailedBestEffort { .. },
+        ),
+        "BestEffort path must still report the disk outcome, got {result:?}"
+    );
+}
+
 /// BestEffort with a disk failure must not return `SettingPersisted`.
 #[tokio::test]
 async fn persist_permission_mode_best_effort_failure_returns_dedicated_variant() {

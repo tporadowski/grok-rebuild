@@ -391,6 +391,10 @@ pub(super) fn set_yolo_mode(app: &mut AppView, new: bool) -> Vec<Effect> {
     let prev_canonical = capture_prev_permission_canonical(app, prev_yolo);
 
     set_yolo_mode_inner(app, new);
+    // No session was named, so leaving bypass is not limited to the active tab.
+    if !new && session_id.is_none() {
+        clear_yolo_on_open_agents(app);
+    }
 
     // Refresh modal snapshots so the indicator reflects the new value.
     refresh_open_settings_modals(app);
@@ -457,6 +461,14 @@ pub(super) fn set_permission_mode(
     // We overwrite the canonical below for the Default case
     // Inner clears the soft-default latch
     set_yolo_mode_inner(app, kind.is_always_approve());
+    // Ask or default with no session id turns bypass off everywhere, so each open session prompts again.
+    if session_id.is_none() && matches!(
+        kind,
+        crate::app::actions::PermissionModeKind::Ask
+            | crate::app::actions::PermissionModeKind::Default
+    ) {
+        clear_yolo_on_open_agents(app);
+    }
 
     // Restore the "default" distinction that collapses when the inner reduces the mode to a bool
     // No-op for `AlwaysApprove` and `Ask`
@@ -487,6 +499,20 @@ pub(super) fn set_permission_mode(
         session_id,
         persist: crate::app::actions::PermissionModePersist::WithRollback(prev_canonical),
     }]
+}
+
+/// Leave bypass on every open agent. A turn-off that names no session is not limited to the active tab,
+/// so a permission request on another session is shown instead of auto-approved.
+fn clear_yolo_on_open_agents(app: &mut AppView) {
+    let ask = crate::app::actions::PermissionModeKind::Ask.as_canonical();
+    let always_approve = crate::app::actions::PermissionModeKind::AlwaysApprove.as_canonical();
+    app.default_yolo = false;
+    for agent in app.agents.values_mut() {
+        agent.session.yolo_mode = false;
+        if agent.deferred_permission_mode == Some(always_approve) {
+            agent.deferred_permission_mode = Some(ask);
+        }
+    }
 }
 
 /// Build the toast for a `permission_mode` commit.
@@ -825,10 +851,14 @@ fn dispatch_cycle_mode_inner(app: &mut AppView) -> Vec<Effect> {
                 Some("ask")
             }
         };
-        // ACP notify needs a session id, so stash the canonical before the `app` reborrow below. SessionCreated replays it against the bound id.
-        // `app` reborrow below. SessionCreated replays it against the bound id.
+        // A session id is not required to leave bypass: `ask` and `default` notify every open session.
+        // SessionCreated still replays the staged word onto the session that binds later.
         if let Some(canonical) = persist_canonical {
             agent.deferred_permission_mode = Some(canonical);
+        }
+        let clear_open_bypass = matches!(persist_canonical, Some("ask" | "default"));
+        if clear_open_bypass {
+            clear_yolo_on_open_agents(app);
         }
         refresh_open_settings_modals(app);
         let mut effects = Vec::new();

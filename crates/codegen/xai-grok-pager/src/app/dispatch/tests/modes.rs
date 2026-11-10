@@ -1464,6 +1464,68 @@ fn cycle_mode_pre_session_always_approve_to_normal_persists_ask() {
     );
 }
 
+/// Bypass off that names no session clears always-approve on every open session, so each one prompts again.
+#[test]
+fn turning_bypass_off_without_a_session_restores_prompts_on_every_open_session() {
+    let mut app = test_app_with_agent();
+    let active = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&active).unwrap();
+        agent.session.session_id = None;
+        agent.session.yolo_mode = true;
+    }
+    let other = AgentId(1);
+    let session = make_test_agent_session(&app, other, "other-session");
+    let mut other_agent = AgentView::new(session, ScrollbackState::new());
+    other_agent.session.yolo_mode = true;
+    app.agents.insert(other, other_agent);
+    app.default_yolo = true;
+
+    let effects = dispatch(Action::SetYoloMode(false), &mut app);
+
+    assert!(
+        !test_agent(&app, active).session.is_yolo(),
+        "the active session leaves bypass"
+    );
+    assert!(
+        !test_agent(&app, other).session.is_yolo(),
+        "an open session that was not named also leaves bypass and will prompt"
+    );
+    assert!(!app.default_yolo, "the launch default must not keep bypass on");
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::PersistPermissionMode {
+                canonical: "ask",
+                session_id: None,
+                ..
+            }
+        )),
+        "the shell is told to leave bypass with no session id, got {effects:?}"
+    );
+}
+
+/// Naming a session keeps the turn-off on that session.
+#[test]
+fn turning_bypass_off_for_one_named_session_leaves_the_other_in_bypass() {
+    let mut app = test_app_with_agent();
+    let active = AgentId(0);
+    app.agents.get_mut(&active).unwrap().session.yolo_mode = true;
+    let other = AgentId(1);
+    let session = make_test_agent_session(&app, other, "other-session");
+    let mut other_agent = AgentView::new(session, ScrollbackState::new());
+    other_agent.session.yolo_mode = true;
+    app.agents.insert(other, other_agent);
+
+    let _ = dispatch(Action::SetYoloMode(false), &mut app);
+
+    assert!(!test_agent(&app, active).session.is_yolo());
+    assert!(
+        test_agent(&app, other).session.is_yolo(),
+        "a named turn-off does not clear bypass on another open session"
+    );
+}
+
 /// Negative control for the pre-session persist: Normal to Plan changes the SESSION mode, not the permission mode.
 /// There is nothing to write to `ui.permission_mode` (matches the with-session Normal-to-Plan arm).
 #[test]
