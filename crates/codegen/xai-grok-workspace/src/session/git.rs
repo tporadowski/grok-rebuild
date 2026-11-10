@@ -678,6 +678,21 @@ fn has_worktree_changes(s: git2::Status) -> bool {
             | git2::Status::WT_TYPECHANGE,
     )
 }
+
+/// Whether a status entry belongs on the staged list and the unstaged list.
+///
+/// A merge or rebase conflict is only [`git2::Status::CONFLICTED`]. That flag
+/// is not an index or worktree delta, so without this it never reaches either
+/// list. Porcelain `UU` puts the path on both sides.
+fn status_entry_lists(status: git2::Status) -> (bool, bool) {
+    let index = has_index_changes(status);
+    let worktree = has_worktree_changes(status);
+    if status.contains(git2::Status::CONFLICTED) && !index && !worktree {
+        (true, true)
+    } else {
+        (index, worktree)
+    }
+}
 /// A git reference for diffing: either a working state (Index/Workdir) or a commit-ish.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum GitRef {
@@ -1595,7 +1610,8 @@ async fn status_ungated(
         for entry in statuses.iter() {
             let path = entry.path().unwrap_or("").to_string();
             let status = entry.status();
-            if has_index_changes(status) {
+            let (show_index, show_worktree) = status_entry_lists(status);
+            if show_index {
                 let stats = staged_stats.get(&path).cloned().unwrap_or_default();
                 staged.push(GitFileChange {
                     path: path.clone(),
@@ -1619,7 +1635,7 @@ async fn status_ungated(
                     new_text: None,
                 });
             }
-            if has_worktree_changes(status) {
+            if show_worktree {
                 if ignore_submodules
                     && status.contains(git2::Status::WT_NEW)
                     && cwd.join(&path).join(".git").exists()

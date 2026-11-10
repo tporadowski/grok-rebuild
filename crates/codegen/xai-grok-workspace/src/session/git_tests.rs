@@ -1775,3 +1775,63 @@ async fn checkout_commit_stashes_a_dirty_tree_only_when_asked() {
         "committed\n"
     );
 }
+
+#[tokio::test]
+async fn merge_and_rebase_conflicts_stay_in_the_changes_list() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = repo_with_readme(tmp.path(), "base\n").await;
+    git_cli(&root, &["checkout", "-q", "-b", "side"])
+        .await
+        .unwrap();
+    std::fs::write(root.join("README.md"), "side\n").unwrap();
+    git_cli(&root, &["commit", "-qam", "side"]).await.unwrap();
+    git_cli(&root, &["checkout", "-q", "main"]).await.unwrap();
+    std::fs::write(root.join("README.md"), "main\n").unwrap();
+    git_cli(&root, &["commit", "-qam", "main"]).await.unwrap();
+
+    let merge = git_cli(&root, &["merge", "side"]).await;
+    assert!(merge.is_err(), "the merge fixture must conflict");
+    let during_merge = status(&root, false, false, false, false).await.unwrap();
+    assert!(
+        during_merge
+            .staged
+            .iter()
+            .chain(during_merge.unstaged.iter())
+            .any(|change| change.path == "README.md"),
+        "merge conflict hidden: staged={:?} unstaged={:?}",
+        during_merge
+            .staged
+            .iter()
+            .map(|change| &change.path)
+            .collect::<Vec<_>>(),
+        during_merge
+            .unstaged
+            .iter()
+            .map(|change| &change.path)
+            .collect::<Vec<_>>()
+    );
+
+    git_cli(&root, &["merge", "--abort"]).await.unwrap();
+    git_cli(&root, &["checkout", "-q", "side"]).await.unwrap();
+    let rebase = git_cli(&root, &["rebase", "main"]).await;
+    assert!(rebase.is_err(), "the rebase fixture must conflict");
+    let during_rebase = status(&root, false, false, false, false).await.unwrap();
+    assert!(
+        during_rebase
+            .staged
+            .iter()
+            .chain(during_rebase.unstaged.iter())
+            .any(|change| change.path == "README.md"),
+        "rebase conflict hidden: staged={:?} unstaged={:?}",
+        during_rebase
+            .staged
+            .iter()
+            .map(|change| &change.path)
+            .collect::<Vec<_>>(),
+        during_rebase
+            .unstaged
+            .iter()
+            .map(|change| &change.path)
+            .collect::<Vec<_>>()
+    );
+}
