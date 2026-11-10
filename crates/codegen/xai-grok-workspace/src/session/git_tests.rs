@@ -1699,6 +1699,60 @@ async fn discard_working_keeps_the_staged_edit_and_untracked_files() {
 }
 
 #[tokio::test]
+async fn discard_selected_file_leaves_a_similar_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("repo");
+    std::fs::create_dir_all(&root).unwrap();
+    git_cli(&root, &["init", "-q", "-b", "main"]).await.unwrap();
+    git_cli(&root, &["config", "user.email", "t@example.com"])
+        .await
+        .unwrap();
+    git_cli(&root, &["config", "user.name", "t"]).await.unwrap();
+    std::fs::write(root.join("report1.txt"), "one").unwrap();
+    std::fs::write(root.join("report[1].txt"), "lit").unwrap();
+    git_cli(
+        &root,
+        &["add", "--", ":(literal)report1.txt", ":(literal)report[1].txt"],
+    )
+    .await
+    .unwrap();
+    git_cli(&root, &["commit", "-q", "-m", "base"]).await.unwrap();
+    std::fs::write(root.join("report1.txt"), "ONE").unwrap();
+    std::fs::write(root.join("report[1].txt"), "LIT").unwrap();
+    git_cli(&root, &["add", "--", ":(literal)report1.txt", ":(literal)report[1].txt"])
+        .await
+        .unwrap();
+    std::fs::write(root.join("report1-new.txt"), "new").unwrap();
+    discard(
+        &root,
+        Some(vec!["report[1].txt".to_string()]),
+        DiscardScope::Both,
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("report[1].txt")).unwrap(),
+        "lit",
+        "the selected file is discarded"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("report1.txt")).unwrap(),
+        "ONE",
+        "a name the pathspec would glob must stay"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("report1-new.txt")).unwrap(),
+        "new",
+        "an untracked similar name must stay"
+    );
+    let status = git_cli(&root, &["status", "--short"]).await.unwrap();
+    assert!(
+        status.contains("report1.txt") && !status.contains("report[1].txt"),
+        "only the similar tracked edit remains: {status}"
+    );
+}
+
 async fn discard_both_with_untracked_removes_the_untracked_file() {
     let tmp = tempfile::tempdir().unwrap();
     let root = repo_with_readme(tmp.path(), "committed\n").await;

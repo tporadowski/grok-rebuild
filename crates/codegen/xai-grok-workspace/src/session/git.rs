@@ -2032,6 +2032,17 @@ pub async fn unstage(git_root: &Path, paths: Option<Vec<String>>) -> Result<()> 
     );
     result.map(|_| ())
 }
+/// Git pathspecs treat `*`, `?`, and `[]` as globs, so a selected name such as
+/// `report[1].txt` also matches `report1.txt`. `:(literal)` is that one path.
+fn exact_discard_path(path: &str) -> String {
+    const LITERAL: &str = ":(literal)";
+    if path.starts_with(LITERAL) {
+        path.to_string()
+    } else {
+        format!("{LITERAL}{path}")
+    }
+}
+
 pub async fn discard(
     git_root: &Path,
     paths: Option<Vec<String>>,
@@ -2039,12 +2050,13 @@ pub async fn discard(
     include_untracked: bool,
 ) -> Result<()> {
     let start = std::time::Instant::now();
-    let path_refs: Vec<&str> = paths
+    let exact: Vec<String> = paths
         .as_deref()
         .unwrap_or_default()
         .iter()
-        .map(String::as_str)
+        .map(|path| exact_discard_path(path))
         .collect();
+    let path_refs: Vec<&str> = exact.iter().map(String::as_str).collect();
     if matches!(scope, DiscardScope::Staged | DiscardScope::Both) {
         let mut args = vec!["reset", "HEAD"];
         if !path_refs.is_empty() {
