@@ -979,8 +979,12 @@ pub mod system_prompt {
     /// The system prompt a client asks a new session to start with.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum RequestedSystemPrompt<'a> {
-        /// A `systemPromptOverride` that replaces the agent's prompt verbatim.
-        Override(&'a str),
+        /// A `systemPromptOverride` that replaces the agent's prompt.
+        /// `rules` from `--append-system-prompt` are still appended.
+        Override {
+            prompt: &'a str,
+            rules: Option<&'a str>,
+        },
         /// `rules` text appended to the agent's prompt in a `<human_rules>` block.
         Rules(&'a str),
     }
@@ -992,7 +996,11 @@ pub mod system_prompt {
         agent_system_prompt: &str,
     ) -> String {
         match requested_system_prompt(session_meta, init_meta) {
-            Some(RequestedSystemPrompt::Override(prompt)) => prompt.to_owned(),
+            Some(RequestedSystemPrompt::Override {
+                prompt,
+                rules: Some(rules),
+            }) => format!("{prompt}\n\n<human_rules>\n{rules}\n</human_rules>"),
+            Some(RequestedSystemPrompt::Override { prompt, rules: None }) => prompt.to_owned(),
             Some(RequestedSystemPrompt::Rules(rules)) => {
                 format!("{agent_system_prompt}\n\n<human_rules>\n{rules}\n</human_rules>")
             }
@@ -1017,17 +1025,19 @@ pub mod system_prompt {
         let end = rest.find(CLOSE)?;
         rest.get(..end).filter(|rules| !rules.is_empty())
     }
-    /// A non-blank `systemPromptOverride` wins over `rules`. Each key is read from `session_meta` first, then `init_meta`.
+    /// A non-blank `systemPromptOverride` replaces the agent prompt. `rules` are still appended.
+    /// Each key is read from `session_meta` first, then `init_meta`.
     pub fn requested_system_prompt<'a>(
         session_meta: Option<&'a acp::Meta>,
         init_meta: Option<&'a acp::Meta>,
     ) -> Option<RequestedSystemPrompt<'a>> {
+        let rules = read_session_or_init_meta_str(session_meta, init_meta, "rules");
         match system_prompt_override_from_meta(session_meta, init_meta) {
-            Some(prompt) => Some(RequestedSystemPrompt::Override(prompt)),
-            None => {
-                read_session_or_init_meta_str(session_meta, init_meta, "rules")
-                    .map(RequestedSystemPrompt::Rules)
-            }
+            Some(prompt) => Some(RequestedSystemPrompt::Override {
+                prompt,
+                rules: rules.filter(|rules| !rules.trim().is_empty()),
+            }),
+            None => rules.map(RequestedSystemPrompt::Rules),
         }
     }
     /// The `systemPromptOverride` string, or `None` when it is empty or only whitespace.

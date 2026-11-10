@@ -1032,25 +1032,50 @@ fn rebuilt_prompt_keeps_client_rules_from_session_start() {
     );
 }
 
-fn override_wins_over_rules() {
-    let cases = [
-        (
-            serde_json::json!({ "systemPromptOverride": "you are terse", "rules": "keep the marker" }),
-            Some(RequestedSystemPrompt::Override("you are terse")),
+#[test]
+fn system_prompt_override_keeps_append_rules() {
+    let both = serde_json::json!({
+        "systemPromptOverride": "you are terse",
+        "rules": "keep the marker",
+    });
+    assert_eq!(
+        requested_system_prompt(None, both.as_object()),
+        Some(RequestedSystemPrompt::Override {
+            prompt: "you are terse",
+            rules: Some("keep the marker"),
+        })
+    );
+    let spawned = build_spawn_system_prompt(None, both.as_object(), "agent prompt");
+    assert!(spawned.starts_with("you are terse\n"), "{spawned}");
+    assert!(
+        spawned.contains("<human_rules>\nkeep the marker\n</human_rules>"),
+        "{spawned}"
+    );
+    assert!(!spawned.contains("agent prompt"), "{spawned}");
+
+    let only = serde_json::json!({ "systemPromptOverride": "you are terse" });
+    assert_eq!(
+        requested_system_prompt(None, only.as_object()),
+        Some(RequestedSystemPrompt::Override {
+            prompt: "you are terse",
+            rules: None,
+        })
+    );
+    assert_eq!(
+        build_spawn_system_prompt(None, only.as_object(), "agent prompt"),
+        "you are terse"
+    );
+    assert_eq!(
+        requested_system_prompt(
+            None,
+            serde_json::json!({ "rules": "keep the marker" }).as_object()
         ),
-        (
-            serde_json::json!({ "systemPromptOverride": "you are terse" }),
-            Some(RequestedSystemPrompt::Override("you are terse")),
-        ),
-        (
-            serde_json::json!({ "rules": "keep the marker" }),
-            Some(RequestedSystemPrompt::Rules("keep the marker")),
-        ),
-        (serde_json::json!({}), None),
-    ];
-    for (init, expected) in cases {
-        assert_eq!(expected, requested_system_prompt(None, init.as_object()));
-    }
+        Some(RequestedSystemPrompt::Rules("keep the marker"))
+    );
+    assert_eq!(
+        requested_system_prompt(None, serde_json::json!({}).as_object()),
+        None
+    );
 }
 #[test]
 fn blank_override_is_no_override() {
