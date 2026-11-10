@@ -744,6 +744,8 @@ pub(crate) struct EffectMeta {
     pub auth_abort_handle: Option<(u64, tokio::task::AbortHandle)>,
     /// Auth URL poll abort handle and request sequence (installed on `AppView.auth_url_poll_handle` when the seq still matches).
     pub auth_url_poll_handle: Option<(u64, tokio::task::AbortHandle)>,
+    /// A corrupt active-sessions registry was backed up and registration continued.
+    pub registry_warning: Option<String>,
 }
 /// Extract the first user prompt text from a session's `chat_history.jsonl`.
 ///

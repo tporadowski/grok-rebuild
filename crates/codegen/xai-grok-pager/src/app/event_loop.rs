@@ -4004,6 +4004,9 @@ fn process_effects(
         {
             *handle = Some(abort_handle);
         }
+        if let Some(warning) = meta.registry_warning {
+            app.show_toast(&warning);
+        }
         if let Some((seq, abort_handle)) = meta.auth_url_poll_handle {
             let still_current = matches!(
                 &app.auth_state,

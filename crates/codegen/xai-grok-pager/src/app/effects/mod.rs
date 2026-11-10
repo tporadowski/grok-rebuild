@@ -132,13 +132,15 @@ pub(crate) fn execute(
     match effect {
         Effect::RegisterActiveSession { session_id, cwd } => {
             crate::app::signal_handler::set_current_session_id(Some(session_id.clone()));
-            if let Err(e) = xai_grok_active_sessions::register(xai_grok_active_sessions::ActiveSession {
+            match xai_grok_active_sessions::register(xai_grok_active_sessions::ActiveSession {
                 session_id,
                 pid: std::process::id(),
                 cwd,
                 opened_at: chrono::Utc::now(),
             }) {
-                tracing::warn!(?e, "Failed to register active session");
+                Ok(Some(recovery)) => meta.registry_warning = Some(recovery.warning),
+                Ok(None) => {}
+                Err(e) => tracing::warn!(?e, "Failed to register active session"),
             }
         }
         Effect::UnregisterActiveSession { session_id } => {

@@ -1362,12 +1362,16 @@ pub async fn run_single_turn(
     );
     let track_active = std::env::var("GROK_TRACK_HEADLESS").is_ok();
     if track_active {
-        let _ = xai_grok_active_sessions::register(xai_grok_active_sessions::ActiveSession {
+        match xai_grok_active_sessions::register(xai_grok_active_sessions::ActiveSession {
             session_id: session_id.clone(),
             pid: std::process::id(),
             cwd: cwd.display().to_string(),
             opened_at: chrono::Utc::now(),
-        });
+        }) {
+            Ok(Some(recovery)) => eprintln!("{}", recovery.warning),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "Failed to register active session"),
+        }
     }
     {
         let mcp_servers = if options.output_format == OutputFormat::StreamingMessagesJson {

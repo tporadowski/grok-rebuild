@@ -154,7 +154,7 @@ impl ClusterClient {
             ) else {
                 continue;
             };
-            let (_quit, _meta) = effects::execute(
+            let (_quit, meta) = effects::execute(
                 eff,
                 &mut self.tasks,
                 &self.app.acp_tx,
@@ -162,6 +162,9 @@ impl ClusterClient {
                 &flags,
                 &self.progress_tx,
             );
+            if let Some(warning) = meta.registry_warning {
+                self.app.show_toast(&warning);
+            }
         }
         self.drain_pending_effects();
     }
