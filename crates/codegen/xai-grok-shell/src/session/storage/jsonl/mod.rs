@@ -244,6 +244,10 @@ impl JsonlStorageAdapter {
     fn usage_file(&self, info: &Info) -> PathBuf {
         self.session_dir(info).join(super::USAGE_FILE)
     }
+    fn usage_lock_file(&self, info: &Info) -> PathBuf {
+        self.session_dir(info)
+            .join(format!("{}.lock", super::USAGE_FILE))
+    }
     fn announcement_state_file(&self, info: &Info) -> PathBuf {
         self.session_dir(info).join(super::ANNOUNCEMENT_STATE_FILE)
     }
@@ -1532,6 +1536,38 @@ impl StorageAdapter for JsonlStorageAdapter {
         let json = serde_json::to_vec_pretty(usage)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         super::write_bytes_atomic_async(&self.usage_file(info), json).await
+    }
+    async fn apply_usage_turn(
+        &self,
+        info: &Info,
+        turn_number: u32,
+        ended_at: String,
+        live: crate::session::usage_file::UsageSummary,
+        prev_live: Option<crate::session::usage_file::UsageSummary>,
+        last_incoming_turn: Option<u32>,
+        last_written_turn: Option<u32>,
+    ) -> io::Result<(Option<u32>, Option<u32>)> {
+        let usage_path = self.usage_file(info);
+        let lock_path = self.usage_lock_file(info);
+        let session_id = info.id.to_string();
+        let cursor = tokio::task::spawn_blocking(move || {
+            super::usage_write::apply_usage_turn_locked(
+                &usage_path,
+                &lock_path,
+                super::usage_write::UsageTurnRequest {
+                    session_id,
+                    turn_number,
+                    ended_at,
+                    live,
+                    prev_live,
+                    last_incoming_turn,
+                    last_written_turn,
+                },
+            )
+        })
+        .await
+        .map_err(io::Error::other)??;
+        Ok((cursor.incoming, cursor.written))
     }
     async fn write_announcement_state(
         &self,

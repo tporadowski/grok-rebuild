@@ -21,6 +21,7 @@ mod replay_tests;
 pub mod search;
 mod search_content;
 pub(crate) mod summary_write;
+pub(crate) mod usage_write;
 
 /// The session search index moved to its own crate; re-exported here so `session::storage::search_fts::…` keeps resolving for its consumers.
 pub use xai_grok_session_search::fts as search_fts;
@@ -1343,6 +1344,20 @@ pub trait StorageAdapter: Send + Sync {
         info: &Info,
         usage: &crate::session::usage_file::SessionUsageFile,
     ) -> io::Result<()>;
+
+    /// Read `usage.json`, merge this window's turn, and write it back under `usage.json.lock`.
+    /// The lock is held across the read so a second window cannot lose the turn it just stored.
+    /// Returns `(last incoming turn, last written turn)` for this window's cursor.
+    async fn apply_usage_turn(
+        &self,
+        info: &Info,
+        turn_number: u32,
+        ended_at: String,
+        live: crate::session::usage_file::UsageSummary,
+        prev_live: Option<crate::session::usage_file::UsageSummary>,
+        last_incoming_turn: Option<u32>,
+        last_written_turn: Option<u32>,
+    ) -> io::Result<(Option<u32>, Option<u32>)>;
 
     async fn write_announcement_state(
         &self,

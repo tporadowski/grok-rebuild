@@ -2518,3 +2518,78 @@ async fn stamp_session_identity_falls_back_to_snapshot_when_disk_has_none() {
     assert_eq!(on_disk.agent_id.as_deref(), Some("ag1.c0ffee"));
     assert_eq!(on_disk.attempt_id, Some(stamped.attempt_id));
 }
+
+fn usage_summary(input_tokens: u64, model_calls: u64) -> crate::session::usage_file::UsageSummary {
+    crate::session::usage_file::UsageSummary {
+        input_tokens,
+        total_tokens: input_tokens,
+        model_calls,
+        ..Default::default()
+    }
+}
+
+/// Two persistence actors are two windows on one session.
+/// Each turn's delta stays, including when the writes overlap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_windows_keep_every_usage_turn() {
+    const N: u32 = 32;
+    let dir = tempfile::tempdir().unwrap();
+    let info = Info {
+        id: acp::SessionId::new("usage-two-windows"),
+        cwd: "/test".into(),
+    };
+    let storage: Arc<dyn StorageAdapter> = Arc::new(
+        JsonlStorageAdapter::with_explicit_session_dir(dir.path().join("session")),
+    );
+    storage
+        .init_session(&info, default_model_id())
+        .await
+        .unwrap();
+    let actor_a = test_actor(info.clone(), Arc::clone(&storage));
+    let actor_b = test_actor(info.clone(), Arc::clone(&storage));
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+
+    let run = |tx: mpsc::UnboundedSender<PersistenceMsg>, scale: u64, barrier: Arc<tokio::sync::Barrier>| {
+        async move {
+            barrier.wait().await;
+            for turn in 1..=N {
+                let (respond_to, response) = tokio::sync::oneshot::channel();
+                tx.send(PersistenceMsg::UsageTurn {
+                    turn_number: turn,
+                    live: usage_summary(u64::from(turn) * scale, u64::from(turn)),
+                    respond_to,
+                })
+                .unwrap();
+                response.await.unwrap().unwrap();
+            }
+        }
+    };
+    let left = tokio::spawn(run(
+        actor_a.handle.tx.clone(),
+        1,
+        Arc::clone(&barrier),
+    ));
+    let right = tokio::spawn(run(actor_b.handle.tx.clone(), 1_000, barrier));
+    left.await.unwrap();
+    right.await.unwrap();
+
+    let file = storage.read_usage(&info).await.unwrap().unwrap();
+    let ones = file
+        .turns
+        .iter()
+        .filter(|turn| turn.usage.input_tokens == 1)
+        .count();
+    let thousands = file
+        .turns
+        .iter()
+        .filter(|turn| turn.usage.input_tokens == 1_000)
+        .count();
+    assert_eq!(ones, N as usize, "lost a turn from the first window");
+    assert_eq!(thousands, N as usize, "lost a turn from the second window");
+    assert_eq!(file.session.turn_count, u64::from(N) * 2);
+    assert_eq!(file.session.input_tokens, u64::from(N) * 1_001);
+    assert_eq!(file.session_id, info.id.to_string());
+
+    actor_a.stop().await;
+    actor_b.stop().await;
+}

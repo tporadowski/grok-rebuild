@@ -2637,24 +2637,20 @@ impl SessionPersistence {
         turn_number: u32,
         live: &crate::session::usage_file::UsageSummary,
     ) -> io::Result<()> {
-        let mut file = self
+        // Re-read under usage.json.lock. A second window's turn lands in that read
+        // instead of being replaced by this window's stale copy.
+        let (incoming, written) = self
             .storage
-            .read_usage(&self.info)
-            .await?
-            .unwrap_or_else(|| {
-                crate::session::usage_file::SessionUsageFile::new(self.info.id.to_string())
-            });
-        // Fork copies parent usage.json verbatim; always restamp so the child is not attributed to the parent after new turns
-        file.session_id = self.info.id.to_string();
-        file.restore_apply_cursor(self.last_incoming_turn, self.last_usage_turn);
-        file.apply_turn(
-            turn_number,
-            Utc::now().to_rfc3339(),
-            live,
-            self.last_usage_live.as_ref(),
-        );
-        let (incoming, written) = file.apply_cursor();
-        self.storage.write_usage(&self.info, &file).await?;
+            .apply_usage_turn(
+                &self.info,
+                turn_number,
+                Utc::now().to_rfc3339(),
+                live.clone(),
+                self.last_usage_live.clone(),
+                self.last_incoming_turn,
+                self.last_usage_turn,
+            )
+            .await?;
         self.last_usage_live = Some(live.clone());
         self.last_incoming_turn = incoming;
         self.last_usage_turn = written;
