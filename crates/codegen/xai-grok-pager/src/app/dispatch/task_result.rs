@@ -1785,6 +1785,10 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                                     .to_owned(),
                             ),
                         );
+                } else if let Some(notice) = super::notes::non_draft_feedback_notice(outcome) {
+                    agent.scrollback.push_block(
+                        crate::scrollback::block::RenderBlock::system(notice.to_owned()),
+                    );
                 }
                 if let Some(text) = unknown_copy.as_deref() {
                     agent.copy_to_clipboard(text);
@@ -1823,6 +1827,16 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                 }
                 return effects;
             }
+            if !matches!(
+                outcome,
+                xai_grok_shell::session::FeedbackOutcome::OutcomeUnknown
+            ) && let Some(notice) = super::notes::non_draft_feedback_notice(outcome)
+                && let Some(agent) = app.agents.get_mut(&agent_id)
+            {
+                agent.scrollback.push_block(
+                    crate::scrollback::block::RenderBlock::system(notice.to_owned()),
+                );
+            }
             vec![]
         }
         TaskResult::FeedbackFailed {
@@ -1835,7 +1849,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             let Some(agent) = app.agents.get_mut(&agent_id) else {
                 return vec![];
             };
-            let failure = format!("Couldn't send feedback: {error}");
+            let failure = super::notes::feedback_failure_clause(&error);
             if let crate::app::actions::FeedbackSendOrigin::Modal {
                 submission_id,
                 modal_id,

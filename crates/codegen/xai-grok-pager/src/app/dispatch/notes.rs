@@ -22,9 +22,50 @@ fn next_rewrite_nonce() -> u64 {
     REWRITE_NONCE.fetch_add(1, Ordering::Relaxed)
 }
 
-/// One copy of the send-time thank-you, shared by the immediate and modal commit paths.
+/// Shown only after the backend accepts the report.
 pub(crate) const FEEDBACK_THANKS_NOTICE: &str =
     "Thanks for the feedback! The Grok Build team is on it.";
+
+/// Notice for a finished non-draft send. `None` when the caller already wrote
+/// a more specific line for that outcome.
+pub(crate) fn non_draft_feedback_notice(
+    outcome: xai_grok_shell::session::FeedbackOutcome,
+) -> Option<&'static str> {
+    use xai_grok_shell::session::FeedbackOutcome;
+    match outcome {
+        FeedbackOutcome::Submitted => Some(FEEDBACK_THANKS_NOTICE),
+        FeedbackOutcome::SubmittedCleanupFailed => Some(
+            "Feedback was sent, but the stored draft could not be deleted. Delete it manually; do not resend.",
+        ),
+        FeedbackOutcome::LocalOnly => {
+            Some("Feedback was saved locally but was not sent.")
+        }
+        FeedbackOutcome::OutcomeUnknown | FeedbackOutcome::Other | _ => None,
+    }
+}
+
+/// One "Couldn't send feedback" clause. The shell and the ACP client each add
+/// their own lead-in, so a raw error can repeat it.
+pub(crate) fn feedback_failure_clause(error: &str) -> String {
+    let mut reason = error.trim();
+    const PREFIXES: &[&str] = &[
+        "couldn't send feedback:",
+        "could not send feedback:",
+        "feedback submission failed:",
+    ];
+    loop {
+        let lower = reason.to_ascii_lowercase();
+        let Some(prefix) = PREFIXES.iter().find(|prefix| lower.starts_with(*prefix)) else {
+            break;
+        };
+        reason = reason.get(prefix.len()..).unwrap_or("").trim();
+    }
+    if reason.is_empty() {
+        "Couldn't send feedback".to_owned()
+    } else {
+        format!("Couldn't send feedback: {reason}")
+    }
+}
 
 /// Minimal mode cannot show a toast, so the notice goes to the transcript instead.
 fn feedback_notice(app: &mut AppView, message: &str) {
@@ -286,11 +327,6 @@ pub(super) fn dispatch_submit_feedback_modal(
     if let Some(notice) = dropped {
         agent.scrollback.push_block(RenderBlock::system(notice));
     }
-    if draft_id.is_none() {
-        agent
-            .scrollback
-            .push_block(RenderBlock::system(FEEDBACK_THANKS_NOTICE.to_string()));
-    }
     let mut effects = vec![feedback_send_effect(
         id,
         session_id,
@@ -416,10 +452,6 @@ pub(crate) fn commit_feedback(
         return None;
     }
 
-    agent
-        .scrollback
-        .push_block(RenderBlock::system(FEEDBACK_THANKS_NOTICE.to_string()));
-
     Some(feedback_send_effect(
         id,
         session_id,
@@ -488,8 +520,7 @@ pub(super) fn keep_unsent_feedback_report(agent: &mut AgentView, report: UnsentF
     agent.scrollback.push_block(RenderBlock::system(notice));
 }
 
-/// Thank-you is shown immediately; POST is a background effect.
-/// The composer is not cleared: the text arrives with the action, not from the prompt.
+/// The outcome notice waits for the POST. The composer is not cleared: the text arrives with the action, not from the prompt.
 /// Early exits drop `images`, whose owner cleans up the staged temp files.
 pub(super) fn dispatch_send_feedback(
     app: &mut AppView,

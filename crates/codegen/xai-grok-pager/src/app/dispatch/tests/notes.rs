@@ -748,6 +748,21 @@ fn inline_feedback_sends_immediately_while_a_turn_runs() {
     );
     assert_eq!("", agent.prompt.text());
     assert!(agent.prompt.images.is_empty());
+    assert!(
+        !system_messages(&app, id)
+            .iter()
+            .any(|text| text.contains("Thanks for the feedback")),
+        "thanks waits until the send result"
+    );
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::FeedbackComplete {
+            agent_id: id,
+            origin: *origin,
+            outcome: xai_grok_shell::session::FeedbackOutcome::Submitted,
+            trace_upload_token: None,
+        }),
+        &mut app,
+    );
     assert!(last_system_text(&app, id).contains("Thanks for the feedback"));
 }
 /// Typed bare `/feedback` must not drain composer images until the modal opens: every refusal
@@ -1284,9 +1299,9 @@ fn feedback_modal_submit_strips_image_chips_from_post_body() {
         other => panic!("expected POST without image chips, got {other:?}"),
     }
 }
-/// Submit emits only the POST (no trace/upload effect), closes the modal at send time, and thanks
-/// immediately; a duplicate submit finds no modal, and a failed POST keeps the report as a draft
-/// (the closed modal held the only copy) and says so in the transcript.
+/// Submit emits only the POST (no trace/upload effect) and closes the modal at send time.
+/// Thanks waits for a successful result. A duplicate submit finds no modal, and a failed POST
+/// keeps the report as a draft (the closed modal held the only copy) and says so in the transcript.
 #[test]
 fn feedback_modal_submit_closes_immediately_and_failure_keeps_a_draft() {
     use crate::app::actions::FeedbackSendOrigin;
@@ -1321,8 +1336,10 @@ fn feedback_modal_submit_closes_immediately_and_failure_keeps_a_draft() {
         "a committed submit closes the modal without waiting on the POST"
     );
     assert!(
-        last_system_text(&app, AgentId(0)).contains("Thanks for the feedback"),
-        "the thank-you lands at send time"
+        !system_messages(&app, AgentId(0))
+            .iter()
+            .any(|text| text.contains("Thanks for the feedback")),
+        "the thank-you waits for a successful result"
     );
     assert!(
         dispatch(Action::SubmitFeedbackModal { modal_id }, &mut app).is_empty(),
@@ -1603,7 +1620,7 @@ fn dropped_or_failed_feedback_modal_probe_still_inserts_the_caption() {
         assert_eq!(modal.text(), "the screenshot: caption text", "{label}");
     }
 }
-/// The matching success is a pure no-op with no consent parked: no second thank-you, no upload.
+/// The matching success thanks once and parks no consent, so it does not upload.
 #[test]
 fn feedback_modal_success_completion_is_quiet_without_consent() {
     let mut app = test_app_with_agent();
@@ -1617,7 +1634,12 @@ fn feedback_modal_success_completion_is_quiet_without_consent() {
         agent_ref(&app, AgentId(0)).feedback_modal.is_none(),
         "submit closes the modal"
     );
-    assert!(last_system_text(&app, AgentId(0)).contains("Thanks for the feedback"));
+    assert!(
+        !system_messages(&app, AgentId(0))
+            .iter()
+            .any(|text| text.contains("Thanks for the feedback")),
+        "thanks waits for the result"
+    );
     let scrollback_len = agent_ref(&app, AgentId(0)).scrollback.len();
     let effects = dispatch(
         Action::TaskComplete(TaskResult::FeedbackComplete {
@@ -1631,9 +1653,10 @@ fn feedback_modal_success_completion_is_quiet_without_consent() {
     assert!(effects.is_empty(), "no consent, no upload: {effects:?}");
     assert_eq!(
         agent_ref(&app, AgentId(0)).scrollback.len(),
-        scrollback_len,
-        "success must not thank a second time"
+        scrollback_len + 1,
+        "success thanks once"
     );
+    assert!(last_system_text(&app, AgentId(0)).contains("Thanks for the feedback"));
 }
 /// A completion belonging to an earlier committed report cannot close or silently touch a later modal.
 #[test]
@@ -1659,9 +1682,10 @@ fn stale_feedback_modal_completion_leaves_a_later_modal_alone() {
     assert!(effects.is_empty(), "no consent was parked: {effects:?}");
     assert_eq!(
         agent_ref(&app, AgentId(0)).scrollback.len(),
-        scrollback_len,
-        "an unconsented success must not thank again or complain"
+        scrollback_len + 1,
+        "the earlier report's success is recorded once"
     );
+    assert!(last_system_text(&app, AgentId(0)).contains("Thanks for the feedback"));
     let _ = dispatch(
         Action::TaskComplete(TaskResult::FeedbackFailed {
             agent_id: AgentId(0),
@@ -2077,7 +2101,12 @@ fn trace_offer_sequences_post_then_exactly_one_upload() {
         agent_ref(&app, AgentId(0)).feedback_modal.is_none(),
         "the committed trace choice closes the modal at send time"
     );
-    assert!(last_system_text(&app, AgentId(0)).contains("Thanks for the feedback"));
+    assert!(
+        !system_messages(&app, AgentId(0))
+            .iter()
+            .any(|text| text.contains("Thanks for the feedback")),
+        "thanks waits for the successful POST"
+    );
     let parked_session = agent_ref(&app, AgentId(0))
         .session
         .session_id
@@ -2114,6 +2143,7 @@ fn trace_offer_sequences_post_then_exactly_one_upload() {
         }
         other => panic!("success must emit exactly one upload, got {other:?}"),
     }
+    assert!(last_system_text(&app, AgentId(0)).contains("Thanks for the feedback"));
 }
 #[test]
 fn terminal_feedback_outcomes_take_parked_consent_and_upload_only_remote_successes() {
@@ -2448,6 +2478,56 @@ fn stale_trace_completion_cannot_touch_a_later_modal() {
         "the later modal is untouched"
     );
 }
+fn system_messages(app: &AppView, id: AgentId) -> Vec<String> {
+    let scrollback = &test_agent(app, id).scrollback;
+    (0..scrollback.len())
+        .filter_map(|index| {
+            let entry = scrollback.get(index)?;
+            match &entry.block {
+                crate::scrollback::block::RenderBlock::System(system) => Some(system.text.clone()),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn feedback_failure_notice_keeps_one_send_prefix() {
+    let mut app = test_app_with_agent();
+    let session_id = format!("feedback-prefix-{}", uuid::Uuid::new_v4());
+    let session_dir =
+        plant_local_build_session(&test_agent(&app, AgentId(0)).session.cwd, &session_id);
+    app.agents.get_mut(&AgentId(0)).unwrap().session.session_id = Some(session_id.into());
+    let modal_id = open_feedback_modal(&mut app, Some("the report"));
+    let effects = dispatch(Action::SubmitFeedbackModal { modal_id }, &mut app);
+    let origin = match effects.as_slice() {
+        [Effect::SendFeedback { origin, .. }] => *origin,
+        other => panic!("expected the POST, got {other:?}"),
+    };
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::FeedbackFailed {
+            agent_id: AgentId(0),
+            origin,
+            feedback_text: "the report".into(),
+            image_count: 0,
+            error: "couldn't send feedback: Feedback submission failed: offline".into(),
+        }),
+        &mut app,
+    );
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let notice = last_system_text(&app, AgentId(0));
+    assert_eq!(
+        notice,
+        "Couldn't send feedback: offline. Saved to Drafts; open `/feedback` to retry."
+    );
+    assert_eq!(
+        notice.to_ascii_lowercase().matches("send feedback").count(),
+        1,
+        "{notice}"
+    );
+    assert!(!notice.to_ascii_lowercase().contains("submission failed"));
+}
+
 fn composer_image() -> crate::prompt_images::PastedImage {
     crate::prompt_images::PastedImage {
         element_id: xai_ratatui_textarea::ElementId::from_raw(0),
