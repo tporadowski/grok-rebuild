@@ -689,7 +689,7 @@ impl BlockContent for ExecuteToolCallBlock {
             DisplayMode::Collapsed => {
                 let muted = ctx.mute_when_collapsed(config.muted_command_collapsed);
                 let mut lines = Vec::new();
-                // Collapsed: description title only (no `$ command`) for density; without description, still show the single-line command header
+                // A description stays the title for density. A cancel still names the command that stopped.
                 self.push_header_lines(
                     &mut lines,
                     &theme,
@@ -698,7 +698,7 @@ impl BlockContent for ExecuteToolCallBlock {
                     content_width,
                     0,
                     true,
-                    false, // hide command when description is the title
+                    self.cancelled,
                     ctx.is_running,
                 );
                 BlockOutput { lines }
@@ -888,6 +888,51 @@ mod tests {
         let headers = block.header_lines(&theme, ExecuteHeaderStyle::Label, true, false, false);
         assert_eq!(headers.len(), 1);
         assert_eq!(line_text(&nth(&headers, 0).0), "Ran the unit test suite");
+    }
+
+    fn collapsed_lines(block: &ExecuteToolCallBlock, style: ExecuteHeaderStyle) -> Vec<String> {
+        let mut appearance = AppearanceConfig::default();
+        appearance.scrollback.blocks.execute.header_style = style;
+        let ctx = crate::scrollback::types::BlockContext {
+            width: 80,
+            mode: DisplayMode::Collapsed,
+            is_running: false,
+            raw: false,
+            max_lines: None,
+            appearance,
+            is_selected: false,
+            cwd: None,
+        };
+        block
+            .output(&ctx)
+            .lines
+            .iter()
+            .map(|line| line_text(&line.content))
+            .collect()
+    }
+
+    /// A cancelled command names what stopped, even when a description would otherwise hide it.
+    #[test]
+    fn cancelled_collapsed_row_shows_the_stopped_command() {
+        for style in [ExecuteHeaderStyle::Label, ExecuteHeaderStyle::Shell] {
+            let mut cancelled = ExecuteToolCallBlock::new("cargo test --lib")
+                .with_description("Run the unit test suite");
+            cancelled.mark_cancelled();
+            let lines = collapsed_lines(&cancelled, style);
+            let joined = lines.join("\n");
+            assert!(
+                joined.contains("cargo test --lib"),
+                "{style:?} cancelled row must name the command: {joined}"
+            );
+
+            let finished = ExecuteToolCallBlock::new("cargo test --lib")
+                .with_description("Run the unit test suite");
+            let finished_joined = collapsed_lines(&finished, style).join("\n");
+            assert!(
+                !finished_joined.contains("cargo test --lib"),
+                "{style:?} a finished row with a description stays title-only: {finished_joined}"
+            );
+        }
     }
 
     #[test]
