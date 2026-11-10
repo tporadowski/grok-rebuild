@@ -275,10 +275,24 @@ pub(super) fn handle_exit_plan_mode(
         agent.prompt.set_text("");
     }
 
-    let state = PlanApprovalViewState::with_source(params, source, session_draft, ext.response_tx);
+    let mut state = PlanApprovalViewState::with_source(params, source, session_draft, ext.response_tx);
 
-    agent.plan_comments.clear();
-    agent.plan_next_comment_id = 0;
+    // Comments saved while the revision turn was running live on `plan_comments`.
+    // The new review must keep them so approval still sends that feedback.
+    let carried = std::mem::take(&mut agent.plan_comments);
+    if carried.is_empty() {
+        agent.plan_next_comment_id = 0;
+    } else {
+        let next_id = carried
+            .iter()
+            .map(|comment| comment.id.saturating_add(1))
+            .max()
+            .unwrap_or(0)
+            .max(agent.plan_next_comment_id);
+        state.comments = carried;
+        state.next_comment_id = next_id;
+        agent.plan_next_comment_id = 0;
+    }
 
     if state.source == PlanReviewSource::Inline {
         if let Some(body) = state

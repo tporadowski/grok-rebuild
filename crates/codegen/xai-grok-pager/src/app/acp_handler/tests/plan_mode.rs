@@ -27,6 +27,55 @@
     }
 
     #[test]
+    fn exit_plan_mode_keeps_comments_added_while_a_revision_runs() {
+        use crate::app::actions::Action;
+        use crate::app::app_view::InputOutcome;
+        use crate::views::plan_approval_view::PlanComment;
+
+        let mut app = make_app_with_agent("sess-1");
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            seed_pending_tool(agent, "revise-plan-call", "CreatePlan");
+            agent.plan_comments.push(PlanComment {
+                id: 0,
+                line_range: 1..2,
+                text: "keep the rollback".into(),
+            });
+            agent.plan_next_comment_id = 1;
+        }
+        let (ext, _rx) = make_exit_plan_ext_with_tool_call_id(
+            "revise-plan-call",
+            Some("step one\nstep two"),
+        );
+
+        assert!(handle_exit_plan_mode(ext, &mut app));
+
+        let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+        assert!(
+            agent.plan_comments.is_empty(),
+            "the comments now belong to the new review"
+        );
+        let pav = agent
+            .plan_approval_view
+            .as_ref()
+            .expect("the revised plan opens a review");
+        let comment = pav.comments.first().expect("the revision comment is kept");
+        assert_eq!(comment.text, "keep the rollback");
+        assert_eq!(pav.comments.len(), 1);
+        agent.prompt.set_text("");
+
+        match agent.approve_plan() {
+            InputOutcome::Action(Action::Interject { text, .. }) => {
+                assert!(
+                    text.contains("keep the rollback"),
+                    "approval must send the comment added during the revision, got {text}"
+                );
+            }
+            other => panic!("approval must send the carried comment, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn exit_plan_keeps_inline_plan_preview_available() {
         let mut app = make_app_with_agent("sess-1");
         {
