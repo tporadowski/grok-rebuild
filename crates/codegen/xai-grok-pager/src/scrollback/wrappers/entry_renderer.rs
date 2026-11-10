@@ -13,7 +13,9 @@ use crate::scrollback::BlockOutput;
 use crate::scrollback::block::{BlockContent, RenderBlock};
 use crate::scrollback::entry::ScrollbackEntry;
 use crate::scrollback::layout::HorizontalLayout;
-use crate::scrollback::types::{AccentStyle, BlockBackground, DisplayMode, Selectable};
+use crate::scrollback::types::{
+    derive_selection_text, AccentStyle, BlockBackground, DisplayMode, Selectable,
+};
 use crate::theme::{self, Theme};
 
 /// Animation speed for running blocks (radians per tick).
@@ -501,6 +503,72 @@ impl<'a> EntryRenderer<'a> {
             .get(logical_line)
             .copied()
             .unwrap_or(last_content_row)
+    }
+
+    /// Rendered row of the wrapped continuation that contains `byte_in_line` inside logical line `logical_line`.
+    /// `byte_in_line` is a byte offset into that line's searchable text, excluding the newline.
+    /// Offset 0 matches [`rendered_row_of_logical_line`]. Later bytes walk continuation rows (`joiner` is `Some`)
+    /// by the selectable text those rows copy. A byte past the line lands on its last wrapped row.
+    pub fn rendered_row_of_logical_line_byte(
+        &self,
+        width: u16,
+        logical_line: usize,
+        byte_in_line: usize,
+    ) -> u16 {
+        let (starts, last_content_row) = self.logical_line_start_rows(width);
+        let start_row = starts
+            .get(logical_line)
+            .copied()
+            .unwrap_or(last_content_row);
+        if byte_in_line == 0 {
+            return start_row;
+        }
+        let next_line_row = starts
+            .get(logical_line.saturating_add(1))
+            .copied()
+            .unwrap_or(last_content_row.saturating_add(1));
+        let row_cap = next_line_row.saturating_sub(1).max(start_row);
+
+        let output = self.entry.cached_output_ref();
+        let mut logical = 0usize;
+        let mut in_target = false;
+        let mut start_idx = 0usize;
+        let mut covered = 0usize;
+        let mut last_idx = 0usize;
+        for (idx, line) in output.lines.iter().enumerate() {
+            if matches!(line.selectable, Selectable::None) {
+                continue;
+            }
+            if line.joiner.is_none() {
+                if in_target {
+                    break;
+                }
+                if logical == logical_line {
+                    in_target = true;
+                    start_idx = idx;
+                    covered = 0;
+                } else {
+                    logical = logical.saturating_add(1);
+                    continue;
+                }
+            } else if !in_target {
+                continue;
+            }
+            let joiner_len = line.joiner.as_deref().map(str::len).unwrap_or(0);
+            let text_len = derive_selection_text(line).len();
+            let row_end = covered.saturating_add(joiner_len).saturating_add(text_len);
+            last_idx = idx;
+            if byte_in_line < row_end {
+                let extra = u16::try_from(idx.saturating_sub(start_idx)).unwrap_or(u16::MAX);
+                return start_row.saturating_add(extra).min(row_cap);
+            }
+            covered = row_end;
+        }
+        if in_target {
+            let extra = u16::try_from(last_idx.saturating_sub(start_idx)).unwrap_or(u16::MAX);
+            return start_row.saturating_add(extra).min(row_cap);
+        }
+        start_row
     }
 
     /// Inverse of [`rendered_row_of_logical_line`]. Shares `logical_line_start_rows` with that method so the two

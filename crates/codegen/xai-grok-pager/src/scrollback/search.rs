@@ -27,6 +27,15 @@ use super::state::ScrollbackState;
 use crate::input::line_editor::{LineEditOutcome, LineEditor};
 use crate::search::{QueryKind, TextMatcher};
 
+/// Byte offset of `absolute` within its line of searchable text.
+/// The search scan counts newlines before the match start, so this is the offset inside that line.
+pub fn byte_within_search_line(text: &str, absolute: usize) -> usize {
+    match text.get(..absolute).and_then(|prefix| prefix.rfind('\n')) {
+        Some(newline) => absolute - (newline + 1),
+        None => absolute,
+    }
+}
+
 /// A located query match within the scrollback.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScrollbackMatch {

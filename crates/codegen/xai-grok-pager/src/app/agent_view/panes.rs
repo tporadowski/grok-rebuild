@@ -306,17 +306,24 @@ impl AgentView {
         }
         changed
     }
-    /// Scroll the current search match into view via `reveal_entry_line`.
+    /// Scroll the current search match into view, including the wrapped row inside its logical line.
     fn reveal_current_search_match(&mut self) {
         let target = self
             .scrollback_search
             .as_ref()
             .and_then(|s| s.current())
-            .map(|m| (m.entry_id, m.line_in_entry));
-        if let Some((id, line)) = target
+            .map(|m| (m.entry_id, m.line_in_entry, m.byte_range.start));
+        if let Some((id, line, absolute)) = target
             && let Some(idx) = self.scrollback.index_of_id(id)
         {
-            self.scrollback.reveal_entry_line(idx, line);
+            let byte_in_line = self
+                .scrollback
+                .get(idx)
+                .and_then(|entry| entry.block.searchable_text())
+                .map(|text| crate::scrollback::search::byte_within_search_line(&text, absolute))
+                .unwrap_or(0);
+            self.scrollback
+                .reveal_entry_match(idx, line, byte_in_line);
         }
     }
     /// Todo-pane-focused key handling.

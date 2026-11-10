@@ -959,9 +959,21 @@ impl ScrollbackState {
         self.bump_generation();
     }
 
-    /// Select entry `entry_idx` and reveal it: expand a fold and un-truncate its group so it is no longer hidden.
-    /// Wrapped or tall entries thus land the match on screen instead of scrolling it past the viewport.
+    /// Select entry `entry_idx` and reveal the start of searchable line `line_in_entry`.
+    /// Wrapped or tall entries thus land the line on screen instead of scrolling it past the viewport.
     pub fn reveal_entry_line(&mut self, entry_idx: usize, line_in_entry: usize) {
+        self.reveal_entry_match(entry_idx, line_in_entry, 0);
+    }
+
+    /// Select entry `entry_idx` and reveal the wrapped row of searchable line `line_in_entry` that contains
+    /// `byte_in_line`. `byte_in_line` counts bytes in that line, not in the whole entry.
+    /// A match on a later wrap of the same line scrolls to that row.
+    pub fn reveal_entry_match(
+        &mut self,
+        entry_idx: usize,
+        line_in_entry: usize,
+        byte_in_line: usize,
+    ) {
         if entry_idx >= self.entries.len() {
             return;
         }
@@ -1019,9 +1031,10 @@ impl ScrollbackState {
             self.compute_total_height_from_cache();
         }
 
-        // Center the entry, then nudge toward the matched line within it. The logical line maps through the entry's
-        // wrapped output to its rendered-row offset, so a match below a wrapped line isn't left off screen. That offset is
-        // clamped to the entry height and the result to max_offset, so the nudge can't park the view past the last entry.
+        // Center the entry, then nudge toward the matched row within it. The logical line maps through the entry's
+        // wrapped output, and the match byte selects the continuation row inside that line, so a hit on a later wrap
+        // isn't left off screen. That offset is clamped to the entry height and the result to max_offset, so the nudge
+        // can't park the view past the last entry.
         self.scroll_to_entry_center(entry_idx);
         let max_row_offset = self
             .get_cached_entry_height(entry_idx)
@@ -1033,7 +1046,7 @@ impl ScrollbackState {
             .and_then(|cache| cache.entries.get(entry_idx))
             .map_or(0, |info| u16::from(info.is_expanded_verb_header()));
         let row_offset = self
-            .rendered_row_offset_within_entry(entry_idx, line_in_entry)
+            .rendered_row_offset_within_entry(entry_idx, line_in_entry, byte_in_line)
             .saturating_add(header_rows)
             .min(max_row_offset);
         let max_offset = self
@@ -1047,10 +1060,15 @@ impl ScrollbackState {
         self.bump_generation();
     }
 
-    /// Rendered-row offset of `line_in_entry` within entry `entry_idx` at the current layout width.
-    /// Maps the logical line the search index reports through the entry's word-wrapped output to the row actually painted.
-    /// Reveal thus scrolls to where the match is rather than to an unwrapped estimate.
-    fn rendered_row_offset_within_entry(&self, entry_idx: usize, line_in_entry: usize) -> u16 {
+    /// Rendered-row offset of the match within entry `entry_idx` at the current layout width.
+    /// Maps the logical line the search index reports through the entry's word-wrapped output, then the byte
+    /// inside that line, to the row actually painted. Reveal thus scrolls to the wrapped row of the match.
+    fn rendered_row_offset_within_entry(
+        &self,
+        entry_idx: usize,
+        line_in_entry: usize,
+        byte_in_line: usize,
+    ) -> u16 {
         if self.last_width == 0 {
             return u16::try_from(line_in_entry).unwrap_or(u16::MAX);
         }
@@ -1062,7 +1080,7 @@ impl ScrollbackState {
         EntryRenderer::new(entry, &theme)
             .with_appearance_ref(&self.appearance)
             .with_cwd(self.cwd())
-            .rendered_row_of_logical_line(entry_area_width, line_in_entry)
+            .rendered_row_of_logical_line_byte(entry_area_width, line_in_entry, byte_in_line)
     }
 
     /// Handle follow mode auto-scroll (call during rendering). Only follow if current turn is "running" (no end-of-turn
@@ -2107,6 +2125,86 @@ mod tests {
     }
 
     #[test]
+    fn reveal_scrolls_to_the_wrapped_row_of_the_current_match() {
+        let mut state = ScrollbackState::new();
+        for i in 0..30 {
+            state.push_block(RenderBlock::user_prompt(format!("pre {i}")));
+        }
+        // One logical line. Two marks sit many wrapped rows apart at a narrow width.
+        let filler = "word ".repeat(40);
+        let line = format!("{filler}EARLYMARK {filler}LATEMARK");
+        let tall_idx = state.len();
+        state.push_block(RenderBlock::user_prompt(line));
+        for i in 0..30 {
+            state.push_block(RenderBlock::user_prompt(format!("post {i}")));
+        }
+        state.prepare_layout(40, 8);
+
+        let mut index = crate::scrollback::search::ScrollbackSearchIndex::new();
+        index.sync(&state);
+        let early_hits = index.find(&crate::search::TextMatcher::new(
+            "EARLYMARK",
+            crate::search::QueryKind::Substring,
+        ));
+        let late_hits = index.find(&crate::search::TextMatcher::new(
+            "LATEMARK",
+            crate::search::QueryKind::Substring,
+        ));
+        let early = early_hits
+            .iter()
+            .find(|hit| state.index_of_id(hit.entry_id) == Some(tall_idx))
+            .expect("early mark");
+        let late = late_hits
+            .iter()
+            .find(|hit| state.index_of_id(hit.entry_id) == Some(tall_idx))
+            .expect("late mark");
+        assert_eq!(
+            early.line_in_entry, late.line_in_entry,
+            "both marks share one logical line"
+        );
+        let text = state
+            .get(tall_idx)
+            .and_then(|entry| entry.block.searchable_text())
+            .expect("searchable prompt");
+        let early_byte =
+            crate::scrollback::search::byte_within_search_line(&text, early.byte_range.start);
+        let late_byte =
+            crate::scrollback::search::byte_within_search_line(&text, late.byte_range.start);
+        assert!(late_byte > early_byte);
+
+        state.reveal_entry_match(tall_idx, early.line_in_entry, early_byte);
+        let at_early = state.scroll_offset();
+        let early_row =
+            state.rendered_row_offset_within_entry(tall_idx, early.line_in_entry, early_byte);
+        state.reveal_entry_line(tall_idx, early.line_in_entry);
+        let at_start = state.scroll_offset();
+        let start_row = state.rendered_row_offset_within_entry(tall_idx, early.line_in_entry, 0);
+        state.reveal_entry_match(tall_idx, late.line_in_entry, late_byte);
+        let at_late = state.scroll_offset();
+        let late_row =
+            state.rendered_row_offset_within_entry(tall_idx, late.line_in_entry, late_byte);
+
+        assert!(
+            early_row > start_row,
+            "the early mark is past the first wrapped row (start {start_row}, early {early_row})"
+        );
+        assert!(
+            late_row > early_row + 1,
+            "the later mark is on a later wrap of the same line (early {early_row}, late {late_row})"
+        );
+        assert!(
+            at_early > at_start,
+            "revealing the early mark scrolls past the start of its logical line \
+             (start {at_start}, early {at_early})"
+        );
+        let delta = at_late.saturating_sub(at_early);
+        assert!(
+            delta > 1,
+            "revealing the later wrap of the same line scrolls further (delta {delta})"
+        );
+    }
+
+    #[test]
     fn reveal_offsets_expanded_verb_head_past_group_header() {
         crate::appearance::cache::set_group_tool_verbs(true);
         let mut state = ScrollbackState::new();
@@ -2178,13 +2276,13 @@ mod tests {
 
         // Logical line 0 maps past the two non-selectable header rows
         // Thinking has no vpad, so the old "count every hard break" logic returned 0 here
-        let row0 = state.rendered_row_offset_within_entry(think_idx, 0);
+        let row0 = state.rendered_row_offset_within_entry(think_idx, 0, 0);
         assert!(
             row0 >= 2,
             "logical line 0 must skip the 2 non-selectable header rows, got {row0}"
         );
         // The next logical line begins past every wrapped row of line 0 (and the header), not one row after it
-        let row1 = state.rendered_row_offset_within_entry(think_idx, 1);
+        let row1 = state.rendered_row_offset_within_entry(think_idx, 1, 0);
         assert!(
             row1 > row0 + 1,
             "wrapped first line must push the next logical line well below it \

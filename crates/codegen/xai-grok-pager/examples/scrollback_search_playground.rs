@@ -74,11 +74,26 @@ impl App {
 
     /// Scroll the current match into view (exercises the reveal path).
     fn reveal_current(&mut self) {
-        if let Some(m) = self.search.current()
-            && let Some(idx) = self.scrollback.index_of_id(m.entry_id)
+        let target = self.search.current().map(|m| {
+            (
+                m.entry_id,
+                m.line_in_entry,
+                m.byte_range.start,
+            )
+        });
+        if let Some((id, line, absolute)) = target
+            && let Some(idx) = self.scrollback.index_of_id(id)
         {
-            let line = m.line_in_entry;
-            self.scrollback.reveal_entry_line(idx, line);
+            let byte_in_line = self
+                .scrollback
+                .get(idx)
+                .and_then(|entry| entry.block.searchable_text())
+                .map(|text| {
+                    xai_grok_pager::scrollback::search::byte_within_search_line(&text, absolute)
+                })
+                .unwrap_or(0);
+            self.scrollback
+                .reveal_entry_match(idx, line, byte_in_line);
         }
     }
 }
