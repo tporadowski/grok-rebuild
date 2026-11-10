@@ -122,6 +122,47 @@ fn scan_matches(entries: &[IndexedEntry], matcher: &TextMatcher) -> Vec<Scrollba
     matches
 }
 
+/// Cursor to keep when a content refresh replaces the match list for the same query.
+/// The same entry and byte range wins. Otherwise the nearest hit in that entry, by byte start.
+/// Otherwise the previous index, clamped into the new list.
+fn relocate_match(
+    previous: Option<&ScrollbackMatch>,
+    previous_index: Option<usize>,
+    matches: &[ScrollbackMatch],
+) -> Option<usize> {
+    if matches.is_empty() {
+        return None;
+    }
+    let Some(previous) = previous else {
+        return Some(0);
+    };
+    if let Some(index) = matches.iter().position(|hit| {
+        hit.entry_id == previous.entry_id && hit.byte_range == previous.byte_range
+    }) {
+        return Some(index);
+    }
+    let mut nearest: Option<(usize, usize)> = None;
+    for (index, hit) in matches.iter().enumerate() {
+        if hit.entry_id != previous.entry_id {
+            continue;
+        }
+        let distance = hit.byte_range.start.abs_diff(previous.byte_range.start);
+        let closer = match nearest {
+            Some((best_distance, best_index)) => {
+                distance < best_distance || (distance == best_distance && index < best_index)
+            }
+            None => true,
+        };
+        if closer {
+            nearest = Some((distance, index));
+        }
+    }
+    if let Some((_, index)) = nearest {
+        return Some(index);
+    }
+    Some(previous_index.unwrap_or(0).min(matches.len() - 1))
+}
+
 /// Latest scan results published by the daemon for the UI thread to pick up.
 ///
 /// `request_generation` is assigned synchronously by the UI and identifies the exact query/corpus request that produced this snapshot.
@@ -282,6 +323,9 @@ pub struct ScrollbackSearchState {
     last_seen_generation: u64,
     /// Monotonic UI-owned request generation, incremented only when enqueuing query/corpus work.
     request_generation: u64,
+    /// Query the matches currently in `matches` were computed for.
+    /// A later snapshot of this same query keeps the cursor. A different query parks on the first hit.
+    applied_query: String,
 }
 
 impl ScrollbackSearchState {
@@ -298,6 +342,7 @@ impl ScrollbackSearchState {
             daemon: SearchDaemon::new(),
             last_seen_generation: 0,
             request_generation: 0,
+            applied_query: String::new(),
         }
     }
 
@@ -368,9 +413,25 @@ impl ScrollbackSearchState {
         self.apply_query_key(key, state) != LineEditOutcome::Unhandled
     }
 
+    /// Re-enqueue the open query when scrollback content changed since the last sync.
+    /// Streaming replies and command output bump `content_generation` without a new keystroke.
+    /// Returns whether a scan was enqueued. An empty or invalid query, and an unchanged corpus, enqueue nothing.
+    pub(crate) fn refresh_content(&mut self, state: &ScrollbackState) -> bool {
+        if self.query().is_empty() || self.matcher.is_error() {
+            return false;
+        }
+        if self.index.built_generation == Some(state.content_generation()) {
+            return false;
+        }
+        let before = self.request_generation;
+        self.update_derived_query(state);
+        self.request_generation != before
+    }
+
     /// Pick up the latest scan results from the daemon.
     /// Returns `true` when the results changed (so the caller can redraw / reveal the new match).
-    /// On a change the cursor parks on the first match, preserving the old "jump to the first match when the query changes" behavior.
+    /// A new query parks on the first match.
+    /// A new snapshot of the query already on screen keeps the current hit.
     pub fn poll(&mut self) -> bool {
         // Hold the lock only for the cheap compares (and, on a real change, an Arc-pointer clone)
         // Never clone the whole snapshot: that would heap-allocate its `query: String` on every no-change tick at ~30 Hz
@@ -385,10 +446,18 @@ impl ScrollbackSearchState {
         if guard.request_generation != self.request_generation || guard.query != self.query() {
             return false;
         }
+        let same_query = guard.query == self.applied_query;
+        let incoming_query = guard.query.clone();
         let matches = guard.matches.clone();
         drop(guard);
+        let current = if same_query {
+            relocate_match(self.current(), self.current, &matches)
+        } else {
+            (!matches.is_empty()).then_some(0)
+        };
         self.matches = matches;
-        self.current = (!self.matches.is_empty()).then_some(0);
+        self.current = current;
+        self.applied_query = incoming_query;
         true
     }
 
@@ -825,6 +894,124 @@ mod tests {
         update_and_wait(&mut search, "foo", &state);
         assert_eq!(search.request_generation, generation + 1);
         assert_eq!(search.match_count(), 2);
+    }
+
+    fn wait_for_poll(search: &mut ScrollbackSearchState) {
+        for _ in 0..1000 {
+            if search.poll() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!("scrollback search daemon did not publish a result");
+    }
+
+    #[test]
+    fn refresh_content_counts_new_matches_and_keeps_the_current_hit() {
+        let mut state = ScrollbackState::new();
+        let first = state.push_block(RenderBlock::user_prompt("foo one"));
+        let second = state.push_block(RenderBlock::user_prompt("foo two"));
+        let agent = state.start_streaming_agent();
+        assert!(state.push_chunk_to_agent(agent, "preface "));
+        let exec = state.push_block(RenderBlock::execute("echo"));
+        assert!(state.push_chunk_to_execute(exec, "ready"));
+
+        let mut search = ScrollbackSearchState::open();
+        assert!(
+            !search.refresh_content(&state),
+            "an empty query does not scan"
+        );
+        update_and_wait(&mut search, "foo", &state);
+        assert_eq!(search.match_count(), 2);
+        assert_eq!(search.current().unwrap().entry_id, first);
+        search.next();
+        assert_eq!(search.current().unwrap().entry_id, second);
+        assert_eq!(search.current().unwrap().byte_range, 0..3);
+        let generation = search.request_generation;
+
+        assert!(
+            !search.refresh_content(&state),
+            "unchanged scrollback must not enqueue another scan"
+        );
+        assert_eq!(search.request_generation, generation);
+
+        assert!(state.push_chunk_to_agent(agent, "foo reply"));
+        assert!(state.push_chunk_to_execute(exec, "\nfoo out"));
+        let agent_text = state
+            .iter_entries()
+            .find(|(id, _)| *id == agent)
+            .and_then(|(_, entry)| entry.block.searchable_text())
+            .unwrap_or_default();
+        assert!(
+            agent_text.contains("foo"),
+            "streamed reply text must be searchable, got {agent_text:?}"
+        );
+        assert!(search.refresh_content(&state));
+        assert_eq!(search.request_generation, generation + 1);
+        assert!(
+            !search.refresh_content(&state),
+            "a second refresh of the same corpus must not enqueue again"
+        );
+        wait_for_poll(&mut search);
+
+        assert!(
+            search.match_count() > 2,
+            "streamed reply and command output add matches, count={}",
+            search.match_count()
+        );
+        assert!(
+            search.matches.iter().any(|hit| hit.entry_id == agent),
+            "the streamed reply is in the match list"
+        );
+        assert!(
+            search.matches.iter().any(|hit| hit.entry_id == exec),
+            "the streamed command output is in the match list"
+        );
+        let current = search.current().unwrap();
+        assert_eq!(current.entry_id, second);
+        assert_eq!(current.byte_range, 0..3);
+        assert_ne!(search.current_index(), Some(0));
+
+        // Stepping uses the refreshed list, so the next hit is one of the streamed matches.
+        search.next();
+        assert_ne!(search.current().unwrap().entry_id, second);
+
+        // A different query still parks on the first hit.
+        update_and_wait(&mut search, "one", &state);
+        assert_eq!(search.current_index(), Some(0));
+        assert_eq!(search.current().unwrap().entry_id, first);
+    }
+
+    #[test]
+    fn refresh_content_keeps_navigation_when_command_output_is_replaced() {
+        let mut state = ScrollbackState::new();
+        let first = state.push_block(RenderBlock::user_prompt("foo stable"));
+        let exec = state.push_block(RenderBlock::execute("echo"));
+        assert!(state.set_execute_output(exec, "xx foo yy"));
+        let third = state.push_block(RenderBlock::user_prompt("foo tail"));
+
+        let mut search = ScrollbackSearchState::open();
+        update_and_wait(&mut search, "foo", &state);
+        assert_eq!(search.match_count(), 3);
+        search.next();
+        assert_eq!(search.current().unwrap().entry_id, exec);
+
+        // The old byte range is gone. The cursor stays on this command's new hit, not the first row.
+        assert!(state.set_execute_output(exec, "foo replaced"));
+        assert!(search.refresh_content(&state));
+        wait_for_poll(&mut search);
+        assert_eq!(search.match_count(), 3);
+        assert_eq!(search.current().unwrap().entry_id, exec);
+        assert_ne!(search.current().unwrap().entry_id, first);
+        assert_ne!(search.current_index(), Some(0));
+
+        // The command no longer contains the query. Clamp the old index instead of jumping to match 0.
+        assert!(state.set_execute_output(exec, "no match here"));
+        assert!(search.refresh_content(&state));
+        wait_for_poll(&mut search);
+        assert_eq!(search.match_count(), 2);
+        assert_eq!(search.current().unwrap().entry_id, third);
+        assert_ne!(search.current_index(), Some(0));
     }
 
     #[test]

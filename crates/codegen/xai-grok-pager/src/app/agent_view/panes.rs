@@ -294,8 +294,12 @@ impl AgentView {
         }
     }
     /// Poll the background search daemon for new results, revealing the freshly parked match when they change.
+    /// An open search also re-scans when replies or command output stream in, so the count and `n` / `N` stay on the new text.
     /// Returns `true` if the UI should redraw.
     pub(crate) fn poll_scrollback_search(&mut self) -> bool {
+        if let Some(search) = self.scrollback_search.as_mut() {
+            search.refresh_content(&self.scrollback);
+        }
         let changed = self.scrollback_search.as_mut().is_some_and(|s| s.poll());
         if changed {
             self.reveal_current_search_match();

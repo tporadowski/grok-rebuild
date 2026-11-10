@@ -767,6 +767,100 @@ fn needs_animation_gates_scrollback_search_tick_delivery() {
     );
 }
 #[test]
+fn refresh_content_tick_keeps_the_match_while_output_streams() {
+    use crate::scrollback::ScrollbackSearchState;
+    use crate::scrollback::block::RenderBlock;
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    let (second, agent_id, exec) = {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent
+            .scrollback
+            .push_block(RenderBlock::user_prompt("foo one"));
+        let second = agent
+            .scrollback
+            .push_block(RenderBlock::user_prompt("foo two"));
+        let agent_id = agent.scrollback.start_streaming_agent();
+        assert!(agent.scrollback.push_chunk_to_agent(agent_id, "preface "));
+        let exec = agent.scrollback.push_block(RenderBlock::execute("echo"));
+        assert!(agent.scrollback.push_chunk_to_execute(exec, "ready"));
+        agent.scrollback.prepare_layout(80, 24);
+        agent.scrollback_search = Some(ScrollbackSearchState::open());
+        agent
+            .scrollback_search
+            .as_mut()
+            .unwrap()
+            .update_query("foo", &agent.scrollback);
+        (second, agent_id, exec)
+    };
+    let mut delivered = false;
+    for _ in 0..1000 {
+        app.tick();
+        if app
+            .agents
+            .get(&id)
+            .unwrap_or_else(|| panic!("missing map entry"))
+            .scrollback_search
+            .as_ref()
+            .unwrap()
+            .match_count()
+            == 2
+        {
+            delivered = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(delivered, "tick() must deliver the two matches already on screen");
+    {
+        let search = app
+            .agents
+            .get_mut(&id)
+            .unwrap()
+            .scrollback_search
+            .as_mut()
+            .unwrap();
+        search.next();
+        assert_eq!(search.current().unwrap().entry_id, second);
+        assert_eq!(search.current_index(), Some(1));
+    }
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        assert!(
+            agent
+                .scrollback
+                .push_chunk_to_agent(agent_id, "foo reply")
+        );
+        assert!(agent.scrollback.push_chunk_to_execute(exec, "\nfoo out"));
+    }
+    let mut kept = false;
+    let mut last_count = 0usize;
+    let mut last_entry = None;
+    for _ in 0..1000 {
+        app.tick();
+        let search = app
+            .agents
+            .get(&id)
+            .unwrap_or_else(|| panic!("missing map entry"))
+            .scrollback_search
+            .as_ref()
+            .unwrap();
+        last_count = search.match_count();
+        last_entry = search.current().map(|hit| hit.entry_id);
+        if last_count > 2 && last_entry == Some(second) {
+            assert_eq!(search.current().unwrap().byte_range, 0..3);
+            assert_ne!(search.current_index(), Some(0));
+            kept = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(
+        kept,
+        "tick() must count streamed output without leaving the current match; count={last_count} entry={last_entry:?} kept={second:?}"
+    );
+}
+#[test]
 fn tick_demand_fast_while_wake_turn_streams() {
     let mut app = test_app_with_agent();
     let id = super::super::agent::AgentId(0);
