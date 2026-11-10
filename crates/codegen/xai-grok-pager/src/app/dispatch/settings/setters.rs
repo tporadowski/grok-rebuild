@@ -1858,10 +1858,12 @@ pub(in crate::app::dispatch) fn preview_auto_light_theme(
 // No live preview: a model switch has ACP side effects
 
 /// State-only mutation for `default_model`: set `agent.session.models.current` to the supplied id.
+/// `effort` is the level to keep. `None` uses the model's own default.
 /// Returns `true` if the catalog contains `id`; `false` otherwise.
 pub(in crate::app::dispatch) fn set_default_model_inner(
     app: &mut AppView,
     id: &acp::ModelId,
+    effort: Option<xai_grok_shell::sampling::types::ReasoningEffort>,
 ) -> bool {
     let ActiveView::Agent(aid) = app.active_view else {
         return false;
@@ -1873,10 +1875,11 @@ pub(in crate::app::dispatch) fn set_default_model_inner(
         if !agent.session.models.available.contains_key(id) {
             return false;
         }
-        // Update the agent's session model state's current pointer
+        // Update the agent's session model state's current pointer.
         // Subsequent reads (e.g. `current_model_name` via the pager snapshot) then reflect the new selection without waiting for the ACP roundtrip.
-        // `set_current(_, None)` resets `reasoning_effort` to model default.
-        agent.session.models.set_current(id.clone(), None);
+        // A bare switch passes the current effort when the new model offers it.
+        // `None` still resolves to that model's default.
+        agent.session.models.set_current(id.clone(), effort);
     }
     // Mirror the new default into the app-level model state too
     // A later `/new` or `/clear` creates a fresh session by cloning `app.models` (`dispatch_new_session_inner_with_id`)
@@ -1910,7 +1913,7 @@ pub(in crate::app::dispatch) fn set_default_model(
     };
 
     // Snapshot the previous id and display name from the active agent's session (the same source `set_default_model_inner` mutates and the modal reads)
-    let (prev_id, session_id, available_has_new, new_display) = {
+    let (prev_id, session_id, available_has_new, new_display, kept_effort) = {
         let Some(agent) = app.agents.get(&aid) else {
             tracing::error!(
                 target: "settings",
@@ -1923,7 +1926,14 @@ pub(in crate::app::dispatch) fn set_default_model(
         let session_id = agent.session.session_id.clone();
         let available_has_new = agent.session.models.available.contains_key(&new_id);
         let new_display = agent.session.models.display_name_for(&new_id);
-        (prev_id, session_id, available_has_new, new_display)
+        let kept_effort = agent.session.models.effort_kept_on_bare_switch(&new_id);
+        (
+            prev_id,
+            session_id,
+            available_has_new,
+            new_display,
+            kept_effort,
+        )
     };
 
     if !available_has_new {
@@ -1942,7 +1952,7 @@ pub(in crate::app::dispatch) fn set_default_model(
         return vec![];
     }
 
-    let did_mutate = set_default_model_inner(app, &new_id);
+    let did_mutate = set_default_model_inner(app, &new_id, kept_effort);
     debug_assert!(did_mutate, "available_has_new gate guarantees mutation");
     refresh_open_settings_modals(app);
     tracing::info!(
@@ -1982,7 +1992,11 @@ pub(in crate::app::dispatch) fn set_default_model(
         effects.push(Effect::SwitchModel {
             agent_id: aid,
             session_id: sid,
-            choice: ModelChoice::new(new_id),
+            choice: ModelChoice {
+                model_id: new_id,
+                effort: kept_effort,
+                context_window_selection: None,
+            },
             prev_model_id: prev_id.clone(),
         });
     } else if let Some(agent) = app.agents.get_mut(&aid) {
@@ -1990,7 +2004,7 @@ pub(in crate::app::dispatch) fn set_default_model(
         // Mirrors `Action::SwitchModel` line 586
         agent.session.deferred_model_switch = Some(crate::app::agent::DeferredModelSwitch {
             model_id: new_id,
-            effort: None,
+            effort: kept_effort,
             prev_model_id: prev_id,
             context_window_selection: None,
         });

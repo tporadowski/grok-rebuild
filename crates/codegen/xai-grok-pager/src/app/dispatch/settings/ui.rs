@@ -992,7 +992,7 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
                 };
                 match resolved {
                     Some(id) => {
-                        let _ = set_default_model_inner(app, &id);
+                        let _ = set_default_model_inner(app, &id, None);
                         // Emit a reverse SwitchModel so the ACP session matches the rolled-back pager mirror
                         if let ActiveView::Agent(aid) = app.active_view
                             && let Some(sid) = session_id

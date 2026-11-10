@@ -1718,6 +1718,74 @@ fn clear_default_model_persists_but_keeps_live_current() {
         "clear_default_model must NOT mutate live agent.session.models.current",
     );
 }
+#[test]
+fn bare_model_switch_keeps_the_current_effort() {
+    use agent_client_protocol as acp;
+    use std::sync::Arc;
+    use xai_grok_shell::sampling::types::ReasoningEffort;
+
+    let menu = serde_json::json!({
+        "supportsReasoningEffort": true,
+        "reasoningEffort": "low",
+        "reasoningEfforts": [
+            { "value": "high" },
+            { "value": "low", "default": true }
+        ]
+    });
+    let low_only = serde_json::json!({
+        "supportsReasoningEffort": true,
+        "reasoningEffort": "low",
+        "reasoningEfforts": [{ "value": "low", "default": true }]
+    });
+    let with_meta = |slug: &str, name: &str, meta: &serde_json::Value| {
+        let id = acp::ModelId::new(Arc::from(slug));
+        let info = acp::ModelInfo::new(id.clone(), name.to_string())
+            .meta(meta.as_object().cloned());
+        (id, info)
+    };
+
+    let mut app = test_app_with_agent();
+    let agent_id = AgentId(0);
+    let (current, current_info) = with_meta("model-a", "Model A", &menu);
+    let (next, next_info) = with_meta("model-b", "Model B", &menu);
+    {
+        let models = &mut app.agents.get_mut(&agent_id).unwrap().session.models;
+        models.available.insert(current.clone(), current_info);
+        models.available.insert(next.clone(), next_info);
+        models.set_current(current, Some(ReasoningEffort::High));
+    }
+    let effects = dispatch(Action::SetDefaultModel(next.clone()), &mut app);
+    assert_eq!(
+        expect_agent(&app, agent_id).session.models.reasoning_effort,
+        Some(ReasoningEffort::High),
+        "a bare switch must not jump to the new model's default"
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::SwitchModel { choice, .. }
+                if choice.model_id == next && choice.effort == Some(ReasoningEffort::High)
+        )),
+        "the session switch must carry the kept effort, got {effects:?}"
+    );
+
+    let mut app = test_app_with_agent();
+    let (current, current_info) = with_meta("model-a", "Model A", &menu);
+    let (narrow, narrow_info) = with_meta("model-c", "Model C", &low_only);
+    {
+        let models = &mut app.agents.get_mut(&agent_id).unwrap().session.models;
+        models.available.insert(current.clone(), current_info);
+        models.available.insert(narrow.clone(), narrow_info);
+        models.set_current(current, Some(ReasoningEffort::High));
+    }
+    let _ = dispatch(Action::SetDefaultModel(narrow), &mut app);
+    assert_eq!(
+        expect_agent(&app, agent_id).session.models.reasoning_effort,
+        Some(ReasoningEffort::Low),
+        "an effort the new model does not offer falls back to that model's default"
+    );
+}
+
 /// `Action::SetDefaultModel(<known id>)` resolves the id against the live catalog, mutates current, and emits PersistSetting and SwitchModel effects.
 /// This is the dispatch-level analog of `slash_model_valid_dispatches_set_default_model_with_switch_and_persist`.
 #[test]
@@ -4166,7 +4234,7 @@ fn new_session_inherits_switched_default_model_for_welcome() {
     models.current = Some(id_a.clone());
     app.models = models.clone();
     app.agents.get_mut(&AgentId(0)).unwrap().session.models = models;
-    assert!(set_default_model_inner(&mut app, &id_b));
+    assert!(set_default_model_inner(&mut app, &id_b, None));
     assert_eq!(
         app.models.current.as_ref(),
         Some(&id_b),

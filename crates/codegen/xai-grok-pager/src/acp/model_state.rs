@@ -199,6 +199,16 @@ impl ModelState {
         self.available = new_available;
     }
 
+    /// Effort to carry into a bare model switch. The current level stays when
+    /// `id` offers it. `None` lets [`set_current`] use that model's default.
+    pub fn effort_kept_on_bare_switch(&self, id: &acp::ModelId) -> Option<ReasoningEffort> {
+        let current = self.reasoning_effort?;
+        self.reasoning_effort_options_for(id)
+            .iter()
+            .any(|option| option.value == current)
+            .then_some(current)
+    }
+
     /// Set the current model and resolve reasoning effort from catalog meta.
     pub fn set_current(
         &mut self,
