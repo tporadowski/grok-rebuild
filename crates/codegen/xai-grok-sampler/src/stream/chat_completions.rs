@@ -229,6 +229,25 @@ pub fn stream_chat_completions<'a>(
             }
         }
 
+        // A stream that produced text or reasoning and then closed without
+        // `finish_reason` is a cut connection, not a finished answer. Fail
+        // retryably so the attempt is run again instead of keeping the partial.
+        // Tool-call streams still complete: the provider often omits the reason
+        // and the assembled calls are the answer.
+        if finish_reason.is_none()
+            && tool_call_acc.is_empty()
+            && (!content_acc.is_empty() || !reasoning_acc.is_empty())
+        {
+            let err = SamplingError::EventStreamError(
+                "chat completions stream ended without a finish reason".into(),
+            );
+            yield SamplingEvent::Failed {
+                request_id: request_id.clone(),
+                error: SamplingErrorInfo::from(&err),
+            };
+            return;
+        }
+
         // ── Build the final response ─────────────────────────────────
         let tool_calls: Vec<ToolCall> = tool_call_acc
             .into_values()
@@ -403,6 +422,50 @@ mod tests {
                 assert!(response.is_empty());
             }
             other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    /// Partial text with no `finish_reason` is a dropped stream. The terminal
+    /// event is a retryable failure, not a completed assistant message.
+    #[tokio::test]
+    async fn stream_without_a_finish_reason_is_retried_instead_of_partial_output() {
+        let raw = stream::iter::<Vec<Result<ChatCompletionChunk, SamplingError>>>(vec![Ok(
+            text_chunk("partial answer"),
+        )])
+        .boxed();
+        let events = collect(stream_chat_completions(
+            raw,
+            None,
+            rid(),
+            Duration::from_secs(60),
+        ))
+        .await;
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                SamplingEvent::ChannelToken { text, .. } if text == "partial answer"
+            )
+        }));
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, SamplingEvent::Completed { .. })),
+            "partial output must not complete the attempt"
+        );
+        match events.last() {
+            Some(SamplingEvent::Failed { error, .. }) => {
+                assert!(
+                    error.is_retryable,
+                    "a missing finish reason must be retried, got {error:?}"
+                );
+                assert!(
+                    error.message.contains("finish reason"),
+                    "failure should name the missing finish reason, got {}",
+                    error.message
+                );
+            }
+            other => panic!("expected Failed, got {other:?}"),
         }
     }
 
