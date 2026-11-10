@@ -836,22 +836,50 @@ fn state_ledgers_with_journal_mode(
                 path: state_path.clone(),
                 source,
             })?;
-    let excluded = excluded_paths_from_state(&connection, scope_dir, &state_path)?;
-    let read_counts = match crate::v2_topic_reads::read_counts_from_state(&connection) {
-        Ok(counts) => counts,
-        Err(error) => {
-            tracing::warn!(
-                path = %state_path.display(),
-                %error,
-                "failed to read the memory topic read ledger; ranking falls back to path order"
-            );
-            BTreeMap::new()
-        }
-    };
-    Ok(V2StateLedgers {
-        excluded,
-        read_counts,
+    // One snapshot: a hardening migration committing between these statements
+    // would otherwise report schema 4 without the tables that version requires.
+    read_snapshot(&connection, &state_path, || {
+        let excluded = excluded_paths_from_state(&connection, scope_dir, &state_path)?;
+        let read_counts = match crate::v2_topic_reads::read_counts_from_state(&connection) {
+            Ok(counts) => counts,
+            Err(error) => {
+                tracing::warn!(
+                    path = %state_path.display(),
+                    %error,
+                    "failed to read the memory topic read ledger; ranking falls back to path order"
+                );
+                BTreeMap::new()
+            }
+        };
+        Ok(V2StateLedgers {
+            excluded,
+            read_counts,
+        })
     })
+}
+
+/// Hold a read transaction for `body` so every statement sees the same schema.
+fn read_snapshot<T>(
+    connection: &rusqlite::Connection,
+    state_path: &Path,
+    body: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    let database_error = |source| V2StorageError::Database {
+        database: "state",
+        path: state_path.to_path_buf(),
+        source,
+    };
+    connection
+        .execute_batch("BEGIN")
+        .map_err(database_error)?;
+    let result = body();
+    let end = if result.is_ok() { "COMMIT" } else { "ROLLBACK" };
+    if let Err(source) = connection.execute_batch(end)
+        && result.is_ok()
+    {
+        return Err(database_error(source));
+    }
+    result
 }
 
 fn excluded_paths_from_state(
@@ -1061,6 +1089,16 @@ pub(crate) fn is_durably_excluded_with_journal_mode(
                 source,
             })?;
     let relative_path = relative_path.to_string_lossy().replace('\\', "/");
+    read_snapshot(&connection, &state_path, || {
+        durable_exclusion_in_snapshot(&connection, &state_path, &relative_path)
+    })
+}
+
+fn durable_exclusion_in_snapshot(
+    connection: &rusqlite::Connection,
+    state_path: &Path,
+    relative_path: &str,
+) -> Result<bool> {
     for (table, query) in [
         (
             "memory_v2_tombstones",
@@ -1094,7 +1132,7 @@ pub(crate) fn is_durably_excluded_with_journal_mode(
             )
             .map_err(|source| V2StorageError::Database {
                 database: "state",
-                path: state_path.clone(),
+                path: state_path.to_path_buf(),
                 source,
             })?;
         if table_exists
@@ -1102,7 +1140,7 @@ pub(crate) fn is_durably_excluded_with_journal_mode(
                 .query_row(query, params![relative_path], |row| row.get::<_, bool>(0))
                 .map_err(|source| V2StorageError::Database {
                     database: "state",
-                    path: state_path.clone(),
+                    path: state_path.to_path_buf(),
                     source,
                 })?
         {

@@ -59,6 +59,44 @@ fn initialization_creates_complete_scope_and_is_idempotent() {
 }
 
 #[test]
+fn list_and_exclusion_reads_survive_concurrent_hardening_migration() {
+    let temp = TempDir::new().unwrap();
+    let root = Arc::new(temp.path().to_path_buf());
+    let scope = Arc::new(root.join("scope"));
+    ensure_scope_initialized(&root, &scope, V2MemoryScope::Global).unwrap();
+    std::fs::write(scope.join("topics/note.md"), "# Note\n\nKept.").unwrap();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker = {
+        let root = Arc::clone(&root);
+        let scope = Arc::clone(&scope);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                crate::v2_maintenance::V2MaintenanceStore::open(
+                    scope.as_ref(),
+                    V2MemoryScope::Global,
+                    root.as_ref(),
+                    root.as_ref(),
+                )
+                .unwrap();
+            }
+        })
+    };
+    for _ in 0..30 {
+        let ledgers = state_ledgers(&scope).unwrap();
+        assert!(
+            !ledgers.excluded.contains("topics/note.md"),
+            "a live topic must stay listed during migration"
+        );
+        assert!(
+            !is_durably_excluded(&scope, std::path::Path::new("topics/note.md")).unwrap()
+        );
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    worker.join().unwrap();
+}
+
+#[test]
 fn concurrent_initialization_is_safe() {
     let temp = TempDir::new().unwrap();
     let root = Arc::new(temp.path().to_path_buf());
