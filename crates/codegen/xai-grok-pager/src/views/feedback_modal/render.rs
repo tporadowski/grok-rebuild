@@ -11,6 +11,40 @@ use crate::theme::Theme;
 use crate::views::modal_window::{self, ModalSizing, ModalWindowConfig, Shortcut};
 use crate::views::prompt_widget::PromptStyle;
 
+/// How many rows `text` occupies when wrapped to `width` columns.
+fn status_row_count(text: &str, width: u16) -> u16 {
+    if width == 0 || text.is_empty() {
+        return 0;
+    }
+    let line = ratatui::text::Line::from(text);
+    let rows = crate::render::wrapping::word_wrap_line(&line, usize::from(width)).len();
+    u16::try_from(rows).unwrap_or(u16::MAX)
+}
+
+/// Paint `text` wrapped to `area`, and return the rows used. Nothing is drawn past `area`.
+fn paint_wrapped_status(
+    buf: &mut Buffer,
+    area: Rect,
+    text: &str,
+    style: ratatui::style::Style,
+) -> u16 {
+    if area.width == 0 || area.height == 0 || text.is_empty() {
+        return 0;
+    }
+    let line = ratatui::text::Line::styled(text, style);
+    let wrapped = crate::render::wrapping::word_wrap_line(&line, usize::from(area.width));
+    let mut painted = 0u16;
+    for wrapped_line in wrapped {
+        let y = area.y.saturating_add(painted);
+        if y >= area.bottom() {
+            break;
+        }
+        buf.set_line(area.x, y, &wrapped_line, area.width);
+        painted = painted.saturating_add(1);
+    }
+    painted
+}
+
 /// List label for one draft. A stored title wins. A blank title falls back to
 /// the first non-blank details line, which is how a free-text predraft reads.
 fn draft_row_preview<'a>(title: &'a str, details: &'a str) -> &'a str {
@@ -51,7 +85,16 @@ impl FeedbackModalState {
             None if fields.is_empty() => Self::WRITE_SHORTCUTS,
             None => Self::WRITE_SHORTCUTS_WITH_LABELS,
         };
-        let config = Self::window_config(shortcuts, compact, trace_selected.is_some());
+        let mut config = Self::window_config(shortcuts, compact, trace_selected.is_some());
+        // A failed status wraps inside the footer, above the shortcuts, instead of running into the border.
+        if trace_selected.is_none()
+            && let Some(error) = self.error.as_deref()
+        {
+            let width = modal_window::footer_text_width(area, &config.sizing);
+            let status_rows = status_row_count(error, width);
+            let shortcut_rows = modal_window::shortcuts_rows_needed(config.shortcuts, width);
+            config.sizing.footer_lines = shortcut_rows.saturating_add(status_rows);
+        }
         // Stale label rects must not keep catching clicks after a failed or label-less render.
         self.metadata_row_areas.clear();
         let areas = modal_window::render_modal_window(buf, area, &mut self.window, &config, theme)?;
@@ -87,15 +130,23 @@ impl FeedbackModalState {
         let prompt_result =
             self.composer
                 .draw(buf, content, Some(area), &Self::prompt_style(), None, None);
-        if let Some(error) = self.error.as_deref()
-            && areas.footer.height > 1
-        {
-            buf.set_string(
-                areas.footer.x,
-                areas.footer.y,
-                error,
-                ratatui::style::Style::default().fg(theme.accent_error),
-            );
+        if let Some(error) = self.error.as_deref() {
+            let shortcut_rows =
+                modal_window::shortcuts_rows_needed(shortcuts, areas.footer.width);
+            let status_rows = areas.footer.height.saturating_sub(shortcut_rows);
+            if status_rows > 0 {
+                paint_wrapped_status(
+                    buf,
+                    Rect {
+                        x: areas.footer.x,
+                        y: areas.footer.y,
+                        width: areas.footer.width,
+                        height: status_rows,
+                    },
+                    error,
+                    ratatui::style::Style::default().fg(theme.accent_error),
+                );
+            }
         }
         Some(FeedbackModalRender {
             // The terminal caret is the composer-focus signal; a focused label row hides it.
@@ -196,7 +247,11 @@ impl FeedbackModalState {
             });
         }
         if let DraftsState::Browse { error, .. } = &self.drafts {
-            let header_rows = 2 + usize::from(error.is_some() || self.error.is_some());
+            let error_rows = error
+                .as_deref()
+                .or(self.error.as_deref())
+                .map_or(0, |text| usize::from(status_row_count(text, content.width)));
+            let header_rows = 2 + error_rows;
             self.update_drafts_viewport((content.height as usize).saturating_sub(header_rows));
         }
         match &self.drafts {
@@ -252,17 +307,21 @@ impl FeedbackModalState {
                     );
                     y = y.saturating_add(1);
                 }
-                if let Some(error) = error.as_ref().or(self.error.as_ref())
+                if let Some(error) = error.as_deref().or(self.error.as_deref())
                     && y < content.bottom()
                 {
-                    buf.set_stringn(
-                        content.x,
-                        y,
+                    let painted = paint_wrapped_status(
+                        buf,
+                        Rect {
+                            x: content.x,
+                            y,
+                            width: content.width,
+                            height: content.bottom().saturating_sub(y),
+                        },
                         error,
-                        content.width as usize,
                         ratatui::style::Style::default().fg(theme.accent_error),
                     );
-                    y = y.saturating_add(1);
+                    y = y.saturating_add(painted);
                 }
                 let capacity = content.bottom().saturating_sub(y) as usize;
                 let visible: Vec<_> = self.visible_drafts().into_iter().cloned().collect();
@@ -371,9 +430,14 @@ impl FeedbackModalState {
         }
         if let Some(error) = &self.error {
             line(buf, &mut y, "", ratatui::style::Style::default());
-            line(
+            paint_wrapped_status(
                 buf,
-                &mut y,
+                Rect {
+                    x: content.x,
+                    y,
+                    width: content.width,
+                    height: bottom.saturating_sub(y),
+                },
                 error,
                 ratatui::style::Style::default().fg(theme.accent_error),
             );

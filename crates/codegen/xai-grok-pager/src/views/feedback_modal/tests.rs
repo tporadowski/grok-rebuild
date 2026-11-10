@@ -78,6 +78,64 @@ fn left_click(column: u16, row: u16) -> MouseEvent {
 }
 
 #[test]
+fn failed_feedback_status_wraps_inside_the_dialog() {
+    let area = Rect::new(0, 0, 80, 30);
+    let mut buf = Buffer::empty(area);
+    let mut modal = open_with_text("report");
+    let message = format!(
+        "{}UNIQUE_TAIL",
+        "Couldn't send feedback because the server rejected this report. ".repeat(4)
+    );
+    modal.set_error(message);
+    modal
+        .render(&mut buf, area, &Theme::current(), false)
+        .expect("the dialog renders");
+
+    let popup = modal.window.popup_area.expect("popup");
+    let right = popup.x + popup.width - 1;
+    let rendered = buffer_text(&buf);
+    assert!(
+        rendered.contains("Couldn't send feedback"),
+        "the failure starts inside the dialog:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("UNIQUE_TAIL"),
+        "the end of the failure stays inside the dialog:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("Esc cancel"),
+        "shortcuts stay below the wrapped status:\n{rendered}"
+    );
+    let status_rows = rendered
+        .lines()
+        .filter(|line| {
+            line.contains("Couldn't send")
+                || line.contains("rejected this")
+                || line.contains("UNIQUE_TAIL")
+        })
+        .count();
+    assert!(
+        status_rows > 1,
+        "the failure wraps onto more than one row, saw {status_rows}:\n{rendered}"
+    );
+    for (y, line) in rendered.lines().enumerate() {
+        if !(line.contains("Couldn't send")
+            || line.contains("rejected this")
+            || line.contains("UNIQUE_TAIL"))
+        {
+            continue;
+        }
+        let symbol = buf
+            .cell((right, y as u16))
+            .map(|cell| cell.symbol())
+            .unwrap_or("");
+        assert_eq!(
+            symbol, "│",
+            "status row {y} must not paint through the border ({symbol:?}): {line}"
+        );
+    }
+}
+
 fn render_uses_feedback_chrome_and_write_tab() {
     let area = Rect::new(0, 0, 100, 30);
     let mut buf = Buffer::empty(area);

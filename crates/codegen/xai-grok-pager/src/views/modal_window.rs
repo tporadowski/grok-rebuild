@@ -599,6 +599,21 @@ pub(crate) fn predict_shortcut_rows(
     shortcuts_rows_needed(shortcuts, footer_width)
 }
 
+/// Width of the footer text band for `area`, matching the rect `render_modal_window` builds.
+pub(crate) fn footer_text_width(area: Rect, sizing: &ModalSizing) -> u16 {
+    let modal_width = if embedded() {
+        area.width
+    } else {
+        compute_modal_dims(area, sizing).0
+    };
+    let inner_width = if embedded() {
+        modal_width
+    } else {
+        modal_width.saturating_sub(2)
+    };
+    inner_width.saturating_sub(sizing.h_pad.saturating_mul(2))
+}
+
 /// Compute the modal's `(width, height)`. Shared by `render_modal_window` and `predict_shortcut_rows`.
 fn compute_modal_dims(area: Rect, sizing: &ModalSizing) -> (u16, u16) {
     let max_width = area.width.saturating_sub(4).min(sizing.max_width);
