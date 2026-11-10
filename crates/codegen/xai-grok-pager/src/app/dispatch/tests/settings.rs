@@ -265,43 +265,40 @@ fn set_default_model_allowed_when_agent_chat_kind() {
     );
     assert!(expect_agent(&app, id).session.model_switch_pending);
 }
-/// `/model <name>` dispatches `SetDefaultModel` which routes through both `PersistSetting` and `SwitchModel`.
+/// `/model <name>` starts the session switch and leaves the footer and saved default until it succeeds.
 #[test]
 fn slash_model_valid_dispatches_set_default_model_with_switch_and_persist() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);
+    let previous = acp::ModelId::new(std::sync::Arc::from("grok-3"));
     let model_id = acp::ModelId::new(std::sync::Arc::from("grok-4.5"));
-    app.agents
-        .get_mut(&id)
-        .unwrap()
-        .session
-        .models
-        .available
-        .insert(
+    {
+        let models = &mut app.agents.get_mut(&id).unwrap().session.models;
+        models.available.insert(
+            previous.clone(),
+            acp::ModelInfo::new(previous.clone(), "Grok 3".to_string()),
+        );
+        models.available.insert(
             model_id.clone(),
             acp::ModelInfo::new(model_id.clone(), "Grok 4.5".to_string()),
         );
+        models.set_current(previous.clone(), None);
+    }
     let effects = dispatch(Action::SendPrompt("/model Grok 4.5".into()), &mut app);
     assert_eq!(
         effects.len(),
-        2,
-        "expected PersistSetting + SwitchModel effects, got {effects:?}",
+        1,
+        "a live session must not save the default before the switch succeeds, got {effects:?}",
     );
     assert!(
-        matches!(
-            effects.first(),
-            Some(Effect::PersistSetting {
-                key: "default_model",
-                ..
-            })
-        ),
-        "first effect must be PersistSetting(default_model), got {:?}",
+        matches!(effects.first(), Some(Effect::SwitchModel { choice, prev_model_id, .. }) if choice.model_id == model_id && prev_model_id.as_ref() == Some(&previous)),
+        "expected SwitchModel of the picked model, got {:?}",
         effects.first(),
     );
-    assert!(
-        matches!(effects.get(1), Some(Effect::SwitchModel { choice, .. }) if choice.model_id == model_id),
-        "second effect must be SwitchModel(<resolved id>), got {:?}",
-        effects.get(1),
+    assert_eq!(
+        expect_agent(&app, id).session.models.current.as_ref(),
+        Some(&previous),
+        "the footer stays on the current model until the switch succeeds"
     );
     assert!(expect_agent(&app, id).session.model_switch_pending);
 }
@@ -1776,9 +1773,32 @@ fn bare_model_switch_keeps_the_current_effort() {
         let models = &mut app.agents.get_mut(&agent_id).unwrap().session.models;
         models.available.insert(current.clone(), current_info);
         models.available.insert(narrow.clone(), narrow_info);
-        models.set_current(current, Some(ReasoningEffort::High));
+        models.set_current(current.clone(), Some(ReasoningEffort::High));
     }
-    let _ = dispatch(Action::SetDefaultModel(narrow), &mut app);
+    let effects = dispatch(Action::SetDefaultModel(narrow.clone()), &mut app);
+    assert_eq!(
+        expect_agent(&app, agent_id).session.models.reasoning_effort,
+        Some(ReasoningEffort::High),
+        "the footer effort stays until the switch succeeds"
+    );
+    let choice = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::SwitchModel { choice, .. } => Some(choice.clone()),
+            _ => None,
+        })
+        .expect("session switch");
+    assert_eq!(choice.effort, None);
+    dispatch(
+        Action::TaskComplete(TaskResult::SwitchModelComplete {
+            agent_id,
+            choice,
+            result: Ok(()),
+            prev_model_id: Some(current),
+            reported: None,
+        }),
+        &mut app,
+    );
     assert_eq!(
         expect_agent(&app, agent_id).session.models.reasoning_effort,
         Some(ReasoningEffort::Low),
@@ -1786,8 +1806,8 @@ fn bare_model_switch_keeps_the_current_effort() {
     );
 }
 
-/// `Action::SetDefaultModel(<known id>)` resolves the id against the live catalog, mutates current, and emits PersistSetting and SwitchModel effects.
-/// This is the dispatch-level analog of `slash_model_valid_dispatches_set_default_model_with_switch_and_persist`.
+/// `Action::SetDefaultModel(<known id>)` resolves the id against the live catalog and starts the switch.
+/// The footer and the saved default change when that switch succeeds.
 #[test]
 fn set_default_model_resolves_known_name() {
     use agent_client_protocol as acp;
@@ -1804,17 +1824,60 @@ fn set_default_model_resolves_known_name() {
         .available
         .insert(id.clone(), info);
     let effects = dispatch(Action::SetDefaultModel(id.clone()), &mut app);
-    assert_eq!(effects.len(), 2);
-    assert!(matches!(effects.first(), Some(Effect::PersistSetting {
-            key: "default_model",
-            value: crate::settings::SettingValue::String(s),
-            .. }) if s == "grok-4.5"));
+    assert_eq!(effects.len(), 1);
     assert!(
-        matches!(effects.get(1), Some(Effect::SwitchModel { choice, .. }) if choice.model_id == id)
+        matches!(effects.first(), Some(Effect::SwitchModel { choice, .. }) if choice.model_id == id)
+    );
+    assert!(expect_agent(&app, agent_id).session.models.current.is_none());
+}
+
+#[test]
+fn failed_model_switch_leaves_the_footer_and_saved_default() {
+    use agent_client_protocol as acp;
+    use std::sync::Arc;
+    let mut app = test_app_with_agent();
+    let agent_id = AgentId(0);
+    let previous = acp::ModelId::new(Arc::from("grok-3"));
+    let next = acp::ModelId::new(Arc::from("grok-4.5"));
+    {
+        let models = &mut app.agents.get_mut(&agent_id).unwrap().session.models;
+        models.available.insert(
+            previous.clone(),
+            acp::ModelInfo::new(previous.clone(), "Grok 3".to_string()),
+        );
+        models.available.insert(
+            next.clone(),
+            acp::ModelInfo::new(next.clone(), "Grok 4.5".to_string()),
+        );
+        models.set_current(previous.clone(), None);
+    }
+    let effects = dispatch(Action::SetDefaultModel(next.clone()), &mut app);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::PersistSetting { .. } | Effect::PersistPreferredModel { .. })),
+        "the saved default waits for a successful switch, got {effects:?}"
+    );
+    let failed = dispatch(
+        Action::TaskComplete(TaskResult::SwitchModelComplete {
+            agent_id,
+            choice: ModelChoice::new(next),
+            result: Err(SwitchModelError::Other("rejected".into())),
+            prev_model_id: Some(previous.clone()),
+            reported: None,
+        }),
+        &mut app,
     );
     assert_eq!(
-        expect_agent(&app, agent_id).session.models.current,
-        Some(id)
+        expect_agent(&app, agent_id).session.models.current.as_ref(),
+        Some(&previous)
+    );
+    assert!(
+        !failed.iter().any(|effect| matches!(
+            effect,
+            Effect::PersistSetting { .. } | Effect::PersistPreferredModel { .. }
+        )),
+        "a failed switch must not write the default, got {failed:?}"
     );
 }
 /// Re-dispatching the same model id is idempotent: no PersistSetting, no SwitchModel, no reasoning_effort reset.

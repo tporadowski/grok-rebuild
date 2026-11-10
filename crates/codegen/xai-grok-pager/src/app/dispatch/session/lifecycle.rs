@@ -1910,6 +1910,7 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
         agent.session.model_switch_pending = false;
         let model_changed_during_switch =
             std::mem::take(&mut agent.session.models.model_changed_during_switch);
+        let mut applied_default = None;
         let mut effects = match result {
             Ok(()) => {
                 if let Some(state) = reported {
@@ -1957,6 +1958,7 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
                 if unchanged {
                     vec![]
                 } else {
+                    applied_default = Some((model_id.clone(), resolved_effort));
                     vec![Effect::PersistPreferredModel {
                         model_id: model_id.clone(),
                         reasoning_effort: resolved_effort,
@@ -1964,7 +1966,11 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
                 }
             }
             Err(SwitchModelError::IncompatibleAgent { .. }) => {
-                if let Some(ref prev) = prev_model_id {
+                // Roll back an optimistic preview. A switch that never moved the footer
+                // must not reset the effort by writing the same id again.
+                if let Some(ref prev) = prev_model_id
+                    && agent.session.models.current.as_ref() != Some(prev)
+                {
                     agent.session.models.set_current(prev.clone(), None);
                 }
                 agent.active_modal = None;
@@ -1991,6 +1997,11 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
             }
         };
         let drain = maybe_drain_queue(agent, &mut app.pending_image_notices);
+        if let Some((id, effort)) = applied_default
+            && app.models.available.contains_key(&id)
+        {
+            app.models.set_current(id, effort);
+        }
         effects.extend(drain.effects);
         note_peek_page_flip(app, agent_id, drain.page_flip_entry);
         effects

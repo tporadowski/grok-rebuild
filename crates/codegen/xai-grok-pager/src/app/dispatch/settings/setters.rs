@@ -1952,6 +1952,24 @@ pub(in crate::app::dispatch) fn set_default_model(
         return vec![];
     }
 
+    // A live session waits for the switch to succeed. Updating the footer or
+    // `models.default` first leaves both on the rejected model when the switch fails.
+    if let Some(sid) = session_id {
+        if let Some(agent) = app.agents.get_mut(&aid) {
+            agent.session.model_switch_pending = true;
+        }
+        return vec![Effect::SwitchModel {
+            agent_id: aid,
+            session_id: sid,
+            choice: ModelChoice {
+                model_id: new_id,
+                effort: kept_effort,
+                context_window_selection: None,
+            },
+            prev_model_id: prev_id,
+        }];
+    }
+
     let did_mutate = set_default_model_inner(app, &new_id, kept_effort);
     debug_assert!(did_mutate, "available_has_new gate guarantees mutation");
     refresh_open_settings_modals(app);
@@ -1982,26 +2000,8 @@ pub(in crate::app::dispatch) fn set_default_model(
         });
     }
 
-    // Best-effort session-level switch
-    // The `Effect::SwitchModel` pipeline handles its own deferred switch when no session id exists yet (see line 583 of this file)
-    if let Some(sid) = session_id {
-        // We already hold a reference path to the agent above; re-borrow mutably here to flip `model_switch_pending`
-        if let Some(agent) = app.agents.get_mut(&aid) {
-            agent.session.model_switch_pending = true;
-        }
-        effects.push(Effect::SwitchModel {
-            agent_id: aid,
-            session_id: sid,
-            choice: ModelChoice {
-                model_id: new_id,
-                effort: kept_effort,
-                context_window_selection: None,
-            },
-            prev_model_id: prev_id.clone(),
-        });
-    } else if let Some(agent) = app.agents.get_mut(&aid) {
-        // No session id yet: stash for `EventLoop::on_session_created` to apply once the session id arrives
-        // Mirrors `Action::SwitchModel` line 586
+    if let Some(agent) = app.agents.get_mut(&aid) {
+        // No session id yet: stash for `EventLoop::on_session_created` to apply once the session id arrives.
         agent.session.deferred_model_switch = Some(crate::app::agent::DeferredModelSwitch {
             model_id: new_id,
             effort: kept_effort,
