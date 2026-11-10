@@ -20,7 +20,7 @@ pub(crate) use prefetch::{
     ResolvedModels, fetch_initial_models_blocking, start_initial_models_load,
 };
 pub(crate) use resolution::{
-    CatalogSource, allowlist_denied_message, allowlist_excludes_all_message,
+    CatalogSource, PUBLIC_AUTO_MODEL_ID, allowlist_denied_message, allowlist_excludes_all_message,
     allowlist_matches_nothing, available_models, fallback_model_id, models_endpoint_empty_message,
     resolve_catalog_key, resolve_default_model, resolve_model_catalog,
     selectable_catalog_key_for_persisted, validate_selectable,

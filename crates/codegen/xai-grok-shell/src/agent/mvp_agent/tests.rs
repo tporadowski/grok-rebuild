@@ -2424,6 +2424,37 @@ fn build_minimal_agent_for_tests() -> MvpAgent {
     let cfg = AgentConfig::default();
     MvpAgent::new(gateway, &cfg, auth_manager, None, None).expect("valid test config")
 }
+#[test]
+fn session_without_a_model_list_reports_the_public_auto_id() {
+    use crate::agent::config::Config as AgentConfig;
+    use crate::agent::remote_config::{ModelsManager, PUBLIC_AUTO_MODEL_ID};
+    use xai_grok_login::{AuthManager, GrokComConfig};
+    let temp_dir = tempfile::tempdir().unwrap();
+    let auth_manager =
+        std::sync::Arc::new(AuthManager::new(temp_dir.path(), GrokComConfig::default()));
+    let manager = ModelsManager::from_config(
+        &AgentConfig::default(),
+        Some(indexmap::IndexMap::new()),
+        auth_manager.clone(),
+    )
+    .expect("empty model list still opens");
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let agent = MvpAgent::with_models(
+        GatewaySender::new(tx),
+        &AgentConfig::default(),
+        auth_manager,
+        manager,
+    );
+    let state = agent.model_state(None);
+    assert_eq!(PUBLIC_AUTO_MODEL_ID, state.current_model_id.0.as_ref());
+    assert!(
+        state
+            .available_models
+            .iter()
+            .any(|model| model.model_id.0.as_ref() == PUBLIC_AUTO_MODEL_ID),
+        "the open session lists Auto so the client keeps that id"
+    );
+}
 fn session_usage_request(session_id: &str) -> acp::ExtRequest {
     acp::ExtRequest::new(
         "x.ai/session/usage",

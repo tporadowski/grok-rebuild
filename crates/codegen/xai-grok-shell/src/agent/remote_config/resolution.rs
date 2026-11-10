@@ -76,11 +76,16 @@ fn url_host(url: &str) -> String {
         .unwrap_or_else(|| url.to_owned())
 }
 
+/// Public model id the API accepts for every account when no model list is loaded.
+/// A bundled id such as `grok-4.6` is not entitled on every account.
+pub(crate) const PUBLIC_AUTO_MODEL_ID: &str = "auto";
+
 /// The id used when the catalog has no usable model.
-/// External auth with a models endpoint never names a bundled model. It keeps `preferred` or leaves the id empty.
+/// A normal account uses [`PUBLIC_AUTO_MODEL_ID`].
+/// External auth with a models endpoint never names a bundled or public model. It keeps `preferred` or leaves the id empty.
 pub(crate) fn fallback_model_id(cfg: &config::Config, preferred: Option<&str>) -> String {
     match CatalogSource::for_config(cfg) {
-        CatalogSource::Standard => crate::models::default_model().to_owned(),
+        CatalogSource::Standard => PUBLIC_AUTO_MODEL_ID.to_owned(),
         CatalogSource::ModelsEndpoint => preferred.unwrap_or_default().to_owned(),
     }
 }

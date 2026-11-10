@@ -3321,6 +3321,13 @@ impl MvpAgent {
             .cloned()
             .collect();
         self.overlay_session_model_meta(session_id, &model_id, &mut available_models);
+        // An empty catalog has no row for the public Auto id. List it so a client
+        // that drops a current id missing from the list still opens on Auto.
+        if available_models.is_empty()
+            && model_id.0.as_ref() == crate::agent::remote_config::PUBLIC_AUTO_MODEL_ID
+        {
+            available_models.push(acp::ModelInfo::new(model_id.clone(), "Auto"));
+        }
         acp::SessionModelState::new(model_id, available_models)
     }
     /// Writes the session's effort and context window selection into the current model's meta.

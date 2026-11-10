@@ -1,10 +1,10 @@
 use super::super::resolution::CatalogSource;
 use super::super::{
-    CACHE_TTL, CacheAuthMethod, Commit, MODELS_CACHE_FILE, ModelsCache, ModelsCacheManager,
-    ModelsCacheScope, ModelsFetchFuture, allowlist_denied_message, build_prefetched_map,
-    degraded_log_level, evaluate_models_commit, resolve_live_models_cache_scope,
-    resolve_models_cache_scope, resolve_prefetch_inputs_from_parts, resolve_startup_endpoints,
-    selectable_catalog_key_for_persisted,
+    CACHE_TTL, PUBLIC_AUTO_MODEL_ID, CacheAuthMethod, Commit, MODELS_CACHE_FILE, ModelsCache,
+    ModelsCacheManager, ModelsCacheScope, ModelsFetchFuture, allowlist_denied_message,
+    build_prefetched_map, degraded_log_level, evaluate_models_commit,
+    resolve_live_models_cache_scope, resolve_models_cache_scope, resolve_prefetch_inputs_from_parts,
+    resolve_startup_endpoints, selectable_catalog_key_for_persisted,
 };
 use super::*;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -2395,10 +2395,7 @@ fn sampling_config_never_falls_back_to_a_bundled_model_under_external_auth() {
     let external = manager(external_auth_config(""), "corp-build-model");
     let standard = manager(config::Config::default(), "");
     assert_eq!("corp-build-model", external.sampling_config().model);
-    assert_eq!(
-        crate::models::default_model(),
-        standard.sampling_config().model
-    );
+    assert_eq!("auto", standard.sampling_config().model);
 }
 #[tokio::test]
 async fn prompt_gate_waits_for_the_first_fetch_under_external_auth() {
@@ -2512,6 +2509,30 @@ fn external_auth_without_models_base_url_keeps_the_standard_catalog() {
     assert!(catalog.contains_key(crate::models::default_model()));
 }
 #[test]
+fn session_without_a_model_list_uses_the_public_auto_id() {
+    let open = |cfg: config::Config, listed: Option<IndexMap<String, ModelEntry>>| {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let auth = Arc::new(AuthManager::new(tmp.path(), GrokComConfig::default()));
+        ModelsManager::from_config(&cfg, listed, auth).expect("manager")
+    };
+    let empty = open(config::Config::default(), Some(IndexMap::new()));
+    assert!(empty.models().is_empty(), "an empty prefetch is no model list");
+    assert_eq!(PUBLIC_AUTO_MODEL_ID, empty.current_model_id().0.as_ref());
+    assert_eq!(PUBLIC_AUTO_MODEL_ID, empty.sampling_config().model);
+    let (api_key_account, _, _) =
+        resolve_default_model(&config::Config::default(), &IndexMap::new(), false);
+    assert_eq!(PUBLIC_AUTO_MODEL_ID, api_key_account);
+    let listed = open(
+        config::Config::default(),
+        Some(make_prefetched(&["grok-4.6"])),
+    );
+    assert_eq!("grok-4.6", listed.current_model_id().0.as_ref());
+    assert_ne!(PUBLIC_AUTO_MODEL_ID, listed.sampling_config().model);
+    let external = open(external_auth_config(""), Some(IndexMap::new()));
+    assert_ne!(PUBLIC_AUTO_MODEL_ID, external.current_model_id().0.as_ref());
+    assert_ne!(PUBLIC_AUTO_MODEL_ID, external.sampling_config().model);
+}
+#[test]
 fn models_endpoint_default_never_names_a_bundled_model() {
     let empty = IndexMap::new();
     let (configured, _, source) = resolve_default_model(
@@ -2526,7 +2547,7 @@ fn models_endpoint_default_never_names_a_bundled_model() {
         (configured.as_str(), source)
     );
     assert_eq!("", unconfigured);
-    assert_eq!(crate::models::default_model(), standard);
+    assert_eq!(PUBLIC_AUTO_MODEL_ID, standard);
 }
 #[test]
 fn models_endpoint_default_missing_from_the_list_picks_the_first_listed_model() {
