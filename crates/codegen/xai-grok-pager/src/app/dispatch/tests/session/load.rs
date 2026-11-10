@@ -3896,6 +3896,79 @@ fn failed_load_with_a_cleared_edit_returns_the_held_row() {
     ));
     assert_eq!("first draft", agent.prompt.text());
 }
+/// Enter during a startup resume queues the composer text and sends it once the session loads.
+#[test]
+fn prompt_sent_while_startup_resume_loads_is_queued_then_sent() {
+    let mut app = test_app();
+    dispatch(
+        Action::LoadSession("resume-startup".into(), None, false),
+        &mut app,
+    );
+    let agent_id = AgentId(0);
+    assert!(
+        expect_agent(&app, agent_id).session.loading_replay,
+        "startup resume is still loading"
+    );
+    app.agents
+        .get_mut(&agent_id)
+        .unwrap()
+        .prompt
+        .set_text("ship the resume");
+    let outcome = app
+        .agents
+        .get_mut(&agent_id)
+        .unwrap()
+        .handle_prompt_key_for_test(&crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+    let crate::app::app_view::InputOutcome::Action(Action::SendPrompt(text)) = outcome else {
+        panic!("Enter while resume is loading must submit the composer, got {outcome:?}");
+    };
+    assert_eq!(text, "ship the resume");
+    let effects = dispatch(Action::SendPrompt(text), &mut app);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::SendPrompt { .. })),
+        "the prompt waits for the load, got {effects:?}"
+    );
+    let agent = expect_agent(&app, agent_id);
+    assert_eq!(agent.prompt.text(), "", "the composer does not keep the send");
+    assert_eq!(
+        agent
+            .session
+            .pending_prompts
+            .iter()
+            .map(|row| row.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ship the resume"]
+    );
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::SessionLoaded {
+            agent_id,
+            session_id: acp::SessionId::new("resume-startup"),
+            models: None,
+            modes: None,
+            code_restored: false,
+            restore_summary: None,
+            restore_degree: None,
+            running_prompt_id: None,
+        }),
+        &mut app,
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::SendPrompt { text, .. } if text == "ship the resume"
+        )),
+        "the queued prompt is sent once the session loads, got {effects:?}"
+    );
+    let agent = expect_agent(&app, agent_id);
+    assert!(!agent.session.loading_replay);
+    assert_eq!(agent.prompt.text(), "");
+    assert!(agent.session.pending_prompts.is_empty());
+}
 /// Several held rows leave the draft alone and are listed as not sent, with their images counted
 #[test]
 fn failed_load_lists_several_held_rows_as_not_sent() {
