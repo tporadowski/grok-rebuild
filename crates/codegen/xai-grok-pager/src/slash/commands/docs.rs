@@ -26,28 +26,19 @@ impl SlashCommand for DocsCommand {
         arg_placeholder: "[web|title]",
     }
 
-    fn suggest_args(&self, _ctx: &AppCtx, _args_query: &str) -> Option<Vec<ArgItem>> {
-        let mut items = vec![
-            ArgItem {
-                display: "how-to".into(),
-                match_text: "how-to".into(),
-                insert_text: "how-to".into(),
-                description: "Browse in-TUI How-to Guides".into(),
-            },
-            ArgItem {
-                display: "web".into(),
-                match_text: "web".into(),
-                insert_text: "web".into(),
-                description: "Open docs.x.ai/build in the browser".into(),
-            },
-        ];
-        items.extend(all_titles().map(|title| ArgItem {
-            display: title.into(),
-            match_text: title.into(),
-            insert_text: title.into(),
-            description: format!("Open \"{title}\""),
-        }));
+    fn suggest_args(&self, _ctx: &AppCtx, args_query: &str) -> Option<Vec<ArgItem>> {
+        // An exact guide title or picker name is the only row, so Enter keeps
+        // what was typed instead of a nearby fuzzy highlight.
+        if let Some(exact) = exact_docs_arg(args_query) {
+            return Some(vec![exact]);
+        }
+        let mut items = vec![howto_arg(), web_arg()];
+        items.extend(all_titles().map(title_arg));
         Some(items)
+    }
+
+    fn preselected_arg(&self, _ctx: &AppCtx, args_query: &str) -> Option<String> {
+        exact_docs_arg(args_query).map(|item| item.insert_text)
     }
 
     fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
@@ -82,6 +73,51 @@ fn is_web_arg(arg: &str) -> bool {
         arg.to_ascii_lowercase().as_str(),
         "web" | "online" | "browser" | "site" | "www"
     )
+}
+
+fn howto_arg() -> ArgItem {
+    ArgItem {
+        display: "how-to".into(),
+        match_text: "how-to".into(),
+        insert_text: "how-to".into(),
+        description: "Browse in-TUI How-to Guides".into(),
+    }
+}
+
+fn web_arg() -> ArgItem {
+    ArgItem {
+        display: "web".into(),
+        match_text: "web".into(),
+        insert_text: "web".into(),
+        description: "Open docs.x.ai/build in the browser".into(),
+    }
+}
+
+fn title_arg(title: &str) -> ArgItem {
+    ArgItem {
+        display: title.into(),
+        match_text: title.into(),
+        insert_text: title.into(),
+        description: format!("Open \"{title}\""),
+    }
+}
+
+/// The guide or picker named by `query`, when the name is exact.
+fn exact_docs_arg(query: &str) -> Option<ArgItem> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some(doc) = find_doc(trimmed) {
+        return Some(title_arg(doc.title));
+    }
+    if is_howto_list_arg(trimmed) {
+        return Some(howto_arg());
+    }
+    if is_web_arg(trimmed) {
+        return Some(web_arg());
+    }
+    None
 }
 
 #[cfg(test)]
@@ -186,6 +222,67 @@ mod tests {
         assert_eq!(cmd.aliases(), &["howto", "guides"]);
         assert!(cmd.takes_args());
         assert!(!cmd.args_required());
+    }
+
+    fn app_ctx(models: &ModelState) -> AppCtx<'_> {
+        AppCtx {
+            models,
+            cwd: std::path::Path::new("."),
+            has_session_announcements: false,
+            billing_surface_visible: true,
+            usage_command_visible: true,
+            workflows_available: true,
+            saved_workflows: &[],
+            workflow_runs: &[],
+            screen_mode: crate::app::ScreenMode::Fullscreen,
+            current_title: None,
+        }
+    }
+
+    #[test]
+    fn typed_docs_target_is_the_exact_guide_or_picker() {
+        let models = ModelState::default();
+        let ctx = app_ctx(&models);
+        let mut exec = make_ctx(&models);
+
+        let guide = DocsCommand
+            .suggest_args(&ctx, "getting started")
+            .expect("guide");
+        assert_eq!(guide.len(), 1);
+        assert_eq!(guide.first().map(|item| item.insert_text.as_str()), Some("Getting Started"));
+        assert_eq!(
+            DocsCommand.preselected_arg(&ctx, "getting started").as_deref(),
+            Some("Getting Started")
+        );
+        match DocsCommand.run(&mut exec, "Getting Started") {
+            CommandResult::Action(Action::ShowReleaseNotes { title, content }) => {
+                assert_eq!(title, "Getting Started");
+                assert!(!content.is_empty());
+            }
+            other => panic!("expected the Getting Started guide, got {other:?}"),
+        }
+
+        let picker = DocsCommand.suggest_args(&ctx, "Guides").expect("picker");
+        assert_eq!(picker.len(), 1);
+        assert_eq!(picker.first().map(|item| item.insert_text.as_str()), Some("how-to"));
+        assert!(matches!(
+            DocsCommand.run(&mut exec, "how-to"),
+            CommandResult::Action(Action::OpenHowtoGuides)
+        ));
+
+        let web = DocsCommand.suggest_args(&ctx, "online").expect("web");
+        assert_eq!(web.len(), 1);
+        assert_eq!(web.first().map(|item| item.insert_text.as_str()), Some("web"));
+        match DocsCommand.run(&mut exec, "web") {
+            CommandResult::Action(Action::OpenUrl(url)) => assert_eq!(url, BUILD_DOCS_URL),
+            other => panic!("expected the docs site, got {other:?}"),
+        }
+
+        let partial = DocsCommand.suggest_args(&ctx, "get").expect("partial");
+        assert!(
+            partial.len() > 1,
+            "a prefix still offers the rest of the list"
+        );
     }
 
     #[test]
