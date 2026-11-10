@@ -103,6 +103,8 @@ impl Default for DiffRenderConfig {
 const INDENT: &str = "  ";
 const GUTTER_GAP: &str = " ";
 const CONTENT_GAP: &str = "  ";
+/// Width of the `- ` / `+ ` mark painted when a theme has no diff color.
+const COLORLESS_MARK_WIDTH: usize = 2;
 
 /// A rendered diff line with optional background color.
 pub struct DiffLineOutput {
@@ -187,7 +189,8 @@ fn render_diff_hunks_core(
         if hunk.is_empty() {
             continue;
         }
-        let layout = gutter_layout(hunk, config);
+        let colorless = diff_color_is_off(theme);
+        let layout = gutter_layout(hunk, config, colorless);
         let indent_width = if config.indent { INDENT.len() } else { 0 };
         let content_width = (width as usize).saturating_sub(layout.total);
         // A diff interleaves two file versions; give each side its own highlighter so a multi-line construct can't leak across sides
@@ -225,6 +228,7 @@ fn render_diff_hunks_core(
                 content_width,
                 theme,
                 config,
+                colorless,
             ));
         }
     }
@@ -384,6 +388,7 @@ fn assemble_diff_line_outputs(
     content_width: usize,
     theme: &Theme,
     config: &DiffRenderConfig,
+    colorless: bool,
 ) -> Vec<DiffLineOutput> {
     let bg = match line.tag {
         ChangeTag::Equal => None,
@@ -399,7 +404,7 @@ fn assemble_diff_line_outputs(
 
     if content_width == 0 || content_char_count <= content_width {
         let mut spans = Vec::new();
-        render_gutter(&mut spans, line, layout, theme, config);
+        render_gutter(&mut spans, line, layout, theme, config, colorless);
         let gutter_count = spans.len();
         spans.extend(content_spans);
         let bg_start = compute_bg_start(config, layout.total, indent_width);
@@ -446,7 +451,7 @@ fn assemble_diff_line_outputs(
     for (i, (wrapped, row)) in wrapped_lines.iter().zip(styled_rows).enumerate() {
         let mut spans = Vec::new();
         let gutter_count = if i == 0 {
-            render_gutter(&mut spans, line, layout, theme, config);
+            render_gutter(&mut spans, line, layout, theme, config, colorless);
             spans.len()
         } else {
             spans.push(Span::raw(gutter_padding.clone()));
@@ -566,7 +571,23 @@ struct GutterLayout {
 }
 
 /// Calculate gutter layout for a hunk.
-fn gutter_layout(hunk: &DiffHunk, config: &DiffRenderConfig) -> GutterLayout {
+/// No insert/delete color remains, so a `-` or `+` is the only way to tell the lines apart.
+fn diff_color_is_off(theme: &Theme) -> bool {
+    theme.diff_insert_fg == Color::Reset
+        && theme.diff_delete_fg == Color::Reset
+        && theme.diff_insert_bg == Color::Reset
+        && theme.diff_delete_bg == Color::Reset
+}
+
+fn colorless_mark(tag: ChangeTag) -> &'static str {
+    match tag {
+        ChangeTag::Delete => "- ",
+        ChangeTag::Insert => "+ ",
+        ChangeTag::Equal => "  ",
+    }
+}
+
+fn gutter_layout(hunk: &DiffHunk, config: &DiffRenderConfig, colorless: bool) -> GutterLayout {
     let mut max_old = 1usize;
     let mut max_new = 1usize;
 
@@ -580,7 +601,10 @@ fn gutter_layout(hunk: &DiffHunk, config: &DiffRenderConfig) -> GutterLayout {
     if config.dual_line_numbers {
         let width_old = max_old.ilog10() as usize + 1;
         let width_new = max_new.ilog10() as usize + 1;
-        let total = indent_width + width_old + GUTTER_GAP.len() + width_new + CONTENT_GAP.len();
+        let mut total = indent_width + width_old + GUTTER_GAP.len() + width_new + CONTENT_GAP.len();
+        if colorless {
+            total += COLORLESS_MARK_WIDTH;
+        }
         GutterLayout {
             width_old,
             width_new,
@@ -590,7 +614,10 @@ fn gutter_layout(hunk: &DiffHunk, config: &DiffRenderConfig) -> GutterLayout {
     } else {
         let max_num = max_old.max(max_new);
         let width_new = max_num.ilog10() as usize + 1;
-        let total = indent_width + width_new + CONTENT_GAP.len();
+        let mut total = indent_width + width_new + CONTENT_GAP.len();
+        if colorless {
+            total += COLORLESS_MARK_WIDTH;
+        }
         GutterLayout {
             width_old: 0,
             width_new,
@@ -607,6 +634,7 @@ fn render_gutter(
     layout: &GutterLayout,
     theme: &Theme,
     config: &DiffRenderConfig,
+    colorless: bool,
 ) {
     let gutter_style = Style::default().fg(theme.diff_gutter_fg);
 
@@ -666,6 +694,9 @@ fn render_gutter(
 
     // Gap between gutter and content
     spans.push(Span::raw(CONTENT_GAP));
+    if colorless {
+        spans.push(Span::raw(colorless_mark(line.tag)));
+    }
 }
 
 /// Span with `style`; empty text paints a single space so the row keeps a visible background band and stays selectable.
@@ -1577,7 +1608,7 @@ mod tests {
     fn test_gutter_layout_single() {
         let hunk = make_hunk();
         let config = DiffRenderConfig::default();
-        let layout = gutter_layout(&hunk, &config);
+        let layout = gutter_layout(&hunk, &config, false);
         assert!(!layout.dual);
         assert_eq!(layout.width_new, 2);
     }
@@ -1589,7 +1620,7 @@ mod tests {
             dual_line_numbers: true,
             ..Default::default()
         };
-        let layout = gutter_layout(&hunk, &config);
+        let layout = gutter_layout(&hunk, &config, false);
         assert!(layout.dual);
         assert_eq!(layout.width_old, 2);
         assert_eq!(layout.width_new, 2);
@@ -2132,6 +2163,58 @@ mod tests {
             assert_eq!(output.content_start_col, 5);
             assert_eq!(output.background, None);
         }
+    }
+
+    #[test]
+    fn colorless_edit_diff_marks_removed_and_added_lines() {
+        use crate::theme::color_support::ColorLevel;
+        let colorless = Theme::groknight().quantized(ColorLevel::None);
+        assert!(
+            diff_color_is_off(&colorless),
+            "NO_COLOR must leave no diff color"
+        );
+        let colored = Theme::groknight();
+        assert!(!diff_color_is_off(&colored));
+        let config = DiffRenderConfig::default();
+        let hunk = vec![
+            DiffLine {
+                text: "kept\n".into(),
+                lo: 1,
+                ln: 1,
+                tag: ChangeTag::Equal,
+            },
+            DiffLine {
+                text: "old\n".into(),
+                lo: 2,
+                ln: 0,
+                tag: ChangeTag::Delete,
+            },
+            DiffLine {
+                text: "new\n".into(),
+                lo: 0,
+                ln: 2,
+                tag: ChangeTag::Insert,
+            },
+        ];
+        let block = EditToolCallBlock::new("src/lib.rs", vec![hunk]);
+        let plain = diff_outputs_to_string(&block.render_diff_lines(&colorless, 80, &config));
+        assert!(
+            plain.contains("  1    kept"),
+            "context stays unmarked: {plain}"
+        );
+        assert!(
+            plain.contains("  2  - old"),
+            "a removed line needs a minus when color is off: {plain}"
+        );
+        assert!(
+            plain.contains("  2  + new"),
+            "an added line needs a plus when color is off: {plain}"
+        );
+        let painted = diff_outputs_to_string(&block.render_diff_lines(&colored, 80, &config));
+        assert!(
+            !painted.contains("- old") && !painted.contains("+ new"),
+            "color still carries the change, so the marks stay off: {painted}"
+        );
     }
 
     /// Regression pin: wrapped continuation segments of a changed line used to fall back to `text_primary`.
