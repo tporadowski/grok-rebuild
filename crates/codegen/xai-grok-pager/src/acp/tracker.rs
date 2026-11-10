@@ -2021,6 +2021,23 @@ fn execute_command_from_tool_call(tc: &acp::ToolCall) -> String {
 /// Parses `tool_call.kind` to create the appropriate block type, extracting fields from `raw_input` JSON when available.
 /// `session_cwd` sets execute `header_display` when a leading `cd <cwd>` is redundant.
 /// `labels` names the target of a `send_subagent_message` row.
+/// Distinct diff paths beyond the first. `apply_patch` sends one diff per file, and the row renders only the first.
+fn other_edited_file_count(tc: &acp::ToolCall) -> usize {
+    let mut seen: Vec<&std::path::Path> = Vec::new();
+    for content in &tc.content {
+        if let acp::ToolCallContent::Diff(diff) = content {
+            if diff.path.as_os_str().is_empty() {
+                continue;
+            }
+            if seen.iter().any(|path| *path == diff.path.as_path()) {
+                continue;
+            }
+            seen.push(diff.path.as_path());
+        }
+    }
+    seen.len().saturating_sub(1)
+}
+
 fn tool_call_to_block(
     tc: &acp::ToolCall,
     session_cwd: Option<&Path>,
@@ -2174,6 +2191,10 @@ fn tool_call_to_block(
             };
             if untrusted_summary {
                 block = block.with_untrusted_summary();
+            }
+            let other_files = other_edited_file_count(tc);
+            if other_files > 0 {
+                block = block.with_other_files(other_files);
             }
             if is_write {
                 block = block.with_prefix("Creating ");

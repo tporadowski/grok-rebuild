@@ -747,6 +747,8 @@ pub struct EditToolCallBlock {
     pub hunks: Vec<DiffHunk>,
     /// Number of edits (for multi-edit display).
     pub edit_count: usize,
+    /// Files besides the one whose diff is shown. A multi-file edit renders only the first file.
+    pub other_files: usize,
     /// Error message if the tool call failed (None = success).
     pub error: Option<String>,
     /// When the tool started running.
@@ -795,6 +797,7 @@ impl EditToolCallBlock {
             path,
             hunks,
             edit_count,
+            other_files: 0,
             error: None,
             started_at: None,
             elapsed_ms: None,
@@ -874,6 +877,11 @@ impl EditToolCallBlock {
 
     pub fn with_edit_count(mut self, count: usize) -> Self {
         self.edit_count = count;
+        self
+    }
+
+    pub fn with_other_files(mut self, count: usize) -> Self {
+        self.other_files = count;
         self
     }
 
@@ -984,6 +992,16 @@ impl EditToolCallBlock {
             } else {
                 Vec::new()
             };
+        // The hunks are only the first file. Name the rest on every surface, including the
+        // expanded row these calls open on, so the count is not only on the collapsed one-liner.
+        if self.other_files > 0 {
+            let label = if self.other_files == 1 {
+                " (1 other file)".to_string()
+            } else {
+                format!(" ({} other files)", self.other_files)
+            };
+            suffix_spans.push(Span::styled(label, detail_style));
+        }
         // Collapsed only: short reason on the one-liner. Expanded headers
         // stay path-only; the full message (detail + searched-for string)
         // lives in the details body.

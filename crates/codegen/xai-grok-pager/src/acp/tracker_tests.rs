@@ -1625,6 +1625,114 @@ fn multi_diff_and_title_fallback_edits_default_expanded() {
         "title_fallback",
     );
 }
+
+#[test]
+fn multi_file_edit_shows_how_many_other_files_changed() {
+    use crate::scrollback::block::BlockContent;
+    use crate::scrollback::types::{BlockContext, DisplayMode};
+
+    let diff = |path: &str| {
+        acp::ToolCallContent::Diff(
+            acp::Diff::new(path, "b\n".to_string()).old_text(Some("a\n".to_string())),
+        )
+    };
+    let mut tracker = AcpUpdateTracker::new();
+    let mut sb = edit_config_scrollback(false);
+    tracker.handle_update(
+        acp::SessionUpdate::ToolCall(
+            acp::ToolCall::new(
+                acp::ToolCallId::new(Arc::from("toolu_files")),
+                "Apply patch".to_string(),
+            )
+            .kind(acp::ToolKind::Edit)
+            .status(acp::ToolCallStatus::Completed)
+            .raw_input(Some(serde_json::json!({ "file_path": "a.rs" })))
+            .content(vec![
+                diff("a.rs"),
+                diff("b.rs"),
+                diff("b.rs"),
+                diff("c.rs"),
+            ])
+            .locations(vec![]),
+        ),
+        &meta(),
+        &mut sb,
+    );
+    let entry = sb.get(0).expect("entry exists");
+    let RenderBlock::ToolCall(ToolCallBlock::Edit(edit)) = &entry.block else {
+        panic!("expected Edit block, got {:?}", entry.block);
+    };
+    assert_eq!(edit.other_files, 2, "a repeated path counts once");
+
+    let header = |mode: DisplayMode| {
+        let ctx = BlockContext {
+            width: 100,
+            mode,
+            is_running: false,
+            raw: false,
+            max_lines: None,
+            appearance: Default::default(),
+            is_selected: false,
+            cwd: None,
+        };
+        entry
+            .block
+            .output(&ctx)
+            .lines
+            .first()
+            .map(|line| {
+                line.content
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .unwrap_or_default()
+    };
+    for mode in [DisplayMode::Collapsed, DisplayMode::Expanded] {
+        let text = header(mode);
+        assert!(
+            text.contains("2 other files"),
+            "{mode:?} header should count the other files, got {text}"
+        );
+        assert!(
+            !text.contains("3 other"),
+            "{mode:?} header must not count a repeated path, got {text}"
+        );
+    }
+
+    let mut single = AcpUpdateTracker::new();
+    let mut single_sb = edit_config_scrollback(false);
+    single.handle_update(
+        acp::SessionUpdate::ToolCall(
+            acp::ToolCall::new(
+                acp::ToolCallId::new(Arc::from("toolu_one")),
+                "a.rs".to_string(),
+            )
+            .kind(acp::ToolKind::Edit)
+            .status(acp::ToolCallStatus::Completed)
+            .raw_input(Some(serde_json::json!({ "file_path": "a.rs" })))
+            .content(vec![diff("a.rs")])
+            .locations(vec![]),
+        ),
+        &meta(),
+        &mut single_sb,
+    );
+    let one = single_sb.get(0).expect("single entry");
+    let RenderBlock::ToolCall(ToolCallBlock::Edit(edit)) = &one.block else {
+        panic!("expected Edit block, got {:?}", one.block);
+    };
+    assert_eq!(edit.other_files, 0);
+    let text = header_of(one);
+    assert!(
+        !text.contains("other file"),
+        "a one-file edit stays quiet, got {text}"
+    );
+}
+
+fn header_of(entry: &crate::scrollback::entry::ScrollbackEntry) -> String {
+    rendered_header(entry)
+}
 /// ToolCall(Pending) start for a search_replace edit.
 fn edit_tool_start(id: &str) -> acp::SessionUpdate {
     tool_call(id, acp::ToolKind::Edit, "search_replace")
