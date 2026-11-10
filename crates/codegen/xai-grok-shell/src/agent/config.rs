@@ -1427,7 +1427,7 @@ impl Config {
             warnings: config_warnings,
         } = super::config_model_override_parse::parse_model_overrides(raw_config);
         let (mut auth_providers, auth_provider_warnings) = parse_auth_providers(raw_config);
-        let (model_providers, mut model_provider_warnings) = parse_model_providers(raw_config);
+        let (model_providers, mut model_provider_warnings) = parse_model_providers(raw_config)?;
         for (model_id, model) in &config_models {
             let Some(cert_dir) = model.mtls_cert_dir.as_deref() else {
                 continue;

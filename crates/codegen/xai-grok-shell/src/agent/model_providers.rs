@@ -71,22 +71,18 @@ pub(crate) fn auth_config_issues(
 
 pub(crate) fn parse_model_providers(
     raw_config: &toml::Value,
-) -> (IndexMap<String, ModelProviderConfig>, Vec<ConfigWarning>) {
+) -> Result<(IndexMap<String, ModelProviderConfig>, Vec<ConfigWarning>), String> {
     let mut providers = IndexMap::new();
     let mut warnings = Vec::new();
     let Some(section) = raw_config.get("model_providers") else {
-        return (providers, warnings);
+        return Ok((providers, warnings));
     };
     let Some(table) = section.as_table() else {
-        warnings.push(ConfigWarning::model_provider_section(
-            ConfigWarningKind::NotATable,
-            format!(
-                "`model_providers` must be a table of [model_providers.<id>] entries, got {}; \
-                 all model providers ignored",
-                section.type_str()
-            ),
+        return Err(format!(
+            "`model_providers` must be a table of [model_providers.<id>] entries, got {}. \
+             Fix config.toml before starting; grok will not ignore the section and fall back.",
+            section.type_str()
         ));
-        return (providers, warnings);
     };
     for (id, value) in table {
         let mut unknown = Vec::new();
@@ -156,19 +152,15 @@ pub(crate) fn parse_model_providers(
                 providers.insert(id.clone(), provider);
             }
             Err(error) => {
-                warnings.push(ConfigWarning::model_provider(
-                    id,
-                    None,
-                    ConfigWarningKind::InvalidValue,
-                    format!(
-                        "failed to parse ({error}); provider skipped, inheriting models \
-                         resolve with defaults"
-                    ),
+                return Err(format!(
+                    "[model_providers.{id}] is invalid: {error}. \
+                     Fix this table in config.toml before starting; grok will not skip it \
+                     and fall back to defaults."
                 ));
             }
         }
     }
-    (providers, warnings)
+    Ok((providers, warnings))
 }
 
 impl ConfigModelOverride {
@@ -501,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn model_provider_parse_warnings_are_lenient_and_specific() {
+    fn invalid_model_provider_table_fails_startup() {
         use super::super::config_model_override_parse::{ConfigWarningKind, WarningTarget};
 
         let raw_config: toml::Value = toml::from_str(
@@ -512,10 +504,6 @@ mod tests {
             [model_providers.bad-type]
             context_window = "not-a-number"
 
-            [model_providers.typo]
-            base_url = "https://typo.example/v1"
-            unknown_field = 5
-
             [model.on-broken-provider]
             model = "m"
             base_url = "https://x.example/v1"
@@ -525,57 +513,51 @@ mod tests {
         )
         .unwrap();
 
-        let cfg = Config::new_from_toml_cfg(&raw_config)
-            .expect("one bad provider must not fail the config");
-        assert!(cfg.model_providers.contains_key("good"));
+        let error = Config::new_from_toml_cfg(&raw_config)
+            .expect_err("a malformed provider table must fail startup");
         assert!(
-            !cfg.model_providers.contains_key("bad-type"),
-            "a malformed provider is skipped"
+            error.contains("[model_providers.bad-type]"),
+            "the error must name the table: {error}"
+        );
+        assert!(
+            error.contains("not-a-number") || error.contains("invalid type"),
+            "the error must explain the bad value: {error}"
+        );
+        assert!(
+            error.contains("config.toml"),
+            "the error must say where to fix it: {error}"
         );
 
-        let has_provider = |id: &str, field: Option<&str>, kind: ConfigWarningKind| {
+        let raw_config: toml::Value = toml::from_str(
+            r#"
+            [model_providers.typo]
+            base_url = "https://typo.example/v1"
+            unknown_field = 5
+            "#,
+        )
+        .unwrap();
+        let cfg = Config::new_from_toml_cfg(&raw_config)
+            .expect("an unrecognized key warns and still loads the provider");
+        assert!(cfg.model_providers.contains_key("typo"));
+        assert!(
             cfg.config_warnings.iter().any(|w| {
-                w.kind == kind
+                w.kind == ConfigWarningKind::UnknownField
                     && matches!(
                         &w.target,
-                        WarningTarget::ModelProvider { id: i, field: f }
-                            if i == id && f.as_deref() == field
+                        WarningTarget::ModelProvider { id, field }
+                            if id == "typo" && field.as_deref() == Some("unknown_field")
                     )
-            })
-        };
-        assert!(has_provider(
-            "bad-type",
-            None,
-            ConfigWarningKind::InvalidValue
-        ));
-        assert!(has_provider(
-            "typo",
-            Some("unknown_field"),
-            ConfigWarningKind::UnknownField
-        ));
-        assert!(
-            !cfg.config_warnings.iter().any(|w| {
-                matches!(
-                    &w.target,
-                    WarningTarget::Model { field, .. }
-                        if field.as_deref() == Some("model_provider")
-                )
             }),
-            "a declared-but-malformed provider must not also warn as undefined: {:?}",
+            "unknown field still warns: {:?}",
             cfg.config_warnings
         );
 
         let raw_config: toml::Value = toml::from_str(r#"model_providers = "oops""#).unwrap();
-        let cfg = Config::new_from_toml_cfg(&raw_config)
-            .expect("a non-table model_providers must not fail the config");
-        assert!(cfg.model_providers.is_empty());
+        let error = Config::new_from_toml_cfg(&raw_config)
+            .expect_err("a non-table model_providers section must fail startup");
         assert!(
-            cfg.config_warnings.iter().any(|w| {
-                matches!(w.target, WarningTarget::ModelProviderSection)
-                    && w.kind == ConfigWarningKind::NotATable
-            }),
-            "non-table section warns: {:?}",
-            cfg.config_warnings
+            error.contains("model_providers") && error.contains("string"),
+            "the error must name the section and the type: {error}"
         );
     }
 
