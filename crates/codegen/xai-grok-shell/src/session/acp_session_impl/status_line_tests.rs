@@ -53,6 +53,27 @@ fn a_turn_is_on_the_wire_only_while_one_is_running() {
 }
 
 #[test]
+fn command_payload_has_the_prompt_id_and_start_only_while_the_turn_runs() {
+    let started = 1_730_000_000_000;
+    let mut ctx = xai_grok_status_line::StatusLineContext::default();
+    ctx.prompt_id = Some("prompt-1".to_owned());
+    ctx.turn = live_turn(Some(started), ctx.prompt_id.as_deref());
+
+    let running = serde_json::to_value(&ctx).expect("running payload");
+    assert_eq!(running["prompt_id"], "prompt-1");
+    assert_eq!(running["turn"]["started_at_ms"], started);
+
+    ctx.prompt_id = None;
+    ctx.turn = live_turn(Some(started), None);
+    let idle = serde_json::to_value(&ctx).expect("idle payload");
+    assert!(idle.get("prompt_id").is_none());
+    assert!(
+        idle.get("turn").is_none(),
+        "the start stamp stays in chat state, and the script does not see it"
+    );
+}
+
+#[test]
 fn percentages_are_whole_numbers_inside_zero_to_one_hundred() {
     let window = build_context_window(300_000, Some(100_000), None, 80);
     assert_eq!(window.used_percentage, Some(33));
