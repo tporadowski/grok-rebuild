@@ -169,6 +169,8 @@ async fn handle_logout(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
 
     // Stop any in-flight login so it cannot write credentials back after logout.
     agent.interactive_auth.cancel();
+    // A local session's running turn stops with the login. The session stays open.
+    agent.stop_resident_turns_for_logout();
 
     let result = xai_grok_login::perform_logout(
         &agent.auth_manager,

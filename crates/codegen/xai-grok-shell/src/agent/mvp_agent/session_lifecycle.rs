@@ -97,6 +97,20 @@ impl MvpAgent {
         self.finalize_session_replica(id);
         CloseOutcome::Closed
     }
+    /// Logout stops in-flight turns on sessions this process is running.
+    /// The session stays open. A later prompt needs a new login.
+    pub(crate) fn stop_resident_turns_for_logout(&self) {
+        self.session_registry.for_each_resident(|id, handle| {
+            tracing::info!(session_id = %id.0, "logout: cancelling the running turn");
+            let _ = handle.cmd_tx.send(SessionCommand::Cancel(CancelOptions {
+                cancel_subagents: true,
+                kill_background_tasks: false,
+                trigger: Some(CancelTrigger::Shutdown),
+                user_initiated: false,
+                ..Default::default()
+            }));
+        });
+    }
     /// Cancel the running turn and shut the actor down; `false` when not resident.
     /// Close finalizes the replica afterward, delete must not.
     fn hard_stop_resident(&self, id: &acp::SessionId, trigger: CancelTrigger) -> bool {

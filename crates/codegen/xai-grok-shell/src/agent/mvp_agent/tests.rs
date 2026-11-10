@@ -6191,6 +6191,38 @@ fn ext_method_rewind_uses_local_dispatch_without_bridge() {
     });
 }
 #[test]
+fn logout_cancels_running_turns_on_resident_sessions() {
+    use crate::session::{CancelOptions, CancelTrigger, SessionCommand};
+    run_local_for_bridge_test(|| async {
+        let agent = build_minimal_agent_for_tests();
+        let sid_a = acp::SessionId::new("sess-logout-a");
+        let sid_b = acp::SessionId::new("sess-logout-b");
+        let (handle_a, _tx_a, mut cmd_a) = make_live_session_handle(&sid_a, None);
+        let (handle_b, _tx_b, mut cmd_b) = make_live_session_handle(&sid_b, None);
+        agent.insert_resident(&sid_a, handle_a);
+        agent.insert_resident(&sid_b, handle_b);
+        agent.stop_resident_turns_for_logout();
+        for cmd_rx in [&mut cmd_a, &mut cmd_b] {
+            let cmd = cmd_rx.try_recv().expect("logout sends a cancel");
+            let SessionCommand::Cancel(CancelOptions {
+                cancel_subagents,
+                kill_background_tasks,
+                trigger,
+                user_initiated,
+                ..
+            }) = cmd
+            else {
+                panic!("logout must cancel the turn and leave the session open");
+            };
+            assert!(cancel_subagents);
+            assert!(!kill_background_tasks);
+            assert_eq!(trigger, Some(CancelTrigger::Shutdown));
+            assert!(!user_initiated);
+            assert!(cmd_rx.try_recv().is_err(), "the session is not shut down");
+        }
+    });
+}
+#[test]
 fn cancel_does_not_forward_to_bridge_in_local_mode() {
     use crate::session::SessionCommand;
     use acp::Agent as _;
