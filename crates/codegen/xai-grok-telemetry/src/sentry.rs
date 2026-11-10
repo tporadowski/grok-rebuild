@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use sentry::ClientInitGuard;
 use sentry::ClientOptions;
+use sentry::IntoDsn;
 use sentry::protocol::{Event, Value};
 
 const TRACES_SAMPLE_RATE: f32 = 0.01;
@@ -42,20 +43,29 @@ pub fn init(config: Config) -> ClientInitGuard {
         .unwrap_or_default();
 
     let scrubber = Scrubber::from_env();
-
-    let guard = sentry::init((
-        dsn.as_str(),
-        ClientOptions {
-            release: Some(config.release.into()),
-            send_default_pii: false,
-            server_name: Some("".into()),
-            attach_stacktrace: true,
-            traces_sample_rate: TRACES_SAMPLE_RATE,
-            environment: Some(environment().into()),
-            before_send: Some(Arc::new(move |event| before_send(event, &scrubber))),
-            ..Default::default()
-        },
-    ));
+    // `sentry::init((dsn, options))` panics on a bad DSN (`expect("invalid value for DSN")`).
+    // Parse first so a bad `SENTRY_DSN` leaves crash reporting off and startup continues.
+    let options = ClientOptions {
+        release: Some(config.release.into()),
+        send_default_pii: false,
+        server_name: Some("".into()),
+        attach_stacktrace: true,
+        traces_sample_rate: TRACES_SAMPLE_RATE,
+        environment: Some(environment().into()),
+        before_send: Some(Arc::new(move |event| before_send(event, &scrubber))),
+        ..Default::default()
+    };
+    let guard = match dsn.into_dsn() {
+        Ok(parsed) => sentry::init((parsed, options)),
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "SENTRY_DSN is invalid; crash reporting is off"
+            );
+            eprintln!("grok: SENTRY_DSN is invalid; crash reporting is off");
+            sentry::init(options)
+        }
+    };
 
     sentry::configure_scope(|scope| {
         scope.set_tag("client", config.client);
@@ -439,5 +449,49 @@ mod tests {
     fn windows_match_is_case_insensitive() {
         let out = redact_username_segments(r"C:\Users\Alice\proj", &["alice".to_owned()]);
         assert_eq!(out, r"C:\Users\<user>\proj");
+    }
+
+    fn crash_reporting_enabled() -> bool {
+        sentry::Hub::current()
+            .client()
+            .is_some_and(|client| client.is_enabled())
+    }
+
+    fn test_config() -> Config {
+        Config {
+            client: "test",
+            client_version: "0",
+            release: "test",
+            disabled: false,
+        }
+    }
+
+    /// A bad `SENTRY_DSN` used to panic inside `sentry::init`. Startup continues with reporting off.
+    /// A later valid value still turns reporting on.
+    #[test]
+    fn invalid_sentry_dsn_does_not_crash_startup() {
+        let previous = std::env::var("SENTRY_DSN").ok();
+        unsafe { std::env::set_var("SENTRY_DSN", "not a dsn") };
+        let guard = init(test_config());
+        assert!(
+            !crash_reporting_enabled(),
+            "an invalid SENTRY_DSN leaves crash reporting off"
+        );
+        drop(guard);
+
+        unsafe { std::env::set_var("SENTRY_DSN", "https://public@sentry.invalid/1") };
+        let guard = init(test_config());
+        assert!(
+            crash_reporting_enabled(),
+            "a valid SENTRY_DSN still turns crash reporting on"
+        );
+        drop(guard);
+
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("SENTRY_DSN", value),
+                None => std::env::remove_var("SENTRY_DSN"),
+            }
+        }
     }
 }
