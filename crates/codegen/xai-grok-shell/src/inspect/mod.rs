@@ -379,21 +379,109 @@ fn write_inspect(report: &InspectReport, json: bool, out: &mut impl Write) -> an
     }
 }
 
-async fn build_report(cwd: &Path) -> InspectReport {
-    let effective_config_result = crate::config::load_effective_config();
-    let effective_config = effective_config_result
-        .as_ref()
-        .cloned()
-        .unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
+/// Dotted paths that only `requirements.toml` accepts.
+/// The config reference lists these three. `fail_closed` is stripped before the layer merge, so it warns only when some other file still has it.
+/// `features.image_edit` stays off the global unrecognized-key allowlist, because a `config.toml` entry must keep warning.
+const REQUIREMENTS_ONLY_CONFIG_PATHS: &[&str] = &[
+    "fail_closed",
+    "features.image_edit",
+    "ui.disable_bypass_permissions_mode",
+];
+
+/// The merged document without the requirements tiers.
+/// A pin that exists only there is valid. The same key in user, managed, or system-managed config is not.
+fn non_requirements_document(loaded: &crate::config::EffectiveConfigLayers) -> toml::Value {
+    let layers = &loaded.layers;
+    let mut merged = layers.system_managed.clone();
+    crate::config::deep_merge_toml(&mut merged, &layers.managed);
+    crate::config::deep_merge_toml(&mut merged, &layers.user);
+    if let Some(overlay) = &layers.env_overlay {
+        crate::config::deep_merge_toml(&mut merged, overlay);
+    }
+    merged
+}
+
+fn toml_at<'a>(root: &'a toml::Value, path: &str) -> Option<&'a toml::Value> {
+    let mut cursor = root;
+    for segment in path.split('.') {
+        cursor = cursor.as_table()?.get(segment)?;
+    }
+    Some(cursor)
+}
+
+/// Drop unrecognized-key warnings for a boolean pin that only a requirements layer set.
+/// A non-boolean value is not a valid pin, and a key that also appears outside requirements still warns.
+fn omit_requirements_only_pin_warnings(
+    warnings: &mut Vec<crate::agent::config_model_override_parse::ConfigWarning>,
+    effective: &toml::Value,
+    non_requirements: &toml::Value,
+) {
+    use crate::agent::config_model_override_parse::{ConfigWarningKind, WarningTarget};
+    warnings.retain(|warning| {
+        let WarningTarget::ConfigKey { path } = &warning.target else {
+            return true;
+        };
+        if warning.kind != ConfigWarningKind::UnknownField {
+            return true;
+        }
+        if !REQUIREMENTS_ONLY_CONFIG_PATHS.contains(&path.as_str()) {
+            return true;
+        }
+        if toml_at(non_requirements, path).is_some() {
+            return true;
+        }
+        toml_at(effective, path).is_none_or(|value| value.as_bool().is_none())
+    });
+}
+
+/// Parse the effective document the way `grok inspect` does, then drop requirements-only pin warnings.
+fn inspect_config_warnings(
+    effective: &toml::Value,
+    non_requirements: &toml::Value,
+) -> (
+    Option<crate::agent::config::Config>,
+    Vec<crate::agent::config_model_override_parse::ConfigWarning>,
+) {
     // Parse compatibility separately so malformed cells cannot block unrelated sections.
-    let mut config_without_compat = effective_config.clone();
+    let mut config_without_compat = effective.clone();
     if let Some(table) = config_without_compat.as_table_mut() {
         table.remove("compat");
     }
-    let parsed_config = crate::agent::config::Config::new_from_toml_cfg(&config_without_compat);
+    let parsed = crate::agent::config::Config::new_from_toml_cfg(&config_without_compat);
     // A config that does not parse is the answer `inspect` exists to give, so keep the reason rather than reporting an empty config as a clean one
-    let config_parse_error = parsed_config.as_ref().err().cloned();
-    let parsed_config = parsed_config.ok();
+    let (config, mut warnings) = match parsed {
+        Ok(config) => {
+            let warnings = config.config_warnings.clone();
+            (Some(config), warnings)
+        }
+        Err(error) => (
+            None,
+            vec![
+                crate::agent::config_model_override_parse::ConfigWarning::config_key(
+                    "config".to_owned(),
+                    crate::agent::config_model_override_parse::ConfigWarningKind::InvalidValue,
+                    format!("the config does not load: {error}"),
+                ),
+            ],
+        ),
+    };
+    omit_requirements_only_pin_warnings(&mut warnings, &config_without_compat, non_requirements);
+    (config, warnings)
+}
+
+async fn build_report(cwd: &Path) -> InspectReport {
+    let loaded = crate::config::load_effective_config_with_layers();
+    let non_requirements = match loaded.as_ref() {
+        Ok(loaded) => non_requirements_document(loaded),
+        Err(_) => toml::Value::Table(toml::map::Map::new()),
+    };
+    let effective_config = loaded
+        .as_ref()
+        .map(|loaded| loaded.effective.clone())
+        .unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
+    let effective_ref = loaded.as_ref().ok().map(|loaded| &loaded.effective);
+    let (parsed_config, config_warnings) =
+        inspect_config_warnings(&effective_config, &non_requirements);
 
     let git_root = git2::Repository::discover(cwd)
         .ok()
@@ -407,7 +495,7 @@ async fn build_report(cwd: &Path) -> InspectReport {
     let trust_store = xai_grok_agent::plugins::TrustStore::load();
     let mut plugin_config = xai_grok_workspace::plugins::resolve_effective_plugins_config(
         xai_grok_workspace::plugins::PluginConfigInputs {
-            effective_config: effective_config_result.as_ref().ok(),
+            effective_config: effective_ref,
             home: xai_dirs::home_dir().as_deref(),
             grok_home: xai_grok_config::user_grok_home().as_deref(),
             cwd,
@@ -431,7 +519,7 @@ async fn build_report(cwd: &Path) -> InspectReport {
         &plugin_config.enabled,
     );
 
-    let external_compat = resolve_inspect_compat(effective_config_result.as_ref().ok());
+    let external_compat = resolve_inspect_compat(effective_ref);
 
     // This is the same `[skills]` table the runtime loads: `paths` skills appear, `ignore`d ones are hidden, `disabled` ones show as disabled
     let skills_config = crate::config::parse_skills_config(&effective_config);
@@ -473,19 +561,6 @@ async fn build_report(cwd: &Path) -> InspectReport {
     }
     let lsp = list_lsp_servers(cwd, &discovered_plugins);
     let configs = list_config_sources(cwd);
-    let mut config_warnings = parsed_config
-        .as_ref()
-        .map(|c| c.config_warnings.clone())
-        .unwrap_or_default();
-    if let Some(error) = config_parse_error {
-        config_warnings.push(
-            crate::agent::config_model_override_parse::ConfigWarning::config_key(
-                "config".to_owned(),
-                crate::agent::config_model_override_parse::ConfigWarningKind::InvalidValue,
-                format!("the config does not load: {error}"),
-            ),
-        );
-    }
     let mcp_config_problems = crate::util::config::load_mcp_server_problems_with_project(cwd);
 
     InspectReport {
@@ -2536,6 +2611,102 @@ mod tests {
                 .and_then(|v| v.as_str())
                 .is_some_and(|r| !r.is_empty())
         );
+    }
+
+    fn warning_paths(
+        warnings: &[crate::agent::config_model_override_parse::ConfigWarning],
+    ) -> Vec<&str> {
+        use crate::agent::config_model_override_parse::WarningTarget;
+        warnings
+            .iter()
+            .filter_map(|warning| match &warning.target {
+                WarningTarget::ConfigKey { path } => Some(path.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A requirements pin that `config.toml` does not accept is quiet in inspect.
+    /// The same key written in a user file still warns, and a real typo still warns.
+    #[test]
+    fn requirements_only_pins_do_not_warn_when_the_user_file_omits_them() {
+        let effective: toml::Value = toml::from_str(
+            r#"
+            fail_closed = true
+            [features]
+            image_edit = false
+            not_a_real_feature = true
+            image_edit_note = "not-a-bool"
+            [ui]
+            disable_bypass_permissions_mode = true
+            yoloo = true
+            "#,
+        )
+        .unwrap();
+        let user_without_pins: toml::Value = toml::from_str(
+            r#"
+            [features]
+            not_a_real_feature = true
+            [ui]
+            yoloo = true
+            "#,
+        )
+        .unwrap();
+        let (_, warnings) = inspect_config_warnings(&effective, &user_without_pins);
+        let paths = warning_paths(&warnings);
+        for pin in [
+            "fail_closed",
+            "features.image_edit",
+            "ui.disable_bypass_permissions_mode",
+        ] {
+            assert!(
+                !paths.contains(&pin),
+                "{pin} is a requirements-only pin and must not warn: {paths:?}"
+            );
+        }
+        assert!(
+            paths.contains(&"features.not_a_real_feature"),
+            "a typo in the same table still warns: {paths:?}"
+        );
+        assert!(
+            paths.contains(&"ui.yoloo"),
+            "a ui typo still warns: {paths:?}"
+        );
+        assert!(
+            paths.contains(&"features.image_edit_note"),
+            "a non-boolean lookalike is not a valid pin: {paths:?}"
+        );
+        let human = render_config_warnings(&warnings);
+        assert!(!human.contains("[features.image_edit]"), "{human}");
+        assert!(!human.contains("[fail_closed]"), "{human}");
+        assert!(
+            !human.contains("[ui.disable_bypass_permissions_mode]"),
+            "{human}"
+        );
+        assert!(human.contains("not_a_real_feature"), "{human}");
+
+        let user_with_pins: toml::Value = toml::from_str(
+            r#"
+            fail_closed = true
+            [features]
+            image_edit = true
+            [ui]
+            disable_bypass_permissions_mode = true
+            "#,
+        )
+        .unwrap();
+        let (_, warnings) = inspect_config_warnings(&effective, &user_with_pins);
+        let paths = warning_paths(&warnings);
+        for pin in [
+            "fail_closed",
+            "features.image_edit",
+            "ui.disable_bypass_permissions_mode",
+        ] {
+            assert!(
+                paths.contains(&pin),
+                "{pin} in a user file must still warn: {paths:?}"
+            );
+        }
     }
 
     // ── skill source mapping (skill_entry_source) ─────────────────────────
