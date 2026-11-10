@@ -167,6 +167,8 @@ pub(crate) fn format_request_failure(
     let untyped = error_type.is_none();
     let wire = if truncation_recovered_from_untyped_raw(error_type, raw) {
         WireErrorType::MaxTokensTruncation
+    } else if idle_timeout_recovered_from_untyped_raw(error_type, raw) {
+        WireErrorType::IdleTimeout
     } else {
         error_type.unwrap_or(WireErrorType::Other)
     };
@@ -180,8 +182,11 @@ pub(crate) fn format_request_failure(
     let wire = refine_untyped_wire(wire, untyped, status, raw);
     let extracted = extract_error_detail(raw);
     let class = classify(status, wire);
+    // The idle-timeout body is the sampler's "inference idle timeout after Ns" line.
+    // Users get the connection-stalled advice instead of that internal sentence.
+    let hide_raw = is_server_fault(status, wire) || matches!(wire, WireErrorType::IdleTimeout);
     let why = extracted
-        .filter(|d| !is_server_fault(status, wire) && !is_headline_echo(d, &class.headline))
+        .filter(|d| !hide_raw && !is_headline_echo(d, &class.headline))
         .or_else(|| class.default_why.map(str::to_string));
     let detail = compose_detail(why.as_deref(), class.action);
     FormattedRequestFailure {
@@ -215,6 +220,10 @@ fn truncation_recovered_from_untyped_raw(error_type: Option<WireErrorType>, raw:
     error_type.is_none()
         && parse_http_status(raw).is_none()
         && raw.contains(xai_grok_shell::sampling::error::MAX_TOKENS_TRUNCATION_MESSAGE)
+}
+
+fn idle_timeout_recovered_from_untyped_raw(error_type: Option<WireErrorType>, raw: &str) -> bool {
+    error_type.is_none() && raw.contains("inference idle timeout")
 }
 
 fn refine_untyped_wire(
@@ -313,9 +322,9 @@ fn classify(status: Option<u16>, wire: WireErrorType) -> Classified {
     }
     let (headline, action, default_why) = match wire {
         WireErrorType::IdleTimeout => (
-            "No response from the model",
-            Some("Try sending again."),
-            Some("It may be stuck."),
+            "Connection stalled",
+            Some("Check your network and try again."),
+            None,
         ),
         WireErrorType::EmptyResponse => (
             "Empty response",
@@ -836,9 +845,14 @@ mod tests {
         assert_eq!(formatted.status, None);
         assert_eq!(
             formatted.message(),
-            "No response from the model: inference idle timeout after 90s with no chunks. \
-             Try sending again."
+            "Connection stalled: Check your network and try again."
         );
+        let untyped = format_request_failure(
+            None,
+            None,
+            "inference idle timeout after 90s with no chunks",
+        );
+        assert_eq!(untyped.message(), formatted.message());
     }
 
     #[test]
