@@ -1507,13 +1507,25 @@ pub(crate) fn is_typed_slash_selected(
     let Some(typed) = registry.get_for_dispatch(invocation.token) else {
         return false;
     };
+    // A hidden command such as `/cd` in a session is not a menu row. Enter runs
+    // that command instead of accepting a near-match skill that is highlighted.
+    let typed_name = typed.name();
+    let in_menu = snap.matches.iter().any(|row| {
+        row.command_name().eq_ignore_ascii_case(invocation.token)
+            || registry
+                .get_for_dispatch(row.command_name())
+                .is_some_and(|selected| selected.name() == typed_name)
+    });
+    if !in_menu {
+        return true;
+    }
     match snap.selection() {
         None => true,
         Some(row) => {
             row.command_name().eq_ignore_ascii_case(invocation.token)
                 || registry
                     .get_for_dispatch(row.command_name())
-                    .is_some_and(|selected| selected.name() == typed.name())
+                    .is_some_and(|selected| selected.name() == typed_name)
         }
     }
 }
@@ -2337,6 +2349,42 @@ mod tests {
         assert!(
             names.iter().any(|d| d == "/compact-mode"),
             "global commands matching the query must remain, got {names:?}"
+        );
+    }
+
+    /// Enter on a hidden command runs it. A near-match skill stays highlighted and is not accepted.
+    #[test]
+    fn hidden_cd_enter_runs_the_command_instead_of_a_near_skill() {
+        let mut ctrl = SlashController::with_builtins(std::path::PathBuf::from("."));
+        ctrl.registry_mut()
+            .set_acp_commands(&[agent_client_protocol::AvailableCommand::new(
+                "code-review".to_string(),
+                "Review a change".to_string(),
+            )]);
+        let state = SlashState::default();
+        let models = ModelState::default();
+        ctrl.refresh(&state, "/cd", 3, &models);
+        let snap = state.snapshot();
+        assert!(
+            snap.open,
+            "a near skill keeps the menu open, got {:?}",
+            snap.matches
+                .iter()
+                .map(|row| row.command_name().to_string())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            snap.matches.iter().all(|row| row.command_name() != "cd"),
+            "/cd must stay hidden in a session"
+        );
+        let selected = snap
+            .selection()
+            .expect("a near match is highlighted")
+            .command_name();
+        assert_ne!(selected, "cd", "the highlight is not the hidden command");
+        assert!(
+            is_typed_slash_selected(&snap, "/cd", ctrl.registry()),
+            "Enter must run /cd instead of accepting {selected}"
         );
     }
 
