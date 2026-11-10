@@ -1226,6 +1226,46 @@ fn mouse_tab_change_is_blocked_while_delete_is_pending() {
 }
 
 #[test]
+fn model_draft_row_shows_the_stored_title() {
+    let mut modal = FeedbackModalState::new(OpenFeedbackModal::default());
+    modal.window.active_tab = FeedbackTab::Drafts.index();
+    let mut stored = draft(
+        "model",
+        "What happened:\nThe tool called the wrong API.\n\nRepro:\n- Open /feedback",
+        FeedbackTaxonomy::default(),
+    );
+    stored.title = "Wrong API used".to_owned();
+    let mut untitled = draft(
+        "untitled",
+        "What happened:\nLegacy body with no stored title.",
+        FeedbackTaxonomy::default(),
+    );
+    untitled.title = "  \n".to_owned();
+    modal.drafts = DraftsState::Browse {
+        rows: vec![stored, untitled],
+        selected_id: Some("model".to_owned().into()),
+        query: LineEditor::default(),
+        search_focused: false,
+        error: None,
+    };
+
+    let rendered = render_to_text(&mut modal);
+
+    let model_row = rendered
+        .lines()
+        .find(|line| line.contains("Wrong API used"))
+        .unwrap_or_else(|| panic!("stored title must be the row label:\n{rendered}"));
+    assert!(
+        !model_row.contains("What happened:"),
+        "the details heading must not replace the stored title: {model_row}"
+    );
+    assert!(
+        rendered.contains("What happened:"),
+        "a blank title still falls back to the first details line:\n{rendered}"
+    );
+}
+
+#[test]
 fn draft_search_bar_is_always_visible_and_click_focuses_it() {
     let mut modal = FeedbackModalState::new(OpenFeedbackModal::default());
     modal.window.active_tab = FeedbackTab::Drafts.index();

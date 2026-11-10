@@ -11,6 +11,19 @@ use crate::theme::Theme;
 use crate::views::modal_window::{self, ModalSizing, ModalWindowConfig, Shortcut};
 use crate::views::prompt_widget::PromptStyle;
 
+/// List label for one draft. A stored title wins. A blank title falls back to
+/// the first non-blank details line, which is how a free-text predraft reads.
+fn draft_row_preview<'a>(title: &'a str, details: &'a str) -> &'a str {
+    let title = title.trim();
+    if !title.is_empty() {
+        return title;
+    }
+    details
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("")
+}
+
 impl FeedbackModalState {
     pub fn render(
         &mut self,
@@ -261,11 +274,9 @@ impl FeedbackModalState {
                 {
                     let is_selected = selected_id.as_ref() == Some(&draft.id);
                     let marker = if is_selected { "❯" } else { " " };
-                    let preview = draft
-                        .details
-                        .lines()
-                        .find(|line| !line.trim().is_empty())
-                        .unwrap_or(draft.title.as_str());
+                    // A model draft stores its title separately from the
+                    // structured details, which start at "What happened:".
+                    let preview = draft_row_preview(&draft.title, &draft.details);
                     let failure = draft
                         .failure_mode
                         .map(|value| format!(" · {}", value.label()))
