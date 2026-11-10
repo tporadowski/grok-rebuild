@@ -2893,6 +2893,9 @@ pub(crate) fn resolve_model_list(
     let mut explicit_api_backend_keys = std::collections::HashSet::new();
     let mut explicit_supports_effort_false_keys = std::collections::HashSet::new();
     let mut explicit_menu_keys = std::collections::HashSet::new();
+    // A brand-new table with no window is filled with the 200_000 parser fallback.
+    // That number is not a choice, so a sibling that sends the same model can replace it.
+    let mut parser_fallback_window_keys = std::collections::HashSet::new();
     for (key, model_override) in &cfg.config_models {
         let had_base = resolved.contains_key(key);
         let base = resolved.shift_remove(key);
@@ -2916,6 +2919,12 @@ pub(crate) fn resolve_model_list(
         let effective = with_provider.as_ref().unwrap_or(model_override);
         if effective.api_backend.is_some() {
             explicit_api_backend_keys.insert(key.as_str());
+        }
+        if !had_base
+            && effective.context_window.is_none()
+            && effective.context_windows.is_none()
+        {
+            parser_fallback_window_keys.insert(key.clone());
         }
         if effective.supports_reasoning_effort == Some(false)
             && effective.reasoning_efforts.is_empty()
@@ -2973,9 +2982,12 @@ pub(crate) fn resolve_model_list(
             String,
             (std::num::NonZeroU64, Vec<std::num::NonZeroU64>, ApiBackend),
         > = resolved
-            .values()
-            .filter(|e| has_explicit_context_window(&e.info, default_cw))
-            .map(|e| {
+            .iter()
+            .filter(|(key, e)| {
+                !parser_fallback_window_keys.contains(key.as_str())
+                    && has_explicit_context_window(&e.info, default_cw)
+            })
+            .map(|(_, e)| {
                 (
                     e.info.model.clone(),
                     (
@@ -3008,7 +3020,9 @@ pub(crate) fn resolve_model_list(
         }
         for (key, entry) in resolved.iter_mut() {
             if let Some((donor_cw, donor_choices, donor_backend)) = donors.get(&entry.info.model) {
-                if !has_explicit_context_window(&entry.info, default_cw) {
+                if parser_fallback_window_keys.contains(key.as_str())
+                    || !has_explicit_context_window(&entry.info, default_cw)
+                {
                     tracing::debug!(
                         model = %entry.info.model,
                         from = default_cw,

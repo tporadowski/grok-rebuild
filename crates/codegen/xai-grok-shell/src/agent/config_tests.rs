@@ -7884,6 +7884,47 @@ fn capabilities_menu_without_default_resolves_to_no_reasoning_effort() {
     assert_eq!(info.reasoning_effort, None);
 }
 #[test]
+fn model_table_without_a_context_window_uses_the_sibling_window_and_api() {
+    let raw_config: toml::Value = toml::from_str(
+        r#"
+            [model.kept]
+            model = "shared-model"
+            context_window = 200000
+
+            [model.alias]
+            model = "shared-model"
+
+            [model.full]
+            model = "shared-model"
+            context_window = 1000000
+            api_backend = "messages"
+
+            [model.alone]
+            model = "solo-model"
+            "#,
+    )
+    .unwrap();
+    let cfg = Config::new_from_toml_cfg(&raw_config).expect("config should parse");
+    let resolved = resolve_model_list(&cfg, None);
+    let alias = resolved.get("alias").expect("alias");
+    assert_eq!(alias.info.context_window.get(), 1_000_000);
+    assert_eq!(alias.info.api_backend, ApiBackend::Messages);
+    let full = resolved.get("full").expect("full");
+    assert_eq!(full.info.context_window.get(), 1_000_000);
+    assert_eq!(full.info.api_backend, ApiBackend::Messages);
+    let kept = resolved.get("kept").expect("kept");
+    assert_eq!(
+        kept.info.context_window.get(),
+        200_000,
+        "an explicit 200000 window stays"
+    );
+    assert_eq!(kept.info.api_backend, ApiBackend::Messages);
+    let alone = resolved.get("alone").expect("alone");
+    assert_eq!(alone.info.context_window.get(), 200_000);
+    assert_eq!(alone.info.api_backend, ApiBackend::ChatCompletions);
+}
+
+#[test]
 fn resolve_model_list_inherits_context_window_from_default_when_prefetched_has_fallback() {
     let cfg = Config::default();
     let dm = crate::models::default_model();
