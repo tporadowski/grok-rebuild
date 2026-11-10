@@ -531,7 +531,8 @@ impl AgentView {
                         if key.modifiers.is_empty()
                             && crate::views::question_view::option_index_for_key(c).is_some() =>
                     {
-                        let idx = crate::views::question_view::option_index_for_key(c).unwrap();
+                        let idx = crate::views::question_view::option_index_for_key(c)
+                            .expect("option key checked above");
                         let active = qv.active_tab;
                         let opt_count = qv
                             .questions
@@ -540,15 +541,26 @@ impl AgentView {
                             .unwrap_or(0);
                         if idx < opt_count {
                             qv.set_cursor(idx);
-                            qv.select_option(active, idx);
-                            if let Some(sel) = qv.per_question_freeform_selected.get_mut(active) {
-                                *sel = false;
-                            }
-                            let last = qv.questions.len().saturating_sub(1);
-                            if qv.active_tab < last {
-                                needs_switch_question = Some(QuestionSwitch::Next);
+                            // Multi-select number keys toggle and stay, so several answers can be
+                            // chosen before Enter submits. A single-select key still answers now.
+                            let is_multi = qv
+                                .questions
+                                .get(active)
+                                .is_some_and(|question| question.multi_select.unwrap_or(false));
+                            if is_multi {
+                                qv.toggle_option(active, idx);
                             } else {
-                                return self.submit_question_answers(false);
+                                qv.select_option(active, idx);
+                                if let Some(sel) = qv.per_question_freeform_selected.get_mut(active)
+                                {
+                                    *sel = false;
+                                }
+                                let last = qv.questions.len().saturating_sub(1);
+                                if qv.active_tab < last {
+                                    needs_switch_question = Some(QuestionSwitch::Next);
+                                } else {
+                                    return self.submit_question_answers(false);
+                                }
                             }
                         }
                     }
@@ -2353,6 +2365,59 @@ mod question_no_freeform_tests {
             "yanking must not close the card"
         );
         assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
+    }
+
+    #[test]
+    fn number_keys_toggle_multi_select_without_submitting() {
+        let mut agent = make_agent();
+        let option = |label: &str| QuestionOption {
+            label: label.into(),
+            description: String::new(),
+            preview: None,
+            id: None,
+        };
+        agent.question_view = Some(QuestionViewState::new(
+            "tc-multi".into(),
+            vec![Question {
+                question: "Pick tools".into(),
+                options: vec![option("Read"), option("Search"), option("Edit")],
+                multi_select: Some(true),
+                id: None,
+            }],
+            StashedPrompt::default(),
+        ));
+        let one = KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE);
+        let two = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
+        let _ = agent.handle_question_key(&one);
+        let _ = agent.handle_question_key(&two);
+        let set = match qv(&agent).selections.first() {
+            Some(QuestionSelection::Multi(set)) => set.clone(),
+            other => panic!("expected a multi-select set, got {other:?}"),
+        };
+        assert!(set.contains(&0) && set.contains(&1), "{set:?}");
+        assert!(!set.contains(&2), "{set:?}");
+        let _ = agent.handle_question_key(&one);
+        let set = match qv(&agent).selections.first() {
+            Some(QuestionSelection::Multi(set)) => set.clone(),
+            other => panic!("expected a multi-select set, got {other:?}"),
+        };
+        assert!(!set.contains(&0) && set.contains(&1), "{set:?}");
+        assert!(agent.question_view.is_some(), "number keys must not submit");
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let _ = agent.handle_question_key(&enter);
+        assert!(
+            agent.question_view.is_none(),
+            "Enter submits the toggled answers"
+        );
+    }
+
+    #[test]
+    fn number_key_still_submits_a_single_select_question() {
+        let mut agent = make_agent();
+        open_question(&mut agent, true);
+        let one = KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE);
+        let _ = agent.handle_question_key(&one);
+        assert!(agent.question_view.is_none());
     }
 }
 #[cfg(test)]
