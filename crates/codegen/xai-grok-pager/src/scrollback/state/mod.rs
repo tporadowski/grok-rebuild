@@ -1116,23 +1116,31 @@ impl ScrollbackState {
             new_tc.set_started_at(t);
         }
         let kind_changed = verb_group::verb_group_kind_changed(&entry.block, &block);
-        let (is_same_kind, untrusted_rising) = match (&entry.block, &block) {
+        let (is_same_kind, untrusted_rising, list_failure) = match (&entry.block, &block) {
             (
                 RenderBlock::ToolCall(ToolCallBlock::Edit(old)),
                 RenderBlock::ToolCall(ToolCallBlock::Edit(new)),
             ) => (
                 true,
                 new.is_success() && new.summary_untrusted && !old.summary_untrusted,
+                false,
             ),
+            (
+                RenderBlock::ToolCall(ToolCallBlock::ListDir(old)),
+                RenderBlock::ToolCall(ToolCallBlock::ListDir(new)),
+            ) => (true, false, new.error.is_some() && old.error.is_none()),
             (RenderBlock::ToolCall(old), RenderBlock::ToolCall(new)) => (
                 std::mem::discriminant(old) == std::mem::discriminant(new),
                 false,
+                false,
             ),
-            _ => (false, false),
+            _ => (false, false, false),
         };
         entry.block = block;
         if is_same_kind {
-            if untrusted_rising && !(respect_manual_folds && entry.display_mode_pinned) {
+            if (untrusted_rising || list_failure)
+                && !(respect_manual_folds && entry.display_mode_pinned)
+            {
                 entry.display_mode = DisplayMode::Expanded;
             }
         } else if respect_manual_folds && entry.display_mode_pinned {

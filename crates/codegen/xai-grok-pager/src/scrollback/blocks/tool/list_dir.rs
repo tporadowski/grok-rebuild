@@ -266,7 +266,13 @@ impl BlockContent for ListDirToolCallBlock {
     }
 
     fn default_display_mode(&self) -> DisplayMode {
-        DisplayMode::Collapsed
+        // A failed listing opens so the full reason is on screen. A short header
+        // suffix drops every line after the first.
+        if self.error.is_some() {
+            DisplayMode::Expanded
+        } else {
+            DisplayMode::Collapsed
+        }
     }
 
     fn next_fold_mode(&self, current: DisplayMode, _is_running: bool) -> DisplayMode {
@@ -354,6 +360,59 @@ mod tests {
     fn not_foldable_when_empty_success() {
         let block = ListDirToolCallBlock::new("empty");
         assert!(!block.is_foldable());
+    }
+
+    #[test]
+    fn failed_directory_listing_expands_to_show_why() {
+        let reason = "Error: Directory does not exist: /proj/.claude/skills\n\
+The parent folder is missing, so there is nothing to list.";
+        let failed = ListDirToolCallBlock::new(".claude/skills").with_error(reason);
+        assert_eq!(failed.default_display_mode(), DisplayMode::Expanded);
+        let ok = ListDirToolCallBlock::new("src").with_output("a.rs\n");
+        assert_eq!(ok.default_display_mode(), DisplayMode::Collapsed);
+
+        let mut state = crate::scrollback::ScrollbackState::new();
+        let running = state.push_block(crate::scrollback::RenderBlock::ToolCall(
+            super::super::ToolCallBlock::ListDir(ListDirToolCallBlock::new(".claude/skills")),
+        ));
+        assert_eq!(
+            state.get_by_id(running).unwrap().display_mode,
+            DisplayMode::Collapsed
+        );
+        assert!(state.replace_tool_block(
+            running,
+            crate::scrollback::RenderBlock::ToolCall(super::super::ToolCallBlock::ListDir(
+                failed.clone()
+            )),
+            None,
+        ));
+        let entry = state.get_by_id_mut(running).unwrap();
+        assert_eq!(entry.display_mode, DisplayMode::Expanded);
+        let shown = entry.output(80, &crate::appearance::AppearanceConfig::default(), None);
+        let text: String = shown
+            .lines
+            .iter()
+            .map(|line| {
+                line.content
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.contains("The parent folder is missing, so there is nothing to list."),
+            "the opened listing keeps the reason the header cuts: {text}"
+        );
+
+        let inserted = state.push_block(crate::scrollback::RenderBlock::ToolCall(
+            super::super::ToolCallBlock::ListDir(failed),
+        ));
+        assert_eq!(
+            state.get_by_id(inserted).unwrap().display_mode,
+            DisplayMode::Expanded
+        );
     }
 
     #[test]
