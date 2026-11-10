@@ -97,10 +97,21 @@ impl<'de> serde::Deserialize<'de> for TelemetryMode {
         }
     }
 }
-/// Parse an env var as a `TelemetryMode`. Returns `None` if unset or empty.
+/// Parse an env var as a `TelemetryMode`.
+/// `None` when unset or blank. A non-empty value that cannot be read as a mode, including a non-UTF-8 value, is [`TelemetryMode::Disabled`].
 pub fn env_telemetry_mode(name: &str) -> Option<TelemetryMode> {
-    let value = std::env::var(name).ok()?;
-    TelemetryMode::parse(&value)
+    match std::env::var(name) {
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => Some(TelemetryMode::Disabled),
+        Ok(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(TelemetryMode::parse(trimmed).unwrap_or(TelemetryMode::Disabled))
+            }
+        }
+    }
 }
 /// Parse `[telemetry] otel_timeout` / `otel_metric_export_interval`: docs say
 /// `number`, so TOML integers must not fail-close config load. Strings still

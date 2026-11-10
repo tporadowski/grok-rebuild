@@ -1879,7 +1879,7 @@ impl Config {
         if let Some(mode) = self.requirements.telemetry.pinned() {
             return Resolved::new(mode, ConfigSource::Requirement);
         }
-        if env_bool("DISABLE_TELEMETRY") == Some(true) {
+        if env_forces_off("DISABLE_TELEMETRY") {
             return Resolved::new(TelemetryMode::Disabled, ConfigSource::Env);
         }
         if let Some(mode) = env_telemetry_mode("GROK_TELEMETRY_ENABLED") {
@@ -2539,7 +2539,7 @@ pub(crate) fn resolve_mcp_recursive_config_watch(
         .resolve()
 }
 /// Sync analogue of [`BoolFlag`] for callers that run before the tokio runtime (e.g. `init_sentry`). Loads from disk and env directly rather than from a pre-built `Config`.
-/// Same convention as [`BoolFlag`]: `resolve()` returns the *enabled* value. `disable_env` is sugar for "force-off if this env is truthy" and does not invert the convention.
+/// Same convention as [`BoolFlag`]: `resolve()` returns the *enabled* value. `disable_env` forces the flag off when that process variable has any non-empty value, including `0` and `false`.
 /// Layer precedence: `requirements.toml` (admin pin) `managed_settings.json` env (Claude admin pin, force-off) process env via `disable_env` (force-off) process env via `enable_env` (either direction) merged config (user/managed defaults) `inherit`, then `default`
 pub(crate) struct SyncBoolFlag {
     extract_toml: fn(&toml::Value) -> Option<bool>,
@@ -2559,7 +2559,8 @@ impl SyncBoolFlag {
         }
     }
     /// Force-off env name (e.g. `"DISABLE_TELEMETRY"`).
-    /// Truthy at this name in `managed_settings.json` or process env disables the flag.
+    /// Any non-empty process value disables the flag, including `0` and `false`. A non-UTF-8 value counts as off. Unset and blank do not.
+    /// A truthy `managed_settings.json` value at this name is a separate force-off.
     pub(crate) const fn disable_env(mut self, name: &'static str) -> Self {
         self.disable_env = Some(name);
         self
@@ -2592,7 +2593,7 @@ impl SyncBoolFlag {
             return false;
         }
         if let Some(name) = self.disable_env
-            && env_bool(name) == Some(true)
+            && env_forces_off(name)
         {
             return false;
         }
@@ -2636,7 +2637,7 @@ pub fn is_error_reporting_disabled_sync() -> bool {
     !Distribution::current().allows(Capability::ErrorReporting)
         || !SyncBoolFlag::new(error_reporting_enabled_from_toml)
             .disable_env("DISABLE_ERROR_REPORTING")
-            .enable_env(|| env_bool("GROK_ERROR_REPORTING"))
+            .enable_env(grok_error_reporting_env_enabled)
             .inherit(|| !is_telemetry_disabled_sync())
             .resolve()
 }
@@ -2660,8 +2661,32 @@ fn error_reporting_enabled_from_toml(root: &toml::Value) -> Option<bool> {
         .as_bool()
 }
 /// `GROK_TELEMETRY_ENABLED` resolved through `TelemetryMode::parse` so the extended string forms (e.g. `"session_metrics"`) are accepted.
+/// A non-empty value that is not a mode counts as off.
 fn grok_telemetry_env_enabled() -> Option<bool> {
     env_telemetry_mode("GROK_TELEMETRY_ENABLED").map(|m| !m.is_disabled())
+}
+/// `DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING`: any non-empty value forces off, including `0` and `false`.
+/// A non-UTF-8 value counts as off. Unset and blank do not.
+fn env_forces_off(name: &str) -> bool {
+    match std::env::var_os(name) {
+        None => false,
+        Some(value) => match value.to_str() {
+            Some(text) => !text.trim().is_empty(),
+            None => true,
+        },
+    }
+}
+/// `GROK_ERROR_REPORTING`. Known bools keep their meaning. Unset and blank fall through.
+/// A non-empty value that is not a bool, or a non-UTF-8 value, counts as off.
+fn grok_error_reporting_env_enabled() -> Option<bool> {
+    match std::env::var_os("GROK_ERROR_REPORTING") {
+        None => None,
+        Some(value) => match value.to_str() {
+            None => Some(false),
+            Some(text) if text.trim().is_empty() => None,
+            Some(_) => Some(env_bool("GROK_ERROR_REPORTING").unwrap_or(false)),
+        },
+    }
 }
 /// Load `~/.grok/requirements.toml` standalone so the admin pin can beat
 /// env vars.

@@ -7116,11 +7116,11 @@ fn resolve_telemetry_mode_disable_env_beats_opt_in_but_not_requirements_pin() {
     let _enable = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
     let mut cfg = Config::default();
     cfg.features.telemetry = Some(TelemetryMode::Enabled);
-    let _falsy = EnvGuard::set("DISABLE_TELEMETRY", "0");
+    let _zero = EnvGuard::set("DISABLE_TELEMETRY", "0");
     let resolved = cfg.resolve_telemetry_mode();
     assert_eq!(
         (resolved.value, resolved.source),
-        (TelemetryMode::Enabled, ConfigSource::Env)
+        (TelemetryMode::Disabled, ConfigSource::Env)
     );
     let _truthy = EnvGuard::set("DISABLE_TELEMETRY", "1");
     let resolved = cfg.resolve_telemetry_mode();
@@ -7141,6 +7141,147 @@ fn resolve_telemetry_mode_disable_env_beats_opt_in_but_not_requirements_pin() {
         (resolved.value, resolved.source),
         (TelemetryMode::Enabled, ConfigSource::Requirement)
     );
+}
+#[test]
+#[serial]
+fn non_empty_disable_env_and_unreadable_opt_in_turn_reports_off() {
+    let home = tempfile::tempdir().unwrap();
+    let _home = EnvGuard::set("GROK_HOME", home.path());
+    let _telemetry = EnvGuard::unset("GROK_TELEMETRY_ENABLED");
+    let _disable = EnvGuard::unset("DISABLE_TELEMETRY");
+    let _reporting = EnvGuard::unset("GROK_ERROR_REPORTING");
+    let _disable_reporting = EnvGuard::unset("DISABLE_ERROR_REPORTING");
+    let mut cfg = Config::default();
+    cfg.features.telemetry = Some(TelemetryMode::Enabled);
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+        let _disable = EnvGuard::set("DISABLE_TELEMETRY", "   ");
+        let resolved = cfg.resolve_telemetry_mode();
+        assert_eq!(
+            (resolved.value, resolved.source),
+            (TelemetryMode::Enabled, ConfigSource::Env)
+        );
+        assert!(!is_telemetry_disabled_sync());
+        assert!(!is_telemetry_explicitly_disabled_sync());
+    }
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+        for value in ["0", "false", "nope"] {
+            let _disable = EnvGuard::set("DISABLE_TELEMETRY", value);
+            let resolved = cfg.resolve_telemetry_mode();
+            assert_eq!(
+                (resolved.value, resolved.source),
+                (TelemetryMode::Disabled, ConfigSource::Env),
+                "DISABLE_TELEMETRY={value:?}"
+            );
+            assert!(is_telemetry_disabled_sync(), "{value}");
+            assert!(is_telemetry_explicitly_disabled_sync(), "{value}");
+            assert!(
+                is_error_reporting_disabled_sync(),
+                "{value}: crash reports follow telemetry when they have no signal of their own"
+            );
+        }
+    }
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "not-a-mode");
+        assert_eq!(
+            env_telemetry_mode("GROK_TELEMETRY_ENABLED"),
+            Some(TelemetryMode::Disabled)
+        );
+        let resolved = cfg.resolve_telemetry_mode();
+        assert_eq!(
+            (resolved.value, resolved.source),
+            (TelemetryMode::Disabled, ConfigSource::Env)
+        );
+        assert!(is_telemetry_disabled_sync());
+        assert!(is_telemetry_explicitly_disabled_sync());
+    }
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "   ");
+        assert_eq!(env_telemetry_mode("GROK_TELEMETRY_ENABLED"), None);
+        let resolved = cfg.resolve_telemetry_mode();
+        assert_eq!(
+            (resolved.value, resolved.source),
+            (TelemetryMode::Enabled, ConfigSource::Config)
+        );
+    }
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "session_metrics");
+        let resolved = cfg.resolve_telemetry_mode();
+        assert_eq!(
+            (resolved.value, resolved.source),
+            (TelemetryMode::SessionMetrics, ConfigSource::Env)
+        );
+        assert!(!is_telemetry_disabled_sync());
+    }
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+        let _reporting = EnvGuard::set("GROK_ERROR_REPORTING", "not-a-bool");
+        assert!(is_error_reporting_disabled_sync());
+    }
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+        let _reporting = EnvGuard::set("GROK_ERROR_REPORTING", "true");
+        assert!(!is_error_reporting_disabled_sync());
+        let _reporting = EnvGuard::set("GROK_ERROR_REPORTING", "0");
+        assert!(is_error_reporting_disabled_sync());
+    }
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+        let _reporting = EnvGuard::set("GROK_ERROR_REPORTING", "true");
+        for value in ["0", "false", "nope"] {
+            let _disable_reporting = EnvGuard::set("DISABLE_ERROR_REPORTING", value);
+            assert!(
+                is_error_reporting_disabled_sync(),
+                "DISABLE_ERROR_REPORTING={value:?}"
+            );
+        }
+    }
+    {
+        let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+        let _reporting = EnvGuard::set("GROK_ERROR_REPORTING", "yes");
+        let _disable_reporting = EnvGuard::set("DISABLE_ERROR_REPORTING", "   ");
+        assert!(!is_error_reporting_disabled_sync());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let bad = std::ffi::OsString::from_vec(vec![0xFF]);
+        {
+            let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+            let _disable = EnvGuard::set("DISABLE_TELEMETRY", &bad);
+            let resolved = cfg.resolve_telemetry_mode();
+            assert_eq!(
+                (resolved.value, resolved.source),
+                (TelemetryMode::Disabled, ConfigSource::Env)
+            );
+            assert!(is_telemetry_disabled_sync());
+        }
+        {
+            let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", &bad);
+            assert_eq!(
+                env_telemetry_mode("GROK_TELEMETRY_ENABLED"),
+                Some(TelemetryMode::Disabled)
+            );
+            let resolved = cfg.resolve_telemetry_mode();
+            assert_eq!(
+                (resolved.value, resolved.source),
+                (TelemetryMode::Disabled, ConfigSource::Env)
+            );
+            assert!(is_telemetry_disabled_sync());
+        }
+        {
+            let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+            let _reporting = EnvGuard::set("GROK_ERROR_REPORTING", &bad);
+            assert!(is_error_reporting_disabled_sync());
+        }
+        {
+            let _telemetry = EnvGuard::set("GROK_TELEMETRY_ENABLED", "true");
+            let _reporting = EnvGuard::set("GROK_ERROR_REPORTING", "true");
+            let _disable_reporting = EnvGuard::set("DISABLE_ERROR_REPORTING", &bad);
+            assert!(is_error_reporting_disabled_sync());
+        }
+    }
 }
 #[test]
 #[serial]
