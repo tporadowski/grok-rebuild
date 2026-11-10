@@ -725,6 +725,43 @@ mod tests {
         );
     }
 
+    /// The directory grok was started in is local, even when that directory sits inside a git repo.
+    /// A skill at the repo root stays repo, so the two labels do not collapse.
+    #[tokio::test]
+    async fn skill_in_the_start_folder_is_local_inside_a_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        init_git_repo(&repo);
+        let start = repo.join("pkg");
+        fs::create_dir_all(&start).unwrap();
+        write_skill_md(
+            &start.join(".grok").join("skills").join("here"),
+            "here",
+        );
+        write_skill_md(
+            &repo.join(".grok").join("skills").join("root-skill"),
+            "root-skill",
+        );
+
+        let skills = list_skills_with_plugins(
+            Some(&start.to_string_lossy()),
+            &SkillsConfig::default(),
+            None,
+            CompatConfig::default(),
+            true,
+        )
+        .await;
+
+        let here = skills.iter().find(|s| s.name == "here").expect("start-folder skill");
+        assert_eq!(here.scope, SkillScope::Local, "path {}", here.path);
+        let root = skills
+            .iter()
+            .find(|s| s.name == "root-skill")
+            .expect("repo-root skill");
+        assert_eq!(root.scope, SkillScope::Repo, "path {}", root.path);
+    }
+
     #[tokio::test]
     async fn bundled_skills_injected_and_shadowed_by_local() {
         let bundled = tempfile::tempdir().unwrap();
