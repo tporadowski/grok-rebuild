@@ -1101,9 +1101,10 @@ impl ScrollbackState {
                 self.release_pin_reserve();
                 self.scroll_offset = self.max_scroll_offset();
             } else {
-                // The pin stays after the turn, so a compaction line appended then would sit
-                // below the viewport. Nudge just far enough to show that line.
+                // The pin stays after the turn, so a compaction line or a recap appended
+                // then would sit below the viewport. Nudge just far enough to show it.
                 self.reveal_compaction_notice_below_the_view();
+                self.reveal_recap_below_the_view();
             }
         } else {
             // Normal follow: scroll to bottom, unconditionally
@@ -1121,6 +1122,22 @@ impl ScrollbackState {
         let Some(idx) = self.latest_compaction_notice_index() else {
             return;
         };
+        self.reveal_entry_below_the_view(idx);
+    }
+
+    /// A recap appended under a pinned prompt sits below the viewport. Bring that summary on screen.
+    fn reveal_recap_below_the_view(&mut self) {
+        if !self.pin_reserve_after_turn {
+            return;
+        }
+        let Some(idx) = self.latest_recap_index() else {
+            return;
+        };
+        self.reveal_entry_below_the_view(idx);
+    }
+
+    /// Nudge the pinned viewport just far enough that `idx` is no longer below the bottom.
+    fn reveal_entry_below_the_view(&mut self, idx: usize) {
         let Some(cache) = self.layout_cache.as_ref() else {
             return;
         };
@@ -1148,6 +1165,20 @@ impl ScrollbackState {
             .min(self.max_scroll_offset());
     }
 
+    fn latest_recap_index(&self) -> Option<usize> {
+        self.entries
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(idx, (_, entry))| {
+                let RenderBlock::SessionEvent(block) = &entry.block else {
+                    return None;
+                };
+                matches!(block.event, crate::scrollback::blocks::SessionEvent::Recap { .. })
+                    .then_some(idx)
+            })
+    }
+
     fn latest_compaction_notice_index(&self) -> Option<usize> {
         self.entries
             .iter()
@@ -1167,6 +1198,46 @@ mod tests {
     use super::super::test_util::*;
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn recap_below_a_pinned_prompt_scrolls_into_view() {
+        let mut state = ScrollbackState::new();
+        for i in 0..30 {
+            state.push_block(agent_block(&format!("filler {i}")));
+        }
+        state.push_block(user_block("where was I"));
+        state.prepare_layout(80, 8);
+        let prompt_idx = state.len() - 1;
+        state.follow_new_turn(Some(prompt_idx), true);
+        state.note_pin_reserve_turn_finished();
+        state.prepare_layout(80, 8);
+        assert!(state.is_pin_reserve_after_turn());
+        // The answer is taller than the viewport, so a recap after it starts below the pin.
+        state.push_block(agent_block(&"answer line\n".repeat(20)));
+        let pinned = state.scroll_offset();
+
+        state.push_block(RenderBlock::session_event(
+            crate::scrollback::blocks::SessionEvent::Recap {
+                summary: "edited the pager".into(),
+                auto: true,
+            },
+        ));
+        state.prepare_layout(80, 8);
+
+        let recap_idx = state.len() - 1;
+        let ys = state.get_cached_virtual_y().expect("layout");
+        let top = *ys.get(recap_idx).expect("recap virtual y");
+        let (_, view_bottom) = state.viewport_virtual_bounds().expect("viewport");
+        assert!(
+            top < view_bottom,
+            "recap top {top} stayed below the view bottom {view_bottom} (scroll {pinned} -> {})",
+            state.scroll_offset()
+        );
+        assert!(
+            state.scroll_offset() > pinned,
+            "the pinned view must move to show the recap"
+        );
+    }
 
     #[test]
     fn follow_new_turn_scroll_policies() {
