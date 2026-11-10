@@ -499,6 +499,31 @@ mod tests {
     }
 
     #[test]
+    fn fast_model_footer_does_not_wrap_fast_in_parentheses() {
+        let mut state = ModelState::default();
+        let id = acp::ModelId::new(Arc::from("grok-4-fast"));
+        state.available.insert(
+            id.clone(),
+            acp::ModelInfo::new(id.clone(), "Grok 4 Fast".to_string()),
+        );
+        state.current = Some(id);
+        state.reasoning_effort = Some(ReasoningEffort::Low);
+        assert_eq!(
+            Some("Grok 4 Fast (low)".to_owned()),
+            state.footer_label(),
+            "a fast name keeps its words; the only parentheses are the effort"
+        );
+
+        state.reasoning_effort = None;
+        state.set_served_model_name(Some("Grok 4 (Fast)".to_owned()));
+        assert_eq!(
+            Some("Grok 4 (Fast)".to_owned()),
+            state.footer_label(),
+            "a name that already says (Fast) is not wrapped again"
+        );
+    }
+
+    #[test]
     fn accepts_images_defaults_true_when_meta_absent() {
         // No current model, empty meta, and a meta without the key all default to `true`; a no-op until the server populates the key
         assert!(ModelState::default().current_model_accepts_images());
