@@ -486,9 +486,14 @@ pub(crate) async fn try_fetch_stable_pointer() -> Option<String> {
 /// Read the cached stable version from `~/.grok/version.json` (sync, for display).
 ///
 /// Returns `None` if the file doesn't exist, can't be parsed, or has no `stable_version` field (e.g. written by an older binary).
+/// A missing home is left uncreated: `--help` and `--version` read this before any session starts.
 pub fn cached_stable_version() -> Option<String> {
-    let version_path = grok_home().join("version.json");
-    let content = std::fs::read_to_string(&version_path).ok()?;
+    let home = xai_dirs::resolve_grok_home()?;
+    read_cached_stable_version(&home)
+}
+
+fn read_cached_stable_version(home: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(home.join("version.json")).ok()?;
     let gv: GrokVersion = serde_json::from_str(&content).ok()?;
     gv.stable_version
 }
@@ -542,6 +547,58 @@ pub fn channel_label() -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use super::cached_stable_version;
+
+    struct RestoreEnv {
+        key: &'static str,
+        prev: Option<std::ffi::OsString>,
+    }
+
+    impl RestoreEnv {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let prev = std::env::var_os(key);
+            unsafe { std::env::set_var(key, value) };
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for RestoreEnv {
+        fn drop(&mut self) {
+            unsafe {
+                match self.prev.take() {
+                    Some(value) => std::env::set_var(self.key, value),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cached_stable_version_does_not_create_a_missing_grok_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("absent-grok");
+        let _restore = RestoreEnv::set("GROK_HOME", &home);
+
+        assert!(cached_stable_version().is_none());
+        assert!(
+            !home.exists(),
+            "reading a missing version cache must not create {}",
+            home.display()
+        );
+
+        std::fs::create_dir(&home).unwrap();
+        std::fs::write(
+            home.join("version.json"),
+            r#"{"version":"1.0.45","stable_version":"1.0.40","checked_at":"2020-01-01T00:00:00Z"}"#,
+        )
+        .unwrap();
+        assert_eq!(cached_stable_version().as_deref(), Some("1.0.40"));
+        assert!(
+            !home.join("bin").exists(),
+            "reading the cache must not create sibling folders"
+        );
+    }
+
     #[test]
     fn loopback_base_rejects_userinfo_and_non_loopback() {
         use super::is_loopback_base;
