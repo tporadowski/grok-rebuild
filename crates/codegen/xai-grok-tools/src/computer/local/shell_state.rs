@@ -401,14 +401,15 @@ impl ShellState {
         // child keeps them across exec. The originals are closed on exec by CLOEXEC.
 
         // Read prior snapshot from fd 3, eval it (restores env/funcs/aliases/opts) Run the user's
-        // command (passed as $1) Dump new state to fd 4 Exit with the user command's exit code
+        // command (passed as $1) even when that restore fails Dump new state to fd 4 Exit with the user command's exit code
         let wrapper = match self.shell {
             ShellKind::Bash => format!(
                 // Merge the user command's stderr into its stdout via `2>&1` so the captured byte stream preserves chronological write order. Shell-level
                 // diagnostics (eval syntax errors, etc.) still land on the outer shell's stderr — those are unaffected. Re-export GROK_AGENT=1 after snapshot
                 // eval so agent-definition selectors (or other values) from prior shells cannot clear the agent sentinel (process env alone is insufficient).
+                // `|| true` keeps a bad snapshot from skipping the command (`set -e` inside the snapshot must not abort here either).
                 "{dump_script} \
-                 snap=$(command cat <&3) && builtin shopt -s extglob && builtin eval -- \"$snap\" && \
+                 snap=$(command cat <&3); builtin shopt -s extglob; builtin eval -- \"$snap\" || true; \
                  {{ builtin set +u 2>/dev/null || true; \
                  builtin export GROK_AGENT=1; \
                  builtin export PWD=\"$(builtin pwd)\"; \
@@ -426,7 +427,7 @@ impl ShellState {
                  snap=$(command cat <&3); \
                  builtin unsetopt aliases 2>/dev/null; \
                  builtin unalias -m '*' 2>/dev/null || true; \
-                 builtin eval \"$snap\" && \
+                 builtin eval \"$snap\" || true; \
                  {{ builtin unsetopt nounset 2>/dev/null || true; \
                  builtin setopt nonomatch 2>/dev/null || true; \
                  builtin export GROK_AGENT=1; \
@@ -1276,6 +1277,38 @@ mod tests {
         let (code, stdout) = run_command(&mut state, "echo $MY_TEST_VAR").await;
         assert_eq!(code, 0);
         assert_eq!(stdout.trim(), "persistent_value");
+    }
+
+    /// A snapshot that fails to replay must not skip the command.
+    #[tokio::test]
+    async fn failed_state_restore_still_runs_the_command() {
+        let cwd = std::env::current_dir().unwrap();
+        if bash_available() {
+            let mut state = ShellState {
+                cwd: cwd.clone(),
+                snapshot: "false".into(),
+                shell: ShellKind::Bash,
+            };
+            let (code, stdout) = run_command(&mut state, "printf 'RAN\\n'").await;
+            assert_eq!(
+                code, 0,
+                "bash must run the command after a failed restore, stdout={stdout:?}"
+            );
+            assert!(stdout.contains("RAN"), "{stdout:?}");
+        }
+        if zsh_available() {
+            let mut state = ShellState {
+                cwd,
+                snapshot: "false".into(),
+                shell: ShellKind::Zsh,
+            };
+            let (code, stdout) = run_command(&mut state, "printf 'RAN\\n'").await;
+            assert_eq!(
+                code, 0,
+                "zsh must run the command after a failed restore, stdout={stdout:?}"
+            );
+            assert!(stdout.contains("RAN"), "{stdout:?}");
+        }
     }
 
     /// GPG_TTY exported in one command must not be replayed into the next via the snapshot.
