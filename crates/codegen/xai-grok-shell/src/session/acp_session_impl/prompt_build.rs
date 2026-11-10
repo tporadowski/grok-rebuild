@@ -2,6 +2,14 @@
 //! Covers the templated prefix, rules partitioning, and image payload preparation; large-prompt offload lives in `prompt_offload`.
 #![allow(clippy::items_after_test_module)]
 use super::*;
+/// Model-facing text for a message typed on an approval card.
+/// The transcript keeps the typed words. This frame tells the model the message is a follow-up.
+pub(super) fn approval_followup_for_model(message: &str) -> String {
+    xai_interjection_core::frame_user_turn(
+        "The user answered the approval with this follow-up:",
+        &xai_interjection_core::user_query(message),
+    )
+}
 /// Replaces anything outside `[A-Za-z0-9._-]` with `_` so the result is a portable directory name on macOS/Linux.
 /// Whether `url` is an `http://` or `https://` URL, one the upstream API can fetch directly.
 /// `file://` and other local schemes are rejected by the API and must be inlined as a `data:` URL instead.
@@ -803,11 +811,11 @@ impl SessionActor {
         )
     }
     /// Add a followup message from the permission panel as a user turn in the conversation.
-    /// This sends the message to the scrollback and adds it to the conversation context.
+    /// The scrollback keeps the typed words. The conversation text tells the model this is a follow-up to the approval.
     pub(super) async fn add_followup_message_as_user_turn(&self, message: &str) {
         self.inject_synthetic_user_message(
             message,
-            ConversationItem::user(message.to_string()),
+            ConversationItem::user(approval_followup_for_model(message)),
             true,
             &[],
         )

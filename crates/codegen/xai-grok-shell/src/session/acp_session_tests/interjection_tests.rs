@@ -227,6 +227,33 @@ async fn followup_message_persists_without_interjection_flag() {
         .await;
 }
 
+/// The typed words stay on the transcript. The conversation row the model reads says the message is a follow-up to the approval.
+#[tokio::test]
+async fn followup_message_tells_the_model_it_is_a_follow_up() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (actor, _gateway_rx) = build_actor().await;
+            actor
+                .add_followup_message_as_user_turn("use the staging bucket")
+                .await;
+            let conversation = actor.chat_state_handle.get_conversation().await;
+            let text = conversation
+                .last()
+                .expect("follow-up row")
+                .text_content();
+            assert!(
+                text.contains("follow-up"),
+                "the model must be told this is a follow-up, got: {text}"
+            );
+            assert!(
+                text.contains("<user_query>") && text.contains("use the staging bucket"),
+                "the typed words stay inside the follow-up frame, got: {text}"
+            );
+        })
+        .await;
+}
+
 /// Draining with an empty buffer reports false and leaves the conversation untouched.
 /// The turn loop's checkpoints depend on this.
 #[tokio::test]
