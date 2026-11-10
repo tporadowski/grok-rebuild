@@ -2492,6 +2492,77 @@ fn system_messages(app: &AppView, id: AgentId) -> Vec<String> {
 }
 
 #[test]
+fn feedback_send_shows_sending_before_the_result() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    app.agents.get_mut(&id).unwrap().session.session_id = Some("sess-send".into());
+    let effects = dispatch(
+        Action::SendFeedback {
+            text: "report".into(),
+            images: Default::default(),
+            trace: None,
+        },
+        &mut app,
+    );
+    assert!(
+        matches!(effects.as_slice(), [Effect::SendFeedback { .. }]),
+        "the report must be posted, got {effects:?}"
+    );
+    assert_eq!(
+        last_system_text(&app, id),
+        "Sending feedback…",
+        "the send status is on screen before the POST returns"
+    );
+    assert!(
+        !last_system_text(&app, id).contains("Thanks"),
+        "thanks still waits for the result"
+    );
+
+    let session_id = format!("feedback-sending-{}", uuid::Uuid::new_v4());
+    let session_dir =
+        plant_local_build_session(&test_agent(&app, id).session.cwd, &session_id);
+    app.agents.get_mut(&id).unwrap().session.session_id = Some(session_id.into());
+    let modal_id = open_feedback_modal(&mut app, Some("the report"));
+    let effects = dispatch(Action::SubmitFeedbackModal { modal_id }, &mut app);
+    let origin = match effects.as_slice() {
+        [Effect::SendFeedback { origin, .. }] => *origin,
+        other => panic!("expected the POST, got {other:?}"),
+    };
+    assert!(
+        test_agent(&app, id).feedback_modal.is_none(),
+        "a report send closes the form"
+    );
+    assert_eq!(last_system_text(&app, id), "Sending feedback…");
+
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::FeedbackFailed {
+            agent_id: id,
+            origin,
+            feedback_text: "the report".into(),
+            image_count: 0,
+            error: "Couldn't send feedback: Couldn't send feedback: offline".into(),
+        }),
+        &mut app,
+    );
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let notice = last_system_text(&app, id);
+    assert_eq!(
+        notice,
+        "Couldn't send feedback: offline. Saved to Drafts; open `/feedback` to retry."
+    );
+    assert_eq!(notice.to_ascii_lowercase().matches("send feedback").count(), 1);
+}
+
+#[test]
+fn draft_submit_says_sending_feedback_immediately() {
+    let mut modal = crate::views::feedback_modal::FeedbackModalState::new(
+        crate::views::feedback_modal::OpenFeedbackModal::default(),
+    );
+    modal.mark_draft_submit_pending();
+    assert_eq!(modal.error_text(), Some("Sending feedback…"));
+}
+
+#[test]
 fn feedback_failure_notice_keeps_one_send_prefix() {
     let mut app = test_app_with_agent();
     let session_id = format!("feedback-prefix-{}", uuid::Uuid::new_v4());

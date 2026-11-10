@@ -228,7 +228,7 @@ impl FeedbackModalState {
     pub fn mark_draft_submit_pending(&mut self) {
         self.invalidate_draft_load();
         self.submit_pending = true;
-        self.error = Some("Sending draft…".to_owned());
+        self.error = Some(super::FEEDBACK_SENDING_NOTICE.to_owned());
     }
 
     pub fn cancel_draft_submit_pending(&mut self, error: String) {

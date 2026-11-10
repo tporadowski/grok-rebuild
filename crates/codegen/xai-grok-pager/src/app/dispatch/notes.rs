@@ -314,6 +314,11 @@ pub(super) fn dispatch_submit_feedback_modal(
         modal.mark_draft_submit_pending();
     } else {
         agent.feedback_modal = None;
+        agent
+            .scrollback
+            .push_block(RenderBlock::system(
+                crate::views::feedback_modal::FEEDBACK_SENDING_NOTICE.to_owned(),
+            ));
     }
     if let Some(intent) = intent {
         agent.park_feedback_trace_consent(
@@ -452,6 +457,9 @@ pub(crate) fn commit_feedback(
         return None;
     }
 
+    agent.scrollback.push_block(RenderBlock::system(
+        crate::views::feedback_modal::FEEDBACK_SENDING_NOTICE.to_owned(),
+    ));
     Some(feedback_send_effect(
         id,
         session_id,

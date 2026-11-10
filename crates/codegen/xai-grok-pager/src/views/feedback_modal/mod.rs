@@ -33,6 +33,9 @@ const FEEDBACK_TABS: &[&str] = &["Write", "Drafts"];
 // One id shared by the footer `Shortcut` and the mouse `ShortcutActivated` arm; drifting them breaks click-to-cancel.
 const CANCEL_SHORTCUT_ID: usize = 1;
 const DRAFT_DOUBLE_CLICK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
+/// Shown as soon as a report is handed to the sender, before the POST returns.
+pub(crate) const FEEDBACK_SENDING_NOTICE: &str = "Sending feedback…";
+
 /// One copy of the empty-submit refusal: the key layer and the submit dispatcher must not drift apart.
 pub(crate) const FEEDBACK_EMPTY_SUBMIT_ERROR: &str =
     "Add feedback text or an image before sending.";
