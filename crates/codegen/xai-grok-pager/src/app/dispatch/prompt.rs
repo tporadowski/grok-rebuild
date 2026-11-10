@@ -2,7 +2,8 @@
 
 use super::auth::{
     scrollback_has_recent_context_too_large, scrollback_has_recent_disk_full,
-    scrollback_has_recent_reauth_prompt, scrollback_has_recent_request_failed,
+    scrollback_has_recent_error_banner, scrollback_has_recent_reauth_prompt,
+    scrollback_has_recent_request_failed,
 };
 use super::billing::is_credit_limit_error;
 use super::ctx::{get_active_agent_mut, visible_agent_mut, with_active_agent};
@@ -1680,7 +1681,7 @@ pub(super) fn handle_prompt_response(
         let request_failed_shown = scrollback_has_recent_request_failed(&agent.scrollback);
         // A dedicated prompt/modal/banner replaces the generic TurnFailed marker and error toast
         // The cases: rate limit, free-usage paywall, model incompatibility, credit 402/403, 401 re-auth, context overflow, and disk-full
-        // A formatted RequestFailed banner from RetryState also counts
+        // A formatted RequestFailed banner from RetryState also counts, as does a legacy-auth hint
         let dedicated_ux_shown = rate_limited
             || free_usage_blocked
             || model_incompatible
@@ -1688,7 +1689,8 @@ pub(super) fn handle_prompt_response(
             || reauth_prompted
             || context_overflow
             || disk_full
-            || request_failed_shown;
+            || request_failed_shown
+            || scrollback_has_recent_error_banner(&agent.scrollback);
         let elapsed = agent.turn_elapsed();
 
         {

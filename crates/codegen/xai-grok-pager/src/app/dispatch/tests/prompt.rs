@@ -1990,6 +1990,66 @@ fn prompt_response_request_failed_banner_suppresses_turn_failed_and_toast() {
     );
 }
 
+/// The legacy-auth retry already shows `grok update`, then `grok logout`, then `grok login`.
+/// A following turn marker must not replace that hint with a shortened failure line.
+#[test]
+fn prompt_response_legacy_auth_hint_suppresses_truncated_turn_failed() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    let hint = "Not Found (404): model does not exist\n\n\
+         You are using a deprecated authentication method (WebLogin).\n\
+         This auth method is no longer supported and will cause errors.\n\n\
+         To fix: run `grok update`, then `grok logout`, then `grok login` to re-authenticate with OAuth2.\n\n\
+         Version: 1.0.45";
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.session.state = AgentState::TurnRunning;
+        agent.turn_started_at = Some(std::time::Instant::now());
+        agent.scrollback.push_block(RenderBlock::session_event(
+            SessionEvent::RetryFailed {
+                error: hint.to_string(),
+                error_type: Some("legacy_auth".into()),
+            },
+        ));
+    }
+    dispatch(
+        Action::TaskComplete(TaskResult::PromptResponse {
+            agent_id: id,
+            result: Err(format!("Request failed: {hint}")),
+            http_status: None,
+            prompt_id: None,
+        }),
+        &mut app,
+    );
+    let agent = agent_ref(&app, id);
+    let mut saw_hint = false;
+    let mut saw_turn_failed = false;
+    for idx in 0..agent.scrollback.len() {
+        let Some(RenderBlock::SessionEvent(ev)) = agent.scrollback.entry(idx).map(|e| &e.block)
+        else {
+            continue;
+        };
+        match &ev.event {
+            SessionEvent::RetryFailed { error, error_type } => {
+                assert_eq!(error_type.as_deref(), Some("legacy_auth"));
+                let update = error.find("`grok update`").expect("grok update");
+                let logout = error.find("`grok logout`").expect("grok logout");
+                let login = error.find("`grok login`").expect("grok login");
+                assert!(update < logout && logout < login, "{error}");
+                saw_hint = true;
+            }
+            SessionEvent::TurnFailed { .. } => saw_turn_failed = true,
+            _ => {}
+        }
+    }
+    assert!(saw_hint, "the legacy-auth hint stays on the retry banner");
+    assert!(
+        !saw_turn_failed,
+        "the turn marker must not cover the migration hint"
+    );
+    assert!(app.deferred_notification.is_none());
+}
+
 /// The 401/402 race fallbacks must fire on the banner-formatted error text PromptResponse carries.
 /// The RetryState notification may lose the race, so no ReAuthRequired block exists yet.
 #[test]

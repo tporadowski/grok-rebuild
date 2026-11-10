@@ -953,6 +953,35 @@ mod tests {
     }
 
     #[test]
+    fn legacy_auth_hint_renders_in_full() {
+        let error = "Not Found (404): model does not exist\n\n\
+             You are using a deprecated authentication method (WebLogin).\n\
+             This auth method is no longer supported and will cause errors.\n\n\
+             To fix: run `grok update`, then `grok logout`, then `grok login` to re-authenticate with OAuth2.\n\n\
+             Version: 1.0.45";
+        let block = SessionEventBlock::new(SessionEvent::RetryFailed {
+            error: error.to_string(),
+            error_type: Some("legacy_auth".into()),
+        });
+        let out = block.output(&BlockContext {
+            width: 200,
+            ..ctx()
+        });
+        let rendered = out
+            .lines
+            .iter()
+            .map(plain)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("deprecated authentication method"));
+        let update = rendered.find("`grok update`").expect("grok update");
+        let logout = rendered.find("`grok logout`").expect("grok logout");
+        let login = rendered.find("`grok login`").expect("grok login");
+        assert!(update < logout && logout < login, "{rendered}");
+        assert!(rendered.contains("Version: 1.0.45"), "{rendered}");
+    }
+
+    #[test]
     fn retry_failed_other_error_type_shows_raw() {
         let event = SessionEvent::RetryFailed {
             error: "bad request".into(),

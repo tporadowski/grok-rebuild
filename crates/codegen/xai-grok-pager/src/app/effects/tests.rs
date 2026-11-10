@@ -82,6 +82,34 @@ fn format_acp_error_reads_detail_from_wrapped_data() {
         );
     assert_eq!(format_acp_error(&wrapped, false), "model does not support tools");
 }
+/// A long API body used to hit the 200-character sanitizer before `grok login`.
+/// The shell's WebLogin guidance has to survive that cut.
+#[test]
+fn format_acp_error_keeps_legacy_auth_hint_in_full() {
+    let body = "A".repeat(240);
+    let msg = format!(
+        "{body}\n\n\
+         You are using a deprecated authentication method (WebLogin).\n\
+         This auth method is no longer supported and will cause errors.\n\n\
+         To fix: run `grok update`, then `grok logout`, then `grok login` to re-authenticate with OAuth2.\n\n\
+         Version: 1.0.45"
+    );
+    let err = acp::Error::internal_error().data(msg.clone());
+    let shown = format_acp_error(&err, false);
+    assert!(
+        shown.contains(&body),
+        "the original failure stays with the hint, got {shown}"
+    );
+    let update = shown.find("`grok update`").expect("grok update");
+    let logout = shown.find("`grok logout`").expect("grok logout");
+    let login = shown.find("`grok login`").expect("grok login");
+    assert!(update < logout && logout < login, "{shown}");
+    assert!(
+        !shown.contains("..."),
+        "the migration hint must not be ellipsized, got {shown}"
+    );
+}
+
 #[test]
 fn format_acp_error_formats_http_500_dump() {
     let err = acp::Error::internal_error()

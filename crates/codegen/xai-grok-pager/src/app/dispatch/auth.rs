@@ -145,15 +145,22 @@ pub(crate) fn scrollback_has_recent_disk_full(
 pub(in crate::app) fn scrollback_has_recent_error_banner(
     scrollback: &crate::scrollback::state::ScrollbackState,
 ) -> bool {
-    trailing_session_events(scrollback).any(|(_, ev)| {
-        matches!(
-            ev,
-            SessionEvent::ReAuthRequired
-                | SessionEvent::ContextTooLarge
-                | SessionEvent::DiskFull
-                | SessionEvent::RequestFailed { .. }
-        )
-    })
+    trailing_session_events(scrollback).any(|(_, ev)| dedicated_error_banner(ev))
+}
+
+/// A banner that already tells the user what to do, so a later `TurnFailed` must not replace it.
+/// A `legacy_auth` retry keeps the shell's migration hint. A generic `RetryFailed` does not.
+fn dedicated_error_banner(ev: &SessionEvent) -> bool {
+    match ev {
+        SessionEvent::ReAuthRequired
+        | SessionEvent::ContextTooLarge
+        | SessionEvent::DiskFull
+        | SessionEvent::RequestFailed { .. } => true,
+        SessionEvent::RetryFailed { error_type, .. } => {
+            error_type.as_deref() == Some("legacy_auth")
+        }
+        _ => false,
+    }
 }
 
 /// True if the trailing run already has a formatted [`SessionEvent::RequestFailed`] banner.

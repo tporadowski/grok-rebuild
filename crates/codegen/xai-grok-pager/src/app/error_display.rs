@@ -159,6 +159,11 @@ pub(crate) fn format_request_failure(
     error_type: Option<WireErrorType>,
     raw: &str,
 ) -> FormattedRequestFailure {
+    // The shell appends `grok update` / `grok logout` / `grok login` after the API body.
+    // The 200-character sanitizer keeps the body and cuts that guidance off.
+    if legacy_auth_hint_in(error_type, raw) {
+        return legacy_auth_failure(status, raw);
+    }
     let untyped = error_type.is_none();
     let wire = if truncation_recovered_from_untyped_raw(error_type, raw) {
         WireErrorType::MaxTokensTruncation
@@ -184,6 +189,22 @@ pub(crate) fn format_request_failure(
         headline: class.headline,
         detail,
         wire,
+    }
+}
+
+fn legacy_auth_hint_in(error_type: Option<WireErrorType>, raw: &str) -> bool {
+    matches!(error_type, Some(WireErrorType::LegacyAuth))
+        || raw.contains("deprecated authentication method")
+}
+
+fn legacy_auth_failure(status: Option<u16>, raw: &str) -> FormattedRequestFailure {
+    let status = status.or_else(|| parse_http_status(raw));
+    let detail = xai_grok_shell::sampling::error::rewrite_service_names(raw.trim());
+    FormattedRequestFailure {
+        status,
+        headline: "Deprecated authentication".to_string(),
+        detail,
+        wire: WireErrorType::LegacyAuth,
     }
 }
 
