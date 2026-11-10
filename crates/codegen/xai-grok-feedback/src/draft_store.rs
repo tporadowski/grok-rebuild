@@ -293,6 +293,13 @@ struct FeedbackDraftDocument {
     drafts: Vec<FeedbackDraft>,
 }
 
+/// Listing decode. Each draft is parsed on its own so one bad row does not hide the rest.
+#[derive(Deserialize)]
+struct LenientDraftDocument {
+    schema_version: u32,
+    drafts: Vec<serde_json::Value>,
+}
+
 impl Default for FeedbackDraftDocument {
     fn default() -> Self {
         Self {
@@ -391,20 +398,21 @@ impl FeedbackDraftStore {
         Ok(draft)
     }
 
-    /// Returns drafts in persisted order.
-    /// Returns [`FeedbackStoreError`] when the store cannot be locked or its document is invalid.
+    /// Returns drafts in persisted order. A saved row that cannot be read is left out, so the valid drafts still load.
+    /// Returns [`FeedbackStoreError`] when the store cannot be locked or the document itself cannot be read.
     pub fn list(&self) -> Result<Vec<FeedbackDraft>> {
         let _lock = self.acquire_lock()?;
-        Ok(self.load_document()?.drafts)
+        Ok(self.load_listable_drafts()?.0)
     }
 
     /// Returns the draft matching `id` from one locked snapshot.
-    /// Returns [`FeedbackStoreError`] when the store cannot be locked or its document is invalid.
+    /// A sibling row that cannot be read does not hide this draft.
+    /// Returns [`FeedbackStoreError`] when the store cannot be locked or the document itself cannot be read.
     pub fn get(&self, id: &FeedbackDraftId) -> Result<Option<FeedbackDraft>> {
         let _lock = self.acquire_lock()?;
         Ok(self
-            .load_document()?
-            .drafts
+            .load_listable_drafts()?
+            .0
             .into_iter()
             .find(|draft| draft.id == *id))
     }
@@ -502,7 +510,7 @@ impl FeedbackDraftStore {
         Err(FeedbackStoreError::Busy)
     }
 
-    fn load_document(&self) -> Result<FeedbackDraftDocument> {
+    fn read_document_bytes(&self) -> Result<Option<Vec<u8>>> {
         let mut options = OpenOptions::new();
         options.read(true);
         #[cfg(unix)]
@@ -517,9 +525,7 @@ impl FeedbackDraftStore {
         }
         let file = match options.open(&self.data_path) {
             Ok(file) => file,
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                return Ok(FeedbackDraftDocument::default());
-            }
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
             Err(source) => {
                 return Err(
                     map_open_path_error(&self.data_path, &source).unwrap_or_else(|| {
@@ -552,6 +558,13 @@ impl FeedbackDraftStore {
                 cap: MAX_DOCUMENT_BYTES,
             });
         }
+        Ok(Some(bytes))
+    }
+
+    fn load_document(&self) -> Result<FeedbackDraftDocument> {
+        let Some(bytes) = self.read_document_bytes()? else {
+            return Ok(FeedbackDraftDocument::default());
+        };
         let document: FeedbackDraftDocument =
             serde_json::from_slice(&bytes).map_err(|source| FeedbackStoreError::Decode {
                 path: self.data_path.clone(),
@@ -559,6 +572,34 @@ impl FeedbackDraftStore {
             })?;
         validate_document(&document)?;
         Ok(document)
+    }
+
+    /// Drafts the Drafts tab can show. A row that does not parse, or that fails the draft checks, is skipped.
+    /// The file is not rewritten.
+    fn load_listable_drafts(&self) -> Result<(Vec<FeedbackDraft>, u32)> {
+        let Some(bytes) = self.read_document_bytes()? else {
+            return Ok((Vec::new(), 0));
+        };
+        let document: LenientDraftDocument =
+            serde_json::from_slice(&bytes).map_err(|source| FeedbackStoreError::Decode {
+                path: self.data_path.clone(),
+                source,
+            })?;
+        if document.schema_version != SCHEMA_VERSION {
+            return Err(FeedbackStoreError::UnsupportedSchema {
+                version: document.schema_version,
+            });
+        }
+        let mut skipped = 0u32;
+        let mut parsed = Vec::with_capacity(document.drafts.len());
+        for value in document.drafts {
+            match serde_json::from_value::<FeedbackDraft>(value) {
+                Ok(draft) => parsed.push(draft),
+                Err(_) => skipped = skipped.saturating_add(1),
+            }
+        }
+        let (kept, invalid) = retain_listable_drafts(parsed);
+        Ok((kept, skipped.saturating_add(invalid)))
     }
 
     fn commit(&self, document: &FeedbackDraftDocument) -> Result<()> {
@@ -697,6 +738,29 @@ fn ensure_replaceable_destination(path: &Path) -> Result<()> {
             source,
         }),
     }
+}
+
+fn draft_is_listable(draft: &FeedbackDraft) -> bool {
+    validate_title(&draft.title).is_ok()
+        && validate_details(&draft.details).is_ok()
+        && validate_area(draft.area.as_deref()).is_ok()
+        && !draft.id.as_str().is_empty()
+        && draft.revision > 0
+}
+
+/// Keeps the first readable copy of each id. Later duplicates and rows that fail the draft checks are counted as skipped.
+fn retain_listable_drafts(drafts: Vec<FeedbackDraft>) -> (Vec<FeedbackDraft>, u32) {
+    let mut seen = HashSet::with_capacity(drafts.len());
+    let mut kept = Vec::new();
+    let mut skipped = 0u32;
+    for draft in drafts {
+        if !draft_is_listable(&draft) || !seen.insert(draft.id.clone()) {
+            skipped = skipped.saturating_add(1);
+            continue;
+        }
+        kept.push(draft);
+    }
+    (kept, skipped)
 }
 
 fn validate_document(document: &FeedbackDraftDocument) -> Result<()> {

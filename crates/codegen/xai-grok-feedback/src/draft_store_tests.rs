@@ -461,6 +461,36 @@ fn draft_count_cap_accepts_boundary_and_rejects_over_without_replacement() {
 }
 
 #[test]
+fn list_keeps_valid_drafts_when_one_saved_draft_is_invalid() {
+    let session = tempfile::tempdir().unwrap();
+    let store = FeedbackDraftStore::new(session.path());
+    let path = session.path().join(FEEDBACK_DRAFTS_FILENAME);
+    let good = draft("good", "kept details", 1);
+    let bad_revision = draft("bad", "text", 0);
+    let before = write_document(&path, &document(vec![good.clone(), bad_revision]));
+
+    let listed = store.list().expect("valid drafts still load");
+    assert_eq!(listed, vec![good.clone()]);
+    assert_eq!(store.get(&good.id).unwrap().as_ref(), Some(&good));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+
+    let mut broken = serde_json::to_value(document(vec![good.clone()])).unwrap();
+    broken["drafts"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({ "id": "broken", "revision": "nope" }));
+    let mut bytes = serde_json::to_vec_pretty(&broken).unwrap();
+    bytes.push(b'\n');
+    std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(store.list().unwrap(), vec![good.clone()]);
+    assert_eq!(store.get(&good.id).unwrap().as_ref(), Some(&good));
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+
+    assert!(store.append(input("new draft")).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
 fn invalid_stored_documents_return_typed_errors_without_replacement() {
     let session = tempfile::tempdir().unwrap();
     let store = FeedbackDraftStore::new(session.path());
