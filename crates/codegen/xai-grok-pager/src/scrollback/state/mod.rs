@@ -1129,6 +1129,10 @@ impl ScrollbackState {
                 RenderBlock::ToolCall(ToolCallBlock::ListDir(old)),
                 RenderBlock::ToolCall(ToolCallBlock::ListDir(new)),
             ) => (true, false, new.error.is_some() && old.error.is_none()),
+            (
+                RenderBlock::ToolCall(ToolCallBlock::Read(old)),
+                RenderBlock::ToolCall(ToolCallBlock::Read(new)),
+            ) => (true, false, new.error.is_some() && old.error.is_none()),
             (RenderBlock::ToolCall(old), RenderBlock::ToolCall(new)) => (
                 std::mem::discriminant(old) == std::mem::discriminant(new),
                 false,

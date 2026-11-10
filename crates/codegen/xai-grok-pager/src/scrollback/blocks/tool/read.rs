@@ -489,11 +489,22 @@ impl BlockContent for ReadToolCallBlock {
     }
 
     fn default_display_mode(&self) -> DisplayMode {
-        DisplayMode::Collapsed
+        // A failed read opens so the full reason is on screen. A short header
+        // suffix drops every line after the first.
+        if self.error.is_some() {
+            DisplayMode::Expanded
+        } else {
+            DisplayMode::Collapsed
+        }
     }
 
     fn finished_display_mode(&self) -> Option<DisplayMode> {
-        Some(DisplayMode::Collapsed)
+        // Success folds. A failure stays open: finish must not snap it shut.
+        if self.error.is_some() {
+            None
+        } else {
+            Some(DisplayMode::Collapsed)
+        }
     }
 
     fn next_fold_mode(&self, current: DisplayMode, _is_running: bool) -> DisplayMode {
@@ -563,6 +574,62 @@ mod tests {
             is_selected: false,
             cwd: None,
         }
+    }
+
+    #[test]
+    fn failed_file_read_expands_to_show_why() {
+        let reason = "Error: Permission denied: secret.env\n\
+The file is there, but this process cannot read it.";
+        let failed = ReadToolCallBlock::new("secret.env").with_error(reason);
+        assert_eq!(failed.default_display_mode(), DisplayMode::Expanded);
+        assert_eq!(failed.finished_display_mode(), None);
+        let ok = ReadToolCallBlock::new("src/main.rs").with_content("fn main() {}\n".into(), 1);
+        assert_eq!(ok.default_display_mode(), DisplayMode::Collapsed);
+        assert_eq!(ok.finished_display_mode(), Some(DisplayMode::Collapsed));
+
+        let mut state = crate::scrollback::ScrollbackState::new();
+        let running = state.push_block(crate::scrollback::RenderBlock::ToolCall(
+            super::super::ToolCallBlock::Read(ReadToolCallBlock::new("secret.env")),
+        ));
+        assert_eq!(
+            state.get_by_id(running).unwrap().display_mode,
+            DisplayMode::Collapsed
+        );
+        assert!(state.replace_tool_block(
+            running,
+            crate::scrollback::RenderBlock::ToolCall(super::super::ToolCallBlock::Read(
+                failed.clone()
+            )),
+            None,
+        ));
+        state.finish_running_with_time(running, None);
+        let entry = state.get_by_id_mut(running).unwrap();
+        assert_eq!(entry.display_mode, DisplayMode::Expanded);
+        let shown = entry.output(80, &crate::appearance::AppearanceConfig::default(), None);
+        let text: String = shown
+            .lines
+            .iter()
+            .map(|line| {
+                line.content
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.contains("The file is there, but this process cannot read it."),
+            "the opened read keeps the reason the header cuts: {text}"
+        );
+
+        let inserted = state.push_block(crate::scrollback::RenderBlock::ToolCall(
+            super::super::ToolCallBlock::Read(failed),
+        ));
+        assert_eq!(
+            state.get_by_id(inserted).unwrap().display_mode,
+            DisplayMode::Expanded
+        );
     }
 
     #[test]
