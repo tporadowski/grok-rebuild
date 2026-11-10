@@ -1190,6 +1190,51 @@ fn utf8_decoder_multiple_feeds() {
     assert_eq!(dec.decode("héllo\n".as_bytes()), "héllo\n");
     assert!(dec.buffer.is_empty());
 }
+/// A failed search whose input pattern was cleared still shows the pattern from the title or the output, not `Search ""`.
+#[test]
+fn failed_search_keeps_the_original_pattern() {
+    let from_title = acp::ToolCall::new(
+        acp::ToolCallId::new(Arc::from("search-fail-title")),
+        "fn main".to_string(),
+    )
+    .kind(acp::ToolKind::Search)
+    .status(acp::ToolCallStatus::Failed)
+    .raw_input(Some(serde_json::json!({
+        "variant": "Grep",
+        "pattern": "",
+    })))
+    .content(vec![acp::ToolCallContent::from(
+        acp::ContentBlock::Text(acp::TextContent::new("regex parse error".to_string())),
+    )]);
+    let RenderBlock::ToolCall(ToolCallBlock::Search(search)) =
+        tool_call_to_block(&from_title, None, &SubagentLabelRegistry::default())
+    else {
+        panic!("expected a search block");
+    };
+    assert_eq!(search.pattern, "fn main");
+    assert_eq!(search.error.as_deref(), Some("regex parse error"));
+
+    let from_output = acp::ToolCall::new(
+        acp::ToolCallId::new(Arc::from("search-fail-output")),
+        "grep".to_string(),
+    )
+    .kind(acp::ToolKind::Search)
+    .status(acp::ToolCallStatus::Failed)
+    .raw_output(Some(serde_json::json!({
+        "pattern": "fn main",
+        "error": "tool_execution_failed",
+    })));
+    let RenderBlock::ToolCall(ToolCallBlock::Search(search)) =
+        tool_call_to_block(&from_output, None, &SubagentLabelRegistry::default())
+    else {
+        panic!("expected a search block");
+    };
+    assert_eq!(
+        search.pattern, "fn main",
+        "a tool-name title must not replace the pattern carried on the failure"
+    );
+}
+
 /// Reproduce the exact ACP message flow for a grep search tool call. This was broken: kind from in-progress update
 /// was lost, so the completed block rendered as "Other" with no search results.
 #[test]

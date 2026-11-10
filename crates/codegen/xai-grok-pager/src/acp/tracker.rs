@@ -2322,9 +2322,7 @@ fn tool_call_to_block(
             RenderBlock::ToolCall(ToolCallBlock::WebSearch(block))
         }
         acp::ToolKind::Search => {
-            let pattern = extract_raw_field(tc, "pattern")
-                .or_else(|| extract_raw_field(tc, "glob_pattern"))
-                .unwrap_or_else(|| tc.title.clone());
+            let pattern = search_pattern(tc);
             let meta = extract_search_meta(tc);
             let grep = extract_grep_output(&tc.raw_output).unwrap_or_default();
             let mut block = SearchToolCallBlock::new(pattern);
@@ -2865,6 +2863,42 @@ fn is_scheduler_tool(tc: &acp::ToolCall) -> bool {
     tc.title.starts_with("scheduler_")
         || extract_variant(tc).is_some_and(|v| v.starts_with("Scheduler"))
 }
+/// The pattern shown on a search row.
+/// An empty `pattern` is missing: a failure payload often carries `pattern: ""` while the title, or the output, still has the pattern the user saw.
+/// A bare tool name is not a pattern, so it must not become `Search "grep"`.
+fn search_pattern(tc: &acp::ToolCall) -> String {
+    let from_input = nonempty_raw_field(tc, "pattern")
+        .or_else(|| nonempty_raw_field(tc, "glob_pattern"));
+    if let Some(pattern) = from_input {
+        return pattern;
+    }
+    let title = tc.title.trim();
+    if !title.is_empty() && !is_search_function_name(title) {
+        return title.to_string();
+    }
+    tc.raw_output
+        .as_ref()
+        .and_then(|raw| {
+            raw.get("pattern")
+                .or_else(|| raw.pointer("/action/pattern"))
+                .and_then(|value| value.as_str())
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+fn nonempty_raw_field(tc: &acp::ToolCall, field: &str) -> Option<String> {
+    extract_raw_field(tc, field).filter(|text| !text.is_empty())
+}
+
+fn is_search_function_name(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "grep" | "search" | "search_code" | "rg" | "ripgrep" | "content_search"
+    )
+}
+
 /// Extract a string field from raw_input JSON.
 fn extract_raw_field(tc: &acp::ToolCall, field: &str) -> Option<String> {
     tc.raw_input
