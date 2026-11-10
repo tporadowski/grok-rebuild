@@ -929,6 +929,8 @@ pub struct LeaderReconnector {
     mode: ClientMode,
     env_urls: LeaderEnvUrls,
     capabilities: ClientCapabilities,
+    /// Model advertised on the next registration. A switch updates this so a reconnect does not send the model from process start.
+    default_model: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     status_tx: watch::Sender<ConnectionStatus>,
     /// Generation [`notify_connected`](Self::notify_connected) publishes next.
     /// Starts at 1: generation 0 is the initial connection, pre-seeded by [`status_channel`](Self::status_channel).
@@ -946,14 +948,43 @@ impl LeaderReconnector {
         capabilities: ClientCapabilities,
         status_tx: watch::Sender<ConnectionStatus>,
     ) -> Self {
+        let default_model = std::sync::Arc::new(std::sync::Mutex::new(
+            capabilities
+                .default_model
+                .clone()
+                .filter(|model| !model.is_empty()),
+        ));
         Self {
             client_type: client_type.into(),
             mode,
             env_urls,
             capabilities,
+            default_model,
             status_tx,
             next_generation: std::sync::atomic::AtomicU64::new(1),
         }
+    }
+    /// Shared with the client that learns about a successful model switch.
+    pub fn shared_default_model(&self) -> std::sync::Arc<std::sync::Mutex<Option<String>>> {
+        std::sync::Arc::clone(&self.default_model)
+    }
+    /// Remember the model a successful switch kept. The next leader registration sends this instead of the startup model.
+    pub fn set_default_model(&self, model: Option<String>) {
+        let model = model.filter(|value| !value.is_empty());
+        *self
+            .default_model
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = model;
+    }
+    /// Capabilities for [`connect_or_spawn`] on a reconnect. Reads the model last recorded by [`Self::set_default_model`].
+    pub fn capabilities_for_connect(&self) -> ClientCapabilities {
+        let mut capabilities = self.capabilities.clone();
+        capabilities.default_model = self
+            .default_model
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone();
+        capabilities
     }
     /// Publish `ConnectionStatus::Connected` with the next reconnect generation.
     /// Deliberately NOT called by [`reconnect`](Self::reconnect): the caller must first install the fresh channels it returned, then notify, so an observer that reacts to `Connected` by sending requests cannot race the channel swap and write into the dead pre-reconnect sender.
@@ -985,7 +1016,7 @@ impl LeaderReconnector {
                 &self.client_type,
                 self.mode,
                 &self.env_urls,
-                self.capabilities.clone(),
+                self.capabilities_for_connect(),
             )
         })
         .await

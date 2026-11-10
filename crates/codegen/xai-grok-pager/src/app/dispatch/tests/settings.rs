@@ -1880,6 +1880,94 @@ fn failed_model_switch_leaves_the_footer_and_saved_default() {
         "a failed switch must not write the default, got {failed:?}"
     );
 }
+/// A reconnect registers the model a successful switch kept. A rejected switch leaves that registration alone.
+#[test]
+fn reconnect_registers_the_model_a_successful_switch_kept() {
+    use agent_client_protocol as acp;
+    use std::sync::Arc;
+    use xai_grok_shell::leader::{
+        ClientCapabilities, ClientMode, LeaderEnvUrls, LeaderReconnector,
+    };
+    let (status_tx, _status_rx) = LeaderReconnector::status_channel();
+    let reconnector = LeaderReconnector::new(
+        "grok-tui",
+        ClientMode::Stdio,
+        LeaderEnvUrls {
+            grok_ws_url: String::new(),
+            grok_ws_origin: String::new(),
+        },
+        ClientCapabilities {
+            default_model: Some("grok-3".to_string()),
+            ..ClientCapabilities::default()
+        },
+        status_tx,
+    );
+    let mut app = test_app_with_agent();
+    app.models
+        .attach_leader_default_model(reconnector.shared_default_model());
+    app.models
+        .install_replacing(crate::acp::ModelState::default());
+    assert_eq!(
+        reconnector
+            .capabilities_for_connect()
+            .default_model
+            .as_deref(),
+        Some("grok-3"),
+        "replacing the catalog must keep the model a reconnect would register"
+    );
+    let agent_id = AgentId(0);
+    let previous = acp::ModelId::new(Arc::from("grok-3"));
+    let next = acp::ModelId::new(Arc::from("grok-4.5"));
+    let rejected = acp::ModelId::new(Arc::from("grok-4"));
+    {
+        let models = &mut app.agents.get_mut(&agent_id).unwrap().session.models;
+        models.available.insert(
+            previous.clone(),
+            acp::ModelInfo::new(previous.clone(), "Grok 3".to_string()),
+        );
+        models.available.insert(
+            next.clone(),
+            acp::ModelInfo::new(next.clone(), "Grok 4.5".to_string()),
+        );
+        models.set_current(previous.clone(), None);
+    }
+    dispatch(
+        Action::TaskComplete(TaskResult::SwitchModelComplete {
+            agent_id,
+            choice: ModelChoice::new(next.clone()),
+            result: Ok(()),
+            prev_model_id: Some(previous.clone()),
+            reported: None,
+        }),
+        &mut app,
+    );
+    assert_eq!(
+        reconnector
+            .capabilities_for_connect()
+            .default_model
+            .as_deref(),
+        Some("grok-4.5"),
+        "a reconnect after the switch must register the new model"
+    );
+    dispatch(
+        Action::TaskComplete(TaskResult::SwitchModelComplete {
+            agent_id,
+            choice: ModelChoice::new(rejected),
+            result: Err(SwitchModelError::Other("rejected".into())),
+            prev_model_id: Some(next),
+            reported: None,
+        }),
+        &mut app,
+    );
+    assert_eq!(
+        reconnector
+            .capabilities_for_connect()
+            .default_model
+            .as_deref(),
+        Some("grok-4.5"),
+        "a rejected switch must not put the previous model back on the next registration"
+    );
+}
 /// Re-dispatching the same model id is idempotent: no PersistSetting, no SwitchModel, no reasoning_effort reset.
 #[test]
 fn set_default_model_idempotent_when_already_current() {

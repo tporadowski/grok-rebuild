@@ -1425,7 +1425,7 @@ pub(in crate::app::dispatch) fn handle_session_created(
         }
         agent.bind_session_id(session_id);
         if let Some(m) = new_models {
-            app.models = Some(m).into();
+            app.models.install_replacing(Some(m).into());
             agent.session.models = app.models.clone();
         }
         agent.apply_session_modes(modes);
@@ -1556,7 +1556,7 @@ pub(in crate::app::dispatch) fn handle_worktree_session_created(
         agent.is_worktree = true;
         crate::git_info::populate_from_cwd_async(session_cwd.clone());
         if let Some(m) = new_models {
-            app.models = Some(m).into();
+            app.models.install_replacing(Some(m).into());
             agent.session.models = app.models.clone();
         }
         agent.apply_session_modes(modes);
@@ -1997,10 +1997,11 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
             }
         };
         let drain = maybe_drain_queue(agent, &mut app.pending_image_notices);
-        if let Some((id, effort)) = applied_default
-            && app.models.available.contains_key(&id)
-        {
-            app.models.set_current(id, effort);
+        if let Some((id, effort)) = applied_default {
+            app.models.remember_leader_default(id.0.as_ref());
+            if app.models.available.contains_key(&id) {
+                app.models.set_current(id, effort);
+            }
         }
         effects.extend(drain.effects);
         note_peek_page_flip(app, agent_id, drain.page_flip_entry);

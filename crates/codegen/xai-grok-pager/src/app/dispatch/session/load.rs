@@ -1258,7 +1258,7 @@ pub(in crate::app::dispatch) fn handle_session_loaded(
             agent.scrollback.remove_entry(placeholder_id);
         }
         if let Some(m) = new_models {
-            app.models = Some(m).into();
+            app.models.install_replacing(Some(m).into());
             agent.session.models = app.models.clone();
         }
         agent.apply_session_modes(modes);

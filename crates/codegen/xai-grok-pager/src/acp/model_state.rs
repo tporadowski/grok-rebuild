@@ -66,6 +66,8 @@ pub struct ModelState {
     /// The model the backend routed the current turn to, when it named one other than `current`.
     /// Footer only; `current` stays the user's selection.
     served_model_name: Option<String>,
+    /// Model a leader client sends the next time it registers. A successful switch updates it so a reconnect does not advertise the startup model.
+    pub(crate) leader_default_model: Option<std::sync::Arc<std::sync::Mutex<Option<String>>>>,
 }
 
 impl ModelState {
@@ -191,6 +193,30 @@ impl ModelState {
     /// Used for subagent views where SubagentProgress reports an actual window that may differ from the inherited model's metadata.
     pub fn override_context_window(&mut self, tokens: u64) {
         self.context_window_override = Some(tokens);
+    }
+
+    /// Keep the leader-registration slot when a session create or load replaces the catalog.
+    pub(crate) fn install_replacing(&mut self, mut next: Self) {
+        next.leader_default_model = self.leader_default_model.clone();
+        *self = next;
+    }
+
+    pub(crate) fn attach_leader_default_model(
+        &mut self,
+        slot: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    ) {
+        self.leader_default_model = Some(slot);
+    }
+
+    /// Record the model a successful switch kept, for the next leader registration.
+    pub(crate) fn remember_leader_default(&self, model_id: &str) {
+        let Some(slot) = &self.leader_default_model else {
+            return;
+        };
+        if model_id.is_empty() {
+            return;
+        }
+        *slot.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(model_id.to_string());
     }
 
     /// Replace the available-model list.
@@ -407,6 +433,7 @@ impl From<Option<acp::SessionModelState>> for ModelState {
                     context_window_selection,
                     model_changed_during_switch: false,
                     served_model_name: None,
+                    leader_default_model: None,
                 }
             })
             .unwrap_or_default()
