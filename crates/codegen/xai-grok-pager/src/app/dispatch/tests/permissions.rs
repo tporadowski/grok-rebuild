@@ -322,6 +322,54 @@ fn background_subagent_approval_stays_when_the_parent_turn_ends() {
     assert!(agent.last_permission_click.is_none());
 }
 
+/// The turn-end drain already answered the parent card with Cancelled.
+/// A later Allow or follow-up cannot replace that, so it does not approve the ended turn.
+/// A card for a background subagent that is still running stays, and that later answer goes there.
+#[test]
+fn approval_answer_after_the_turn_ends_does_not_select_the_ended_turn() {
+    use std::sync::Arc;
+
+    let mut app = test_app_with_agent();
+    let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+    let mut background = super::make_test_subagent("bg-child", "sa-bg");
+    background.attempt.is_background = true;
+    agent
+        .subagent_sessions
+        .insert("bg-child".into(), background);
+    let mut parent_rx = push_permission(agent, "test-session", 1);
+    let mut background_rx = push_permission(agent, "bg-child", 2);
+
+    finish_turn_view(agent, crate::app::cancel_latency::TurnEnd::Completed);
+
+    assert_cancelled(&mut parent_rx);
+    assert_eq!(queue_sessions(agent), vec!["bg-child"]);
+
+    let _ = dispatch(
+        Action::PermissionSelect(acp::PermissionOptionId::new(Arc::from("opt-allow-once"))),
+        &mut app,
+    );
+    assert!(
+        matches!(
+            parent_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ),
+        "the ended turn's approval stays cancelled"
+    );
+    match background_rx.try_recv() {
+        Ok(Ok(response)) => match response.outcome {
+            acp::RequestPermissionOutcome::Selected(selected) => {
+                assert_eq!(selected.option_id.0.as_ref(), "opt-allow-once");
+            }
+            other => panic!("the live background card takes the later answer, got {other:?}"),
+        },
+        other => panic!("expected the background card to take the answer, got {other:?}"),
+    }
+    assert!(
+        agent_ref(&app, AgentId(0)).permission_queue.is_empty(),
+        "the answer must not leave a card that can still change the ended turn"
+    );
+}
+
 #[test]
 fn continue_to_run_keeps_a_background_subagent_approval() {
     use crate::views::modal::CancelTurnChoice;
