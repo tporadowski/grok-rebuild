@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 
+use crate::gate_preflight::GatePreflight;
 use crate::policy::CompiledPolicy;
 use crate::rules::parse_permission_rule;
 use crate::types::{AccessKind, Decision, PermissionConfig, PermissionRule, RuleAction};
@@ -213,4 +214,48 @@ fn reject(tool: &str, pattern: &str) -> Option<Decision> {
 
 fn path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+/// `Bash(rm …)` ask/deny rules match a delete after `..` collapses and after a symlinked cwd resolves.
+#[test]
+fn rm_rules_match_dotdot_and_symlinked_cwd() {
+    let fixture = SymlinkedWorkspace::new();
+    let cwd = fixture.cwd();
+    let physical_notes = path_string(&fixture.physical_ws().join("notes.toml"));
+    let deny_relative = CompiledPolicy::new(PermissionConfig::new(vec![deny("Bash(rm notes.toml)")]));
+    let ask_physical = CompiledPolicy::new(PermissionConfig::new(vec![ask(&format!(
+        "Bash(rm {physical_notes})"
+    ))]));
+
+    let decision = |policy: &CompiledPolicy, cmd: &str| {
+        GatePreflight::evaluate(Some(policy), &AccessKind::Bash(cmd.to_owned()), &cwd, false)
+            .policy_decision()
+    };
+
+    assert!(
+        matches!(
+            decision(&deny_relative, "rm sub/../notes.toml"),
+            Some(Decision::Reject(_))
+        ),
+        "a .. path must match Bash(rm notes.toml)"
+    );
+    assert!(
+        matches!(
+            decision(&deny_relative, "rm -f -- sub/../notes.toml"),
+            Some(Decision::Reject(_))
+        ),
+        "flags must not hide the collapsed path from Bash(rm notes.toml)"
+    );
+    assert!(
+        matches!(
+            decision(&ask_physical, "rm notes.toml"),
+            Some(Decision::Ask)
+        ),
+        "a symlinked cwd must match Bash(rm) on the physical path, got {:?}",
+        decision(&ask_physical, "rm notes.toml")
+    );
+    assert!(
+        decision(&deny_relative, "rm other.toml").is_none(),
+        "a different file must not match Bash(rm notes.toml)"
+    );
 }

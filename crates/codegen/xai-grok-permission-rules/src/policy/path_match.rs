@@ -202,6 +202,136 @@ pub(crate) enum SymlinkFollow {
     Unresolvable,
 }
 
+/// Extra command texts for an `rm` / `rmdir` argv so a `Bash(rm …)` rule still matches
+/// after `..` is collapsed and after a symlinked cwd is resolved.
+/// The original command is not included.
+pub(super) fn delete_command_spellings(words: &[String], cwd: &Path) -> Vec<String> {
+    let Some(program) = words.first() else {
+        return Vec::new();
+    };
+    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    if name != "rm" && name != "rmdir" {
+        return Vec::new();
+    }
+    let mut operand_indexes = Vec::new();
+    let mut end_of_options = false;
+    for (index, token) in words.iter().enumerate().skip(1) {
+        if !end_of_options && token == "--" {
+            end_of_options = true;
+            continue;
+        }
+        if end_of_options || (token != "-" && !token.starts_with('-')) {
+            operand_indexes.push(index);
+        }
+    }
+    if operand_indexes.is_empty() {
+        return Vec::new();
+    }
+    let forms: Vec<OperandForms> = operand_indexes
+        .iter()
+        .filter_map(|index| words.get(*index).map(|token| operand_forms(token, cwd)))
+        .collect();
+    if forms.len() != operand_indexes.len() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let original = words.join(" ");
+    let push_command = |out: &mut Vec<String>, replacements: &[String]| {
+        if replacements.len() != operand_indexes.len() {
+            return;
+        }
+        let mut owned = words.to_vec();
+        for (index, replacement) in operand_indexes.iter().zip(replacements.iter()) {
+            if let Some(slot) = owned.get_mut(*index) {
+                *slot = replacement.clone();
+            }
+        }
+        let joined = owned.join(" ");
+        if joined != original && !out.iter().any(|existing| existing == &joined) {
+            out.push(joined);
+        }
+    };
+    let lexical: Vec<String> = forms
+        .iter()
+        .map(|form| form.lexical_absolute.clone())
+        .collect();
+    push_command(&mut out, &lexical);
+    if forms.iter().all(|form| form.relative.is_some()) {
+        let relative: Vec<String> = forms
+            .iter()
+            .filter_map(|form| form.relative.clone())
+            .collect();
+        push_command(&mut out, &relative);
+    }
+    if forms.iter().all(|form| form.physical_absolute.is_some()) {
+        let physical: Vec<String> = forms
+            .iter()
+            .filter_map(|form| form.physical_absolute.clone())
+            .collect();
+        push_command(&mut out, &physical);
+    }
+    for form in &forms {
+        for spelling in form
+            .relative
+            .iter()
+            .chain(std::iter::once(&form.lexical_absolute))
+            .chain(form.physical_absolute.iter())
+        {
+            let bare = format!("{name} {spelling}");
+            if bare != original && !out.iter().any(|existing| existing == &bare) {
+                out.push(bare);
+            }
+        }
+    }
+    out
+}
+
+struct OperandForms {
+    lexical_absolute: String,
+    relative: Option<String>,
+    physical_absolute: Option<String>,
+}
+
+fn operand_forms(token: &str, cwd: &Path) -> OperandForms {
+    if token.contains('*') || token.contains('?') || token.contains('[') {
+        return OperandForms {
+            lexical_absolute: token.to_owned(),
+            relative: Some(token.to_owned()),
+            physical_absolute: Some(token.to_owned()),
+        };
+    }
+    let lexical_abs = absolute_normalized_path(token, Some(cwd));
+    let lexical_absolute = path_match_string(&lexical_abs);
+    let lexical_cwd = normalize_lexically(cwd);
+    let lexical_relative = lexical_abs
+        .strip_prefix(&lexical_cwd)
+        .ok()
+        .and_then(|rel| relative_spelling(rel));
+    let physical_path = raw_absolute_tool_path(token, Some(cwd))
+        .as_deref()
+        .and_then(|raw| resolve_following_symlinks(Path::new(raw)))
+        .map(|path| normalize_lexically(&path));
+    let physical_absolute = physical_path.as_ref().map(|path| path_match_string(path));
+    let physical_relative = physical_path.as_ref().and_then(|path| {
+        let base = resolve_following_symlinks(&lexical_cwd)?;
+        path.strip_prefix(&base).ok().and_then(relative_spelling)
+    });
+    OperandForms {
+        lexical_absolute,
+        relative: lexical_relative.or(physical_relative),
+        physical_absolute,
+    }
+}
+
+fn relative_spelling(rel: &Path) -> Option<String> {
+    let rel_s = path_match_string(&normalize_lexically(rel));
+    if rel_s.is_empty() || rel_s == "." {
+        None
+    } else {
+        Some(rel_s)
+    }
+}
+
 pub(crate) fn follow_absolute_symlink(raw_absolute: &str, lexical_absolute: &str) -> SymlinkFollow {
     match resolve_symlink_target(raw_absolute) {
         Some(resolved) if resolved != lexical_absolute => SymlinkFollow::Target(resolved),

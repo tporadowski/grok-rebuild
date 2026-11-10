@@ -16,7 +16,8 @@ pub(crate) use crate::policy::path_match::{
     RuleBase, SymlinkFollow, follow_absolute_symlink, path_has_parent_dir,
 };
 use crate::policy::path_match::{
-    absolute_normalized_path, path_match_forms, path_match_string, raw_absolute_tool_path,
+    absolute_normalized_path, delete_command_spellings, path_match_forms, path_match_string,
+    raw_absolute_tool_path,
 };
 
 /// A security-gate escalation with `Ask` provenance.
@@ -144,10 +145,20 @@ impl CompiledPolicy {
     /// [`Self::evaluate_bash_command_policy`] with `Ask` provenance kept.
     /// A rule-match Ask stays binding while the manager may defer a fail-closed Ask to the auto-mode classifier.
     pub(crate) fn evaluate_bash_command_gate(&self, cmd: &str) -> Option<GateDecision> {
+        self.evaluate_bash_command_gate_at(cmd, None)
+    }
+
+    /// Same as [`Self::evaluate_bash_command_gate`], with the session cwd so an `rm` path
+    /// that contains `..` or sits under a symlinked cwd still matches `Bash(rm …)`.
+    pub(crate) fn evaluate_bash_command_gate_at(
+        &self,
+        cmd: &str,
+        cwd: Option<&Path>,
+    ) -> Option<GateDecision> {
         if !self.has_bash_command_restrictions {
             return None;
         }
-        self.evaluate_bash_command_segments(cmd, MAX_INLINE_SHELL_DEPTH)
+        self.evaluate_bash_command_segments(cmd, MAX_INLINE_SHELL_DEPTH, cwd)
     }
 
     /// Rule-check ONE decomposed command's argv: raw and wrapper-normalized forms, with inline `-c` and packed `env -S` recursion.
@@ -156,6 +167,7 @@ impl CompiledPolicy {
         &self,
         raw_words: &[String],
         inline_depth_remaining: usize,
+        cwd: Option<&Path>,
     ) -> Option<GateDecision> {
         let escalate = |segment: &str| match self.evaluate(&AccessKind::Bash(segment.to_owned())) {
             Some(Decision::Reject(reason)) => Some(GateDecision::Reject(reason)),
@@ -175,6 +187,11 @@ impl CompiledPolicy {
             .chain((inner_words.len() != raw_words.len()).then_some(inner_words));
         for words in forms {
             decision = combine_gate_decisions(decision, escalate(&words.join(" ")));
+            if let Some(cwd) = cwd {
+                for spelling in delete_command_spellings(words, cwd) {
+                    decision = combine_gate_decisions(decision, escalate(&spelling));
+                }
+            }
         }
         let shell_words: Vec<ShellWord<'_>> = inner_words.iter().map(ShellWord::from).collect();
         match shell_dash_c_script(&shell_words) {
@@ -185,6 +202,7 @@ impl CompiledPolicy {
                         Some(inner) => self.evaluate_bash_command_segments(
                             inner.as_str(),
                             inline_depth_remaining - 1,
+                            cwd,
                         ),
                         None => Some(GateDecision::AskFailClosed),
                     },
@@ -202,7 +220,7 @@ impl CompiledPolicy {
             if inline_depth_remaining > 0 {
                 decision = combine_gate_decisions(
                     decision,
-                    self.evaluate_bash_command_segments(&script, inline_depth_remaining - 1),
+                    self.evaluate_bash_command_segments(&script, inline_depth_remaining - 1, cwd),
                 );
             } else {
                 decision = combine_gate_decisions(decision, Some(GateDecision::AskFailClosed));

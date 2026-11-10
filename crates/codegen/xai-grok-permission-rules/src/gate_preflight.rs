@@ -37,7 +37,7 @@ impl GatePreflight {
         };
         let (bash_command, shell_file) = match (policy, access) {
             (Some(policy), AccessKind::Bash(cmd)) => (
-                policy.evaluate_bash_command_gate(cmd),
+                policy.evaluate_bash_command_gate_at(cmd, Some(cwd)),
                 policy.evaluate_shell_file_access_gate(cmd, cwd),
             ),
             _ => (None, None),

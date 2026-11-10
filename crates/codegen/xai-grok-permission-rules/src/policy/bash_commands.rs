@@ -30,6 +30,7 @@ impl CompiledPolicy {
         &self,
         cmd: &str,
         inline_depth_remaining: usize,
+        cwd: Option<&std::path::Path>,
     ) -> Option<GateDecision> {
         let Some(segments) = all_commands_from_script(cmd) else {
             let Some((projections, covered)) = self.recovered_commands(cmd, AllowRuleScope::Any)
@@ -40,7 +41,7 @@ impl CompiledPolicy {
             for words in &projections {
                 decision = combine_gate_decisions(
                     decision,
-                    self.evaluate_command_words(words, inline_depth_remaining),
+                    self.evaluate_command_words(words, inline_depth_remaining, cwd),
                 );
             }
             return decision;
@@ -49,7 +50,7 @@ impl CompiledPolicy {
         for parsed in &segments {
             decision = combine_gate_decisions(
                 decision,
-                self.evaluate_command_words(parsed.words(), inline_depth_remaining),
+                self.evaluate_command_words(parsed.words(), inline_depth_remaining, cwd),
             );
         }
         decision
