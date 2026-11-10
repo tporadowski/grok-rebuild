@@ -42,7 +42,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::appearance::AppearanceConfig;
 use crate::scrollback::block::{BlockContent, join_searchable};
 use crate::scrollback::types::{
-    AccentStyle, BlockBackground, BlockContext, BlockOutput, DisplayMode,
+    AccentStyle, BlockBackground, BlockContext, BlockLine, BlockOutput, DisplayMode,
 };
 use crate::theme::Theme;
 use std::fmt;
@@ -51,6 +51,29 @@ use std::fmt;
 /// Headers are single logical selection targets (path/query/url/command);
 /// using one id across tool kinds keeps multi-line drag/copy grouping simple.
 pub(crate) const TOOL_HEADER_RANGE: u16 = 0;
+
+/// Soft-wrap a tool header. Continuation rows keep the wrap's real joiner and the bullet indent, so a URL split across rows still links to the whole address.
+pub(crate) fn flush_wrapped_header_lines(
+    header: Line<'static>,
+    width: usize,
+    indent: usize,
+) -> Vec<BlockLine> {
+    let (wrapped, joiners, continuation_indent) =
+        crate::render::wrapping::wrap_header_flush_with_joiners(header, width, indent);
+    wrapped
+        .into_iter()
+        .enumerate()
+        .map(|(index, content)| {
+            let joiner = joiners.get(index).and_then(|joiner| joiner.clone());
+            BlockLine {
+                content,
+                joiner,
+                indent_width: if index == 0 { 0 } else { continuation_indent },
+                ..Default::default()
+            }
+        })
+        .collect()
+}
 
 /// Cut-off row for Fetch, Web Search, and MCP output.
 /// One hidden line reads `+1 line`. The name is the Open block viewer key.

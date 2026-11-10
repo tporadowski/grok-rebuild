@@ -205,27 +205,20 @@ impl BlockContent for WebFetchToolCallBlock {
             // Treat it the same as Expanded to always show the full content the model saw
             DisplayMode::Truncated | DisplayMode::Expanded => {
                 let header = self.header_line(&theme, false, None);
-                let wrapped = crate::render::wrapping::wrap_header_flush(
+                // Header lines: "Fetch " prefix excluded, URL selectable.
+                let mut lines = super::flush_wrapped_header_lines(
                     header,
                     ctx.width as usize,
                     ctx.bullet_indent(),
                 );
-                // Header lines: "Fetch " prefix excluded, URL selectable.
-                let mut lines: Vec<BlockLine> = wrapped
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, line)| {
-                        let total = line.spans.len();
-                        BlockLine {
-                            selectable: Selectable::Spans(1..total),
-                            selection_range: Some(TOOL_HEADER_RANGE),
-                            selection_text: if i == 0 { Some(self.url.clone()) } else { None },
-                            joiner: if i == 0 { None } else { Some(" ".to_string()) },
-                            content: line,
-                            ..Default::default()
-                        }
-                    })
-                    .collect();
+                for (i, line) in lines.iter_mut().enumerate() {
+                    let total = line.content.spans.len();
+                    line.selectable = Selectable::Spans(1..total);
+                    line.selection_range = Some(TOOL_HEADER_RANGE);
+                    if i == 0 {
+                        line.selection_text = Some(self.url.clone());
+                    }
+                }
 
                 // Metadata line (status, content_type, size).
                 if let Some(meta) = self.metadata_line(&theme) {
@@ -360,6 +353,83 @@ mod tests {
             appearance: Default::default(),
             is_selected: false,
             cwd: None,
+        }
+    }
+
+    fn assert_wrapped_header_links(block: &impl BlockContent, url: &str, bullet: crate::appearance::ToolBullet) {
+        let mut appearance = AppearanceConfig::default();
+        appearance.scrollback.blocks.tool.bullet = bullet;
+        let ctx = BlockContext {
+            width: 28,
+            mode: DisplayMode::Expanded,
+            is_running: false,
+            raw: false,
+            max_lines: None,
+            appearance,
+            is_selected: false,
+            cwd: None,
+        };
+        let output = block.output(&ctx);
+        let header: Vec<_> = output
+            .lines
+            .iter()
+            .take_while(|line| {
+                line.content
+                    .spans
+                    .iter()
+                    .any(|span| !span.content.trim().is_empty())
+            })
+            .collect();
+        assert!(
+            header.len() >= 2,
+            "{bullet:?} header should wrap the URL, got {}",
+            header.len()
+        );
+        let mut overlay = crate::render::osc8::LinkOverlay::new();
+        crate::render::osc8::scan_lines_for_url_overlays_indented(
+            header.iter().enumerate().map(|(index, line)| {
+                (
+                    index as u16,
+                    &line.content,
+                    line.joiner.as_deref(),
+                    line.indent_width,
+                )
+            }),
+            0,
+            &[],
+            &mut overlay,
+        );
+        let links = overlay.links();
+        assert!(
+            links.len() >= 2,
+            "{bullet:?} wrapped URL must link on every row, got {}",
+            links.len()
+        );
+        let mut rows = std::collections::BTreeSet::new();
+        for link in links {
+            let linked = crate::render::osc8::resolve_link_target(&link.target)
+                .and_then(|resolved| resolved.osc8_url)
+                .expect("url");
+            assert_eq!(&*linked, url, "{bullet:?} row {} links to {linked}", link.screen_row);
+            rows.insert(link.screen_row);
+        }
+        assert!(
+            rows.len() >= 2,
+            "{bullet:?} the full address must be linked on more than one row"
+        );
+    }
+
+    #[test]
+    fn wrapped_url_in_a_tool_header_links_the_full_address_on_every_row() {
+        const URL: &str = "https://example.com/some/very/long/path?key=value";
+        let fetch = WebFetchToolCallBlock::new(URL);
+        let search = crate::scrollback::blocks::tool::WebSearchToolCallBlock::new(URL);
+        for bullet in [
+            crate::appearance::ToolBullet::None,
+            crate::appearance::ToolBullet::Dot,
+        ] {
+            assert_wrapped_header_links(&fetch, URL, bullet);
+            assert_wrapped_header_links(&search, URL, bullet);
         }
     }
 

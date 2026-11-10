@@ -165,12 +165,11 @@ impl BlockContent for UseToolCallBlock {
             },
             DisplayMode::Truncated | DisplayMode::Expanded => {
                 let header = self.header_line(&theme, false, None);
-                let wrapped = crate::render::wrapping::wrap_header_flush(
+                let mut lines = super::flush_wrapped_header_lines(
                     header,
                     ctx.width as usize,
                     ctx.bullet_indent(),
                 );
-                let mut lines: Vec<BlockLine> = wrapped.into_iter().map(BlockLine::from).collect();
 
                 // Input arguments
                 if !self.input_args.is_empty() {

@@ -156,36 +156,25 @@ impl BlockContent for MemorySearchToolCallBlock {
             },
             DisplayMode::Truncated | DisplayMode::Expanded => {
                 let header = self.header_line(&theme, false, None);
-                let wrapped = crate::render::wrapping::wrap_header_flush(
+                let mut lines = super::flush_wrapped_header_lines(
                     header,
                     ctx.width as usize,
                     ctx.bullet_indent(),
                 );
-                let mut lines: Vec<BlockLine> = wrapped
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, line)| {
-                        // First span is label (or indent on continuations); only the query span is selectable on the first visual row
-                        let selectable = if i == 0 {
-                            let query_end = 2.min(line.spans.len()).max(1);
-                            Selectable::Spans(1..query_end)
-                        } else {
-                            Selectable::Spans(1..line.spans.len())
-                        };
-                        BlockLine {
-                            selectable,
-                            selection_range: Some(TOOL_HEADER_RANGE),
-                            selection_text: if i == 0 {
-                                Some(self.query.clone())
-                            } else {
-                                None
-                            },
-                            joiner: if i == 0 { None } else { Some(" ".to_string()) },
-                            content: line,
-                            ..Default::default()
-                        }
-                    })
-                    .collect();
+                for (i, line) in lines.iter_mut().enumerate() {
+                    // First span is label (or indent on continuations); only the query span is selectable on the first visual row
+                    let total = line.content.spans.len();
+                    line.selectable = if i == 0 {
+                        let query_end = 2.min(total).max(1);
+                        Selectable::Spans(1..query_end)
+                    } else {
+                        Selectable::Spans(1..total)
+                    };
+                    line.selection_range = Some(TOOL_HEADER_RANGE);
+                    if i == 0 {
+                        line.selection_text = Some(self.query.clone());
+                    }
+                }
 
                 if self.results.is_empty() && self.error.is_none() {
                     lines.push(BlockLine::separator(Line::from("")));

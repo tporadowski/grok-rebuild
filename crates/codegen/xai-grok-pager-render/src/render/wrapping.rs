@@ -692,16 +692,31 @@ pub fn wrap_header_hanging_with_joiners(
 
 /// Continuation lines indent to a fixed column (usually the bullet width), not under the content after the prefix.
 pub fn wrap_header_flush(header: Line<'static>, width: usize, indent: usize) -> Vec<Line<'static>> {
+    wrap_header_flush_with_joiners(header, width, indent).0
+}
+
+/// [`wrap_header_flush`] plus the soft-wrap joiner for each row and the continuation indent width.
+///
+/// The joiner is empty when a long token such as a URL broke, and a run of spaces when the wrap skipped them. The indent width is painted on every row after the first and is not part of that token.
+pub fn wrap_header_flush_with_joiners(
+    header: Line<'static>,
+    width: usize,
+    indent: usize,
+) -> (Vec<Line<'static>>, Vec<Option<String>>, usize) {
     let wrap_width = width.saturating_sub(indent);
-    let mut wrapped = word_wrap_lines(std::iter::once(header), wrap_width);
-    if indent > 0 {
+    let (mut wrapped, joiners) =
+        word_wrap_lines_with_joiners(std::iter::once(header), wrap_width);
+    let continuation_indent = if indent > 0 && wrapped.len() > 1 {
         let indent_str: String = " ".repeat(indent);
         for line in wrapped.iter_mut().skip(1) {
             line.spans
                 .insert(0, ratatui::text::Span::raw(indent_str.clone()));
         }
-    }
-    wrapped
+        indent
+    } else {
+        0
+    };
+    (wrapped, joiners, continuation_indent)
 }
 
 #[cfg(test)]
