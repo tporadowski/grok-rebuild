@@ -1479,13 +1479,35 @@ impl PromptWidget {
         &mut self,
         models: &crate::acp::model_state::ModelState,
     ) -> bool {
+        self.accept_slash_completion_inner(models, false)
+    }
+
+    /// Accept the highlighted command and drop its argument separator.
+    /// Enter uses this when the arguments are optional, so the composer does not keep a trailing space.
+    pub fn accept_slash_completion_for_run(
+        &mut self,
+        models: &crate::acp::model_state::ModelState,
+    ) -> bool {
+        self.accept_slash_completion_inner(models, true)
+    }
+
+    fn accept_slash_completion_inner(
+        &mut self,
+        models: &crate::acp::model_state::ModelState,
+        drop_command_separator: bool,
+    ) -> bool {
         let snap = self.slash_state.snapshot();
         let Some(row) = snap.selection() else {
             return false;
         };
         // Accepting rewrites the token; an unrelated highlight must not survive it
         self.textarea.clear_selection();
-        let insert_text = row.insert_text.clone();
+        let mut insert_text = row.insert_text.clone();
+        let drop_command_separator =
+            drop_command_separator && snap.cursor_in_command && insert_text.ends_with(' ');
+        if drop_command_separator {
+            insert_text.pop();
+        }
         let record_mru = snap.cursor_in_command;
         let mru_record = if record_mru {
             Some((snap.query.clone(), row.command_name().to_string()))
@@ -1514,7 +1536,9 @@ impl PromptWidget {
                             .elements()
                             .iter()
                             .any(|e| e.range.contains(&range.end));
-                    let end = if insert_text.ends_with(' ') && next_is_plain_space {
+                    let end = if (insert_text.ends_with(' ') || drop_command_separator)
+                        && next_is_plain_space
+                    {
                         range.end + 1
                     } else {
                         range.end

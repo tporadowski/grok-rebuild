@@ -3444,19 +3444,31 @@ impl DashboardState {
                     return InputOutcome::Changed;
                 }
                 KeyCode::Enter if key.modifiers.is_empty() => {
-                    // Accept the selected completion; if its insert text ends with a space the row "chains" (more input expected, e.g. `/model `),
-                    // otherwise close the dropdown and fall through to the Enter handler which dispatches the slash command
+                    // A highlighted command with optional arguments runs. A required argument, or a chaining argument row, keeps its trailing space.
                     let snap = self.dispatch.slash_snapshot();
-                    let chains = snap
-                        .selection()
-                        .is_some_and(|row| row.insert_text.ends_with(' '));
-                    // Accept records MRU and queues an off-thread persist internally
-                    self.dispatch.accept_slash_completion(&self.models);
-                    if chains {
-                        return InputOutcome::Changed;
+                    let text = self.dispatch.text().to_string();
+                    let run_optional = crate::slash::enter_runs_highlighted_optional_command(
+                        &snap,
+                        &text,
+                        self.dispatch.slash_controller.registry(),
+                    );
+                    if run_optional {
+                        self.dispatch
+                            .accept_slash_completion_for_run(&self.models);
+                        self.dispatch.slash_close();
+                        slash_accepted_send = true;
+                    } else {
+                        let chains = snap
+                            .selection()
+                            .is_some_and(|row| row.insert_text.ends_with(' '));
+                        // Accept records MRU and queues an off-thread persist internally
+                        self.dispatch.accept_slash_completion(&self.models);
+                        if chains {
+                            return InputOutcome::Changed;
+                        }
+                        self.dispatch.slash_close();
+                        slash_accepted_send = true;
                     }
-                    self.dispatch.slash_close();
-                    slash_accepted_send = true;
                 }
                 _ => {}
             }

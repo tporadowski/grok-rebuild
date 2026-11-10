@@ -1530,6 +1530,30 @@ pub(crate) fn is_typed_slash_selected(
     }
 }
 
+/// Enter runs the highlighted command when its arguments are optional.
+/// The row's trailing space is the separator Tab inserts. A command that requires an argument keeps that space.
+pub(crate) fn enter_runs_highlighted_optional_command(
+    snap: &SlashSnapshot,
+    text: &str,
+    registry: &CommandRegistry,
+) -> bool {
+    if !snap.cursor_in_command {
+        return false;
+    }
+    let Some(row) = snap.selection() else {
+        return false;
+    };
+    if !row.insert_text.ends_with(' ') {
+        return false;
+    }
+    if parse_invocation(text).is_some_and(|invocation| !invocation.args.is_empty()) {
+        return false;
+    }
+    registry
+        .get_for_dispatch(row.command_name())
+        .is_some_and(|command| !command.args_required())
+}
+
 /// A `/token` found anywhere in the input text.
 #[derive(Debug, Clone)]
 pub struct InlineSlashToken {

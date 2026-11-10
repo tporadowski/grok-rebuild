@@ -208,15 +208,22 @@ impl AgentView {
                     self.prompt.slash_close();
                     return InputOutcome::Changed;
                 }
-                // Enter: accept completion, then send (terminal row) or stay open (a row whose insert_text ends with a space chains)
+                // Enter runs a highlighted command whose arguments are optional.
+                // A trailing space stays only when the argument is required, or the row is an argument that chains.
                 KeyCode::Enter if key.modifiers.is_empty() => {
                     let snap = self.prompt.slash_snapshot();
-                    let exact_command = crate::slash::is_typed_slash_selected(
-                        &snap,
-                        self.prompt.text(),
-                        self.prompt.slash_controller.registry(),
+                    let text = self.prompt.text().to_string();
+                    let registry = self.prompt.slash_controller.registry();
+                    let exact_command =
+                        crate::slash::is_typed_slash_selected(&snap, &text, registry);
+                    let run_optional = crate::slash::enter_runs_highlighted_optional_command(
+                        &snap, &text, registry,
                     );
-                    if exact_command {
+                    if exact_command || run_optional {
+                        if !exact_command {
+                            self.prompt
+                                .accept_slash_completion_for_run(&self.session.models);
+                        }
                         self.prompt.slash_commit_preview();
                         self.prompt.slash_close();
                         slash_accepted_send = true;
@@ -1101,6 +1108,89 @@ mod shift_tab_cycle_mode_tests {
         let outcome = minimal.handle_prompt_key_with_registry_for_test(&tab, &registry);
         assert!(matches!(outcome, InputOutcome::Unchanged));
         assert_eq!(minimal.active_pane, AgentPane::Prompt);
+    }
+
+    fn select_slash_display(agent: &mut super::AgentView, display: &str) {
+        let snap = agent.prompt.slash_snapshot();
+        let index = snap
+            .matches
+            .iter()
+            .position(|row| row.display == display)
+            .unwrap_or_else(|| panic!("{display} should be highlighted, got {snap:?}"));
+        for _ in 0..index {
+            agent.prompt.slash_move_selection(1);
+        }
+        assert_eq!(
+            agent
+                .prompt
+                .slash_snapshot()
+                .selection()
+                .map(|row| row.display.as_str()),
+            Some(display)
+        );
+    }
+
+    #[test]
+    fn enter_on_a_highlighted_optional_arg_command_runs_it() {
+        let mut agent = super::test_fixtures::make_agent();
+        agent.multiline_mode = true;
+        agent.prompt.set_text("/doc");
+        agent.prompt.set_cursor(agent.prompt.text().len());
+        agent.prompt.refresh_slash(&agent.session.models);
+        assert!(agent.prompt.slash_open());
+        select_slash_display(&mut agent, "/doctor");
+        assert!(
+            agent
+                .prompt
+                .slash_snapshot()
+                .selection()
+                .is_some_and(|row| row.insert_text.ends_with(' ')),
+            "the optional-arg row still offers a trailing space for Tab"
+        );
+
+        let outcome =
+            agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            matches!(
+                outcome,
+                InputOutcome::Action(Action::SendPrompt(ref text)) if text == "/doctor"
+            ),
+            "Enter should run /doctor, got {outcome:?}; prompt={:?}",
+            agent.prompt.text()
+        );
+    }
+
+    #[test]
+    fn tab_on_a_highlighted_optional_arg_command_keeps_the_trailing_space() {
+        let mut agent = super::test_fixtures::make_agent();
+        agent.prompt.set_text("/doc");
+        agent.prompt.set_cursor(agent.prompt.text().len());
+        agent.prompt.refresh_slash(&agent.session.models);
+        select_slash_display(&mut agent, "/doctor");
+
+        let outcome =
+            agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert!(matches!(outcome, InputOutcome::Changed));
+        assert_eq!(agent.prompt.text(), "/doctor ");
+    }
+
+    #[test]
+    fn enter_on_a_highlighted_required_arg_command_keeps_the_trailing_space() {
+        let mut agent = super::test_fixtures::make_agent();
+        agent.multiline_mode = true;
+        agent.prompt.set_text("/mod");
+        agent.prompt.set_cursor(agent.prompt.text().len());
+        agent.prompt.refresh_slash(&agent.session.models);
+        assert!(agent.prompt.slash_open());
+        select_slash_display(&mut agent, "/model");
+
+        let outcome =
+            agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "a required argument must stay in the composer, got {outcome:?}"
+        );
+        assert_eq!(agent.prompt.text(), "/model ");
     }
 
     #[test]
