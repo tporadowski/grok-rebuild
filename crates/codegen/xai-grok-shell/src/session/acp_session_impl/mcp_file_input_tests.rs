@@ -450,7 +450,14 @@ async fn messages_backend_advertises_inline_only_use_tool() {
             let openai = "https://api.openai.com/v1";
             let local = "http://127.0.0.1:11434/v1";
             for (backend, base_url, hidden) in [
-                (ApiBackend::Responses, openai, false),
+                (ApiBackend::Responses, xai, false),
+                (ApiBackend::Responses, openai, true),
+                (ApiBackend::Responses, local, true),
+                (
+                    ApiBackend::Responses,
+                    crate::env::PROD_CLI_CHAT_PROXY_BASE_URL,
+                    false,
+                ),
                 (ApiBackend::Messages, xai, true),
                 (ApiBackend::ChatCompletions, xai, false),
                 (ApiBackend::ChatCompletions, openai, true),

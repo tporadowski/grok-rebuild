@@ -441,9 +441,10 @@ impl SessionActor {
     }
 
     /// Some hosts reject `use_tool`'s file-form schema: its root `oneOf` is an HTTP 400, so the turn never starts.
-    /// Messages always does. Chat Completions does too, except on an xAI HTTPS endpoint, which accepts the union.
-    /// A custom model pointed at another chat host, including a local OpenAI-compatible server, gets the inline
-    /// schema instead. Checked per request because a model switch mid-session keeps the finalized toolset.
+    /// Messages always does. Chat Completions and the Responses API do too, except on an xAI HTTPS endpoint,
+    /// which accepts the union. A custom model pointed at another host, including a local OpenAI-compatible
+    /// server, gets the inline schema instead. Checked per request because a model switch mid-session keeps the
+    /// finalized toolset.
     pub(crate) async fn mcp_file_forms_hidden(&self) -> bool {
         use xai_grok_sampling_types::ApiBackend;
         self.chat_state_handle
@@ -451,10 +452,9 @@ impl SessionActor {
             .await
             .is_some_and(|config| match config.api_backend {
                 ApiBackend::Messages => true,
-                ApiBackend::ChatCompletions => {
+                ApiBackend::ChatCompletions | ApiBackend::Responses => {
                     !crate::util::is_trusted_xai_https_url(&config.base_url)
                 }
-                ApiBackend::Responses => false,
             })
     }
 
