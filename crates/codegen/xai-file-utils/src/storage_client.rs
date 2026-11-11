@@ -142,12 +142,9 @@ impl RetryConfig {
             self.initial_delay.as_millis() as f64 * self.multiplier.powi(attempt as i32);
         let capped_delay_ms = base_delay_ms.min(self.max_delay.as_millis() as f64);
 
-        // Apply jitter using a simple hash of the current time
-        // This provides enough randomness to prevent thundering herd without needing rand
+        // Clock plus process id: processes that retry on the same tick must not share a wait.
         let jitter_value = generate_jitter(self.jitter_factor);
-        let jittered_delay_ms = capped_delay_ms * (1.0 + jitter_value);
-
-        Duration::from_millis(jittered_delay_ms.max(0.0) as u64)
+        jittered_delay(capped_delay_ms, jitter_value)
     }
 
     /// Calculate delay considering a Retry-After header value.
@@ -248,25 +245,68 @@ async fn wait_for_network_retry(
 }
 
 /// Generate a jitter value in the range [-jitter_factor/2, +jitter_factor/2].
-/// Uses the current timestamp as a source of randomness - sufficient for preventing
-/// thundering herd without requiring a full random number generator.
+/// The clock sample is mixed with the process id so concurrent processes do not compute the same wait.
 fn generate_jitter(jitter_factor: f64) -> f64 {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Use nanoseconds from current time as pseudo-random source
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
+    jitter_from_source(jitter_factor, std::process::id(), nanos)
+}
 
-    // Mix the bits a bit using a simple hash
-    let mixed = ((nanos as u64).wrapping_mul(0x517cc1b727220a95) >> 32) as u32;
+fn jittered_delay(capped_delay_ms: f64, jitter_value: f64) -> Duration {
+    Duration::from_millis((capped_delay_ms * (1.0 + jitter_value)).max(0.0) as u64)
+}
 
-    // Convert to a value in [0, 1)
-    let random_01 = (mixed as f64) / (u32::MAX as f64);
-
-    // Map to [-jitter_factor/2, +jitter_factor/2]
+/// `pid` separates processes that sample `nanos` on the same tick.
+fn jitter_from_source(jitter_factor: f64, pid: u32, nanos: u32) -> f64 {
+    if jitter_factor == 0.0 {
+        return 0.0;
+    }
+    let mixed = (u64::from(pid).wrapping_shl(32) | u64::from(nanos))
+        .wrapping_mul(0x517cc1b727220a95);
+    let mixed = (mixed ^ (mixed >> 32)) as u32;
+    let random_01 = f64::from(mixed) / f64::from(u32::MAX);
     (random_01 * jitter_factor) - (jitter_factor / 2.0)
+}
+
+#[cfg(test)]
+mod retry_jitter_tests {
+    use super::{jitter_from_source, jittered_delay};
+
+    #[test]
+    fn retry_waits_differ_across_process_ids_at_the_same_tick() {
+        let nanos = 1_250_000_u32;
+        let factor = 0.5;
+        let base_ms = 1_000.0;
+        let waits: Vec<u128> = [1_u32, 2, 17, 100, 101, 4_000, 4_001]
+            .into_iter()
+            .map(|pid| {
+                let jitter = jitter_from_source(factor, pid, nanos);
+                assert!(
+                    (-factor / 2.0..=factor / 2.0).contains(&jitter),
+                    "{jitter} left the jitter window"
+                );
+                jittered_delay(base_ms, jitter).as_millis()
+            })
+            .collect();
+        let mut unique = waits.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert!(
+            unique.len() > 1,
+            "processes that retry on the same tick must not share one wait: {waits:?}"
+        );
+        let stable = jittered_delay(base_ms, jitter_from_source(factor, 100, nanos));
+        assert_eq!(
+            stable,
+            jittered_delay(base_ms, jitter_from_source(factor, 100, nanos)),
+            "one process keeps a stable wait for a given tick"
+        );
+        assert_eq!(jitter_from_source(0.0, 100, nanos), 0.0);
+    }
 }
 
 /// Outcome of a storage existence check. `ProbeFailed` (transient: network /
