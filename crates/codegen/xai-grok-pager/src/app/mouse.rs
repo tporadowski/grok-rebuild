@@ -442,28 +442,12 @@ impl AgentView {
                 }
                 match self.pane_areas.hit_test(mouse.column, mouse.row) {
                     Some(AgentPane::Dock) => {
-                        let item = self.dock_item_at(self.pane_areas.dock, mouse.row);
-                        if let Some(hit) = self
-                            .dock_stop_button
-                            .clone()
-                            .filter(|hit| hit.rect.contains((mouse.column, mouse.row).into()))
+                        if let Some(outcome) =
+                            self.dock_stop_click_outcome(mouse.column, mouse.row)
                         {
-                            if self.pos_occluded(mouse.column, mouse.row) {
-                                return InputOutcome::Changed;
-                            }
-                            let Some(item) = item else {
-                                return InputOutcome::Changed;
-                            };
-                            let Some(action) = self.dock_stop_action(item) else {
-                                return InputOutcome::Changed;
-                            };
-                            if super::agent_view::DockKillId::from_action(&action).as_ref()
-                                != Some(&hit.id)
-                            {
-                                return InputOutcome::Changed;
-                            }
-                            return InputOutcome::Action(action);
+                            return outcome;
                         }
+                        let item = self.dock_item_at(self.pane_areas.dock, mouse.row);
                         match item {
                             Some(item) => {
                                 let collapsing_header = matches!(

@@ -433,6 +433,53 @@ fn clicking_hover_stop_kills_subagent_but_clicking_row_opens_it() {
 }
 
 #[test]
+fn dock_stop_kills_background_run_while_approval_card_is_open() {
+    let mut agent = dock_with_task();
+    agent.active_pane = AgentPane::Prompt;
+    agent
+        .permission_queue
+        .push_back(super::test_fixtures::make_followup_permission_state());
+    agent.pane_areas.dock = Rect::new(2, 4, 78, 2);
+    let row_y = agent.pane_areas.dock.y + 1;
+    let stop_col = agent.pane_areas.dock.right() - 1;
+    let registry = ActionRegistry::defaults();
+    let moved = agent.handle_input(
+        &Event::Mouse(mouse(MouseEventKind::Moved, stop_col, row_y)),
+        &registry,
+    );
+    assert!(matches!(moved, InputOutcome::Changed));
+    assert_eq!(
+        agent.dock_hovered,
+        Some(crate::views::dock::DockItem::Row(
+            crate::views::dock::Section::Tasks,
+            0
+        ))
+    );
+    assert!(
+        !agent.permission_queue.is_empty(),
+        "hovering the dock must leave the approval card open"
+    );
+    cache_stop_button(&mut agent);
+    let stop = agent.dock_stop_button.as_ref().expect("stop").rect;
+
+    let outcome = agent.handle_input(
+        &Event::Mouse(mouse(MouseEventKind::Down(MouseButton::Left), stop.x, stop.y)),
+        &registry,
+    );
+    assert!(
+        matches!(
+            outcome,
+            InputOutcome::Action(Action::KillBgTask(ref id)) if id == "bg-1"
+        ),
+        "dock stop must kill the background run while its approval card is open, got {outcome:?}"
+    );
+    assert!(
+        !agent.permission_queue.is_empty(),
+        "stopping the run must not require answering the card"
+    );
+}
+
+#[test]
 fn clicking_hover_stop_kills_task() {
     let mut agent = dock_with_task();
     let item = crate::views::dock::DockItem::Row(crate::views::dock::Section::Tasks, 0);

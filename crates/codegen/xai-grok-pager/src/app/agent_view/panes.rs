@@ -868,6 +868,45 @@ impl AgentView {
             | DockItem::RevealRemaining(_) => None,
         }
     }
+    /// Keep dock hover aligned with the pointer while another card owns the mouse.
+    /// Returns whether the hovered row changed, so the stop label can repaint.
+    pub(crate) fn track_dock_pointer(&mut self, column: u16, row: u16) -> bool {
+        self.last_mouse_pos = (column, row);
+        if self.pane_areas.hit_test(column, row) == Some(AgentPane::Dock) {
+            let next = self.dock_item_at(self.pane_areas.dock, row);
+            if next != self.dock_hovered {
+                self.dock_hovered = next;
+                return true;
+            }
+            false
+        } else if self.dock_hovered.take().is_some() {
+            true
+        } else {
+            false
+        }
+    }
+    /// A click on the stop label painted last frame. `None` when the pointer is elsewhere.
+    /// An occluded or stale label redraws and does not kill.
+    pub(crate) fn dock_stop_click_outcome(&self, column: u16, row: u16) -> Option<InputOutcome> {
+        let hit_id = self
+            .dock_stop_button
+            .as_ref()
+            .filter(|hit| hit.rect.contains((column, row).into()))
+            .map(|hit| hit.id.clone())?;
+        if self.pos_occluded(column, row) {
+            return Some(InputOutcome::Changed);
+        }
+        let Some(item) = self.dock_item_at(self.pane_areas.dock, row) else {
+            return Some(InputOutcome::Changed);
+        };
+        let Some(action) = self.dock_stop_action(item) else {
+            return Some(InputOutcome::Changed);
+        };
+        if super::DockKillId::from_action(&action).as_ref() != Some(&hit_id) {
+            return Some(InputOutcome::Changed);
+        }
+        Some(InputOutcome::Action(action))
+    }
     pub(crate) fn activate_dock_item(
         &mut self,
         item: crate::views::dock::DockItem,

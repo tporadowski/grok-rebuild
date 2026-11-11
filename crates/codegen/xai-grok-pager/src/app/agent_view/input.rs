@@ -779,15 +779,23 @@ impl AgentView {
                     });
                     match mouse.kind {
                         MouseEventKind::Moved => {
+                            let dock_changed = self.track_dock_pointer(mouse.column, mouse.row);
                             let item = self.permission_item_at(mouse.column, mouse.row);
                             if item != self.hovered_permission_item {
                                 self.hovered_permission_item = item;
+                                InputOutcome::Changed
+                            } else if dock_changed {
                                 InputOutcome::Changed
                             } else {
                                 InputOutcome::Unchanged
                             }
                         }
                         MouseEventKind::Down(MouseButton::Left) => {
+                            if let Some(outcome) =
+                                self.dock_stop_click_outcome(mouse.column, mouse.row)
+                            {
+                                return outcome;
+                            }
                             if let Some(idx) = self.permission_item_at(mouse.column, mouse.row) {
                                 let now = Instant::now();
                                 let is_double_click =
