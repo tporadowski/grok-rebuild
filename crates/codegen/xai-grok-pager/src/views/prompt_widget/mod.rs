@@ -1455,7 +1455,13 @@ impl PromptWidget {
     }
 
     /// Close the slash dropdown.
+    /// The same composer text stays closed across a later command-list refresh.
     pub fn slash_close(&mut self) {
+        let raw_text = self.textarea.text();
+        let (clean_text, clean_cursor) =
+            strip_all_elements(raw_text, self.textarea.cursor(), &self.textarea);
+        self.slash_controller
+            .note_menu_dismissed(&clean_text, clean_cursor);
         self.slash_state.close();
     }
 

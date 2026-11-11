@@ -375,6 +375,9 @@ pub struct SlashController {
     /// Owned by `AppView` and injected via [`Self::set_command_tags`] so agent prompts and the dashboard share one map.
     /// Defaults to empty for tests and any surface that has not been wired up.
     command_tags: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, String>>>,
+    /// Composer text and cursor the user closed the menu on.
+    /// A later refresh of that same text stays closed until the composer changes.
+    dismissed_menu: Option<(String, usize)>,
 }
 
 impl SlashController {
@@ -408,6 +411,30 @@ impl SlashController {
             command_tags: std::rc::Rc::new(std::cell::RefCell::new(
                 std::collections::HashMap::new(),
             )),
+            dismissed_menu: None,
+        }
+    }
+
+    /// Remember that the user closed the menu for this composer text and cursor.
+    /// `refresh` keeps the dropdown shut until the text or cursor changes.
+    pub fn note_menu_dismissed(&mut self, text: &str, cursor: usize) {
+        self.dismissed_menu = Some((text.to_owned(), cursor));
+    }
+
+    fn keep_dismissed_menu_closed(
+        &mut self,
+        snapshot: &mut SlashSnapshot,
+        text: &str,
+        cursor: usize,
+    ) {
+        let same = self
+            .dismissed_menu
+            .as_ref()
+            .is_some_and(|(dismissed, at)| dismissed == text && *at == cursor);
+        if same {
+            snapshot.open = false;
+        } else if self.dismissed_menu.is_some() {
+            self.dismissed_menu = None;
         }
     }
 
@@ -606,7 +633,8 @@ impl SlashController {
 
         let Some(input) = leading else {
             // Text doesn't start with `/`, so check for mid-text slash tokens
-            let inline = self.compute_inline_slash(text, models);
+            let mut inline = self.compute_inline_slash(text, models);
+            self.keep_dismissed_menu_closed(&mut inline, text, cursor);
             slash.replace(inline);
             return;
         };
@@ -671,6 +699,7 @@ impl SlashController {
         let inline = self.compute_inline_slash(text, models);
         snapshot.recognized_tokens = inline.recognized_tokens;
         sync_inline_ghost_to_selection(&mut snapshot, |_| true);
+        self.keep_dismissed_menu_closed(&mut snapshot, text, cursor);
 
         slash.replace(snapshot);
     }
@@ -750,6 +779,7 @@ impl SlashController {
         // Same invariant as leading `/` and arrow nav: ghost completes selected row only.
         // Teal only when the selected completion actually runs or mentions mid-text.
         sync_inline_ghost_to_selection(&mut snapshot, |name| self.suggestion_works_mid_text(name));
+        self.keep_dismissed_menu_closed(&mut snapshot, text, cursor);
 
         slash.replace(snapshot);
     }
@@ -1824,6 +1854,59 @@ mod tests {
         assert!(
             !is_complete_builtin_invocation("/usage", &reg),
             "a tier-gated command must stay saved as text, not run from a queue row"
+        );
+    }
+
+    #[test]
+    fn dismissed_slash_menu_stays_closed_when_commands_refresh() {
+        let mut ctrl = SlashController::with_builtins(std::path::PathBuf::from("."));
+        let state = SlashState::default();
+        let models = ModelState::default();
+
+        ctrl.refresh(&state, "/", 1, &models);
+        assert!(state.snapshot().open, "typing / opens the menu");
+
+        ctrl.note_menu_dismissed("/", 1);
+        state.close();
+        ctrl.registry_mut().set_acp_commands(&[acp::AvailableCommand::new(
+            "startup-cmd",
+            "Arrived after startup",
+        )]);
+        ctrl.refresh(&state, "/", 1, &models);
+        assert!(
+            !state.snapshot().open,
+            "Esc stays closed when the command list refreshes"
+        );
+
+        ctrl.refresh(&state, "/h", 2, &models);
+        assert!(
+            state.snapshot().open,
+            "typing after Esc opens the menu again"
+        );
+
+        let mid = "see /ex";
+        ctrl.refresh(&state, mid, mid.len(), &models);
+        assert!(
+            state.snapshot().open,
+            "a mid-text slash token opens the menu"
+        );
+        ctrl.note_menu_dismissed(mid, mid.len());
+        state.close();
+        ctrl.registry_mut().set_acp_commands(&[
+            acp::AvailableCommand::new("startup-cmd", "Arrived after startup"),
+            acp::AvailableCommand::new("extra-cmd", "Second refresh"),
+        ]);
+        ctrl.refresh(&state, mid, mid.len(), &models);
+        assert!(
+            !state.snapshot().open,
+            "a mid-text menu closed with Esc stays closed across a refresh"
+        );
+
+        let typed = "see /exi";
+        ctrl.refresh(&state, typed, typed.len(), &models);
+        assert!(
+            state.snapshot().open,
+            "editing the token reopens the menu"
         );
     }
 
