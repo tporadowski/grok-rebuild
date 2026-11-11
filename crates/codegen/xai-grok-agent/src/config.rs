@@ -1224,6 +1224,11 @@ pub(crate) fn tool_entry_names(entry: &str, id: &str, model_name: Option<&str>) 
 pub(crate) fn tool_id_matches(list: &[String], id: &str) -> bool {
     list.iter().any(|e| tool_id_eq(e, id))
 }
+/// Windows editors save these Markdown files as UTF-8 with a leading BOM.
+/// `trim_start` leaves U+FEFF in place, so the frontmatter check would skip the file.
+fn without_leading_utf8_bom(content: &str) -> &str {
+    content.strip_prefix('\u{feff}').unwrap_or(content)
+}
 impl AgentDefinition {
     /// Parse an agent definition from a Markdown file with YAML frontmatter.
     /// Frontmatter between `---` delimiters; the system prompt body follows.
@@ -1240,7 +1245,7 @@ impl AgentDefinition {
     pub fn from_file_frontmatter_only(path: impl AsRef<Path>) -> Result<Self, AgentBuildError> {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path).map_err(AgentBuildError::IoError)?;
-        let trimmed = content.trim_start();
+        let trimmed = without_leading_utf8_bom(&content).trim_start();
         if !trimmed.starts_with("---") {
             return Err(AgentBuildError::ParseError(
                 "missing frontmatter delimiters".to_string(),
@@ -1266,7 +1271,7 @@ impl AgentDefinition {
     }
     /// Parse from string content (for testing and inline definitions).
     pub fn parse(content: &str) -> Result<Self, AgentBuildError> {
-        let trimmed = content.trim_start();
+        let trimmed = without_leading_utf8_bom(content).trim_start();
         if !trimmed.starts_with("---") {
             return Err(AgentBuildError::ParseError(
                 "missing frontmatter delimiters".to_string(),
@@ -2321,6 +2326,30 @@ description: Test default tool config
         let def = AgentDefinition::from_file(&file_path).unwrap();
         assert_eq!(def.name, "file-test");
         assert_eq!(def.source_path, Some(file_path));
+    }
+    #[test]
+    fn utf8_bom_agent_file_loads() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("bom-agent.md");
+        let mut bytes = vec![0xEF, 0xBB, 0xBF];
+        bytes.extend(
+            b"---\nname: bom-agent\ndescription: From Notepad\n---\nYou are a custom agent.\n",
+        );
+        std::fs::write(&file_path, &bytes).unwrap();
+
+        let def = AgentDefinition::from_file(&file_path).unwrap();
+        assert_eq!(def.name, "bom-agent");
+        assert_eq!(def.description, "From Notepad");
+        assert_eq!(
+            def.prompt_body.as_deref(),
+            Some("You are a custom agent.")
+        );
+        assert_eq!(def.source_path.as_deref(), Some(file_path.as_path()));
+
+        let front = AgentDefinition::from_file_frontmatter_only(&file_path).unwrap();
+        assert_eq!(front.name, "bom-agent");
+        assert_eq!(front.description, "From Notepad");
+        assert!(front.prompt_body.is_none());
     }
     #[test]
     fn test_scope_from_path_detects_bundled_agents() {
