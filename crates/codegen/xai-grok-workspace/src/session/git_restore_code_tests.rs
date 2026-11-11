@@ -399,28 +399,44 @@ async fn checkout_session_commit_invalid_sha_returns_not_checked_out() {
     assert!(!outcome.checked_out);
 }
 #[tokio::test]
-async fn failed_checkout_after_dirty_tree_keeps_stash_and_clean_worktree() {
-    if bazel_skip("failed_checkout_after_dirty_tree_keeps_stash_and_clean_worktree") {
+async fn failed_restore_leaves_uncommitted_and_untracked_files_in_the_work_tree() {
+    if bazel_skip("failed_restore_leaves_uncommitted_and_untracked_files_in_the_work_tree") {
         return;
     }
     let tmp = tempfile::tempdir().unwrap();
     init_repo_with_commit(tmp.path()).await;
     std::fs::write(tmp.path().join("README.md"), "dirty-line\n").unwrap();
+    std::fs::write(tmp.path().join("notes.txt"), "untracked\n").unwrap();
     let blob = git_cli(tmp.path(), &["hash-object", "-w", "--", "README.md"])
         .await
         .unwrap();
     let blob = blob.trim().to_owned();
     let outcome = checkout_session_commit(tmp.path(), &blob, true, "sess-fail-checkout").await;
     assert!(!outcome.checked_out);
-    assert!(outcome.stash_ref.is_some());
+    assert!(
+        outcome.stash_ref.is_none(),
+        "a failed restore must not keep the user's files in a stash"
+    );
     let stash_list = git_cli(tmp.path(), &["stash", "list"]).await.unwrap();
-    assert!(stash_list.contains("sess-fail-checkout"));
-    let readme = std::fs::read_to_string(tmp.path().join("README.md")).unwrap();
-    assert_eq!("hello\n", readme);
+    assert!(
+        !stash_list.contains("sess-fail-checkout"),
+        "stash list: {stash_list}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("README.md")).unwrap(),
+        "dirty-line\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("notes.txt")).unwrap(),
+        "untracked\n"
+    );
     let status = git_cli(tmp.path(), &["status", "--porcelain"])
         .await
         .unwrap();
-    assert_eq!("", status.trim());
+    assert!(
+        status.contains("README.md") && status.contains("notes.txt"),
+        "work tree status: {status}"
+    );
 }
 #[tokio::test]
 async fn checkout_session_commit_refuses_non_oid_refspec() {

@@ -2352,6 +2352,48 @@ pub async fn stash_before_destructive_op(
         }
     }
 }
+/// Put this restore's stash back into the work tree. A failed `--restore-code` must not
+/// leave uncommitted or untracked files only in the stash list.
+async fn pop_own_stash(git_root: &Path, stash_sha: &str) -> bool {
+    let list = git_cli(git_root, &["stash", "list", "--format=%H"])
+        .await
+        .unwrap_or_default();
+    let Some(index) = list.lines().position(|line| line.trim() == stash_sha) else {
+        return git_cli_mut(git_root, &["stash", "apply", "--index", stash_sha])
+            .await
+            .is_ok();
+    };
+    let spec = format!("stash@{{{index}}}");
+    git_cli_mut(git_root, &["stash", "pop", &spec]).await.is_ok()
+}
+
+/// Checkout did not land. Drop the pre-checkout stash back into the work tree.
+async fn return_failed_checkout(
+    git_root: &Path,
+    mut outcome: CheckoutSessionOutcome,
+) -> CheckoutSessionOutcome {
+    let Some(stash_ref) = outcome.stash_ref.clone() else {
+        return outcome;
+    };
+    if pop_own_stash(git_root, &stash_ref).await {
+        tracing::info!(
+            target: RESTORE_CODE_LOG,
+            path = %git_root.display(),
+            stash_ref = %stash_ref,
+            "checkout_session_commit: restore failed; put stashed files back in the work tree"
+        );
+        outcome.stash_ref = None;
+    } else {
+        tracing::warn!(
+            target: RESTORE_CODE_LOG,
+            path = %git_root.display(),
+            stash_ref = %stash_ref,
+            "checkout_session_commit: restore failed and the stash could not be popped"
+        );
+    }
+    outcome
+}
+
 /// `git checkout` runs the post-checkout hook after HEAD has moved. A failing hook makes the command exit non-zero even though the switch happened.
 async fn checkout_switched_to(git_root: &Path, target_sha: &str) -> bool {
     if git_cli_mut(git_root, &["checkout", target_sha])
@@ -2415,7 +2457,7 @@ pub async fn checkout_session_commit(
             commit = %target_sha,
             "checkout_session_commit: refusing non-oid fetch refspec, giving up"
         );
-        return outcome;
+        return return_failed_checkout(git_root, outcome).await;
     }
     if git_cli(git_root, &["cat-file", "-t", target_sha])
         .await
@@ -2426,7 +2468,7 @@ pub async fn checkout_session_commit(
             commit = %target_sha,
             "checkout_session_commit: checkout failed with object already local; not fetching"
         );
-        return outcome;
+        return return_failed_checkout(git_root, outcome).await;
     }
     tracing::info!(
         path = %git_root.display(),
@@ -2449,7 +2491,7 @@ pub async fn checkout_session_commit(
                 error = %e,
                 "checkout_session_commit: fetch failed, giving up"
             );
-            return outcome;
+            return return_failed_checkout(git_root, outcome).await;
         }
         AsyncFetchOutcome::Abandoned => {
             tracing::warn!(
@@ -2457,7 +2499,7 @@ pub async fn checkout_session_commit(
                 commit = %target_sha,
                 "checkout_session_commit: fetch join timed out; not checking out while fetch may still run"
             );
-            return outcome;
+            return return_failed_checkout(git_root, outcome).await;
         }
     }
     if checkout_switched_to(git_root, target_sha).await {
@@ -2475,7 +2517,7 @@ pub async fn checkout_session_commit(
         commit = %target_sha,
         "checkout_session_commit: checkout still failed after fetch, giving up"
     );
-    outcome
+    return_failed_checkout(git_root, outcome).await
 }
 #[derive(Debug)]
 pub(crate) enum AsyncFetchOutcome {
