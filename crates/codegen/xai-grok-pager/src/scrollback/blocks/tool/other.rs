@@ -283,6 +283,8 @@ impl BlockContent for OtherToolCallBlock {
                     if !qa_lines.is_empty() {
                         // A blank row separates answered questions. Compact mode keeps the pairs adjacent.
                         let gap_between = !ctx.appearance.prompt.compact;
+                        // One row per question and one per answer. A row ends in `…` only when its text is cut.
+                        let row_width = ctx.content_width();
                         for (i, (question, answer)) in qa_lines.iter().enumerate() {
                             if gap_between && i > 0 {
                                 lines.push(Line::from("").into());
@@ -292,7 +294,9 @@ impl BlockContent for OtherToolCallBlock {
                                 Span::styled(format!("  {}. ", i + 1), theme.muted()),
                                 Span::styled(question.clone(), theme.primary()),
                             ]);
-                            lines.push(BlockLine::styled(q_line));
+                            lines.push(BlockLine::styled(crate::render::line_utils::truncate_line(
+                                q_line, row_width,
+                            )));
 
                             // "     → answer" or "     (no answer)"
                             let a_line = if answer.is_empty() {
@@ -309,7 +313,9 @@ impl BlockContent for OtherToolCallBlock {
                                     Span::styled(answer.clone(), theme.fg(theme.accent_user)),
                                 ])
                             };
-                            lines.push(BlockLine::styled(a_line));
+                            lines.push(BlockLine::styled(crate::render::line_utils::truncate_line(
+                                a_line, row_width,
+                            )));
                         }
                     } else {
                         // Generic output rendering (non-Q&A tools).

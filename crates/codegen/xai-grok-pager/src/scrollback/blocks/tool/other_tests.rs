@@ -197,3 +197,68 @@ fn answered_questions_have_a_blank_line_between_them_unless_compact() {
     assert_eq!(collapsed.lines().count(), 1, "{collapsed}");
     assert!(!collapsed.contains("Which runtime?"), "{collapsed}");
 }
+
+#[test]
+fn answered_questions_are_one_row_and_ellipsis_only_when_cut() {
+    use unicode_width::UnicodeWidthStr;
+
+    let long_q = "Which runtime should the service use when the deployment target is a constrained container";
+    let long_a = "tokio with a multi-thread runtime and a small blocking pool for filesystem work";
+    let short_q = "Port?";
+    let short_a = "8080";
+    let wide_q = "日本語の実行環境";
+    let wide_a = "東";
+    let block = OtherToolCallBlock::new("AskUserQuestion", "").with_output(format!(
+        "User has answered your questions: \
+         \"{long_q}\"=\"{long_a}\", \"{short_q}\"=\"{short_a}\", \"{wide_q}\"=\"{wide_a}\". \
+         You can now continue with the user's answers in mind."
+    ));
+
+    let mut ctx = context(DisplayMode::Expanded);
+    // Narrow enough that the long and wide questions are cut, and the short pair still fits.
+    ctx.width = 20;
+    let budget = ctx.content_width();
+    let lines = rendered_in(&block, &ctx);
+    // Header, then one row per question and one per answer, with a blank row between pairs.
+    assert_eq!(lines.len(), 1 + 3 * 2 + 2, "{lines:?}");
+
+    let q1 = &lines[1];
+    let a1 = &lines[2];
+    assert!(
+        format!("  1. {long_q}").width() > budget,
+        "the fixture question must be wider than the row"
+    );
+    assert!(q1.starts_with("  1. "), "{q1}");
+    assert!(q1.ends_with('…'), "a cut question ends in ellipsis: {q1}");
+    assert!(q1.width() <= budget, "{} > {budget}: {q1}", q1.width());
+    assert!(!q1.contains(long_q), "the cut question is not the full text: {q1}");
+    assert!(
+        format!("     → {long_a}").width() > budget,
+        "the fixture answer must be wider than the row"
+    );
+    assert!(a1.contains('→'), "{a1}");
+    assert!(a1.ends_with('…'), "a cut answer ends in ellipsis: {a1}");
+    assert!(a1.width() <= budget, "{} > {budget}: {a1}", a1.width());
+    assert!(!a1.contains(long_a), "the cut answer is not the full text: {a1}");
+
+    let q2 = &lines[4];
+    let a2 = &lines[5];
+    assert!(format!("  2. {short_q}").width() <= budget);
+    assert_eq!(q2, &format!("  2. {short_q}"), "a question that fits is not cut: {q2}");
+    assert!(!q2.contains('…'), "{q2}");
+    assert_eq!(a2, &format!("     → {short_a}"), "an answer that fits is not cut: {a2}");
+    assert!(!a2.contains('…'), "{a2}");
+
+    let q3 = &lines[7];
+    let a3 = &lines[8];
+    assert!(
+        format!("  3. {wide_q}").width() > wide_q.chars().count() + 5,
+        "wide characters must be wider than their char count"
+    );
+    assert!(q3.ends_with('…'), "a wide question is cut by columns: {q3}");
+    assert!(q3.width() <= budget, "{q3}");
+    assert!(!q3.contains(wide_q), "{q3}");
+    assert!(format!("     → {wide_a}").width() <= budget);
+    assert_eq!(a3, &format!("     → {wide_a}"), "a wide answer that fits stays whole: {a3}");
+    assert!(!a3.contains('…'), "{a3}");
+}
