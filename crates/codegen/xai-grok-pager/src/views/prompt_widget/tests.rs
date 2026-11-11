@@ -3669,6 +3669,87 @@
         assert!(!pw.plan_nudge_fire_for_edit(&key!('v', CONTROL).to_key_event(), false));
     }
 
+    /// Keystroke paste (no bracketed paste) inserts one scalar per event. With the plan tip on, each
+    /// event must not scan the whole draft: one scan of the preset text, then only the edited span.
+    #[test]
+    fn keystroke_paste_plan_nudge_does_not_rescan_the_whole_draft() {
+        let mut pw = hinted_prompt();
+        let mut long = "x".repeat(4_000);
+        long.push_str(" explain");
+        pw.set_text(&long);
+        pw.set_cursor(pw.text().len());
+        let preset_len = pw.text().len() as u64;
+
+        for _ in 0..40 {
+            pw.handle_key(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+            assert!(
+                !pw.take_plan_nudge_fire(),
+                "explain and plain letters are not planning keywords"
+            );
+        }
+        let (full_scans, bytes) = pw.planning_mention.scan_cost();
+        assert_eq!(
+            full_scans, 1,
+            "the preset draft is scanned once, not once per keystroke"
+        );
+        assert!(
+            bytes < preset_len * 2,
+            "scanned {bytes} bytes across 40 keystrokes of a {preset_len}-byte draft"
+        );
+
+        for ch in " pla".chars() {
+            pw.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+            assert!(!pw.take_plan_nudge_fire(), "partial keyword must not fire");
+        }
+        pw.handle_key(&KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        assert!(pw.take_plan_nudge_fire(), "typing plan still fires once");
+        assert!(pw.text().ends_with("plan"));
+        let (full_after_plan, bytes_after_plan) = pw.planning_mention.scan_cost();
+        assert_eq!(full_after_plan, 1, "finding plan in the edit window is not a full scan");
+
+        for ch in " the refactor".chars() {
+            pw.handle_key(&KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+            assert!(!pw.take_plan_nudge_fire(), "the keyword staying present must not refire");
+        }
+        let (full_after_more, bytes_after_more) = pw.planning_mention.scan_cost();
+        assert_eq!(full_after_more, 1);
+        assert!(
+            bytes_after_more - bytes_after_plan < 64,
+            "typing after a stored hit scanned {bytes_after_more} - {bytes_after_plan} bytes"
+        );
+
+        // The capped length still counts a long draft as substantial, so the undo tip still fires.
+        pw.handle_key(&key!('c', CONTROL).to_key_event());
+        assert!(pw.textarea.text().is_empty());
+        assert!(pw.take_undo_tip_fire(), "wiping the long draft still fires undo");
+    }
+
+    /// Destroying the stored hit must not forget a keyword sitting outside the edit window.
+    #[test]
+    fn plan_nudge_broken_local_keyword_still_sees_a_distant_one() {
+        let mut pw = hinted_prompt();
+        // Trailing space keeps "design" a whole word when a later key appends past it.
+        let text = format!("plan {} design ", "x".repeat(80));
+        pw.set_text(&text);
+        pw.set_cursor(0);
+        pw.handle_key(&KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert!(
+            crate::tips::plan_nudge::prompt_mentions_planning(pw.text()),
+            "design past the edit window is still a planning keyword"
+        );
+        assert!(
+            !pw.take_plan_nudge_fire(),
+            "the draft already mentioned a keyword before this edit"
+        );
+        let (full_scans, _) = pw.planning_mention.scan_cost();
+        assert_eq!(full_scans, 2, "a destroyed hit falls back to one full scan");
+
+        pw.set_cursor(pw.text().len());
+        pw.handle_key(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert!(!pw.take_plan_nudge_fire());
+        assert_eq!(pw.planning_mention.scan_cost().0, full_scans);
+    }
+
     /// With contextual hints disabled (the default), `handle_key` skips the per-keystroke detection entirely.
     /// A qualifying wipe and a keyword-crossing edit both stay silent.
     #[test]

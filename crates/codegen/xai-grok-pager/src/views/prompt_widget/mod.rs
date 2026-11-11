@@ -822,6 +822,8 @@ pub struct PromptWidget {
     undo_tip_fire: bool,
     /// One-shot: the last `handle_key` crossed the draft into mentioning a planning keyword (rising edge; see `handle_key`).
     plan_nudge_fire: bool,
+    /// Planning-keyword answer for the current draft. A keystroke paste must not rescan the whole buffer.
+    planning_mention: crate::tips::plan_nudge::PlanningMentionCache,
     /// One-shot: the last `handle_key` accepted an @-file completion, which can shrink a long `@query` into a short ref/chip.
     /// That big shrink is NOT a user wipe, so the clear detector must skip observing it (it resyncs on the next genuine edit).
     completion_accepted: bool,
@@ -876,6 +878,7 @@ impl PromptWidget {
             contextual_hint_plan_mode: false,
             undo_tip_fire: false,
             plan_nudge_fire: false,
+            planning_mention: crate::tips::plan_nudge::PlanningMentionCache::default(),
             completion_accepted: false,
             vim_prompt: vim::VimPrompt::default(),
         };
@@ -1941,19 +1944,31 @@ impl PromptWidget {
         if !self.contextual_hint_undo && !self.contextual_hint_plan_mode {
             return self.handle_key_inner(key);
         }
-        let before = self.textarea.text().chars().count();
         let had_images = !self.images.is_empty();
-        // Read the pre-edit keyword state fresh every key (the matcher is non-allocating), and only when
-        // the plan-nudge detector is on.
-        let before_kw = self.contextual_hint_plan_mode
-            && crate::tips::plan_nudge::prompt_mentions_planning(self.textarea.text());
+        // The undo detector only distinguishes "reached the peak" from "short residue", so stop counting past that.
+        let before = if self.contextual_hint_undo {
+            crate::tips::clear_detector::bounded_draft_len(self.textarea.text())
+        } else {
+            0
+        };
+        // Reuse the cached keyword answer when this revision was already scanned.
+        if self.contextual_hint_plan_mode {
+            let revision = self.textarea.content_revision();
+            self.planning_mention
+                .ensure(self.textarea.text(), revision);
+        }
+        let before_kw = self.contextual_hint_plan_mode && self.planning_mention.mentions();
+        let cursor_before = self.cursor();
+        let sel_before = self.selection_range();
+        let len_before = self.textarea.text().len();
+        let rev_before = self.textarea.content_revision();
         let event = self.handle_key_inner(key);
         // Accepting an @-file completion replaces a long `@query` with a short ref/chip: a big shrink, but a completion, not a wipe
         // Skip the detector entirely on that keypress; it resyncs on the next genuine edit (`before != last_len`) without firing on the stale peak
         if event == PromptEvent::Edited && !self.completion_accepted {
-            let after = self.textarea.text().chars().count();
             // Undo clear-detector only when the undo tip is on.
             if self.contextual_hint_undo {
+                let after = crate::tips::clear_detector::bounded_draft_len(self.textarea.text());
                 let wiped = self.clear_detector.observe_user_edit(before, after);
                 // Honesty guards: never advertise a recovery the textarea can't do, and never one that lost image payloads
                 // Ctrl+C's `set_text("")` drains both image lists (undo would restore dead chips), while kill-style wipes stash and restore fully
@@ -1963,6 +1978,15 @@ impl PromptWidget {
             }
             // Plan-nudge keyword scan only when the plan-mode tip is on.
             if self.contextual_hint_plan_mode {
+                self.planning_mention.note_after_edit(
+                    self.textarea.text(),
+                    self.textarea.content_revision(),
+                    rev_before,
+                    cursor_before,
+                    sel_before,
+                    len_before,
+                    self.cursor(),
+                );
                 self.plan_nudge_fire = self.plan_nudge_fire_for_edit(key, before_kw);
             }
         }
@@ -1971,14 +1995,16 @@ impl PromptWidget {
 
     /// Whether this just-handled `Edited` keypress should fire the plan-nudge rising edge. That is a
     /// TYPED edit (not a paste chord) that crossed the draft into mentioning a planning keyword
-    /// (`before_kw` is the pre-edit state).
-    fn plan_nudge_fire_for_edit(&self, key: &KeyEvent, before_kw: bool) -> bool {
+    /// (`before_kw` is the pre-edit state). Uses the post-edit cache; a cold cache scans once.
+    fn plan_nudge_fire_for_edit(&mut self, key: &KeyEvent, before_kw: bool) -> bool {
         if crate::input::key::is_paste_key(key) || crate::input::key::is_inline_paste_key(key) {
             return false;
         }
         let text = self.textarea.text();
+        self.planning_mention
+            .ensure(text, self.textarea.content_revision());
         !before_kw
-            && crate::tips::plan_nudge::prompt_mentions_planning(text)
+            && self.planning_mention.mentions()
             && !text.starts_with('/')
             && !text.starts_with('!')
             && !self.slash_open()

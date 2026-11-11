@@ -23,6 +23,11 @@ const FIRE_PEAK_LEN: usize = 20;
 /// Text left after the wipe counts as "cleared" at or below this many chars.
 const FIRE_RESIDUE_LEN: usize = 5;
 
+/// Char length the undo detector needs. Anything longer still counts as a substantial draft.
+pub(crate) fn bounded_draft_len(text: &str) -> usize {
+    text.chars().take(FIRE_PEAK_LEN.saturating_add(1)).count()
+}
+
 /// Undo chord for the tip copy: always `ctrl+z`.
 /// Most macOS terminals capture Cmd by default and don't forward Cmd+Z to a raw-mode TUI, so Ctrl+Z is the chord delivered on every platform.
 /// The label is still derived from the real binding (not a literal): [`crate::input::key::is_undo_key`] accepts it, so it can't drift.
@@ -147,6 +152,17 @@ mod tests {
         assert!(d.observe_user_edit(25, 0));
         type_to(&mut d, 0, 25);
         assert!(d.observe_user_edit(25, 0), "fresh peak fires again");
+    }
+
+    #[test]
+    fn bounded_draft_len_stops_one_past_the_peak() {
+        assert_eq!(bounded_draft_len(""), 0);
+        assert_eq!(bounded_draft_len("short"), 5);
+        assert_eq!(bounded_draft_len(&"x".repeat(FIRE_PEAK_LEN)), FIRE_PEAK_LEN);
+        assert_eq!(
+            bounded_draft_len(&"x".repeat(FIRE_PEAK_LEN + 80)),
+            FIRE_PEAK_LEN + 1
+        );
     }
 
     #[test]

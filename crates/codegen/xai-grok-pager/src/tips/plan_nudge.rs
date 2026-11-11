@@ -60,47 +60,293 @@ pub fn plan_nudge_tip() -> EphemeralTip {
 
 /// Whether `text` mentions a planning intent from the tight [`PLANNING_KEYWORDS`] allowlist.
 /// Case-insensitive and matched on whole-word boundaries so near neighbours ("explain", "explanation", "planet", "redesign") never match.
-/// Non-allocating; it runs on every prompt edit.
+/// Non-allocating full scan. The prompt does not run this on every character of a long draft; `PlanningMentionCache` rechecks only the edited span.
 pub fn prompt_mentions_planning(text: &str) -> bool {
-    PLANNING_KEYWORDS
-        .iter()
-        .any(|kw| contains_whole_word_ci(text, kw))
+    first_planning_hit(text, 0, usize::MAX).is_some()
 }
 
-/// Whether ASCII-lowercase `needle` occurs in `haystack` matched case-insensitively and bordered by non-word bytes (or string ends).
-/// No allocation: scans bytes and lowercases each candidate byte in place.
-/// A byte `>= 0x80` (any UTF-8 multibyte) counts as a word byte, so a keyword touching a non-ASCII letter is conservatively rejected.
-fn contains_whole_word_ci(haystack: &str, needle: &str) -> bool {
-    let hay = haystack.as_bytes();
-    let need = needle.as_bytes();
-    if need.is_empty() || hay.len() < need.len() {
+fn max_planning_keyword_len() -> usize {
+    PLANNING_KEYWORDS.iter().map(|kw| kw.len()).max().unwrap_or(0)
+}
+
+fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b >= 0x80
+}
+
+fn boundary_before(hay: &[u8], start: usize) -> bool {
+    start == 0
+        || start
+            .checked_sub(1)
+            .and_then(|index| hay.get(index))
+            .is_none_or(|b| !is_word_byte(*b))
+}
+
+fn boundary_after(hay: &[u8], end: usize) -> bool {
+    hay.get(end).is_none_or(|b| !is_word_byte(*b))
+}
+
+/// Whole-word, case-insensitive keyword at `start` in the full buffer.
+/// Boundaries are read from `hay`, never from a sliced window: a slice edge is not a word boundary.
+fn keyword_at(hay: &[u8], start: usize, needle: &[u8]) -> bool {
+    if needle.is_empty() {
         return false;
     }
-    let is_word = |b: u8| b.is_ascii_alphanumeric() || b >= 0x80;
-    let last_start = hay.len() - need.len();
-    for start in 0..=last_start {
-        let Some(window) = hay.get(start..start + need.len()) else {
-            continue;
-        };
-        let matches = window
-            .iter()
-            .zip(need)
-            .all(|(h, n)| h.to_ascii_lowercase() == *n);
-        if !matches {
+    let Some(end) = start.checked_add(needle.len()) else {
+        return false;
+    };
+    let Some(window) = hay.get(start..end) else {
+        return false;
+    };
+    window
+        .iter()
+        .zip(needle)
+        .all(|(h, n)| h.to_ascii_lowercase() == *n)
+        && boundary_before(hay, start)
+        && boundary_after(hay, end)
+}
+
+/// Earliest allowlist hit whose start byte lies in `start_lo..start_hi` (exclusive end).
+fn first_planning_hit(text: &str, start_lo: usize, start_hi: usize) -> Option<std::ops::Range<usize>> {
+    let hay = text.as_bytes();
+    let mut best: Option<std::ops::Range<usize>> = None;
+    for kw in PLANNING_KEYWORDS {
+        let needle = kw.as_bytes();
+        if needle.is_empty() || hay.len() < needle.len() {
             continue;
         }
-        let before_ok = start == 0
-            || start
-                .checked_sub(1)
-                .and_then(|j| hay.get(j))
-                .is_none_or(|b| !is_word(*b));
-        let end = start + need.len();
-        let after_ok = hay.get(end).is_none_or(|b| !is_word(*b));
-        if before_ok && after_ok {
-            return true;
+        let last = hay.len() - needle.len();
+        if start_lo > last {
+            continue;
+        }
+        let hi = start_hi.min(last.saturating_add(1));
+        if start_lo >= hi {
+            continue;
+        }
+        for start in start_lo..hi {
+            if !keyword_at(hay, start, needle) {
+                continue;
+            }
+            let range = start..start + needle.len();
+            let earlier = best.as_ref().is_none_or(|have| range.start < have.start);
+            if earlier {
+                best = Some(range);
+            }
+            break;
         }
     }
-    false
+    best
+}
+
+fn keyword_range_is_hit(text: &str, range: &std::ops::Range<usize>) -> bool {
+    let Some(slice) = text.get(range.start..range.end) else {
+        return false;
+    };
+    let hay = text.as_bytes();
+    if !boundary_before(hay, range.start) || !boundary_after(hay, range.end) {
+        return false;
+    }
+    PLANNING_KEYWORDS.iter().any(|kw| {
+        kw.len() == slice.len()
+            && slice
+                .bytes()
+                .zip(kw.bytes())
+                .all(|(byte, needle)| byte.to_ascii_lowercase() == needle)
+    })
+}
+
+/// One contiguous replace: `removed` bytes at `old_start` in the pre-edit text became `inserted` bytes.
+struct LocalEdit {
+    old_start: usize,
+    removed: usize,
+    inserted: usize,
+}
+
+fn classify_local_edit(
+    cursor_before: usize,
+    selection_before: Option<std::ops::Range<usize>>,
+    len_before: usize,
+    cursor_after: usize,
+    len_after: usize,
+) -> Option<LocalEdit> {
+    if let Some(sel) = selection_before {
+        if sel.end > len_before {
+            return None;
+        }
+        let removed = sel.end.checked_sub(sel.start)?;
+        let inserted = len_after.checked_add(removed)?.checked_sub(len_before)?;
+        return Some(LocalEdit {
+            old_start: sel.start,
+            removed,
+            inserted,
+        });
+    }
+    if len_after >= len_before {
+        let inserted = len_after - len_before;
+        if cursor_before <= len_before && cursor_after == cursor_before.saturating_add(inserted) {
+            return Some(LocalEdit {
+                old_start: cursor_before,
+                removed: 0,
+                inserted,
+            });
+        }
+        return None;
+    }
+    let removed = len_before - len_after;
+    // Backspace: the cursor sits on the join, which was just after the deleted bytes.
+    if cursor_before == cursor_after.saturating_add(removed) && cursor_before <= len_before {
+        return Some(LocalEdit {
+            old_start: cursor_after,
+            removed,
+            inserted: 0,
+        });
+    }
+    // Forward delete: the cursor stays on the join.
+    if cursor_after == cursor_before && cursor_before.saturating_add(removed) <= len_before {
+        return Some(LocalEdit {
+            old_start: cursor_before,
+            removed,
+            inserted: 0,
+        });
+    }
+    None
+}
+
+fn shift_hit(hit: &std::ops::Range<usize>, edit: &LocalEdit) -> Option<std::ops::Range<usize>> {
+    let old_end = edit.old_start.saturating_add(edit.removed);
+    if hit.end <= edit.old_start {
+        return Some(hit.clone());
+    }
+    if hit.start >= old_end {
+        let delta = edit.inserted as isize - edit.removed as isize;
+        let start = hit.start as isize + delta;
+        let end = hit.end as isize + delta;
+        if start >= 0 && end >= start {
+            return Some((start as usize)..(end as usize));
+        }
+    }
+    None
+}
+
+/// Cached answer of [`prompt_mentions_planning`] for one prompt buffer.
+///
+/// Keystroke paste delivers one scalar per event. Scanning the whole draft on each event freezes the
+/// prompt once the draft is long. A new match has to overlap the inserted or deleted bytes (or the
+/// single boundary byte next to them), so a local edit searches only that window. A match the edit
+/// does not touch stays valid with no scan.
+#[derive(Debug, Default)]
+pub(crate) struct PlanningMentionCache {
+    revision: Option<xai_ratatui_textarea::BufferContentRevision>,
+    /// Byte range of one whole-word hit. `None` with `revision` set means the draft was scanned and has none.
+    hit: Option<std::ops::Range<usize>>,
+    full_scans: u64,
+    bytes_scanned: u64,
+}
+
+impl PlanningMentionCache {
+    pub(crate) fn mentions(&self) -> bool {
+        self.hit.is_some()
+    }
+
+    /// Adopt `revision` when the cached answer is stale. A cold cache scans the whole draft once.
+    pub(crate) fn ensure(
+        &mut self,
+        text: &str,
+        revision: xai_ratatui_textarea::BufferContentRevision,
+    ) {
+        if self.revision == Some(revision) {
+            return;
+        }
+        self.rescan(text, revision);
+    }
+
+    /// Update the cache after a textarea edit that moved `revision_before` to `revision`.
+    pub(crate) fn note_after_edit(
+        &mut self,
+        text: &str,
+        revision: xai_ratatui_textarea::BufferContentRevision,
+        revision_before: xai_ratatui_textarea::BufferContentRevision,
+        cursor_before: usize,
+        selection_before: Option<std::ops::Range<usize>>,
+        len_before: usize,
+        cursor_after: usize,
+    ) {
+        if self.revision == Some(revision) {
+            return;
+        }
+        if self.revision != Some(revision_before) {
+            self.rescan(text, revision);
+            return;
+        }
+        let Some(edit) = classify_local_edit(
+            cursor_before,
+            selection_before,
+            len_before,
+            cursor_after,
+            text.len(),
+        ) else {
+            self.rescan(text, revision);
+            return;
+        };
+        // Same length and an unmoved cursor is not a local insert. The bytes may have changed elsewhere.
+        if edit.removed == 0 && edit.inserted == 0 {
+            self.rescan(text, revision);
+            return;
+        }
+        self.apply_local(text, revision, edit);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scan_cost(&self) -> (u64, u64) {
+        (self.full_scans, self.bytes_scanned)
+    }
+
+    fn rescan(&mut self, text: &str, revision: xai_ratatui_textarea::BufferContentRevision) {
+        self.full_scans = self.full_scans.saturating_add(1);
+        self.bytes_scanned = self.bytes_scanned.saturating_add(text.len() as u64);
+        self.hit = first_planning_hit(text, 0, usize::MAX);
+        self.revision = Some(revision);
+    }
+
+    fn apply_local(
+        &mut self,
+        text: &str,
+        revision: xai_ratatui_textarea::BufferContentRevision,
+        edit: LocalEdit,
+    ) {
+        let was_present = self.hit.is_some();
+        if let Some(hit) = self.hit.clone()
+            && let Some(shifted) = shift_hit(&hit, &edit)
+            && keyword_range_is_hit(text, &shifted)
+        {
+            self.hit = Some(shifted);
+            self.revision = Some(revision);
+            return;
+        }
+        let max_kw = max_planning_keyword_len();
+        let new_start = edit.old_start.min(text.len());
+        let new_end = new_start.saturating_add(edit.inserted).min(text.len());
+        let lo = new_start.saturating_sub(max_kw.saturating_sub(1));
+        // One past the inserted bytes: a keyword can start on the first byte after the edit when only its boundary changed.
+        let hi = new_end.saturating_add(1);
+        let span_end = hi
+            .saturating_add(max_kw)
+            .min(text.len().saturating_add(1));
+        self.bytes_scanned = self
+            .bytes_scanned
+            .saturating_add(span_end.saturating_sub(lo.min(text.len())) as u64);
+        if let Some(found) = first_planning_hit(text, lo, hi) {
+            self.hit = Some(found);
+            self.revision = Some(revision);
+            return;
+        }
+        if !was_present {
+            self.hit = None;
+            self.revision = Some(revision);
+            return;
+        }
+        // The stored hit was destroyed and the edit window has no other keyword. One may still sit elsewhere.
+        self.rescan(text, revision);
+    }
 }
 
 #[cfg(test)]
