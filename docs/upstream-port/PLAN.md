@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-222 — Linux file watching already skips ignored trees
+
+Linux defaults to `WatchStrategy::PerDir` (`watch_strategy`). `select_per_dir_watch_dirs` walks with `pruning_walker`, which honors gitignore and does not descend into ignored directories, `.git`, `.sl`, or another workspace. Nested `node_modules` and `target` add no watches (`select_per_dir_prunes_nested_gitignored_dirs`). Starting the watcher confirms the same layout: twenty nested `web/node_modules` packages and `.git/objects` contribute nothing, and the count stays at the six source and ref directories (`test_per_dir_watch_count_excludes_ignored_and_git_internals`). `.git` itself is a few non-recursive watches, not one per object directory (`per_dir_git_watches`). A recursive fan-out watch cannot skip those trees, and that layout is what kept a core busy for about a minute after startup. It is not the Linux default. The post-ready arm loop only installs the already-pruned backlog, a chunk at a time. No second cache (`v74-p05`).
+
 ### D-221 — A long single-line paste already lays out as a chip
 
 `PromptWidget::handle_paste` chips a paste once it is longer than `PASTE_CHIP_DISPLAY_BYTES` (10_000), including a single line of logs, JSON, or base64. `TextArea::wrapped_lines` then uses `element_aware_wrap_ranges`, which treats that chip as one unit, and `render_lines` paints the short display label. The composer height stays one text row (`long_single_line_paste_lays_out_as_one_row`). `Event::Paste` still runs `try_read_dropped_paths` first; a prose line is not a drop, so it falls through to that chip. Ctrl+Shift+V remains the explicit inline insert and does not chip. No second cache (`v74-p04`).
@@ -1604,7 +1608,7 @@ id | status | wave | kind | flag | covered | note
 - v74-p02 | done | W15 | Performance |  |  | **Typing** no longer lags when ffmpeg isn't installed and `PATH` holds slow directories, such as Windows drives under WSL.
 - v74-p03 | done | W15 | Performance |  |  | **Long pastes that arrive as keystrokes**, such as pastes on native Windows or in terminals without bracketed paste, no longer freeze the prompt for seconds while the plan-mode tip is on.
 - v74-p04 | already | W15 | Performance |  |  | **Pasting long single-line text** such as logs, JSON or base64 into the prompt no longer freezes the TUI for seconds.
-- v74-p05 | pending | W15 | Performance |  |  | **File watching on Linux** no longer keeps a CPU core busy for about a minute after startup in large repositories.
+- v74-p05 | already | W15 | Performance |  |  | **File watching on Linux** no longer keeps a CPU core busy for about a minute after startup in large repositories.
 - v74-p06 | pending | W15 | Performance |  |  | **Lower CPU use while subagents run**: the TUI repaints only for animations on screen, about 7 times a second instead of 30 when no running row is visible.
 - v74-p07 | pending | W15 | Performance |  |  | **`grok --resume <id>`** opens much faster on large session stores, reading only the resumed session instead of every session.
 - v78-p01 | pending | W15 | Performance |  |  | **grok export** of sessions containing large shell output is now faster and uses less memory.
