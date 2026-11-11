@@ -55,6 +55,28 @@ pub fn browser_unavailable_line(url: &str, copied: bool) -> String {
     }
 }
 
+/// Spawn `command` and collect its exit on a background thread.
+/// `xdg-open`, macOS `open`, and Explorer often exit as soon as the real app is up.
+/// Dropping the [`std::process::Child`] would leave that exit as a zombie until the pager itself exits.
+/// The returned pid is the direct child. Callers treat `Ok` as "the opener launched".
+fn spawn_and_reap(mut command: std::process::Command) -> std::io::Result<u32> {
+    // Detached on purpose so a browser outlives the session. Reaped below so the exit is not a zombie.
+    #[allow(clippy::disallowed_methods)]
+    let child = command.spawn()?;
+    let pid = child.id();
+    if let Err((error, mut child, _)) =
+        xai_tty_utils::spawn_child_reaper("link-opener", child, None)
+    {
+        tracing::warn!(
+            error = %error,
+            child_id = pid,
+            "opener reaper thread failed"
+        );
+        let _ = child.wait();
+    }
+    Ok(pid)
+}
+
 /// Native opener with detached stdio so a GUI helper cannot block the pager.
 /// `false` on headless or spawn failure — show the URL. Untrusted input must use [`is_safe_to_open`] or [`try_open_url`].
 pub fn open_url(url: &str) -> bool {
@@ -127,7 +149,6 @@ fn spawn_url_opener(url: &str) -> bool {
 }
 
 #[cfg(not(target_os = "windows"))]
-#[allow(clippy::disallowed_methods)] // fire and forget; the child is reaped when this process exits
 fn spawn_url_opener(url: &str) -> bool {
     #[cfg(target_os = "macos")]
     let cmd = "open";
@@ -141,7 +162,7 @@ fn spawn_url_opener(url: &str) -> bool {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     xai_grok_tools::util::detach_std_command(&mut command);
-    match command.spawn() {
+    match spawn_and_reap(command) {
         Ok(_) => true,
         Err(e) => {
             tracing::debug!(error = %e, "URL opener failed to spawn");
@@ -169,7 +190,6 @@ fn build_open_path_command(path: &std::path::Path) -> std::process::Command {
 
 /// Trusted filesystem path (no scheme check, unlike [`open_url`]).
 /// Windows avoids `cmd /c start`: `%VAR%` expansion corrupts percent-encoded session paths.
-#[allow(clippy::disallowed_methods)] // fire and forget; the child is reaped when this process exits
 pub fn open_path(path: &std::path::Path) -> bool {
     // Never launch a real GUI app in tests.
     #[cfg(test)]
@@ -182,7 +202,7 @@ pub fn open_path(path: &std::path::Path) -> bool {
     }
     #[cfg(all(not(test), not(target_os = "windows")))]
     {
-        match build_open_path_command(path).spawn() {
+        match spawn_and_reap(build_open_path_command(path)) {
             Ok(_) => true,
             Err(e) => {
                 tracing::warn!(path = %path.display(), error = %e, "failed to open file natively");
@@ -195,7 +215,6 @@ pub fn open_path(path: &std::path::Path) -> bool {
 /// `raw_arg` keeps Explorer's `/select,"<path>"` quoting; no `cmd`, so `%` in urlencoded paths is not expanded.
 /// A missing file opens the parent folder (no `/select`) instead of Home.
 #[cfg(all(not(test), target_os = "windows"))]
-#[allow(clippy::disallowed_methods)] // fire and forget; the child is reaped when this process exits
 fn reveal_in_explorer(path: &std::path::Path) -> bool {
     use std::os::windows::process::CommandExt;
 
@@ -231,7 +250,7 @@ fn reveal_in_explorer(path: &std::path::Path) -> bool {
         .stderr(std::process::Stdio::null());
     xai_tty_utils::detach_std_command(&mut command);
     // explorer.exe returns exit code 1 even on success, so a successful spawn is the best signal we have
-    match command.spawn() {
+    match spawn_and_reap(command) {
         Ok(_) => true,
         Err(e) => {
             tracing::warn!(path = %target.display(), error = %e, "failed to reveal file in Explorer");
@@ -298,6 +317,69 @@ pub fn ensure_query_param(url: &str, key: &str, value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `sleep` outlives the call. An inline `wait` would miss the deadline; a dropped child would stay `Z`.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn spawned_opener_is_reaped_and_does_not_block() {
+        let mut command = std::process::Command::new("sleep");
+        command
+            .arg("1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        xai_tty_utils::detach_std_command(&mut command);
+        let started = std::time::Instant::now();
+        let pid = spawn_and_reap(command).expect("sleep spawns");
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(800),
+            "reaping the opener must not block the caller"
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            match linux_opener_proc(pid) {
+                LinuxOpenerProc::Gone | LinuxOpenerProc::Reused => return,
+                LinuxOpenerProc::Zombie if std::time::Instant::now() >= deadline => {
+                    panic!("opener pid {pid} is still a zombie");
+                }
+                LinuxOpenerProc::Running(_) if std::time::Instant::now() >= deadline => {
+                    panic!("opener pid {pid} was not reaped");
+                }
+                LinuxOpenerProc::Zombie | LinuxOpenerProc::Running(_) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    enum LinuxOpenerProc {
+        Gone,
+        Reused,
+        Zombie,
+        Running(char),
+    }
+
+    /// `/proc/<pid>/stat` is `pid (comm) state …`. `comm` is `sleep` for this test's child.
+    /// A reused pid belongs to something else, which means the opener was already reaped.
+    #[cfg(target_os = "linux")]
+    fn linux_opener_proc(pid: u32) -> LinuxOpenerProc {
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            return LinuxOpenerProc::Gone;
+        };
+        let Some((head, after_comm)) = stat.rsplit_once(')') else {
+            return LinuxOpenerProc::Gone;
+        };
+        let comm = head.rsplit_once('(').map(|(_, comm)| comm).unwrap_or("");
+        if comm != "sleep" {
+            return LinuxOpenerProc::Reused;
+        }
+        match after_comm.trim_start().chars().next() {
+            Some('Z') => LinuxOpenerProc::Zombie,
+            Some(state) => LinuxOpenerProc::Running(state),
+            None => LinuxOpenerProc::Gone,
+        }
+    }
 
     #[test]
     fn open_path_command_passes_path_as_a_single_arg() {

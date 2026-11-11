@@ -1559,7 +1559,7 @@ id | status | wave | kind | flag | covered | note
 - v73-x09 | done | W14 | Bug Fixes |  |  | **Session load errors** show the whole reason instead of cutting out the middle of a long message.
 - v74-f09 | done | W14 | Features |  |  | **`@` paths outside the workspace**: an `@` path that starts with `/`, `~/` or `../` lists files from that folder; set `[ui] at_picker_outside_workspace = false` to turn it off.
 - v74-x03 | done | W14 | Bug Fixes |  |  | **`/new` tabs** show the context window you just switched to before the new session replies.
-- v74-x09 | pending | W14 | Bug Fixes |  |  | **Opening links and files** from the TUI no longer leaves a zombie process behind for each click.
+- v74-x09 | done | W14 | Bug Fixes |  |  | **Opening links and files** from the TUI no longer leaves a zombie process behind for each click.
 - v74-x10 | pending | W14 | Bug Fixes |  |  | **A failed session delete** shows the "Couldn't delete session" prefix once, so the reason is no longer cut off.
 - v74-x11 | pending | W14 | Bug Fixes |  |  | **Windows**: Grok exits fully after a startup error, a `/minimal` or `/fullscreen` switch, or a signal, instead of sometimes hanging.
 - v74-x16 | pending | W14 | Bug Fixes |  |  | **Command-line arguments that aren't valid UTF-8** no longer crash `grok` at startup: paths such as `--cwd` accept them, and text such as `-p` gets a usage error.
