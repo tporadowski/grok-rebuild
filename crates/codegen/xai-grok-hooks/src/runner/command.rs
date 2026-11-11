@@ -41,6 +41,30 @@ tokio::task_local! {
     static HOOK_GROUP_REAPS: std::cell::RefCell<Vec<tokio::task::JoinHandle<()>>>;
 }
 
+/// Bytes kept and bytes drained by the in-flight command hook. Set only by tests.
+#[cfg(test)]
+#[derive(Default)]
+struct OutputAccounting {
+    captured: usize,
+    discarded: usize,
+}
+
+#[cfg(test)]
+tokio::task_local! {
+    static OUTPUT_ACCOUNTING: std::sync::Arc<std::sync::Mutex<OutputAccounting>>;
+}
+
+#[cfg(test)]
+fn account_captured_output(captured: usize, discarded: u64) {
+    let _ = OUTPUT_ACCOUNTING.try_with(|stats| {
+        let mut stats = stats.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        stats.captured = stats.captured.saturating_add(captured);
+        stats.discarded = stats
+            .discarded
+            .saturating_add(usize::try_from(discarded).unwrap_or(usize::MAX));
+    });
+}
+
 pub async fn join_hook_group_reaps<F: std::future::Future>(work: F) -> F::Output {
     HOOK_GROUP_REAPS
         .scope(std::cell::RefCell::new(Vec::new()), async {
@@ -271,6 +295,8 @@ pub async fn run_command_hook(
     let mut reap = HookProcessGuard::arm(hook_group.clone());
 
     let stdin = child.stdin.take();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
     let timeout = Duration::from_millis(spec.timeout_ms);
     let result = tokio::time::timeout(timeout, async move {
         let write = async {
@@ -278,8 +304,26 @@ pub async fn run_command_hook(
                 let _ = stdin.write_all(stdin_json.as_bytes()).await;
             }
         };
-        let (_, output) = tokio::join!(write, child.wait_with_output());
-        output
+        // Both pipes are read together. A hook that fills one while the other is unread blocks forever.
+        let read_out = async {
+            match stdout {
+                Some(pipe) => read_capped(pipe, MAX_OUTPUT_BYTES).await,
+                None => Ok((Vec::new(), 0)),
+            }
+        };
+        let read_err = async {
+            match stderr {
+                Some(pipe) => read_capped(pipe, MAX_OUTPUT_BYTES).await,
+                None => Ok((Vec::new(), 0)),
+            }
+        };
+        let ((), stdout_res, stderr_res, status) =
+            tokio::join!(write, read_out, read_err, child.wait());
+        match (stdout_res, stderr_res, status) {
+            (Ok(stdout), Ok(stderr), Ok(status)) => Ok((status, stdout, stderr)),
+            (Err(error), _, _) | (_, Err(error), _) => Err(error),
+            (_, _, Err(error)) => Err(error),
+        }
     })
     .await;
 
@@ -302,11 +346,11 @@ pub async fn run_command_hook(
             elapsed,
             None,
         ),
-        Ok(Ok(output)) => {
-            let exit_code = output.status.code().unwrap_or(-1);
+        Ok(Ok((status, (stdout_bytes, stdout_discarded), (stderr_bytes, stderr_discarded)))) => {
+            let exit_code = status.code().unwrap_or(-1);
 
-            let stdout = truncate_output(&output.stdout);
-            let stderr = truncate_output(&output.stderr);
+            let stdout = render_captured(&stdout_bytes, stdout_discarded);
+            let stderr = render_captured(&stderr_bytes, stderr_discarded);
 
             if !stderr.is_empty() {
                 if exit_code != 0 {
@@ -1052,6 +1096,37 @@ fn parse_post_tool_use_result(
     }
 
     (HookRunnerResult::PostToolUse { outcome, failure }, elapsed)
+}
+
+/// Keep at most `keep` bytes, then drain the rest into a sink.
+/// The sink read is what stops a noisy hook from blocking on a full pipe, and from landing in this process.
+async fn read_capped<R>(reader: R, keep: usize) -> std::io::Result<(Vec<u8>, u64)>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut limited = reader.take(keep as u64);
+    let mut buf = Vec::new();
+    limited.read_to_end(&mut buf).await?;
+    let discarded = tokio::io::copy(&mut limited.into_inner(), &mut tokio::io::sink()).await?;
+    #[cfg(test)]
+    account_captured_output(buf.len(), discarded);
+    Ok((buf, discarded))
+}
+
+fn render_captured(bytes: &[u8], discarded: u64) -> String {
+    if discarded == 0 {
+        return truncate_output(bytes);
+    }
+    let mut text = String::from_utf8_lossy(bytes).into_owned();
+    text.push_str(" [truncated]");
+    tracing::warn!(
+        kept_bytes = bytes.len(),
+        discarded_bytes = discarded,
+        max_bytes = MAX_OUTPUT_BYTES,
+        "hook output truncated"
+    );
+    text
 }
 
 fn truncate_output(bytes: &[u8]) -> String {
@@ -2740,6 +2815,77 @@ mod tests {
         assert!(
             matches!(result, HookRunnerResult::Failed(_)),
             "got {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn command_hook_keeps_short_stderr_and_discards_nothing() {
+        let stats = std::sync::Arc::new(std::sync::Mutex::new(OutputAccounting::default()));
+        let spec = make_shell_spec("echo 'disk full' >&2; exit 1");
+        let (result, _, _) = OUTPUT_ACCOUNTING
+            .scope(std::sync::Arc::clone(&stats), async move {
+                run_command_hook(&spec, &make_envelope(), &make_ctx(), GateKind::Observe).await
+            })
+            .await;
+        match result {
+            HookRunnerResult::Failed(error) => assert_eq!(error, "exit code 1: disk full"),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+        let stats = stats.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(stats.discarded, 0, "a short hook must keep every byte");
+        assert!(
+            stats.captured > 0 && stats.captured < 256,
+            "short output stayed small, got {} bytes",
+            stats.captured
+        );
+    }
+
+    /// Fills both pipes past the capture cap. Sequential reads deadlock; a full `wait_with_output` buffer would retain every byte.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn command_hook_discards_output_past_the_capture_cap() {
+        let stats = std::sync::Arc::new(std::sync::Mutex::new(OutputAccounting::default()));
+        let mut spec = make_shell_spec(
+            "dd if=/dev/zero bs=1048576 count=4 status=none >/dev/stdout 2>/dev/null & \
+             dd if=/dev/zero bs=1048576 count=4 status=none >/dev/stderr 2>/dev/null & \
+             wait; exit 2",
+        );
+        spec.timeout_ms = 8_000;
+        let (result, _, _) = tokio::time::timeout(
+            Duration::from_secs(15),
+            OUTPUT_ACCOUNTING.scope(std::sync::Arc::clone(&stats), async move {
+                run_command_hook(&spec, &make_envelope(), &make_ctx(), GateKind::Stop).await
+            }),
+        )
+        .await
+        .expect("a hook that fills both pipes must finish; capture must drain past the cap");
+        let reason = match result {
+            HookRunnerResult::Stop(outcome) => outcome
+                .block_reason
+                .expect("exit 2 feeds the captured stderr to the stop outcome"),
+            other => panic!("expected a stop block, got {other:?}"),
+        };
+        let marker = " [truncated]";
+        assert!(
+            reason.ends_with(marker),
+            "output past the cap must be marked truncated"
+        );
+        assert!(
+            reason.len() <= MAX_OUTPUT_BYTES + marker.len(),
+            "stop feedback kept {} bytes",
+            reason.len()
+        );
+        let stats = stats.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            stats.captured <= 2 * MAX_OUTPUT_BYTES,
+            "capture kept {} bytes",
+            stats.captured
+        );
+        assert!(
+            stats.discarded >= 4 * 1024 * 1024,
+            "bytes past the cap must be drained, not stored; discarded {}",
+            stats.discarded
         );
     }
 }
