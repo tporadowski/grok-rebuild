@@ -891,6 +891,127 @@ fn scan_logical_line(
     }
 }
 
+/// Longest `#123` token that becomes a pull-request link. Longer digit runs stay plain.
+const MAX_PULL_REQUEST_DIGITS: usize = 10;
+
+/// Link `#123` in joined rows to that pull request on `remote_url`'s forge.
+/// A match is one `#` and a 1–10 digit number that does not start with 0.
+/// A letter or another `#` on either side keeps the token plain. Existing overlay cells win.
+pub fn scan_lines_for_pull_requests<'a>(
+    lines: impl Iterator<Item = (u16, &'a Line<'static>, Option<&'a str>, usize)>,
+    content_x: u16,
+    remote_url: &str,
+    overlay: &mut LinkOverlay,
+) {
+    if !xai_grok_workspace::git::remote_supports_pull_requests(remote_url) {
+        return;
+    }
+    let mut group_text = String::new();
+    let mut group_rows: Vec<RowSegment> = Vec::new();
+    for (screen_row, line, joiner, indent_cols) in lines {
+        let col_bias = match joiner {
+            Some(joiner) if !group_rows.is_empty() => {
+                group_text.push_str(joiner);
+                indent_cols
+            }
+            _ => {
+                scan_logical_line_for_pull_requests(
+                    &group_text,
+                    &group_rows,
+                    content_x,
+                    remote_url,
+                    overlay,
+                );
+                group_text.clear();
+                group_rows.clear();
+                0
+            }
+        };
+        let start = group_text.len();
+        append_line_skipping_cols(&mut group_text, line, col_bias);
+        group_rows.push(RowSegment {
+            screen_row,
+            start,
+            end: group_text.len(),
+            col_bias,
+        });
+    }
+    scan_logical_line_for_pull_requests(&group_text, &group_rows, content_x, remote_url, overlay);
+}
+
+fn scan_logical_line_for_pull_requests(
+    text: &str,
+    rows: &[RowSegment],
+    content_x: u16,
+    remote_url: &str,
+    overlay: &mut LinkOverlay,
+) {
+    if text.is_empty() || rows.is_empty() {
+        return;
+    }
+    let bytes = text.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let Some(&byte) = bytes.get(i) else {
+            break;
+        };
+        if byte != b'#' {
+            i += 1;
+            continue;
+        }
+        let hash_at = i;
+        let before_ok = match hash_at.checked_sub(1).and_then(|prev| bytes.get(prev)) {
+            None => true,
+            Some(prev) => !prev.is_ascii_alphanumeric() && *prev != b'#',
+        };
+        if !before_ok {
+            i += 1;
+            continue;
+        }
+        let Some(mut end) = hash_at.checked_add(1) else {
+            break;
+        };
+        let mut digits = 0usize;
+        while digits < MAX_PULL_REQUEST_DIGITS {
+            let Some(&digit) = bytes.get(end) else {
+                break;
+            };
+            if !digit.is_ascii_digit() {
+                break;
+            }
+            digits += 1;
+            end += 1;
+        }
+        let started_with_zero = bytes.get(hash_at.saturating_add(1)) == Some(&b'0');
+        let glued_to_more = bytes.get(end).is_some_and(|next| next.is_ascii_alphanumeric());
+        if digits == 0 || started_with_zero || glued_to_more {
+            i += 1;
+            continue;
+        }
+        let Some(number_text) = text.get(hash_at + 1..end) else {
+            i += 1;
+            continue;
+        };
+        let Ok(number) = number_text.parse::<u64>() else {
+            i += 1;
+            continue;
+        };
+        if let Some(url) = xai_grok_workspace::git::forge_pull_request_url(remote_url, number) {
+            let target = LinkTarget::Url(Arc::from(url));
+            push_link_segments(
+                text,
+                rows,
+                content_x,
+                hash_at..end,
+                &target,
+                LinkPresentation::Opaque,
+                overlay,
+            );
+        }
+        i = end;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

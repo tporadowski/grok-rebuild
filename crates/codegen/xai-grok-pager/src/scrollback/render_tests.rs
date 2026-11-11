@@ -1553,6 +1553,147 @@ fn agent_relative_file_path_opens_when_it_exists_under_the_session() {
     );
 }
 
+fn repo_with_remotes(remotes: &[(&str, &str)]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = git2::Repository::init(dir.path()).expect("init repo");
+    for (name, url) in remotes {
+        repo.remote(name, url).expect("add remote");
+    }
+    dir
+}
+
+fn reply_with_pull_request_numbers() -> Vec<ScrollbackEntry> {
+    let mut entries = vec![
+        ScrollbackEntry::new(RenderBlock::user_prompt("please check #999\n")),
+        make_markdown_entry(
+            "Landed #123 (also #456). Not C#123, ##123, foo#123, #0, #0123, #12345678901, or https://github.com/other/repo/pull/9.\n",
+        ),
+    ];
+    if let RenderBlock::AgentMessage(block) = &mut at_mut(&mut entries, 1).block {
+        block.finish();
+    }
+    entries
+}
+
+fn pull_request_overlay_links(cwd: Option<&std::path::Path>) -> Vec<(u16, Arc<str>)> {
+    let entries = reply_with_pull_request_numbers();
+    let viewport = Rect::new(0, 0, 220, 16);
+    let (result, _) =
+        render_with_scratch_and_buffer_with_cwd(&entries, viewport, 0, None, cwd);
+    result
+        .link_overlay
+        .links()
+        .iter()
+        .filter_map(|link| {
+            let url = resolve_link_target(&link.target)?.osc8_url?;
+            let width = link.col_end.saturating_sub(link.col_start);
+            Some((width, url))
+        })
+        .collect()
+}
+
+fn assert_session_pull_requests(cwd: Option<&std::path::Path>, expect_123: Option<&str>) {
+    let links = pull_request_overlay_links(cwd);
+    let urls: Vec<&str> = links.iter().map(|(_, url)| url.as_ref()).collect();
+    let ending = |suffix: &str| links.iter().filter(|(_, url)| url.ends_with(suffix)).count();
+    match expect_123 {
+        Some(url) => {
+            assert!(
+                links
+                    .iter()
+                    .any(|(width, link)| *width == 4 && link.as_ref() == url),
+                "expected {url} for #123, got {urls:?}"
+            );
+            let expect_456 = url.replacen("123", "456", 1);
+            assert!(
+                links
+                    .iter()
+                    .any(|(width, link)| *width == 4 && link.as_ref() == expect_456),
+                "expected {expect_456} for #456, got {urls:?}"
+            );
+            assert_eq!(ending("/123"), 1, "one #123 link, got {urls:?}");
+            assert_eq!(ending("/456"), 1, "one #456 link, got {urls:?}");
+        }
+        None => {
+            assert_eq!(ending("/123"), 0, "#123 stays plain, got {urls:?}");
+            assert_eq!(ending("/456"), 0, "#456 stays plain, got {urls:?}");
+        }
+    }
+    assert!(
+        urls.iter()
+            .any(|url| *url == "https://github.com/other/repo/pull/9"),
+        "a written URL stays that URL, got {urls:?}"
+    );
+    assert!(
+        !urls.iter().any(|url| {
+            url.contains("s3cret-token")
+                || url.contains("x-access")
+                || url.contains("999")
+                || url.contains("1234567890")
+                || url.ends_with("/pull/0")
+                || url.ends_with("/merge_requests/0")
+                || url.ends_with("/pull-requests/0")
+                || url.ends_with("/pulls/0")
+        }),
+        "secrets, the user's #999, and non-numbers stay unlinked, got {urls:?}"
+    );
+}
+
+#[test]
+fn agent_reply_pull_request_numbers_open_on_the_session_forge() {
+    let github = repo_with_remotes(&[
+        (
+            "origin",
+            "https://x-access:s3cret-token@github.com/Org/Repo.git",
+        ),
+        ("upstream", "git@gitlab.com:group/sub/repo.git"),
+    ]);
+    assert_session_pull_requests(
+        Some(github.path()),
+        Some("https://github.com/Org/Repo/pull/123"),
+    );
+
+    let gitlab = repo_with_remotes(&[("origin", "git@gitlab.com:group/sub/repo.git")]);
+    assert_session_pull_requests(
+        Some(gitlab.path()),
+        Some("https://gitlab.com/group/sub/repo/-/merge_requests/123"),
+    );
+
+    let bitbucket = repo_with_remotes(&[("origin", "git@bitbucket.org:org/repo.git")]);
+    assert_session_pull_requests(
+        Some(bitbucket.path()),
+        Some("https://bitbucket.org/org/repo/pull-requests/123"),
+    );
+
+    let gitea = repo_with_remotes(&[("origin", "https://codeberg.org/org/repo.git")]);
+    assert_session_pull_requests(
+        Some(gitea.path()),
+        Some("https://codeberg.org/org/repo/pulls/123"),
+    );
+
+    let ghes = repo_with_remotes(&[("origin", "git@github.example.com:org/repo.git")]);
+    assert_session_pull_requests(
+        Some(ghes.path()),
+        Some("https://github.example.com/org/repo/pull/123"),
+    );
+
+    let unknown = repo_with_remotes(&[("origin", "https://git.example.com/org/repo.git")]);
+    assert_session_pull_requests(Some(unknown.path()), None);
+
+    let file_origin = repo_with_remotes(&[
+        ("origin", "file:///tmp/not-a-forge.git"),
+        ("upstream", "git@gitlab.com:org/repo.git"),
+    ]);
+    assert_session_pull_requests(
+        Some(file_origin.path()),
+        Some("https://gitlab.com/org/repo/-/merge_requests/123"),
+    );
+
+    let bare = tempfile::tempdir().expect("tempdir");
+    assert_session_pull_requests(Some(bare.path()), None);
+    assert_session_pull_requests(None, None);
+}
+
 #[test]
 fn overlay_word_wrap_splits_link() {
     // Pre-wrap line "hello world" (11 chars) wrapped into two segments: wrapped line 0: "hello" (5 chars, joiner=None

@@ -187,6 +187,77 @@ fn cwd_cache_insert(
     cache.insert(key, entry);
 }
 
+/// How long a resolved session remote stays warm. Remotes change rarely; the paint path must not discover git every frame.
+const SESSION_REMOTE_TTL: Duration = Duration::from_secs(30);
+
+const SESSION_REMOTE_CAP: usize = 64;
+
+struct SessionRemoteEntry {
+    remote: Option<String>,
+    at: Instant,
+}
+
+static SESSION_REMOTE_CACHE: LazyLock<Mutex<HashMap<PathBuf, SessionRemoteEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Remote URL that can open a pull request, preferring `origin`.
+/// Cached per directory. `None` when `cwd` is not a repo or no remote is a known forge.
+pub(crate) fn session_remote_url(cwd: &Path) -> Option<String> {
+    if let Ok(cache) = SESSION_REMOTE_CACHE.lock()
+        && let Some(entry) = cache.get(cwd)
+        && entry.at.elapsed() < SESSION_REMOTE_TTL
+    {
+        return entry.remote.clone();
+    }
+    let remote = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        read_session_remote_url(cwd)
+    }))
+    .unwrap_or(None);
+    if let Ok(mut cache) = SESSION_REMOTE_CACHE.lock() {
+        if cache.len() >= SESSION_REMOTE_CAP && !cache.contains_key(cwd) {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.at)
+                .map(|(key, _)| key.clone())
+            {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(
+            cwd.to_path_buf(),
+            SessionRemoteEntry {
+                remote: remote.clone(),
+                at: Instant::now(),
+            },
+        );
+    }
+    remote
+}
+
+fn read_session_remote_url(cwd: &Path) -> Option<String> {
+    let repo = git2::Repository::discover(cwd).ok()?;
+    let mut urls = Vec::new();
+    if let Ok(origin) = repo.find_remote("origin")
+        && let Some(url) = origin.url()
+    {
+        urls.push(url.to_string());
+    }
+    if let Ok(names) = repo.remotes() {
+        for name in names.iter().flatten() {
+            if name == "origin" {
+                continue;
+            }
+            if let Ok(remote) = repo.find_remote(name)
+                && let Some(url) = remote.url()
+            {
+                urls.push(url.to_string());
+            }
+        }
+    }
+    urls.into_iter()
+        .find_map(|url| xai_grok_workspace::git::credential_free_forge_remote(&url))
+}
+
 fn compute_snapshot(cwd: &Path) -> GitSnapshot {
     let Ok(repo) = git2::Repository::discover(cwd) else {
         return GitSnapshot {

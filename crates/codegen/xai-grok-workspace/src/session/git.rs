@@ -462,6 +462,105 @@ fn normalize_parsed_url(parsed: &Url) -> Option<String> {
     }
     Some(format!("{}/{}", host.to_ascii_lowercase(), path))
 }
+
+/// Whether `remote_url` belongs to a forge that has a pull-request page.
+pub fn remote_supports_pull_requests(remote_url: &str) -> bool {
+    forge_route(remote_url).is_some()
+}
+
+/// `remote_url` as `https://host/path` with credentials removed.
+/// `None` when the remote is not a known forge.
+pub fn credential_free_forge_remote(remote_url: &str) -> Option<String> {
+    let route = forge_route(remote_url)?;
+    Some(format!("https://{}/{}", route.host, route.path))
+}
+
+/// Web page for pull request `number` on the forge of `remote_url`.
+///
+/// `None` when the remote is not a known forge, the path is not a repository, or `number` is 0.
+/// Credentials in `remote_url` are not copied into the result.
+pub fn forge_pull_request_url(remote_url: &str, number: u64) -> Option<String> {
+    if number == 0 {
+        return None;
+    }
+    Some(forge_route(remote_url)?.url(number))
+}
+
+struct ForgeRoute {
+    kind: ForgeKind,
+    host: String,
+    path: String,
+}
+
+#[derive(Clone, Copy)]
+enum ForgeKind {
+    GitHub,
+    GitLab,
+    Bitbucket,
+    Gitea,
+}
+
+impl ForgeRoute {
+    fn url(&self, number: u64) -> String {
+        match self.kind {
+            ForgeKind::GitHub => format!("https://{}/{}/pull/{number}", self.host, self.path),
+            ForgeKind::GitLab => {
+                format!(
+                    "https://{}/{}/-/merge_requests/{number}",
+                    self.host, self.path
+                )
+            }
+            ForgeKind::Bitbucket => {
+                format!("https://{}/{}/pull-requests/{number}", self.host, self.path)
+            }
+            ForgeKind::Gitea => format!("https://{}/{}/pulls/{number}", self.host, self.path),
+        }
+    }
+}
+
+fn forge_route(remote_url: &str) -> Option<ForgeRoute> {
+    let normalized = normalize_repo_url(remote_url)?;
+    let slash = normalized.find('/')?;
+    let host = normalized.get(..slash)?;
+    let path = normalized.get(slash + 1..)?;
+    if path.is_empty() || path.split('/').any(|segment| segment.is_empty()) {
+        return None;
+    }
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    let kind = if host == "github.com" || host.starts_with("github.") || host.ends_with(".github.com")
+    {
+        ForgeKind::GitHub
+    } else if host == "gitlab.com"
+        || host.starts_with("gitlab.")
+        || host.ends_with(".gitlab.com")
+    {
+        ForgeKind::GitLab
+    } else if host == "bitbucket.org" {
+        ForgeKind::Bitbucket
+    } else if host == "codeberg.org"
+        || host == "gitea.com"
+        || host.starts_with("gitea.")
+        || host.starts_with("forgejo.")
+    {
+        ForgeKind::Gitea
+    } else {
+        return None;
+    };
+    let segments = path.split('/').count();
+    let ok = match kind {
+        ForgeKind::GitLab => segments >= 2,
+        ForgeKind::GitHub | ForgeKind::Bitbucket | ForgeKind::Gitea => segments == 2,
+    };
+    if !ok {
+        return None;
+    }
+    Some(ForgeRoute {
+        kind,
+        host: host.to_string(),
+        path: path.to_string(),
+    })
+}
+
 /// Collect normalized repo remote URLs for the repo at `cwd`.
 ///
 /// Returns an empty vec if `cwd` is not inside a git repo or has no remotes.

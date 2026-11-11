@@ -277,6 +277,16 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
     // Reused across all visible rows so the search-highlight pass allocates at most once per frame (not once per row)
     // Empty until search is active
     let mut highlight_text = String::new();
+    // `#123` in an agent reply opens that pull request. Resolved once per paint; the lookup is cached.
+    let session_remote = if cwd.is_some()
+        && entries
+            .iter()
+            .any(|entry| entry.block.is_agent_message())
+    {
+        cwd.and_then(crate::git_info::session_remote_url)
+    } else {
+        None
+    };
 
     // Walk only the passed slice (viewport window in production)
     // There is no full-list EntryLayout vec; y advances from content_y0 using cached heights/gaps
@@ -673,6 +683,16 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
                         visible_lines.iter().copied(),
                         entry_row_layout.content.x,
                         id_mentions,
+                        &mut result.link_overlay,
+                    );
+                }
+                if entry.block.is_agent_message()
+                    && let Some(remote) = session_remote.as_deref()
+                {
+                    crate::render::osc8::scan_lines_for_pull_requests(
+                        visible_lines.iter().copied(),
+                        entry_row_layout.content.x,
+                        remote,
                         &mut result.link_overlay,
                     );
                 }
