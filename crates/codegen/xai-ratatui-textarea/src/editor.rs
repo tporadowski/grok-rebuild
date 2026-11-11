@@ -215,12 +215,26 @@ pub struct SingleLineViewport {
 #[derive(Debug)]
 struct BufferIdentity;
 
+/// Identity of the buffer text, ignoring cursor and selection.
+///
+/// A fresh buffer gets a new identity. The generation increments only when the
+/// bytes change, so a cursor move compares equal without cloning the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BufferContentRevision {
+    identity: usize,
+    generation: u64,
+}
+
 #[derive(Debug)]
 pub struct EditBuffer {
     text: String,
     cursor_byte: usize,
     identity: Arc<BufferIdentity>,
+    /// Bumped on every cursor or text change. Not a text-change signal: cursor
+    /// moves advance it too.
     generation: u64,
+    /// Bumped only when `text` bytes change.
+    content_generation: u64,
 }
 
 impl Default for EditBuffer {
@@ -230,6 +244,7 @@ impl Default for EditBuffer {
             cursor_byte: 0,
             identity: Arc::new(BufferIdentity),
             generation: 0,
+            content_generation: 0,
         }
     }
 }
@@ -241,6 +256,7 @@ impl Clone for EditBuffer {
             cursor_byte: self.cursor_byte,
             identity: Arc::new(BufferIdentity),
             generation: 0,
+            content_generation: 0,
         }
     }
 }
@@ -274,6 +290,7 @@ impl EditBuffer {
             cursor_byte,
             identity: Arc::new(BufferIdentity),
             generation: 0,
+            content_generation: 0,
         }
     }
 
@@ -286,6 +303,15 @@ impl EditBuffer {
             cursor_byte,
             identity: Arc::new(BufferIdentity),
             generation: 0,
+            content_generation: 0,
+        }
+    }
+
+    /// Revision of the text bytes. Cursor-only edits leave it unchanged.
+    pub fn content_revision(&self) -> BufferContentRevision {
+        BufferContentRevision {
+            identity: Arc::as_ptr(&self.identity) as usize,
+            generation: self.content_generation,
         }
     }
 
@@ -564,6 +590,7 @@ impl EditBuffer {
         if text_changed {
             self.text
                 .replace_range(plan.replaced_byte_range.clone(), &plan.replacement);
+            self.content_generation = self.content_generation.wrapping_add(1);
         }
         self.cursor_byte = match plan.cursor_affinity {
             PostEditCursorAffinity::Exact => plan.cursor_byte,

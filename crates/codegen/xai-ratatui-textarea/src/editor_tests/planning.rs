@@ -84,6 +84,25 @@ fn normal_state_changes_advance_generation_without_rotating_identity() {
 }
 
 #[test]
+fn content_revision_changes_only_when_text_changes() {
+    let mut buffer = EditBuffer::from_text("ab");
+    let before = buffer.content_revision();
+    let other = EditBuffer::from_text("ab");
+    assert_ne!(other.content_revision(), before);
+    assert_ne!(buffer.clone().content_revision(), before);
+
+    let _ = buffer.set_cursor_byte(0);
+    assert_eq!(buffer.content_revision(), before);
+    let _ = buffer.apply(EditCommand::MoveGraphemeRight);
+    assert_eq!(buffer.content_revision(), before);
+    assert_eq!(buffer.cursor_byte(), 1);
+
+    let _ = buffer.insert_str("x");
+    assert_ne!(buffer.content_revision(), before);
+    assert_eq!(buffer.text(), "axb");
+}
+
+#[test]
 fn generation_overflow_rotates_identity_and_invalidates_old_plans() {
     let mut buffer = EditBuffer::from_text("ab");
     buffer.generation = u64::MAX;

@@ -1,6 +1,7 @@
 use crate::editor::{
-    ApplyEditPlanError, EditBuffer, EditCommand, EditCommandCategory, EditOutcome, EditPlan,
-    HorizontalEdge, Movement, WordStyle, classify_key_event, resolve_movement,
+    ApplyEditPlanError, BufferContentRevision, EditBuffer, EditCommand, EditCommandCategory,
+    EditOutcome, EditPlan, HorizontalEdge, Movement, WordStyle, classify_key_event,
+    resolve_movement,
 };
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
@@ -647,6 +648,11 @@ impl TextArea {
 
     pub fn text(&self) -> &str {
         self.text.text()
+    }
+
+    /// Revision of the buffer text. Unchanged by cursor and selection moves.
+    pub fn content_revision(&self) -> BufferContentRevision {
+        self.text.content_revision()
     }
 
     pub fn insert_str(&mut self, text: &str) {

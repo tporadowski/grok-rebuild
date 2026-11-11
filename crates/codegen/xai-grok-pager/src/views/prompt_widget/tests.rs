@@ -856,6 +856,55 @@
     }
 
     #[test]
+    fn typing_after_a_large_paste_edits_without_copying_the_paste() {
+        // The paste stays in the buffer (the chip is display-only). Cursor and selection
+        // moves must not look like text edits; a following character must.
+        let mut pw = PromptWidget::new();
+        let pasted = "x".repeat(PASTE_CHIP_DISPLAY_BYTES + 1);
+        assert_eq!(pw.handle_paste(&pasted), PromptEvent::Edited);
+        assert_eq!(pw.textarea.text(), pasted);
+        let revision = pw.textarea.content_revision();
+
+        assert_eq!(
+            pw.handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            PromptEvent::Edited
+        );
+        assert_eq!(pw.textarea.text(), pasted);
+        assert_eq!(pw.textarea.content_revision(), revision);
+        assert_eq!(pw.textarea.cursor(), 0);
+
+        assert_eq!(
+            pw.handle_key(&KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            PromptEvent::Edited
+        );
+        assert_eq!(pw.textarea.text(), pasted);
+        assert_eq!(pw.textarea.content_revision(), revision);
+        assert_eq!(pw.textarea.cursor(), pasted.len());
+
+        assert_eq!(
+            pw.handle_key(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)),
+            PromptEvent::Edited
+        );
+        assert_eq!(pw.textarea.text(), pasted);
+        assert_eq!(pw.textarea.content_revision(), revision);
+        assert!(pw.textarea.selection_range().is_some());
+
+        pw.textarea.clear_selection();
+        pw.textarea.set_cursor(pasted.len());
+        assert_eq!(pw.textarea.content_revision(), revision);
+
+        assert_eq!(
+            pw.handle_key(&KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE)),
+            PromptEvent::Edited
+        );
+        assert_ne!(pw.textarea.content_revision(), revision);
+        let typed = pw.textarea.text();
+        assert_eq!(typed.len(), pasted.len() + 1);
+        assert!(typed.ends_with('z'));
+        assert!(typed.starts_with(pasted.as_str()));
+    }
+
+    #[test]
     fn paste_large_single_line_creates_element() {
         // Single-line paste over the byte threshold still chips.
         let mut pw = PromptWidget::new();

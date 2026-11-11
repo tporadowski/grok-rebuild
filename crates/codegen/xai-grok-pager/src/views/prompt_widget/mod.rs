@@ -2140,19 +2140,22 @@ impl PromptWidget {
 
         // Everything else: delegate to textarea.
         // Selection is rendered state: selection-only changes must report Edited or no frame is drawn.
-        let old_text = self.textarea.text().to_owned();
+        // A content revision stands in for cloning the buffer: large pastes stay in the text, and
+        // copying them on every key is what made typing lag.
+        let old_len = self.textarea.text().len();
+        let old_revision = self.textarea.content_revision();
         let old_cursor = self.textarea.cursor();
         let old_selection = self.textarea.selection_range();
         self.textarea.input(*key);
         let new_cursor = self.textarea.cursor();
         let new_selection = self.textarea.selection_range();
-        let changed = self.textarea.text() != old_text
-            || new_cursor != old_cursor
-            || new_selection != old_selection;
+        let text_changed = self.textarea.content_revision() != old_revision;
+        let changed =
+            text_changed || new_cursor != old_cursor || new_selection != old_selection;
         self.last_input_delta = crate::input_log::LastInputDelta {
             cursor_before: Some(old_cursor),
             cursor_after: Some(new_cursor),
-            text_len_before: Some(old_text.len()),
+            text_len_before: Some(old_len),
             text_len_after: Some(self.textarea.text().len()),
             had_selection_before: Some(old_selection.is_some()),
             had_selection_after: Some(new_selection.is_some()),
@@ -2160,7 +2163,7 @@ impl PromptWidget {
         };
         if changed {
             // Image chips only change with the text, so skip the resync on selection/cursor-only changes (held Shift+arrow extends)
-            if self.textarea.text() != old_text {
+            if text_changed {
                 self.sync_images_with_textarea();
             }
             self.update_file_search_context();
@@ -2173,7 +2176,7 @@ impl PromptWidget {
                 KeyCode::Backspace | KeyCode::Delete | KeyCode::Char('\x08' | '\x7f')
             ) || (key.code == KeyCode::Char('h')
                 && key.modifiers.contains(KeyModifiers::CONTROL));
-            if is_backspace_key && !old_text.is_empty() {
+            if is_backspace_key && old_len != 0 {
                 use xai_grok_telemetry::events::BackspaceNoEffect;
                 use xai_grok_telemetry::session_ctx::log_event;
                 let evt = BackspaceNoEffect {
@@ -2182,7 +2185,7 @@ impl PromptWidget {
                     key_modifiers: format!("{:?}", key.modifiers),
                     key_kind: format!("{:?}", key.kind),
                     cursor_pos: old_cursor,
-                    text_len: old_text.len(),
+                    text_len: old_len,
                     has_selection: old_selection.is_some(),
                 };
                 // Structured warn for the product telemetry pipeline.
