@@ -661,10 +661,11 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
                     .take_while(|(screen_row, _, _, _)| *screen_row < max_y)
                     .collect();
 
-                crate::render::osc8::scan_lines_for_url_overlays_indented(
+                crate::render::osc8::scan_lines_for_url_overlays_indented_with_cwd(
                     visible_lines.iter().copied(),
                     entry_row_layout.content.x,
                     media_paths,
+                    cwd,
                     &mut result.link_overlay,
                 );
                 if !id_mentions.is_empty() {

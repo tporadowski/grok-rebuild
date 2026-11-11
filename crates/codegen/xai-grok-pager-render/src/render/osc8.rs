@@ -447,6 +447,17 @@ pub fn scan_lines_for_url_overlays_indented<'a>(
     media_paths: &[PathBuf],
     overlay: &mut LinkOverlay,
 ) {
+    scan_lines_for_url_overlays_indented_with_cwd(lines, content_x, media_paths, None, overlay);
+}
+
+/// Like [`scan_lines_for_url_overlays_indented`], and also links a relative path when that file exists under `cwd`.
+pub fn scan_lines_for_url_overlays_indented_with_cwd<'a>(
+    lines: impl Iterator<Item = (u16, &'a Line<'static>, Option<&'a str>, usize)>,
+    content_x: u16,
+    media_paths: &[PathBuf],
+    cwd: Option<&Path>,
+    overlay: &mut LinkOverlay,
+) {
     // Joined text and row segments for the logical line currently being accumulated
     // Buffers are reused across groups to avoid per-row allocation on every render frame
     let mut group_text = String::new();
@@ -462,7 +473,14 @@ pub fn scan_lines_for_url_overlays_indented<'a>(
                 indent_cols
             }
             _ => {
-                scan_logical_line(&group_text, &group_rows, content_x, media_paths, overlay);
+                scan_logical_line(
+                    &group_text,
+                    &group_rows,
+                    content_x,
+                    media_paths,
+                    cwd,
+                    overlay,
+                );
                 group_text.clear();
                 group_rows.clear();
                 0
@@ -477,7 +495,14 @@ pub fn scan_lines_for_url_overlays_indented<'a>(
             col_bias,
         });
     }
-    scan_logical_line(&group_text, &group_rows, content_x, media_paths, overlay);
+    scan_logical_line(
+        &group_text,
+        &group_rows,
+        content_x,
+        media_paths,
+        cwd,
+        overlay,
+    );
 }
 
 /// Link known subagent and background-task ids in the same joined rows as [`scan_lines_for_url_overlays_indented`].
@@ -688,6 +713,7 @@ fn scan_logical_line(
     rows: &[RowSegment],
     content_x: u16,
     media_paths: &[PathBuf],
+    cwd: Option<&Path>,
     overlay: &mut LinkOverlay,
 ) {
     if text.is_empty() || rows.is_empty() {
@@ -814,8 +840,9 @@ fn scan_logical_line(
         }
     }
 
-    // Pass 3: relative paths that uniquely match a generated media file (so bare `word/word.ext` prose is not over-linkified)
-    if !media_paths.is_empty() {
+    // Pass 3: a unique generated-media match, or a file that exists under the session folder.
+    // The existence check keeps ordinary `a/b.ext` prose unlinked.
+    if !media_paths.is_empty() || cwd.is_some() {
         for m in rel_path_re.find_iter(text) {
             if range_overlaps_urls(m.start(), m.end())
                 || path_byte_ranges
@@ -844,8 +871,7 @@ fn scan_logical_line(
             let path = m
                 .as_str()
                 .trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
-            // Bare relative paths in prose stay media-only (no cwd fallback), so ordinary `a/b.ext`-shaped prose is not over-linkified
-            let Some(file_target) = local_link_to_file_target(path, media_paths, None) else {
+            let Some(file_target) = local_link_to_file_target(path, media_paths, cwd) else {
                 continue;
             };
             let path_end = m.start() + path.len();

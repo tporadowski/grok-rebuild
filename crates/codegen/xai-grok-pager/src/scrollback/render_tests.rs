@@ -1495,6 +1495,65 @@ fn overlay_markdown_relative_link_opens_as_file_url() {
 }
 
 #[test]
+fn agent_relative_file_path_opens_when_it_exists_under_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let nested = dir.path().join("src/app");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join("main.rs"), b"fn main() {}").unwrap();
+    let absolute = dir.path().join("README.md");
+    std::fs::write(&absolute, b"hi").unwrap();
+
+    let text = format!(
+        "See src/app/main.rs, skip src/app/missing.rs, and open {}.\n",
+        absolute.display()
+    );
+    let mut entries = vec![make_markdown_entry(&text)];
+    if let RenderBlock::AgentMessage(block) = &mut at_mut(&mut entries, 0).block {
+        block.finish();
+    }
+    let viewport = Rect::new(0, 0, 120, 8);
+    let (result, _) =
+        render_with_scratch_and_buffer_with_cwd(&entries, viewport, 0, None, Some(dir.path()));
+    let urls: Vec<Arc<str>> = result
+        .link_overlay
+        .links()
+        .iter()
+        .filter_map(|link| {
+            resolve_link_target(&link.target).and_then(|resolved| resolved.osc8_url)
+        })
+        .collect();
+    assert!(
+        urls.iter()
+            .any(|url| url.starts_with("file://") && url.ends_with("/src/app/main.rs")),
+        "a relative path that exists under the session opens, got {urls:?}"
+    );
+    assert!(
+        !urls.iter().any(|url| url.contains("missing.rs")),
+        "a relative path that is not a file stays plain, got {urls:?}"
+    );
+    assert!(
+        urls.iter()
+            .any(|url| url.starts_with("file://") && url.ends_with("/README.md")),
+        "an absolute path in the same reply still opens, got {urls:?}"
+    );
+
+    let (without_session, _) =
+        render_with_scratch_and_buffer_with_cwd(&entries, viewport, 0, None, None);
+    let plain: Vec<Arc<str>> = without_session
+        .link_overlay
+        .links()
+        .iter()
+        .filter_map(|link| {
+            resolve_link_target(&link.target).and_then(|resolved| resolved.osc8_url)
+        })
+        .collect();
+    assert!(
+        !plain.iter().any(|url| url.contains("/src/app/main.rs")),
+        "without a session folder the relative path stays plain, got {plain:?}"
+    );
+}
+
+#[test]
 fn overlay_word_wrap_splits_link() {
     // Pre-wrap line "hello world" (11 chars) wrapped into two segments: wrapped line 0: "hello" (5 chars, joiner=None
     // → new pre-wrap line) wrapped line 1: "world" (5 chars, joiner=Some(" ") → continuation). The joiner " " is the
