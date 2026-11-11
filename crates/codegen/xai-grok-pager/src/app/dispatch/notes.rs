@@ -507,8 +507,35 @@ pub(super) struct UnsentFeedbackReport<'a> {
     pub(super) text: &'a str,
     /// Attachments are not carried into the draft, so the notice says how many were lost.
     pub(super) image_count: usize,
-    /// Leading clause of the notice, e.g. "Couldn't send feedback: offline".
+    /// Failure clause from [`feedback_failure_clause`], e.g. "Couldn't send feedback: offline".
     pub(super) failure: &'a str,
+}
+
+/// The reason after the shared "Couldn't send feedback" lead-in, or the whole clause when it has none.
+fn reason_after_send_failure(failure: &str) -> &str {
+    const LEAD: &str = "couldn't send feedback";
+    let trimmed = failure.trim();
+    if !trimmed.to_ascii_lowercase().starts_with(LEAD) {
+        return trimmed;
+    }
+    trimmed
+        .get(LEAD.len()..)
+        .unwrap_or("")
+        .trim()
+        .trim_start_matches(':')
+        .trim()
+}
+
+/// Outcome first, then the reason, then where to retry. A long reason must not push the save off the front.
+fn saved_draft_notice(failure: &str, attachments: &str) -> String {
+    let reason = reason_after_send_failure(failure).trim_end_matches('.');
+    if reason.is_empty() {
+        format!("Couldn't send feedback. Saved to Drafts{attachments}. Open `/feedback` to retry.")
+    } else {
+        format!(
+            "Couldn't send feedback. Saved to Drafts{attachments}. {reason}. Open `/feedback` to retry."
+        )
+    }
 }
 
 /// The composer was cleared at send time, so the predraft written here is the only copy left;
@@ -539,9 +566,7 @@ pub(super) fn keep_unsent_feedback_report(agent: &mut AgentView, report: UnsentF
             .map_err(|error| error.to_string())
     });
     let notice = match saved {
-        Some(Ok(_)) => {
-            format!("{failure}. Saved to Drafts{attachments}; open `/feedback` to retry.")
-        }
+        Some(Ok(_)) => saved_draft_notice(failure, &attachments),
         Some(Err(error)) => {
             format!(
                 "{failure}. Could not save it as a draft ({error}). Not sent{attachments}: {text}"

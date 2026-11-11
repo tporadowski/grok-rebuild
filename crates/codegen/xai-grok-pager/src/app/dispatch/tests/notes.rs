@@ -646,7 +646,7 @@ fn feedback_failed_keeps_the_report_as_a_draft_and_spares_the_composer() {
     let _ = std::fs::remove_dir_all(&session_dir);
     let notice = last_system_text(&app, id);
     assert_eq!(
-        "Couldn't send feedback: disabled. Saved to Drafts (its 2 images were dropped); open `/feedback` to retry.",
+        "Couldn't send feedback. Saved to Drafts (its 2 images were dropped). disabled. Open `/feedback` to retry.",
         notice
     );
     let drafts = drafts.expect("drafts readable");
@@ -1362,7 +1362,7 @@ fn feedback_modal_submit_closes_immediately_and_failure_keeps_a_draft() {
         "a failed POST must not resurrect the closed modal"
     );
     assert_eq!(
-        "Couldn't send feedback: offline. Saved to Drafts; open `/feedback` to retry.",
+        "Couldn't send feedback. Saved to Drafts. offline. Open `/feedback` to retry.",
         last_system_text(&app, AgentId(0))
     );
     let drafts = drafts.expect("drafts readable");
@@ -2548,7 +2548,7 @@ fn feedback_send_shows_sending_before_the_result() {
     let notice = last_system_text(&app, id);
     assert_eq!(
         notice,
-        "Couldn't send feedback: offline. Saved to Drafts; open `/feedback` to retry."
+        "Couldn't send feedback. Saved to Drafts. offline. Open `/feedback` to retry."
     );
     assert_eq!(notice.to_ascii_lowercase().matches("send feedback").count(), 1);
 }
@@ -2589,7 +2589,7 @@ fn feedback_failure_notice_keeps_one_send_prefix() {
     let notice = last_system_text(&app, AgentId(0));
     assert_eq!(
         notice,
-        "Couldn't send feedback: offline. Saved to Drafts; open `/feedback` to retry."
+        "Couldn't send feedback. Saved to Drafts. offline. Open `/feedback` to retry."
     );
     assert_eq!(
         notice.to_ascii_lowercase().matches("send feedback").count(),
