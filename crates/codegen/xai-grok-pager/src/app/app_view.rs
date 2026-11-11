@@ -261,6 +261,9 @@ pub enum TickDemand {
 /// Tick cadence for [`TickDemand::Slow`] (~12fps).
 /// Matches the welcome logo's `SHIMMER_FPS` so slow ticks sample every shimmer frame, and bounds the latency of the macOS Cmd link-hover underline.
 pub const SLOW_TICK_INTERVAL: Duration = Duration::from_millis(83);
+/// `@` completion is drawn from the animation tick. At the default 30 fps that
+/// tick is ~33 ms, so a new query waited about 40 ms. Poll while it is open.
+pub const FILE_SEARCH_TICK_INTERVAL: Duration = Duration::from_millis(5);
 /// Welcome toast lifetime (wall clock, so the duration holds whether the event loop is ticking Slow or Fast).
 const WELCOME_TOAST_DURATION: Duration = Duration::from_secs(2);
 fn reconnect_success_hides_mismatch(current: Option<&str>, incoming: &str) -> bool {
@@ -5758,6 +5761,9 @@ impl AppView {
     /// The `/gboom` easter egg targets ~30 fps even when the user configured a lower `animation.fps`.
     /// The simulation steps with wall-clock `dt`, so this only affects smoothness, never game speed.
     pub fn tick_interval_ceiling(&self) -> Option<std::time::Duration> {
+        if self.file_search_poll_active() {
+            return Some(FILE_SEARCH_TICK_INTERVAL);
+        }
         if self.gboom_active() {
             return Some(std::time::Duration::from_millis(33));
         }
@@ -5765,6 +5771,21 @@ impl AppView {
             return Some(std::time::Duration::from_millis(16));
         }
         None
+    }
+    /// True when this frame's tick polls an open `@` completion.
+    fn file_search_poll_active(&self) -> bool {
+        match self.active_view {
+            ActiveView::Agent(id) => self
+                .agents
+                .get(&id)
+                .is_some_and(|agent| agent.prompt.file_search.context().is_some()),
+            ActiveView::AgentDashboard => self.dashboard.as_ref().is_some_and(|dash| {
+                dash.dispatch.file_search.context().is_some()
+                    || (dash.peek_owns_input()
+                        && dash.peek_reply.file_search.context().is_some())
+            }),
+            ActiveView::Welcome => false,
+        }
     }
     /// Deferred image viewer load (background thread).
     /// Shared by parent agent and fullscreen subagent children so gate/tick stay symmetric.

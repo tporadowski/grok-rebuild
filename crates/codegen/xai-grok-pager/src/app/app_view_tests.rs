@@ -1416,6 +1416,85 @@ fn needs_animation_gates_dashboard_file_search() {
     assert!(!app.needs_animation());
 }
 #[test]
+fn at_file_completion_is_polled_about_five_milliseconds_after_typing() {
+    use crate::app::event_loop::schedule_tick;
+    use tokio::time::Instant;
+
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    let frame = Duration::from_millis(33);
+    let ctx = crate::views::file_search::context::detect("@src", 4).expect("@-context");
+    app.agents
+        .get_mut(&id)
+        .unwrap()
+        .prompt
+        .file_search
+        .set_test_state(ctx, Vec::new(), 0);
+    assert_eq!(app.tick_demand(), TickDemand::Fast);
+    assert_eq!(
+        app.tick_interval_ceiling(),
+        Some(FILE_SEARCH_TICK_INTERVAL)
+    );
+
+    let soon = Instant::now() + Duration::from_millis(1);
+    let mut tick_at = Some(soon);
+    schedule_tick(&mut tick_at, &app, frame);
+    assert_eq!(
+        tick_at,
+        Some(soon),
+        "a tick already due inside 5 ms stays put"
+    );
+
+    let late = Instant::now() + frame;
+    tick_at = Some(late);
+    let before = Instant::now();
+    schedule_tick(&mut tick_at, &app, frame);
+    let due = tick_at.expect("@ completion schedules a tick");
+    assert!(
+        due < late,
+        "an open @ pulls a pending animation frame forward"
+    );
+    let wait = due.saturating_duration_since(before);
+    assert!(
+        wait >= Duration::from_millis(4) && wait < Duration::from_millis(15),
+        "@ results are polled about 5 ms after typing, not a frame later ({wait:?})"
+    );
+
+    app.agents
+        .get_mut(&id)
+        .unwrap()
+        .prompt
+        .file_search
+        .clear_context();
+    assert!(app.tick_interval_ceiling().is_none());
+    let mut parked = None;
+    schedule_tick(&mut parked, &app, frame);
+    assert!(parked.is_none(), "closing @ on an idle agent parks");
+
+    app.active_view = ActiveView::AgentDashboard;
+    app.dashboard = Some(crate::views::dashboard::DashboardState::new());
+    let ctx = crate::views::file_search::context::detect("@lib", 4).expect("@-context");
+    app.dashboard
+        .as_mut()
+        .unwrap()
+        .dispatch
+        .file_search
+        .set_test_state(ctx, Vec::new(), 0);
+    assert_eq!(
+        app.tick_interval_ceiling(),
+        Some(FILE_SEARCH_TICK_INTERVAL),
+        "the dashboard @ prompt uses the same poll"
+    );
+    app.dashboard
+        .as_mut()
+        .unwrap()
+        .dispatch
+        .file_search
+        .clear_context();
+    assert!(app.tick_interval_ceiling().is_none());
+}
+
+#[test]
 fn search_mode_drops_hidden_peek_file_search_from_tick_demand() {
     let mut app = test_app_with_agent();
     let id = super::super::agent::AgentId(0);

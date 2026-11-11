@@ -1593,7 +1593,7 @@ id | status | wave | kind | flag | covered | note
 - v54-p02 | done | W15 | Performance |  |  | **Prompt undo history** is capped by size, so large pastes you delete no longer stay in memory.
 - v54-p03 | done | W15 | Performance |  |  | **Typing in a prompt that holds large pastes** is faster.
 - v54-p04 | already | W15 | Performance |  |  | **Long sessions** use less memory: long replies scrolled off screen release their render caches.
-- v66-p01 | pending | W15 | Performance |  |  | **`@` file completion** shows results about 5 ms after you type instead of about 40 ms.
+- v66-p01 | done | W15 | Performance |  |  | **`@` file completion** shows results about 5 ms after you type instead of about 40 ms.
 - v69-p01 | already | W15 | Performance |  |  | **Quitting Grok** returns you to your shell sooner because it no longer waits out fixed intervals.
 - v73-p01 | deferred | W15 | Performance |  |  | **Startup** no longer waits about 100 ms for a sign-in file when you use an API key or have not signed in yet.
 - v74-p01 | pending | W15 | Performance |  |  | **Long sessions** use less memory: finished Markdown blocks far off screen release their rendered layout, and search still finds their text.

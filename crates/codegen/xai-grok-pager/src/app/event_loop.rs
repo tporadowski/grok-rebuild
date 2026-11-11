@@ -3078,20 +3078,25 @@ fn after_task_complete_dispatch(
     }
     presenter.request(false);
 }
-/// Schedule the next animation tick when demanded and none is pending.
+/// Schedule the next animation tick when demanded.
+/// A demand that is due sooner than a tick already waiting replaces it, so opening
+/// `@` completion does not sit behind a frame that was armed for something slower.
 pub(crate) fn schedule_tick(tick_at: &mut Option<Instant>, app: &AppView, interval: Duration) {
-    if tick_at.is_none() {
-        let interval = match app.tick_demand() {
-            crate::app::app_view::TickDemand::None => return,
-            crate::app::app_view::TickDemand::Fast => match app.tick_interval_ceiling() {
-                Some(ceiling) => interval.min(ceiling),
-                None => interval,
-            },
-            crate::app::app_view::TickDemand::Slow => {
-                interval.max(crate::app::app_view::SLOW_TICK_INTERVAL)
-            }
-        };
-        *tick_at = Some(Instant::now() + interval);
+    let interval = match app.tick_demand() {
+        crate::app::app_view::TickDemand::None => return,
+        crate::app::app_view::TickDemand::Fast => match app.tick_interval_ceiling() {
+            Some(ceiling) => interval.min(ceiling),
+            None => interval,
+        },
+        crate::app::app_view::TickDemand::Slow => {
+            interval.max(crate::app::app_view::SLOW_TICK_INTERVAL)
+        }
+    };
+    let due = Instant::now() + interval;
+    match tick_at {
+        None => *tick_at = Some(due),
+        Some(pending) if due < *pending => *tick_at = Some(due),
+        Some(_) => {}
     }
 }
 /// Sync `appearance_watcher` with the current `AUTO_MODE` flag.
