@@ -502,6 +502,7 @@ pub fn write_text_to_copy_file(
 
 /// Like [`write_text_to_copy_file`], but refuses when the file is already there.
 /// The clipboard backup path keeps the rewriting writer. A path the user named with `/copy` does not.
+/// An existing named pipe is opened without waiting: nothing reading it is an immediate error.
 pub fn write_new_text_file(
     text: &str,
     path: &std::path::Path,
@@ -514,6 +515,16 @@ pub fn write_new_text_file(
     }
     write_owner_only_new(&expanded, text)?;
     Ok(expanded)
+}
+
+/// Replace a regular file, matching `std::fs::write`. A named pipe is not truncated through a
+/// blocking open: nothing reading it fails immediately. `grok export <path>` uses this.
+pub fn write_replacing_text_file(text: &str, path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if is_fifo(path) {
+        return write_fifo_without_blocking(path, text);
+    }
+    std::fs::write(path, text)
 }
 
 /// Unix `0600`, including tightening a pre-existing `0644` file (create-time mode does not). Non-unix is a plain write.
@@ -535,8 +546,14 @@ fn write_owner_only(path: &std::path::Path, text: &str) -> std::io::Result<()> {
     std::fs::write(path, text)
 }
 
-/// `create_new` so an existing file is left untouched. Unix mode `0600`, matching [`write_owner_only`].
+/// `create_new` so an existing regular file is left untouched. An existing named pipe is opened
+/// `O_NONBLOCK` instead: `O_WRONLY` on a FIFO waits until something reads it. Unix mode `0600`
+/// on a newly created file, matching [`write_owner_only`].
 fn write_owner_only_new(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if is_fifo(path) {
+        return write_fifo_without_blocking(path, text);
+    }
     use std::io::Write;
     #[cfg(unix)]
     {
@@ -555,6 +572,54 @@ fn write_owner_only_new(path: &std::path::Path, text: &str) -> std::io::Result<(
             .create_new(true)
             .open(path)?;
         file.write_all(text.as_bytes())
+    }
+}
+
+/// `metadata` follows a symlink, the same way `open` does.
+#[cfg(unix)]
+fn is_fifo(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    std::fs::metadata(path).is_ok_and(|meta| meta.file_type().is_fifo())
+}
+
+/// `ENXIO` from a non-blocking write-open means the pipe has no reader.
+#[cfg(unix)]
+fn write_fifo_without_blocking(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|err| {
+            if err.raw_os_error() == Some(libc::ENXIO) {
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "named pipe has no reader")
+            } else {
+                err
+            }
+        })?;
+    // A reader is connected. Blocking writes wait for that reader when the pipe buffer fills.
+    // Leaving `O_NONBLOCK` set would fail a long export with `WouldBlock`.
+    set_fd_blocking(&file)?;
+    file.write_all(text.as_bytes())
+}
+
+#[cfg(unix)]
+fn set_fd_blocking(file: &std::fs::File) -> std::io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let fd = file.as_raw_fd();
+    // SAFETY: `fd` belongs to `file` and stays open for this call.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `fd` belongs to `file`, and `flags` is the result of F_GETFL on that fd.
+    let rc = unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) };
+    if rc < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
     }
 }
 
@@ -2415,6 +2480,110 @@ mod tests {
         let written = write_new_text_file("new text", &fresh).expect("create");
         assert_eq!(written, fresh);
         assert_eq!(std::fs::read_to_string(&fresh).expect("read"), "new text");
+    }
+
+    #[cfg(unix)]
+    fn mkfifo_at(path: &std::path::Path) {
+        let status = std::process::Command::new("mkfifo")
+            .arg(path)
+            .status()
+            .expect("spawn mkfifo");
+        assert!(status.success(), "mkfifo {}", path.display());
+    }
+
+    /// The writer runs on another thread so a blocking `open` fails the test instead of hanging it.
+    #[cfg(unix)]
+    fn expect_within<T: Send + 'static>(
+        limit: std::time::Duration,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(work());
+        });
+        match rx.recv_timeout(limit) {
+            Ok(value) => value,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                panic!("named pipe open still blocked after {limit:?}")
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("writer thread ended without a result")
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_new_text_file_unread_named_pipe_fails_immediately() {
+        use std::os::unix::fs::FileTypeExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("export.pipe");
+        mkfifo_at(&path);
+        let path_for_write = path.clone();
+        let err = expect_within(std::time::Duration::from_secs(2), move || {
+            write_new_text_file("transcript", &path_for_write)
+        })
+        .expect_err("unread pipe");
+        assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+        assert!(
+            err.to_string().contains("no reader"),
+            "error should name the missing reader: {err}"
+        );
+        assert!(std::fs::metadata(&path).expect("meta").file_type().is_fifo());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_new_text_file_named_pipe_with_a_reader_receives_the_text() {
+        use std::io::Read;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("export.pipe");
+        mkfifo_at(&path);
+        // `O_RDONLY|O_NONBLOCK` returns before a writer exists, so the write open can succeed.
+        let mut reader = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&path)
+            .expect("reader");
+        let path_for_write = path.clone();
+        let written = expect_within(std::time::Duration::from_secs(2), move || {
+            write_new_text_file("hello pipe", &path_for_write)
+        })
+        .expect("reader is connected");
+        assert_eq!(written, path);
+        let mut buf = String::new();
+        reader.read_to_string(&mut buf).expect("read pipe");
+        assert_eq!(buf, "hello pipe");
+    }
+
+    #[test]
+    fn write_replacing_text_file_replaces_a_regular_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("out.md");
+        std::fs::write(&path, "old").expect("seed");
+        write_replacing_text_file("new", &path).expect("replace");
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_replacing_text_file_unread_named_pipe_fails_immediately() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("export.pipe");
+        mkfifo_at(&path);
+        let path_for_write = path.clone();
+        let err = expect_within(std::time::Duration::from_secs(2), move || {
+            write_replacing_text_file("transcript", &path_for_write)
+        })
+        .expect_err("unread pipe");
+        assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+        assert!(
+            err.to_string().contains("no reader"),
+            "error should name the missing reader: {err}"
+        );
     }
 
     /// Copied text can be sensitive and the fallback path is predictable, so the file must be owner-only (`0600`).

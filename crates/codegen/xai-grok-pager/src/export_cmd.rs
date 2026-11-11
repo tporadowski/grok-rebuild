@@ -54,7 +54,7 @@ pub fn run(args: ExportArgs) -> Result<()> {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create {}", parent.display()))?;
         }
-        std::fs::write(&expanded, &md)
+        crate::clipboard::write_replacing_text_file(&md, &expanded)
             .with_context(|| format!("Failed to write {}", expanded.display()))?;
         tracing::info!(
             session_id = %args.session_id,
