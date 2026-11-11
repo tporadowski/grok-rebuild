@@ -932,20 +932,30 @@ impl PagerArgs {
         }
     }
     /// Parse CLI arguments without applying side effects.
+    ///
+    /// Uses `args_os` so a non-UTF-8 path does not panic before clap runs.
+    /// A non-UTF-8 text value (`-p`) is clap's usage error instead.
     pub fn parse_cli() -> Self {
-        let bin_name = std::env::args()
+        match Self::try_parse_os(std::env::args_os()) {
+            Ok(args) => args,
+            Err(err) => err.exit(),
+        }
+    }
+    fn try_parse_os<I>(argv: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = std::ffi::OsString>,
+    {
+        let mut argv = argv.into_iter();
+        let bin_name = argv
             .next()
-            .as_deref()
+            .as_ref()
             .map(std::path::Path::new)
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
             .filter(|n| *n == "grok" || *n == "agent")
             .unwrap_or("grok")
             .to_owned();
-        match Self::try_parse_prepared(std::iter::once(bin_name).chain(std::env::args().skip(1))) {
-            Ok(args) => args,
-            Err(err) => err.exit(),
-        }
+        Self::try_parse_prepared(std::iter::once(std::ffi::OsString::from(bin_name)).chain(argv))
     }
     /// The command `parse_cli` uses. Top-level `--help` prints one-line summaries.
     pub(crate) fn cli_command() -> clap::Command {
@@ -1177,6 +1187,31 @@ impl PagerArgs {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_cwd_is_accepted_and_non_utf8_prompt_is_a_usage_error() {
+        use std::os::unix::ffi::OsStringExt;
+        let bad = std::ffi::OsString::from_vec(b"caf\xff".to_vec());
+        let argv0 = std::ffi::OsString::from_vec(b"/opt/caf\xff/grok-bin".to_vec());
+        let parsed = PagerArgs::try_parse_os([
+            argv0,
+            std::ffi::OsString::from("--cwd"),
+            bad.clone(),
+        ])
+        .expect("non-utf8 --cwd");
+        assert_eq!(
+            parsed.cwd.as_deref().map(std::path::Path::as_os_str),
+            Some(bad.as_os_str())
+        );
+        let err = PagerArgs::try_parse_os([
+            std::ffi::OsString::from("grok"),
+            std::ffi::OsString::from("-p"),
+            bad,
+        ])
+        .expect_err("non-utf8 -p");
+        assert_eq!(err.kind(), clap::error::ErrorKind::InvalidUtf8);
+        assert_eq!(err.exit_code(), 2);
+    }
     #[test]
     fn worker_parses_start_stop_status_controller_and_old_name() {
         let start = PagerArgs::try_parse_from([
