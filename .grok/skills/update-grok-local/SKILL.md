@@ -32,7 +32,7 @@ Run from the **grok-build** repo root (the tree that contains
    another machine, or infer the role from a merge subject (`origin/main`
    vs `upstream/main`).
    - **Upstream** = remote whose URL contains `xai-org/grok-build`
-   - **Fork** = the other `grok-build` remote (this user’s publish target)
+   - **Fork** = the other remote whose repo name is `grok-build` or `grok-rebuild` (this user’s publish target)
    Abort if either remote cannot be identified. Do not guess.
 2. Working tree should be clean enough to merge. If dirty:
    - Prefer stashing only if the user did not intentionally leave WIP.
@@ -55,7 +55,7 @@ echo "RUN_START_HEAD=$RUN_START_HEAD"
 
 # Detect by fetch URL (Preconditions). Print $1 — the remote name only.
 UPSTREAM_REMOTE=$(git remote -v | awk '/github.com[:/]xai-org\/grok-build/ && /fetch/ {print $1; exit}')
-FORK_REMOTE=$(git remote -v | awk '!/github.com[:/]xai-org\/grok-build/ && /grok-build/ && /fetch/ {print $1; exit}')
+FORK_REMOTE=$(git remote -v | awk '!/github.com[:/]xai-org\/grok-build/ && /github.com[:/][^ ]*\/grok-(build|rebuild)(\.git)?( |$)/ && /fetch/ {print $1; exit}')
 echo "UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-MISSING}  FORK_REMOTE=${FORK_REMOTE:-MISSING}"
 # Abort if either variable is empty.
 
@@ -72,7 +72,7 @@ compare, and push.
 |------|---------------|--------|
 | Upstream source of truth | URL contains `xai-org/grok-build` | `main` |
 | Local integration branch | (local) | `main` |
-| Publish target for this fork | the non-xAI `grok-build` remote | `main` |
+| Publish target for this fork | the non-xAI `grok-build` or `grok-rebuild` remote | `main` |
 
 Merge **upstream into local main**, then (only if user asks or skill is run
 with push intent) update `$FORK_REMOTE/main`. Default of this skill:
