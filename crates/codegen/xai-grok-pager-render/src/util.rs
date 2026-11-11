@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub use xai_grok_config::grok_home;
@@ -228,15 +229,48 @@ pub fn truncate_to_width(s: &str, max_width: usize) -> Cow<'_, str> {
     Cow::Owned(format!("{prefix}…"))
 }
 
+/// Columns one grapheme cluster takes on the terminal.
+///
+/// `⚠️` and `#️⃣` are a base plus a variation selector (and a keycap mark). Per-character width
+/// counts those as one column; the terminal draws them as two, which shoves the rest of the row
+/// past its box and clips the ellipsis.
+pub fn cluster_columns(cluster: &str) -> usize {
+    let per_char: usize = cluster
+        .chars()
+        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+        .sum();
+    if !cluster.contains('\u{FE0F}') {
+        return per_char;
+    }
+    UnicodeWidthStr::width(cluster).max(per_char)
+}
+
+/// Terminal columns of `s`, counting emoji presentation and keycap sequences the way the terminal draws them.
+pub fn display_columns(s: &str) -> usize {
+    s.graphemes(true)
+        .map(cluster_columns)
+        .fold(0usize, usize::saturating_add)
+}
+
+/// How many columns wider `s` is on the terminal than a per-character sum, because of emoji presentation.
+pub(crate) fn emoji_presentation_extra(s: &str) -> usize {
+    let per_char: usize = s
+        .chars()
+        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+        .sum();
+    display_columns(s).saturating_sub(per_char)
+}
+
 /// Byte offset at which display width would exceed `max_width`, or `s.len()`.
+/// The cut is always on a grapheme boundary, so a `⚠️` or `#️⃣` is kept whole.
 pub fn byte_offset_at_width(s: &str, max_width: usize) -> usize {
-    let mut width = 0;
-    for (i, ch) in s.char_indices() {
-        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if width + cw > max_width {
-            return i;
+    let mut width = 0usize;
+    for (idx, cluster) in s.grapheme_indices(true) {
+        let columns = cluster_columns(cluster);
+        if width.saturating_add(columns) > max_width {
+            return idx;
         }
-        width += cw;
+        width = width.saturating_add(columns);
     }
     s.len()
 }
@@ -296,6 +330,37 @@ mod tests {
         assert_eq!(truncate_to_width("日本語ラベル", 5).as_ref(), "日本…");
         assert_eq!(truncate_to_width("hello", 1).as_ref(), "…");
         assert_eq!(truncate_to_width("hello", 0).as_ref(), "");
+    }
+
+    #[test]
+    fn emoji_and_keycap_keep_their_ellipsis_inside_the_box() {
+        // Per-character width counts both of these as 1, and the terminal draws them as 2.
+        assert_eq!(display_columns("\u{26A0}\u{FE0F}"), 2);
+        assert_eq!(display_columns("#\u{FE0F}\u{20E3}"), 2);
+        assert_eq!(emoji_presentation_extra("\u{26A0}\u{FE0F}"), 1);
+        assert_eq!(emoji_presentation_extra("#\u{FE0F}\u{20E3}"), 1);
+
+        let warning = truncate_to_width("\u{26A0}\u{FE0F}abcd", 3);
+        let keycap = truncate_to_width("#\u{FE0F}\u{20E3}abcd", 3);
+        for shown in [warning.as_ref(), keycap.as_ref()] {
+            assert!(
+                shown.ends_with('\u{2026}'),
+                "the cut has to stay visible: {shown:?}"
+            );
+            assert!(
+                UnicodeWidthStr::width(shown) <= 3,
+                "{shown:?} runs past a 3-column box"
+            );
+            assert!(
+                !shown.contains('a'),
+                "a narrow count steals the ellipsis column: {shown:?}"
+            );
+        }
+        assert_eq!(truncate_to_width("\u{26A0}\u{FE0F}", 2).as_ref(), "\u{26A0}\u{FE0F}");
+        assert_eq!(
+            truncate_to_width("#\u{FE0F}\u{20E3}", 2).as_ref(),
+            "#\u{FE0F}\u{20E3}"
+        );
     }
 
     #[test]

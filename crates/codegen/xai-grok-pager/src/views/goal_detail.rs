@@ -157,21 +157,21 @@ fn wrap_pause_message_lines(text: &str, width: u16) -> Vec<String> {
 /// Truncate `text` to at most `budget` terminal columns, appending an ellipsis if truncated.
 /// Uses display width (not char count) so CJK and emoji characters measure correctly, matching `wrap_pause_message_lines`.
 pub(crate) fn truncate_to_width(text: &str, budget: usize) -> String {
-    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    use unicode_segmentation::UnicodeSegmentation;
 
-    if UnicodeWidthStr::width(text) <= budget {
+    if crate::util::display_columns(text) <= budget {
         return text.to_owned();
     }
     let target = budget.saturating_sub(1); // room for ellipsis
     let mut out = String::new();
     let mut w = 0usize;
-    for ch in text.chars() {
-        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if w + cw > target {
+    for cluster in text.graphemes(true) {
+        let cw = crate::util::cluster_columns(cluster);
+        if w.saturating_add(cw) > target {
             break;
         }
-        out.push(ch);
-        w += cw;
+        out.push_str(cluster);
+        w = w.saturating_add(cw);
     }
     out.push('\u{2026}');
     out
@@ -1929,6 +1929,24 @@ mod tests {
     fn truncate_to_width_ascii() {
         assert_eq!(truncate_to_width("short", 100), "short");
         assert_eq!(truncate_to_width("hello world", 5), "hell\u{2026}");
+    }
+
+    #[test]
+    fn truncate_to_width_keeps_emoji_and_keycap_with_the_ellipsis() {
+        use unicode_width::UnicodeWidthStr;
+        let warning = truncate_to_width("\u{26A0}\u{FE0F}abcd", 3);
+        let keycap = truncate_to_width("#\u{FE0F}\u{20E3}abcd", 3);
+        for shown in [warning, keycap] {
+            assert!(shown.ends_with('\u{2026}'), "{shown:?}");
+            assert!(
+                UnicodeWidthStr::width(shown.as_str()) <= 3,
+                "{shown:?} runs past the box"
+            );
+            assert!(
+                !shown.contains('a'),
+                "the ellipsis must stay inside the row: {shown:?}"
+            );
+        }
     }
 
     #[test]

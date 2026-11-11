@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use std::borrow::Cow;
 use std::ops::Range;
 use textwrap::Options;
-use unicode_width::UnicodeWidthChar;
+use unicode_segmentation::UnicodeSegmentation;
 
 use super::line_utils::{fit_line_to_width, push_owned_lines};
 
@@ -71,14 +71,60 @@ pub fn byte_range_to_row_cols(
 pub(crate) fn byte_offset_to_display_col(text: &str, byte_offset: usize) -> usize {
     let mut col = 0usize;
     let mut bytes = 0usize;
-    for ch in text.chars() {
+    for cluster in text.graphemes(true) {
         if bytes >= byte_offset {
             break;
         }
-        bytes += ch.len_utf8();
-        col += ch.width().unwrap_or(0);
+        bytes += cluster.len();
+        col += crate::util::cluster_columns(cluster);
     }
     col
+}
+
+/// Split `range` where an emoji presentation or keycap sequence makes the terminal wider than the
+/// width textwrap measured. A row that textwrap already kept on purpose (no such sequence) stays intact.
+fn reflow_emoji_range(
+    text: &str,
+    range: Range<usize>,
+    first_width: usize,
+    rest_width: usize,
+) -> Vec<Range<usize>> {
+    let mut pieces = Vec::new();
+    let mut start = range.start;
+    let mut width = first_width.max(1);
+    let rest_width = rest_width.max(1);
+    while start < range.end {
+        let Some(slice) = text.get(start..range.end) else {
+            break;
+        };
+        if crate::util::display_columns(slice) <= width
+            || crate::util::emoji_presentation_extra(slice) == 0
+        {
+            pieces.push(start..range.end);
+            break;
+        }
+        let mut fit = crate::util::byte_offset_at_width(slice, width);
+        if fit == 0 {
+            fit = slice
+                .graphemes(true)
+                .next()
+                .map(|cluster| cluster.len())
+                .unwrap_or(0);
+        }
+        let next = start.saturating_add(fit);
+        if fit == 0 || next <= start || next > range.end {
+            pieces.push(start..range.end);
+            break;
+        }
+        pieces.push(start..next);
+        start = next;
+        width = rest_width;
+    }
+    if pieces.is_empty() {
+        vec![range]
+    } else {
+        pieces
+    }
 }
 
 /// Breakpoints must match visual rendering. FirstFit is greedy, so single-pass equals the two-stage wrap; a non-greedy change must mirror it.
@@ -95,10 +141,7 @@ pub fn wrap_byte_ranges_matching(text: &str, width: usize) -> Vec<Range<usize>> 
     let subsequent_width = if bq_len > 0 && bq_len < text.len() {
         match text.get(..bq_len) {
             Some(prefix) => {
-                let prefix_display_width = prefix
-                    .chars()
-                    .map(|c| c.width().unwrap_or(0))
-                    .sum::<usize>();
+                let prefix_display_width = crate::util::display_columns(prefix);
                 width.saturating_sub(prefix_display_width).max(1)
             }
             None => width,
@@ -127,10 +170,9 @@ pub fn wrap_byte_ranges_matching(text: &str, width: usize) -> Vec<Range<usize>> 
     };
     base = base.saturating_add(skip);
 
-    if base < text.len() {
-        let Some(remainder) = text.get(base..) else {
-            return ranges;
-        };
+    if base < text.len()
+        && let Some(remainder) = text.get(base..)
+    {
         let rem_opts = textwrap::Options::new(subsequent_width)
             .wrap_algorithm(textwrap::WrapAlgorithm::FirstFit)
             .word_splitter(textwrap::WordSplitter::HyphenSplitter)
@@ -140,7 +182,21 @@ pub fn wrap_byte_ranges_matching(text: &str, width: usize) -> Vec<Range<usize>> 
         }
     }
 
-    ranges
+    let mut fitted = Vec::with_capacity(ranges.len());
+    for (i, range) in ranges.into_iter().enumerate() {
+        let (piece_width, later_width) = if i == 0 {
+            (width, subsequent_width)
+        } else {
+            (subsequent_width, subsequent_width)
+        };
+        fitted.extend(reflow_emoji_range(
+            text,
+            range,
+            piece_width,
+            later_width,
+        ));
+    }
+    fitted
 }
 
 /// Wrapping options with initial/subsequent indent support.
@@ -369,25 +425,52 @@ where
         .saturating_sub(rt_opts.initial_indent.width())
         .max(1);
     let initial_wrapped = wrap_ranges_trim(&flat, opts.clone().width(initial_width_available));
-    let Some(first_line_range) = initial_wrapped.first() else {
+    let Some(first_line_range) = initial_wrapped.first().cloned() else {
         out.push(rt_opts.initial_indent.clone());
         joiners.push(None);
         return (out, joiners);
     };
 
+    let subsequent_width_available = opts
+        .width
+        .saturating_sub(rt_opts.subsequent_indent.width())
+        .max(1);
+    let first_pieces = reflow_emoji_range(
+        &flat,
+        first_line_range.clone(),
+        initial_width_available,
+        subsequent_width_available,
+    );
+
     // Rows are emitted in increasing byte order, so each row resumes the span scan where the previous one stopped instead of rescanning from 0
     // This shared cursor (see `slice_line_spans`) is what keeps wrapping one huge line linear
     let mut span_cursor = 0usize;
 
+    let Some(first_piece) = first_pieces.first() else {
+        out.push(rt_opts.initial_indent.clone());
+        joiners.push(None);
+        return (out, joiners);
+    };
     let first_line = build_wrapped_line_from_range(
         rt_opts.initial_indent.clone(),
         line,
         &span_bounds,
-        first_line_range,
+        first_piece,
         &mut span_cursor,
     );
     out.push(first_line);
     joiners.push(None);
+    for extra in first_pieces.iter().skip(1) {
+        let extra_line = build_wrapped_line_from_range(
+            rt_opts.subsequent_indent.clone(),
+            line,
+            &span_bounds,
+            extra,
+            &mut span_cursor,
+        );
+        out.push(extra_line);
+        joiners.push(Some(String::new()));
+    }
 
     // Wrap the remainder using subsequent indent width.
     let mut base = first_line_range.end;
@@ -402,10 +485,6 @@ where
     };
     base = joiner_end;
 
-    let subsequent_width_available = opts
-        .width
-        .saturating_sub(rt_opts.subsequent_indent.width())
-        .max(1);
     let Some(remaining) = flat.get(base..) else {
         return (out, joiners);
     };
@@ -428,15 +507,28 @@ where
         prev_end = r.end;
 
         let offset_range = (r.start + base)..(r.end + base);
-        let subsequent_line = build_wrapped_line_from_range(
-            rt_opts.subsequent_indent.clone(),
-            line,
-            &span_bounds,
-            &offset_range,
-            &mut span_cursor,
+        let pieces = reflow_emoji_range(
+            &flat,
+            offset_range,
+            subsequent_width_available,
+            subsequent_width_available,
         );
-        out.push(subsequent_line);
-        joiners.push(Some(joiner));
+        for (j, piece) in pieces.iter().enumerate() {
+            let piece_joiner = if j == 0 {
+                joiner.clone()
+            } else {
+                String::new()
+            };
+            let subsequent_line = build_wrapped_line_from_range(
+                rt_opts.subsequent_indent.clone(),
+                line,
+                &span_bounds,
+                piece,
+                &mut span_cursor,
+            );
+            out.push(subsequent_line);
+            joiners.push(Some(piece_joiner));
+        }
     }
 
     (out, joiners)
@@ -756,6 +848,38 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(concat_line(nth_line(&out, 0)), "hello");
         assert_eq!(concat_line(nth_line(&out, 1)), "world");
+    }
+
+    #[test]
+    fn emoji_and_keycap_rows_stay_inside_the_wrap_box() {
+        use unicode_width::UnicodeWidthStr;
+
+        let samples = ["ab\u{26A0}\u{FE0F}cd", "ab#\u{FE0F}\u{20E3}cd"];
+        for text in samples {
+            let line = Line::from(text);
+            let out = word_wrap_line(&line, 3);
+            assert!(out.len() > 1, "{text:?} must wrap once the symbol is two columns");
+            for line in &out {
+                let rendered = concat_line(line);
+                let columns = UnicodeWidthStr::width(rendered.as_str());
+                assert!(
+                    columns <= 3,
+                    "{rendered:?} from {text:?} is {columns} columns"
+                );
+            }
+            let joined: String = out.iter().map(concat_line).collect();
+            if text.contains('\u{26A0}') {
+                assert!(
+                    joined.contains("\u{26A0}\u{FE0F}"),
+                    "the warning symbol must stay whole: {joined:?}"
+                );
+            } else {
+                assert!(
+                    joined.contains("#\u{FE0F}\u{20E3}"),
+                    "the keycap must stay whole: {joined:?}"
+                );
+            }
+        }
     }
 
     #[test]

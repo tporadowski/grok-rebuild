@@ -260,6 +260,26 @@ mod tests {
         assert!(result.spans.is_empty());
     }
 
+    #[test]
+    fn truncate_line_keeps_ellipsis_for_emoji_and_keycap() {
+        for sample in ["\u{26A0}\u{FE0F}abcd", "#\u{FE0F}\u{20E3}abcd"] {
+            let result = truncate_line(Line::from(sample), 3);
+            let text = line_text(&result);
+            assert!(
+                text.ends_with('\u{2026}'),
+                "the ellipsis stays on the row: {text:?}"
+            );
+            assert!(
+                text.width() <= 3,
+                "{text:?} from {sample:?} runs past the box"
+            );
+            assert!(
+                !text.contains('a'),
+                "counting the symbol as one column pushes the ellipsis off: {text:?}"
+            );
+        }
+    }
+
     // ── fit_line_to_width tests ─────────────────────────────────────
 
     fn line_text(line: &Line<'static>) -> String {
