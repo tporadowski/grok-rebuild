@@ -1301,31 +1301,14 @@ pub(in crate::app::dispatch) fn set_follow_up_behavior(
     }]
 }
 
-/// State-only mutation for `simple_mode`.
-///
-/// Propagates to every agent's `input_mode` so the toggle takes effect immediately (not just on new agents).
+/// Store `simple_mode`. The key is retired: it does not change input mode or which pane is focused.
 pub(super) fn set_simple_mode_inner(app: &mut AppView, new: bool) {
     app.current_ui.simple_mode = Some(new);
     crate::appearance::cache::set_simple_mode(new);
-
-    // Reconcile every agent's `input_mode`; the toggle is global
-    let target_mode = if new {
-        crate::views::agent::InputMode::Simple
-    } else {
-        crate::views::agent::InputMode::Vim
-    };
-    for agent in app.agents.values_mut() {
-        if agent.input_mode != target_mode {
-            agent.set_input_mode(target_mode);
-        }
-    }
 }
 
 pub(in crate::app::dispatch) fn set_simple_mode(app: &mut AppView, new: bool) -> Vec<Effect> {
     let prev = app.current_ui.simple_mode.unwrap_or(true);
-    // No idempotency gate: this fans out to every agent's `input_mode`
-    // A newly-inserted agent may have a stale default, so we always propagate
-    // The inner is per-agent idempotent
     set_simple_mode_inner(app, new);
     refresh_open_settings_modals(app);
     tracing::info!(target: "settings", key = "simple_mode", value = new, "setting changed");

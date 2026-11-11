@@ -2471,27 +2471,22 @@ fn set_compact_mode_toast_format() {
     assert!(toast.contains("Compact mode"));
     assert!(toast.contains("off"));
 }
-/// `set_simple_mode_inner` propagates to the active agent's `input_mode`.
-/// Without the propagation, the toast says "Simple mode: on" but the current session keeps Vim input.
+/// `[ui] simple_mode` is retired. Toggling it stores the key and leaves the open session alone.
 #[test]
-fn set_simple_mode_propagates_to_active_agent() {
+fn set_simple_mode_does_not_change_the_open_session() {
     let mut app = test_app_with_agent();
     let agent = app.agents.get_mut(&AgentId(0)).unwrap();
     agent.input_mode = crate::views::agent::InputMode::Vim;
-    let _ = dispatch(Action::SetSimpleMode(true), &mut app);
-    let agent = app.agents.get(&AgentId(0)).unwrap();
-    assert_eq!(
-        agent.input_mode,
-        crate::views::agent::InputMode::Simple,
-        "set_simple_mode(true) must switch the active agent into Simple input mode"
-    );
+    agent.active_pane = crate::views::agent::ActivePane::Prompt;
     let _ = dispatch(Action::SetSimpleMode(false), &mut app);
     let agent = app.agents.get(&AgentId(0)).unwrap();
-    assert_eq!(
-        agent.input_mode,
-        crate::views::agent::InputMode::Vim,
-        "set_simple_mode(false) must switch back to Vim input mode"
-    );
+    assert_eq!(agent.input_mode, crate::views::agent::InputMode::Vim);
+    assert_eq!(agent.active_pane, crate::views::agent::ActivePane::Prompt);
+    assert_eq!(app.current_ui.simple_mode, Some(false));
+    let _ = dispatch(Action::SetSimpleMode(true), &mut app);
+    let agent = app.agents.get(&AgentId(0)).unwrap();
+    assert_eq!(agent.input_mode, crate::views::agent::InputMode::Vim);
+    assert_eq!(agent.active_pane, crate::views::agent::ActivePane::Prompt);
 }
 /// `set_simple_mode_inner` is a no-op on the agent-propagation path when there's no active agent.
 /// The persist effect still fires (the setting is global, not agent-local).
@@ -2506,10 +2501,9 @@ fn set_simple_mode_no_op_when_no_active_agent() {
     }
     assert_eq!(app.current_ui.simple_mode, Some(true));
 }
-/// `set_simple_mode_inner` propagates to **every** agent, not just the active one.
-/// Without iterating over `app.agents.values_mut()`, agent B's input_mode stays stale when the user toggles simple-mode while agent A is active.
+/// Toggling the retired key does not rewrite input mode on any open agent.
 #[test]
-fn set_simple_mode_propagates_to_every_agent() {
+fn set_simple_mode_leaves_every_agents_input_mode() {
     let mut app = test_app_with_agent();
     let id_b = AgentId(1);
     let mut agent_b = AgentView::new(
@@ -2554,16 +2548,13 @@ fn set_simple_mode_propagates_to_every_agent() {
         ScrollbackState::new(),
     );
     agent_b.input_mode = crate::views::agent::InputMode::Vim;
+    agent_b.active_pane = crate::views::agent::ActivePane::Prompt;
     app.agents.insert(id_b, agent_b);
     app.next_agent_id = 2;
     let _ = dispatch(Action::SetSimpleMode(true), &mut app);
-    for (id, agent) in &app.agents {
-        assert_eq!(
-            agent.input_mode,
-            crate::views::agent::InputMode::Simple,
-            "agent {id:?} input_mode did not propagate to Simple"
-        );
-    }
+    let kept = app.agents.get(&id_b).unwrap();
+    assert_eq!(kept.input_mode, crate::views::agent::InputMode::Vim);
+    assert_eq!(kept.active_pane, crate::views::agent::ActivePane::Prompt);
 }
 /// Setters must update BOTH `app.current_ui` AND `crate::appearance::cache`.
 /// If a refactor drops the `cache::set(new)` call, `app.current_ui` would still show the new value but the renderer would revert on the next frame.

@@ -1298,8 +1298,8 @@ fn send_from_welcome_honors_always_worktree() {
     );
     assert!(matches!(app.active_view, ActiveView::Agent(_)));
 }
-/// Vim input mode parks an empty prompt on Scrollback; the worktree path must
-/// still land the forwarded first keystroke in the composer.
+/// A welcome keystroke still lands in the composer when `[ui] simple_mode` is set.
+/// That key is retired and no longer parks the new session on the scrollback.
 #[test]
 fn keystroke_from_welcome_honors_always_worktree_under_vim() {
     crate::appearance::cache::set_simple_mode(false);

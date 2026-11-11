@@ -3772,12 +3772,12 @@ fn ctrl_q_double_press_quits() {
 }
 #[test]
 fn different_key_clears_pending() {
-    crate::appearance::cache::set_simple_mode(false);
     let mut app = test_app_with_agent();
     if let ActiveView::Agent(id) = app.active_view
         && let Some(agent) = app.agents.get_mut(&id)
     {
         agent.vim_mode = true;
+        agent.active_pane = crate::views::agent::ActivePane::Scrollback;
     }
     let _ = app.handle_input(&ctrl_q());
     assert!(app.pending_action.is_some());

@@ -1279,15 +1279,13 @@ mod plan_chip_tests {
         assert!(matches!(outcome, InputOutcome::Unchanged));
     }
     #[test]
-    fn new_agent_respects_persisted_simple_mode_for_mode_and_pane() {
-        crate::appearance::cache::set_simple_mode(true);
-        let a1 = make_agent();
-        assert!(a1.is_simple_mode());
-        assert_eq!(a1.active_pane, ActivePane::Prompt);
-        crate::appearance::cache::set_simple_mode(false);
-        let a2 = make_agent();
-        assert!(!a2.is_simple_mode());
-        assert_eq!(a2.active_pane, ActivePane::Scrollback);
+    fn new_agent_ignores_simple_mode_and_opens_on_the_prompt() {
+        for value in [true, false] {
+            crate::appearance::cache::set_simple_mode(value);
+            let agent = make_agent();
+            assert!(agent.is_simple_mode(), "simple_mode={value} must not select vim input");
+            assert_eq!(agent.active_pane, ActivePane::Prompt, "simple_mode={value} must leave the prompt focused");
+        }
     }
     #[test]
     fn set_input_mode_reconciles_pane_orthogonal_to_active_modal_field() {

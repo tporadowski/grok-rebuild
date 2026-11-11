@@ -214,7 +214,8 @@ impl AgentView {
             prompt_input_mode: PromptInputMode::Normal,
             multiline_mode: crate::appearance::cache::load_multiline_default(),
             vim_mode: crate::appearance::cache::load_vim_mode(),
-            input_mode: InputMode::Vim,
+            // `[ui] simple_mode` is retired. A new session uses the plain prompt and stays focused there.
+            input_mode: InputMode::Simple,
             bash_turn: false,
             stashed_prompt: None,
             prompt_stash: None,
@@ -494,12 +495,6 @@ impl AgentView {
             follow_up_pending_order: VecDeque::new(),
             pending_adoption_updates: Vec::new(),
         };
-        let mode = if crate::appearance::cache::load_simple_mode() {
-            InputMode::Simple
-        } else {
-            InputMode::Vim
-        };
-        view.set_input_mode(mode);
         view
     }
     /// Copy this view's session ID to the clipboard. Used by the child-window
