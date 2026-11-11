@@ -596,6 +596,7 @@ fn render_minimal_status(
             has_running_execute: false,
             total_tokens: agent.context_state.as_ref().map(|c| c.used),
             session_starting_since: minimal_api::session_starting_since(agent),
+            session_setup_label: minimal_api::session_setup_label(agent),
             is_bash_turn: agent.bash_turn,
             is_pending_user_input,
             goal_verifying,

@@ -366,6 +366,12 @@ pub fn session_starting_since(v: &AgentView) -> Option<std::time::Instant> {
     v.session_starting_since
 }
 
+/// Words for the in-flight `session/new` step, when the shell has named one.
+pub fn session_setup_label(v: &AgentView) -> Option<&'static str> {
+    v.session_new_phase
+        .map(xai_grok_shell::agent::SessionSetupPhase::status_label)
+}
+
 /// `AgentView::plan_approval_view`.
 pub fn plan_approval_view(v: &AgentView) -> Option<&PlanApprovalViewState> {
     v.plan_approval_view.as_ref()

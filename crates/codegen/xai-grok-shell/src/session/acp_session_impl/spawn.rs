@@ -1276,6 +1276,16 @@ pub(crate) async fn spawn_session_actor(
     let agent_build_span = spawn_ctx
         .as_ref()
         .map(|ctx| phase_region_under(SubagentSpawnPhase::AgentBuild, &ctx.parent));
+    // Skill discovery runs on this thread, which does not see the session/new task-local.
+    // Name the step on the starting-session row before the walk. Preloaded skills skip discovery.
+    if preloaded_skills.is_none() {
+        crate::agent::mvp_agent::notify_session_setup_phase(
+            &gateway,
+            "session/new",
+            crate::agent::SessionSetupPhase::Skills,
+            Some(session_info.id.0.as_ref()),
+        );
+    }
     let (agent, agent_build_elapsed) = rebuild_spec
         .build_agent_with_initial_overrides(
             agent_definition,

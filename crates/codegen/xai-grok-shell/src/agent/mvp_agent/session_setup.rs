@@ -314,6 +314,8 @@ pub enum SessionSetupPhase {
     PersistenceInit,
     #[strum(message = "starting the agent")]
     SpawnSessionActor,
+    #[strum(message = "loading skills")]
+    Skills,
     #[cfg(feature = "local-workspace")]
     #[strum(message = "waiting for your workspace")]
     WorkspaceHandshake,
@@ -330,8 +332,36 @@ pub enum SessionSetupPhase {
     #[strum(message = "getting your session ready")]
     ResponseReady,
 }
+impl SessionSetupPhase {
+    /// Words for the starting-session row while this step runs. The row adds the ellipsis.
+    pub fn status_label(self) -> &'static str {
+        use strum::EnumMessage;
+        self.get_message().unwrap_or("Starting session")
+    }
+}
 /// Wire method for the setup-progress notification, mirroring `x.ai/mcp/init_progress`.
 const SESSION_SETUP_METHOD: &str = "x.ai/session/setup";
+/// Push one setup step to the client. `session_id` is the create's id so the pager can match
+/// `pending_session_id`. Silent when JSON encoding fails; the gateway drop is ignored.
+pub(crate) fn notify_session_setup_phase(
+    gateway: &GatewaySender,
+    method: &'static str,
+    phase: SessionSetupPhase,
+    session_id: Option<&str>,
+) {
+    let ctx = serde_json::json!({
+        "method": method,
+        "phase": <&'static str>::from(&phase),
+        "sessionId": session_id,
+    });
+    if let Ok(params) = serde_json::value::to_raw_value(&ctx) {
+        let _ = gateway.forward_fire_and_forget(acp::ExtNotification::new(
+            SESSION_SETUP_METHOD,
+            params.into(),
+        ));
+    }
+    xai_grok_telemetry::unified_log::info("session.setup.phase", session_id, Some(ctx));
+}
 /// Context for the session op currently reporting setup phases.
 struct SessionSetupContext {
     /// Wire label for the payload's `method`; `session/new` today.
@@ -353,25 +383,7 @@ impl MvpAgent {
         }) else {
             return;
         };
-        let name = <&'static str>::from(&phase);
-        let ctx = serde_json::json!({
-            "method": method,
-            "phase": name,
-            "sessionId": session_id.as_deref(),
-        });
-        if let Ok(params) = serde_json::value::to_raw_value(&ctx) {
-            let _ = self
-                .gateway
-                .forward_fire_and_forget(acp::ExtNotification::new(
-                    SESSION_SETUP_METHOD,
-                    params.into(),
-                ));
-        }
-        xai_grok_telemetry::unified_log::info(
-            "session.setup.phase",
-            session_id.as_deref(),
-            Some(ctx),
-        );
+        notify_session_setup_phase(&self.gateway, method, phase, session_id.as_deref());
     }
     /// Scopes `SESSION_SETUP_CONTEXT` to this create so only `session/new` reports phases.
     pub(super) async fn new_session_inner(

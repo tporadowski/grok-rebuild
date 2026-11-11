@@ -2251,6 +2251,9 @@ impl AgentView {
                         has_running_execute,
                         total_tokens: self.context_state.as_ref().map(|c| c.used),
                         session_starting_since: self.session_starting_since,
+                        session_setup_label: self
+                            .session_new_phase
+                            .map(xai_grok_shell::agent::SessionSetupPhase::status_label),
                         is_bash_turn: self.bash_turn,
                         is_pending_user_input,
                         goal_verifying,

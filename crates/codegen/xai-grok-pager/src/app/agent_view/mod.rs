@@ -1341,7 +1341,7 @@ pub struct AgentView {
     /// Renders as the top-bar MCP chip (`views::agent_status::mcp_status_line`).
     pub(crate) mcp_init_progress: Option<McpInitProgress>,
     /// Set when a session create or fork is dispatched. Cleared when the id binds or the create fails.
-    /// Renders "Starting session…" in the turn-status row.
+    /// Renders the turn-status starting row: the setup-phase label when one is known, otherwise "Starting session…".
     pub(crate) session_starting_since: Option<Instant>,
     /// Latest `session/new` setup step from `x.ai/session/setup`; names the stuck step on a timeout. Cleared on bind/fail.
     pub(crate) session_new_phase: Option<xai_grok_shell::agent::SessionSetupPhase>,

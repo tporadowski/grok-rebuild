@@ -155,6 +155,8 @@ pub struct TurnStatusArgs<'a> {
     pub total_tokens: Option<u64>,
     /// When the session create was dispatched; `Some` until the id binds or the create fails
     pub session_starting_since: Option<Instant>,
+    /// Setup step shown instead of "Starting session…" while create is in flight. The row adds `…`.
+    pub session_setup_label: Option<&'a str>,
     pub is_bash_turn: bool,
     pub is_pending_user_input: bool,
     pub goal_verifying: bool,
@@ -185,6 +187,7 @@ pub fn render_turn_status(
         has_running_execute,
         total_tokens,
         session_starting_since,
+        session_setup_label,
         is_bash_turn,
         is_pending_user_input,
         goal_verifying,
@@ -205,7 +208,7 @@ pub fn render_turn_status(
         && !drain_blocked
         && let Some(started) = session_starting_since
     {
-        render_starting_session(buf, area, started, tick, &theme);
+        render_starting_session(buf, area, started, tick, &theme, session_setup_label);
         return TurnStatusOutput::default();
     }
     if drain_blocked && state.is_idle() {
@@ -595,6 +598,7 @@ fn render_starting_session(
     started: Instant,
     tick: u64,
     theme: &Theme,
+    session_setup_label: Option<&str>,
 ) {
     let frames = crate::glyphs::braille_spinner_frames();
     let frame_idx = (tick / SPINNER_DIVISOR) as usize % frames.len();
@@ -603,9 +607,13 @@ fn render_starting_session(
     };
     let timer_str = format!(" {}", format_turn_timer(started.elapsed()));
     let style = Style::default().fg(theme.gray_dim);
+    let label = match session_setup_label {
+        Some(label) => format!("{label}…"),
+        None => "Starting session…".to_string(),
+    };
     let spans = vec![
         Span::styled(format!("{frame} "), style),
-        Span::styled("Starting session…", style),
+        Span::styled(label, style),
         Span::styled(timer_str, style),
     ];
     buf.set_line(area.x, area.y, &Line::from(spans), area.width);
@@ -863,6 +871,7 @@ mod tests {
                 has_running_execute: false,
                 total_tokens: None,
                 session_starting_since: None,
+                session_setup_label: None,
                 is_bash_turn: false,
                 is_pending_user_input: false,
                 goal_verifying: false,
@@ -967,6 +976,7 @@ mod tests {
             has_running_execute: false,
             total_tokens: None,
             session_starting_since: None,
+            session_setup_label: None,
             is_bash_turn: false,
             is_pending_user_input: false,
             goal_verifying: false,
@@ -1375,6 +1385,33 @@ mod tests {
         assert!(
             text.contains("Starting session"),
             "an unanswered session/new must render 'Starting session…', got: {text:?}"
+        );
+    }
+    #[test]
+    fn idle_starting_session_names_the_skills_phase() {
+        let phase: xai_grok_shell::agent::SessionSetupPhase =
+            "skills".parse().expect("skills setup phase");
+        assert_eq!(phase, xai_grok_shell::agent::SessionSetupPhase::Skills);
+        assert_eq!(phase.status_label(), "loading skills");
+        let mut args = idle_args(Watchers::default());
+        args.session_starting_since = Some(Instant::now());
+        args.session_setup_label = Some(phase.status_label());
+        let text = render_row_text(args, 60);
+        assert!(
+            text.contains("loading skills"),
+            "a skills setup phase must name the work, got: {text:?}"
+        );
+        assert!(
+            !text.contains("Starting session"),
+            "the generic spinner label must yield to the phase, got: {text:?}"
+        );
+        let frame = crate::glyphs::braille_spinner_frames()
+            .first()
+            .copied()
+            .unwrap_or("");
+        assert!(
+            text.contains(frame),
+            "the starting row keeps its spinner, got: {text:?}"
         );
     }
     #[test]

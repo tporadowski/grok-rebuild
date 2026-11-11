@@ -19,6 +19,22 @@ pub const MAX_ORIGIN_LEN: usize = 32;
 pub const MAX_FRONTMATTER_BYTES: usize = 4096;
 pub const MAX_BODY_PEEK_BYTES: usize = 2048;
 pub const MAX_SKILL_WALK_DEPTH: usize = 5;
+/// Large directories that are never skill roots. Walking them dominates startup on a project tree.
+/// `vendor` is intentionally absent: it can be a collection of skills.
+const SKILL_WALK_SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    "build",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".next",
+    ".cache",
+    "coverage",
+    ".turbo",
+];
 
 /// Subdirectory names that contain skill definitions. `skills` is the standard layout
 /// (`.grok/skills/`, `.claude/skills/`, `.cursor/skills/`). The product-specific `skills-cursor/`
@@ -113,24 +129,49 @@ pub fn find_skill_md_paths(dir: &Path) -> Vec<PathBuf> {
 /// Recursively walk directories looking for SKILL.md files. Visits entries in lexicographic order:
 /// `read_dir` order is filesystem-dependent, and name-collision handling downstream is
 /// first-seen-wins, so an unsorted walk picks a nondeterministic winner.
+///
+/// Regular files are classified from the directory entry (no extra stat). Symlinks and unknown
+/// types fall back to [`Path::is_dir`] so a symlinked skill directory is still walked.
+/// [`SKILL_WALK_SKIP_DIRS`] are not entered.
 pub fn walk_for_skill_md(dir: &Path, paths: &mut Vec<PathBuf>, depth: usize) {
     if depth > MAX_SKILL_WALK_DEPTH {
         return;
     }
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        let mut dirs: Vec<PathBuf> = entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .collect();
-        dirs.sort();
-        for path in dirs {
-            let skill_md_path = path.join("SKILL.md");
-            if skill_md_path.is_file() {
-                paths.push(skill_md_path);
-            }
-            walk_for_skill_md(&path, paths, depth + 1);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut dirs = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if skill_walk_skips_dir(&name) {
+            continue;
         }
+        let path = entry.path();
+        if skill_walk_is_dir(&entry, &path) {
+            dirs.push(path);
+        }
+    }
+    dirs.sort();
+    for path in dirs {
+        let skill_md_path = path.join("SKILL.md");
+        if skill_md_path.is_file() {
+            paths.push(skill_md_path);
+        }
+        walk_for_skill_md(&path, paths, depth + 1);
+    }
+}
+
+fn skill_walk_skips_dir(name: &std::ffi::OsStr) -> bool {
+    SKILL_WALK_SKIP_DIRS.iter().any(|skip| name == *skip)
+}
+
+/// Directory entries to recurse into. A symlink to a directory is included; a symlink to a file is not.
+fn skill_walk_is_dir(entry: &std::fs::DirEntry, path: &Path) -> bool {
+    match entry.file_type() {
+        Ok(ft) if ft.is_symlink() => path.is_dir(),
+        Ok(ft) if ft.is_dir() => true,
+        Ok(_) => false,
+        Err(_) => path.is_dir(),
     }
 }
 
@@ -1618,5 +1659,56 @@ model: test-model
                 "zeta/SKILL.md"
             ]
         );
+    }
+
+    #[test]
+    fn walk_for_skill_md_skips_heavy_directories_and_still_finds_nested_skills() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("SKILL.md"), "---\nname: real\n---\n").unwrap();
+        for heavy in SKILL_WALK_SKIP_DIRS {
+            let junk = tmp.path().join(heavy).join("pkg");
+            std::fs::create_dir_all(&junk).unwrap();
+            std::fs::write(junk.join("SKILL.md"), "---\nname: junk\n---\n").unwrap();
+        }
+        let vendor = tmp.path().join("vendor").join("kept");
+        std::fs::create_dir_all(&vendor).unwrap();
+        std::fs::write(vendor.join("SKILL.md"), "---\nname: kept\n---\n").unwrap();
+        for i in 0..32 {
+            std::fs::write(tmp.path().join(format!("loose-{i}.txt")), "x").unwrap();
+        }
+
+        let rel = skill_paths_relative(tmp.path(), &find_skill_md_paths(tmp.path()));
+        assert_eq!(rel, ["real/SKILL.md", "vendor/kept/SKILL.md"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn walk_for_skill_md_follows_a_symlinked_skill_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let skill = outside.path().join("actual");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(skill.join("SKILL.md"), "---\nname: linked\n---\n").unwrap();
+        std::os::unix::fs::symlink(&skill, tmp.path().join("linked")).unwrap();
+        let note = tmp.path().join("note.txt");
+        std::fs::write(&note, "x").unwrap();
+        std::os::unix::fs::symlink(&note, tmp.path().join("note-link")).unwrap();
+
+        let rel = skill_paths_relative(tmp.path(), &find_skill_md_paths(tmp.path()));
+        assert_eq!(rel, ["linked/SKILL.md"]);
+    }
+
+    fn skill_paths_relative(root: &Path, paths: &[PathBuf]) -> Vec<String> {
+        paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect()
     }
 }
