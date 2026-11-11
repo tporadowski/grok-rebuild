@@ -1387,6 +1387,79 @@ fn context_window_selection_survives_a_switch_through_a_model_that_does_not_supp
 }
 
 #[test]
+fn new_tab_shows_the_context_window_switched_before_the_session_replies() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    let model_id = acp::ModelId::new(std::sync::Arc::from("grok-4.5"));
+    let window_meta = serde_json::json!({
+        "totalContextTokens": 256_000,
+        "contextWindows": [256_000, 500_000],
+        "contextWindow": 256_000,
+    })
+    .as_object()
+    .cloned();
+    {
+        let agent = test_agent_mut(&mut app, id);
+        agent.session.models.available.insert(
+            model_id.clone(),
+            acp::ModelInfo::new(model_id.clone(), "Grok 4.5".to_string()).meta(window_meta.clone()),
+        );
+        agent.session.models.current = Some(model_id.clone());
+        agent.session.models.context_window_selection = Some(256_000);
+    }
+    app.models.available.insert(
+        model_id.clone(),
+        acp::ModelInfo::new(model_id.clone(), "Grok 4.5".to_string()).meta(window_meta.clone()),
+    );
+    app.models.current = Some(model_id.clone());
+    app.models.context_window_selection = Some(256_000);
+
+    dispatch(
+        Action::TaskComplete(TaskResult::SwitchModelComplete {
+            agent_id: id,
+            choice: ModelChoice {
+                context_window_selection: NonZeroU64::new(500_000),
+                ..ModelChoice::new(model_id.clone())
+            },
+            result: Ok(()),
+            prev_model_id: None,
+            reported: None,
+        }),
+        &mut app,
+    );
+    assert_eq!(app.models.context_window_selection, Some(500_000));
+
+    dispatch(Action::NewSession, &mut app);
+    let new_id = AgentId(1);
+    let reported = acp::SessionModelState::new(
+        model_id.clone(),
+        vec![
+            acp::ModelInfo::new(model_id.clone(), "Grok 4.5".to_string()).meta(window_meta),
+        ],
+    );
+    dispatch(
+        Action::TaskComplete(TaskResult::SessionCreated {
+            agent_id: new_id,
+            session_id: "new-tab".into(),
+            models: Some(reported),
+            modes: None,
+        }),
+        &mut app,
+    );
+
+    let agent = expect_agent(&app, new_id);
+    assert!(
+        agent.context_state.is_none(),
+        "the session has not replied yet"
+    );
+    assert_eq!(
+        agent.session.models.get_context_window(),
+        Some(500_000),
+        "the new tab shows the window switched on the previous tab"
+    );
+}
+
+#[test]
 fn switch_model_complete_success_updates_model_and_pushes_message() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);

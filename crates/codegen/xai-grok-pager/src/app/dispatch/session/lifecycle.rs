@@ -1429,8 +1429,9 @@ pub(in crate::app::dispatch) fn handle_session_created(
         }
         agent.bind_session_id(session_id);
         if let Some(m) = new_models {
-            app.models.install_replacing(Some(m).into());
-            agent.session.models = app.models.clone();
+            let created_via_new = agent.session.created_via_new;
+            agent.session.models =
+                install_new_session_models(&mut app.models, created_via_new, m);
         }
         agent.apply_session_modes(modes);
         let deferred = apply_deferred_model_switch(agent, app.cli_effort_token.as_deref());
@@ -1560,8 +1561,9 @@ pub(in crate::app::dispatch) fn handle_worktree_session_created(
         agent.is_worktree = true;
         crate::git_info::populate_from_cwd_async(session_cwd.clone());
         if let Some(m) = new_models {
-            app.models.install_replacing(Some(m).into());
-            agent.session.models = app.models.clone();
+            let created_via_new = agent.session.created_via_new;
+            agent.session.models =
+                install_new_session_models(&mut app.models, created_via_new, m);
         }
         agent.apply_session_modes(modes);
         agent.prompt.file_search.retarget(&session_cwd);
@@ -1912,6 +1914,28 @@ pub(in crate::app::dispatch) fn handle_worktree_session_failed(
     }
     vec![]
 }
+/// A `/new` tab keeps the context window the user just switched to.
+/// The create payload names the model's default window, which would replace that pick until the session replies.
+fn install_new_session_models(
+    models: &mut crate::acp::model_state::ModelState,
+    created_via_new: bool,
+    new_models: acp::SessionModelState,
+) -> crate::acp::model_state::ModelState {
+    let carried = created_via_new
+        .then_some(models.context_window_selection)
+        .flatten();
+    models.install_replacing(Some(new_models).into());
+    if let Some(window) = carried
+        && models.current.as_ref().is_some_and(|id| {
+            models.model_default_window(id) == Some(window)
+                || models.context_window_options_for(id).contains(&window)
+        })
+    {
+        models.context_window_selection = Some(window);
+    }
+    models.clone()
+}
+
 pub(in crate::app::dispatch) fn handle_switch_model_complete(
     app: &mut AppView,
     agent_id: AgentId,
@@ -1925,6 +1949,7 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
         effort,
         context_window_selection,
     } = choice;
+    let switch_ok = result.is_ok();
     if let Some(agent) = app.agents.get_mut(&agent_id) {
         agent.session.model_switch_pending = false;
         let model_changed_during_switch =
@@ -2021,6 +2046,14 @@ pub(in crate::app::dispatch) fn handle_switch_model_complete(
             if app.models.available.contains_key(&id) {
                 app.models.set_current(id, effort);
             }
+        }
+        if switch_ok
+            && let Some(window) = app
+                .agents
+                .get(&agent_id)
+                .and_then(|agent| agent.session.models.context_window_selection)
+        {
+            app.models.context_window_selection = Some(window);
         }
         effects.extend(drain.effects);
         note_peek_page_flip(app, agent_id, drain.page_flip_entry);
