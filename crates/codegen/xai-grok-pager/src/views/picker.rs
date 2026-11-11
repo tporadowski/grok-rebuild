@@ -1505,6 +1505,9 @@ pub struct PickerState {
     /// Cleared once the selection is meaningful again (typing, navigating back into the list, mouse click/hover).
     /// Session-picker rows gate their `selected` flag on `!selection_hidden`.
     pub selection_hidden: bool,
+    /// Selectable rows that fit in the last painted list area.
+    /// Page Up/Page Down step this many entries. `0` until the first paint, which steps one row.
+    pub visible_rows: usize,
 }
 
 impl Default for PickerState {
@@ -1525,6 +1528,7 @@ impl Default for PickerState {
             filter_hovered: false,
             tabs_focused: false,
             selection_hidden: false,
+            visible_rows: 0,
         }
     }
 }
@@ -1924,6 +1928,8 @@ fn render_picker_content_inner(
     if content_area.height == 0 || content_area.width == 0 {
         return empty_hit;
     }
+    // Page keys step by the painted list height, including while the list is empty or loading.
+    state.visible_rows = content_area.height as usize;
 
     // Loading state: animated dot spinner centered in the content area
     if loading {
@@ -2474,6 +2480,47 @@ pub fn first_selectable_index(
     s
 }
 
+/// Walk `steps` selectable rows from `from`. Non-selectable headers are skipped. The ends clamp.
+fn step_selectable(
+    from: usize,
+    entry_count: usize,
+    steps: usize,
+    forward: bool,
+    is_non_sel: impl Fn(usize) -> bool,
+) -> usize {
+    if entry_count == 0 {
+        return 0;
+    }
+    let mut current = from.min(entry_count - 1);
+    for _ in 0..steps {
+        if forward {
+            if current + 1 >= entry_count {
+                break;
+            }
+            let mut candidate = current + 1;
+            while is_non_sel(candidate) && candidate + 1 < entry_count {
+                candidate += 1;
+            }
+            if is_non_sel(candidate) {
+                break;
+            }
+            current = candidate;
+        } else if current == 0 {
+            break;
+        } else {
+            let mut candidate = current - 1;
+            while is_non_sel(candidate) && candidate > 0 {
+                candidate -= 1;
+            }
+            if is_non_sel(candidate) {
+                break;
+            }
+            current = candidate;
+        }
+    }
+    current
+}
+
 /// Clamp selection to a selectable row after a host changes the picker entries.
 pub fn clamp_picker_selection(
     state: &mut PickerState,
@@ -2926,6 +2973,42 @@ pub fn handle_picker_input(
             state.hovered = None;
             state.scroll_offset = None;
             return PickerOutcome::Changed;
+        }
+
+        // Page Up/Page Down step a page of selectable rows. Home/End jump to the ends.
+        // Hint pickers (`/skills`) use these while the list is focused. They do not open search
+        // or jump to the tab bar. The search editor keeps Home/End, and always-on query pickers
+        // keep them for the cursor.
+        if !state.search_active {
+            let page_down = key.code == KeyCode::PageDown;
+            let page_up = key.code == KeyCode::PageUp;
+            let query_editor_owns_line_motion = !config.show_search_hint
+                && !config.disable_search
+                && !config.vim_normal_first;
+            let jump_end = matches!(key.code, KeyCode::Home | KeyCode::End)
+                && !query_editor_owns_line_motion;
+            if page_down || page_up || jump_end {
+                if entry_count == 0 {
+                    return PickerOutcome::Changed;
+                }
+                let new_sel = match key.code {
+                    KeyCode::Home => first_selectable,
+                    KeyCode::End => last_selectable,
+                    _ => step_selectable(
+                        state.selected,
+                        entry_count,
+                        state.visible_rows.max(1),
+                        page_down,
+                        &is_non_sel,
+                    ),
+                };
+                state.selected = new_sel;
+                state.tabs_focused = false;
+                state.selection_hidden = false;
+                state.hovered = None;
+                state.scroll_offset = None;
+                return PickerOutcome::Changed;
+            }
         }
 
         // Only when not in search mode.
@@ -3644,6 +3727,191 @@ mod tests {
             handle_picker_input(&press('k'), &mut state, 3, &config);
             assert_eq!(state.selected, 0, "hint={hint} after k");
         }
+    }
+
+    fn key_code(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn plain_row(label: &'static str) -> PickerRow<'static> {
+        PickerRow {
+            label,
+            right_label: "",
+            selected: false,
+            expanded: false,
+            fields: &[],
+            description_lines: &[],
+            summary_lines: &[],
+            dimmed: false,
+            indent: 0,
+            badge: "",
+            badge_color: None,
+            collapsible: false,
+            underline_last_desc: false,
+        }
+    }
+
+    #[test]
+    fn page_home_end_move_picker_selection() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let theme = Theme::current();
+        let labels = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        let entries: Vec<PickerEntry<'_>> = labels
+            .iter()
+            .copied()
+            .map(|label| PickerEntry::Row(plain_row(label)))
+            .collect();
+
+        // An empty list still records the page height so the next key knows the step.
+        let empty_area = Rect::new(0, 0, 20, 4);
+        let mut empty_buf = Buffer::empty(empty_area);
+        let mut empty_state = PickerState::default();
+        render_picker_content(
+            &mut empty_buf,
+            empty_area,
+            &theme,
+            &mut empty_state,
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+        );
+        assert_eq!(empty_state.visible_rows, 4);
+
+        // Painted height is the page. PageDown from the top lands that many rows later.
+        let area = Rect::new(0, 0, 40, 3);
+        let mut buf = Buffer::empty(area);
+        let mut state = PickerState {
+            tabs_focused: true,
+            selection_hidden: true,
+            hovered: Some(1),
+            scroll_offset: Some(2),
+            ..PickerState::default()
+        };
+        render_picker_content(
+            &mut buf,
+            area,
+            &theme,
+            &mut state,
+            &entries,
+            &[],
+            &[],
+            None,
+            false,
+        );
+        assert_eq!(state.visible_rows, 3);
+
+        let config = cfg(true, false);
+        let count = entries.len();
+        let outcome = handle_picker_input(&key_code(KeyCode::PageDown), &mut state, count, &config);
+        assert!(matches!(outcome, PickerOutcome::Changed));
+        assert_eq!(state.selected, 3);
+        assert!(!state.tabs_focused);
+        assert!(!state.selection_hidden);
+        assert_eq!(state.hovered, None);
+        assert_eq!(state.scroll_offset, None);
+        assert!(!state.search_active);
+
+        handle_picker_input(&key_code(KeyCode::PageDown), &mut state, count, &config);
+        assert_eq!(state.selected, 6);
+        handle_picker_input(&key_code(KeyCode::End), &mut state, count, &config);
+        assert_eq!(state.selected, 9);
+        handle_picker_input(&key_code(KeyCode::Home), &mut state, count, &config);
+        assert_eq!(state.selected, 0);
+        handle_picker_input(&key_code(KeyCode::PageDown), &mut state, count, &config);
+        assert_eq!(state.selected, 3);
+        handle_picker_input(&key_code(KeyCode::PageUp), &mut state, count, &config);
+        assert_eq!(state.selected, 0);
+
+        state.selected = 5;
+        handle_picker_input(&key_code(KeyCode::PageUp), &mut state, count, &config);
+        assert_eq!(state.selected, 2);
+
+        // Before the first paint, a page is one selectable row.
+        let mut unpainted = PickerState::default();
+        assert_eq!(unpainted.visible_rows, 0);
+        handle_picker_input(
+            &key_code(KeyCode::PageDown),
+            &mut unpainted,
+            count,
+            &config,
+        );
+        assert_eq!(unpainted.selected, 1);
+
+        // A non-selectable header is skipped, and the ends stay on selectable rows.
+        // PageDown at the end does not open search or focus the tab bar.
+        let mut header_config = cfg(true, false);
+        let non_sel = [
+            true, false, false, true, false, false, false, false, false, false,
+        ];
+        header_config.non_selectable = &non_sel;
+        header_config.tabs = Some(&["Skills", "Hooks"]);
+        let mut headed = PickerState {
+            visible_rows: 3,
+            ..PickerState::default()
+        };
+        handle_picker_input(
+            &key_code(KeyCode::PageDown),
+            &mut headed,
+            count,
+            &header_config,
+        );
+        assert_eq!(headed.selected, 5);
+        assert!(!non_sel.get(headed.selected).copied().unwrap_or(true));
+        handle_picker_input(&key_code(KeyCode::Home), &mut headed, count, &header_config);
+        assert_eq!(headed.selected, 1);
+        handle_picker_input(&key_code(KeyCode::End), &mut headed, count, &header_config);
+        assert_eq!(headed.selected, 9);
+        handle_picker_input(
+            &key_code(KeyCode::PageDown),
+            &mut headed,
+            count,
+            &header_config,
+        );
+        assert_eq!(headed.selected, 9);
+        assert!(!headed.search_active);
+        assert!(!headed.tabs_focused);
+        handle_picker_input(&key_code(KeyCode::PageUp), &mut headed, count, &header_config);
+        assert_eq!(headed.selected, 6);
+
+        // Home in the search field moves the cursor, not the selection.
+        let mut searching = PickerState {
+            selected: 4,
+            visible_rows: 3,
+            search_active: true,
+            ..PickerState::default()
+        };
+        searching.set_query("skills");
+        handle_picker_input(&key_code(KeyCode::Home), &mut searching, count, &config);
+        assert_eq!(searching.selected, 4);
+        assert_eq!(searching.query(), "skills");
+        assert_eq!(searching.query_cursor(), 0);
+        assert!(searching.search_active);
+
+        // Always-on query pickers keep Home/End for the cursor. Page keys still move the list.
+        let always = cfg(false, false);
+        let mut query = PickerState {
+            selected: 4,
+            visible_rows: 3,
+            ..PickerState::default()
+        };
+        query.set_query("skills");
+        handle_picker_input(&key_code(KeyCode::Home), &mut query, count, &always);
+        assert_eq!(query.selected, 4);
+        assert_eq!(query.query_cursor(), 0);
+        assert_eq!(query.query(), "skills");
+        handle_picker_input(&key_code(KeyCode::PageDown), &mut query, count, &always);
+        assert_eq!(query.selected, 7);
+        assert_eq!(query.query(), "skills");
+
+        // An empty list consumes the key the same way Down does.
+        let mut empty = PickerState::default();
+        let outcome = handle_picker_input(&key_code(KeyCode::End), &mut empty, 0, &config);
+        assert!(matches!(outcome, PickerOutcome::Changed));
+        assert_eq!(empty.selected, 0);
     }
 
     #[test]
