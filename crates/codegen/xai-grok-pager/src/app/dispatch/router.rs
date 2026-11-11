@@ -38,6 +38,7 @@ use super::notes::{
     dispatch_enter_remember_mode, dispatch_open_feedback_modal,
     dispatch_save_remember_note_from_modal, dispatch_send_btw, dispatch_send_feedback,
     dispatch_send_recap, dispatch_send_remember_note, dispatch_submit_feedback_modal,
+    feedback_draft_open_action,
 };
 use super::permissions::{
     dispatch_permission_cancel, dispatch_permission_followup, dispatch_permission_select,
@@ -721,9 +722,25 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         }
         Action::OpenBlockViewer => {
             let mut group_toggled = false;
-            with_scrollback(app, |s| group_toggled = s.toggle_group_expansion());
+            let mut draft_open = None;
+            with_scrollback(app, |scrollback| {
+                group_toggled = scrollback.toggle_group_expansion();
+                if group_toggled {
+                    return;
+                }
+                let Some(idx) = scrollback.selected() else {
+                    return;
+                };
+                let Some(entry) = scrollback.entry(idx) else {
+                    return;
+                };
+                draft_open = feedback_draft_open_action(&entry.block);
+            });
             if group_toggled {
                 return vec![];
+            }
+            if let Some(action) = draft_open {
+                return dispatch(action, app);
             }
             dispatch_open_block_viewer(app);
             vec![]

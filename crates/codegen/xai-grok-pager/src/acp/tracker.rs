@@ -2472,7 +2472,8 @@ fn tool_call_to_block(
         _ if canonical_tool_name(tc)
             == Some(xai_grok_tools::implementations::grok_build::SEND_FEEDBACK_TOOL_NAME) =>
         {
-            let mut block = OtherToolCallBlock::new(feedback_draft_row_name(tc), String::new());
+            let mut block = OtherToolCallBlock::new(feedback_draft_row_name(tc), String::new())
+                .with_feedback_draft(feedback_draft_id_from_tool_call(tc));
             if !success {
                 let error = content_text(tc);
                 block.error = Some(if error.is_empty() {
@@ -2607,6 +2608,22 @@ fn feedback_draft_row_name(tc: &acp::ToolCall) -> &'static str {
 }
 
 /// Error code, raw message, and content text that classify a failed feedback draft.
+/// Prefer the id the tool result stored. An in-progress update may only have `raw_input.draft_id`.
+fn feedback_draft_id_from_tool_call(tc: &acp::ToolCall) -> Option<String> {
+    nonempty_json_string(tc.raw_output.as_ref(), "feedback_draft_id")
+        .or_else(|| nonempty_json_string(tc.raw_output.as_ref(), "draft_id"))
+        .or_else(|| nonempty_json_string(tc.raw_input.as_ref(), "draft_id"))
+}
+
+fn nonempty_json_string(value: Option<&serde_json::Value>, key: &str) -> Option<String> {
+    value?
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+}
+
 fn feedback_failure_detail(tc: &acp::ToolCall) -> String {
     let mut parts = Vec::new();
     if let Some(raw) = &tc.raw_output {

@@ -101,11 +101,16 @@ impl FeedbackModalState {
         {
             return;
         }
-        let selected_id = rows.first().map(|draft| draft.id.clone());
-        if self.open_on_drafts_if_any && rows.is_empty() {
+        let requested = self.pending_select_draft_id.take();
+        let selected_id = requested
+            .filter(|id| rows.iter().any(|draft| &draft.id == id))
+            .or_else(|| rows.first().map(|draft| draft.id.clone()));
+        // A bare peek with nothing to show returns to Write. A row open stays on Drafts.
+        if rows.is_empty() && self.open_on_drafts_if_any && !self.force_drafts {
             self.window.active_tab = FeedbackTab::Write.index();
         }
         self.open_on_drafts_if_any = false;
+        self.force_drafts = false;
         self.drafts = DraftsState::Browse {
             rows,
             selected_id,
@@ -120,10 +125,13 @@ impl FeedbackModalState {
             && matches!(self.drafts, DraftsState::Loading { generation: pending } if pending == generation)
         {
             // No list means nothing to browse; a peek-at-Drafts open lands on Write like an empty list.
-            if self.open_on_drafts_if_any {
+            // A transcript row that asked for Drafts stays there.
+            if self.open_on_drafts_if_any && !self.force_drafts {
                 self.window.active_tab = FeedbackTab::Write.index();
             }
             self.open_on_drafts_if_any = false;
+            self.force_drafts = false;
+            self.pending_select_draft_id = None;
             self.drafts = DraftsState::Browse {
                 rows: Vec::new(),
                 selected_id: None,
@@ -323,7 +331,7 @@ impl FeedbackModalState {
     }
 
     pub(crate) fn start_open_draft_list(&mut self) {
-        if self.open_on_drafts_if_any {
+        if self.open_on_drafts_if_any || self.force_drafts {
             self.window.active_tab = FeedbackTab::Drafts.index();
             self.refresh_drafts();
         }
@@ -359,6 +367,8 @@ impl FeedbackModalState {
     pub(super) fn enter_write(&mut self) {
         self.window.active_tab = FeedbackTab::Write.index();
         self.open_on_drafts_if_any = false;
+        self.force_drafts = false;
+        self.pending_select_draft_id = None;
         self.invalidate_draft_load();
     }
 
@@ -409,6 +419,14 @@ impl FeedbackModalState {
             .into_iter()
             .map(|draft| draft.id.clone())
             .collect()
+    }
+
+    /// Stored Drafts-tab selection. Unlike [`Self::selected_draft_id`], this does not fall back to the first visible row.
+    pub(crate) fn browse_selected_draft_id(&self) -> Option<&FeedbackDraftId> {
+        let DraftsState::Browse { selected_id, .. } = &self.drafts else {
+            return None;
+        };
+        selected_id.as_ref()
     }
 
     fn selected_draft_id(&self) -> Option<FeedbackDraftId> {
@@ -500,6 +518,7 @@ impl FeedbackModalState {
     pub(super) fn activate_drafts_tab(&mut self) {
         self.window.active_tab = FeedbackTab::Drafts.index();
         self.open_on_drafts_if_any = false;
+        self.force_drafts = false;
         if self.draft_delete.is_none() {
             self.refresh_drafts();
         }

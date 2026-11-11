@@ -634,7 +634,8 @@ impl BlockContent for ToolCallBlock {
     }
 
     fn is_groupable(&self) -> bool {
-        true
+        // Feedback drafts stay outside "N more" packs. Verb folds skip them via `label_kind`.
+        !matches!(self, ToolCallBlock::Other(block) if block.is_feedback_draft())
     }
 
     fn image_references(&self) -> &[crate::prompt_images::ScrollbackImageRef] {
@@ -1028,6 +1029,7 @@ impl ToolCallBlock {
             ToolCallBlock::UseTool(_) => Some(VerbGroupKind::McpCall),
             ToolCallBlock::SentMessage(b) if b.has_exchange() => None,
             ToolCallBlock::SentMessage(_) => Some(VerbGroupKind::Message),
+            ToolCallBlock::Other(block) if block.is_feedback_draft() => None,
             ToolCallBlock::Other(_) => Some(VerbGroupKind::OtherTool),
             ToolCallBlock::Read(_)
             | ToolCallBlock::ListDir(_)

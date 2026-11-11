@@ -27,12 +27,17 @@ pub struct TextOutput {
     /// omitted from prompts and from JSON when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consumed_completion_task_id: Option<String>,
+    /// Saved feedback draft this text result created or updated.
+    /// Omitted from prompts and from JSON when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback_draft_id: Option<String>,
 }
 impl From<String> for TextOutput {
     fn from(text: String) -> Self {
         Self {
             text,
             consumed_completion_task_id: None,
+            feedback_draft_id: None,
         }
     }
 }
@@ -41,6 +46,7 @@ impl From<&str> for TextOutput {
         Self {
             text: text.to_owned(),
             consumed_completion_task_id: None,
+            feedback_draft_id: None,
         }
     }
 }
@@ -1519,31 +1525,36 @@ mod tests {
         let output = ToolOutput::Text(TextOutput {
             text: "Task completed in 100ms with exit code: 0.".into(),
             consumed_completion_task_id: Some("bg-uuid-42".into()),
+            feedback_draft_id: Some("draft-1".into()),
         });
-        assert_eq!(
-            output.to_prompt_format(),
-            "Task completed in 100ms with exit code: 0."
-        );
+        let prompt = output.to_prompt_format();
+        assert_eq!(prompt, "Task completed in 100ms with exit code: 0.");
+        assert!(!prompt.contains("draft-1"));
+        assert!(!prompt.contains("bg-uuid-42"));
     }
     #[test]
     fn text_output_serde_omits_consumed_id_when_none() {
         let text = TextOutput {
             text: "hello".into(),
             consumed_completion_task_id: None,
+            feedback_draft_id: None,
         };
         let json = serde_json::to_value(&text).unwrap();
         let obj = json.as_object().expect("object");
         assert_eq!(obj.len(), 1);
         assert!(!obj.contains_key("consumed_completion_task_id"));
+        assert!(!obj.contains_key("feedback_draft_id"));
         let round_trip: TextOutput = serde_json::from_value(json).unwrap();
         assert_eq!(round_trip.text, "hello");
         assert!(round_trip.consumed_completion_task_id.is_none());
+        assert!(round_trip.feedback_draft_id.is_none());
     }
     #[test]
     fn text_output_serde_includes_consumed_id_when_some() {
         let text = TextOutput {
             text: "Task completed".into(),
             consumed_completion_task_id: Some("task-abc".into()),
+            feedback_draft_id: None,
         };
         let json = serde_json::to_value(&text).unwrap();
         assert_eq!(

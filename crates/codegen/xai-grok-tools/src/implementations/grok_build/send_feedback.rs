@@ -79,13 +79,27 @@ impl From<SendFeedbackInput> for FeedbackDraftInput {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SendFeedbackOutput {
     pub message: String,
+    /// Id of the draft this call saved or updated. The model prompt stays `message`.
+    pub draft_id: String,
 }
 
 impl xai_tool_runtime::ToolOutput for SendFeedbackOutput {}
 
 impl From<SendFeedbackOutput> for crate::types::output::ToolOutput {
     fn from(output: SendFeedbackOutput) -> Self {
-        Self::Text(output.message.into())
+        let draft_id = {
+            let id = output.draft_id.trim();
+            if id.is_empty() {
+                None
+            } else {
+                Some(id.to_owned())
+            }
+        };
+        Self::Text(crate::types::output::TextOutput {
+            text: output.message,
+            consumed_completion_task_id: None,
+            feedback_draft_id: draft_id,
+        })
     }
 }
 
@@ -292,10 +306,11 @@ impl xai_tool_runtime::Tool for SendFeedbackTool {
             }
         })
         .await;
-        map_append_result(result)?;
+        let draft = map_append_result(result)?;
 
         Ok(SendFeedbackOutput {
             message: SUCCESS_MESSAGE.to_owned(),
+            draft_id: draft.id.as_str().to_owned(),
         })
     }
 }

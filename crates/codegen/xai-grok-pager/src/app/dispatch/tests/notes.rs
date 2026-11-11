@@ -2706,3 +2706,443 @@ fn btw_with_unbound_placeholder_sends_and_toasts() {
     );
     assert_eq!(test_agent(&app, id).prompt.text(), "");
 }
+
+fn feedback_draft(id: &str) -> crate::views::feedback_modal::FeedbackDraft {
+    crate::views::feedback_modal::FeedbackDraft {
+        id: id.to_owned().into(),
+        title: id.to_owned(),
+        details: "saved locally".to_owned(),
+        area: None,
+        r#type: Some(crate::views::feedback_modal::FeedbackType::Bug),
+        task_category: None,
+        failure_mode: None,
+        created_at: 1,
+        revision: 1,
+    }
+}
+
+fn send_feedback_call(id: &str, status: acp::ToolCallStatus) -> acp::ToolCall {
+    let tool_meta = serde_json::json!({
+        "version": 1,
+        "name": "send_feedback",
+        "kind": "feedback",
+        "namespace": "grok_build",
+        "label": "Feedback",
+        "read_only": false,
+    });
+    acp::ToolCall::new(
+        acp::ToolCallId::new(std::sync::Arc::from(id)),
+        "send_feedback".to_owned(),
+    )
+    .kind(acp::ToolKind::Other)
+    .status(status)
+    .meta(
+        serde_json::json!({ xai_grok_tools::tool_taxonomy::TOOL_META_KEY: tool_meta })
+            .as_object()
+            .cloned(),
+    )
+}
+
+fn push_feedback(
+    tracker: &mut AcpUpdateTracker,
+    scrollback: &mut ScrollbackState,
+    call: acp::ToolCall,
+) {
+    tracker.handle_update(
+        acp::SessionUpdate::ToolCall(call),
+        &crate::acp::meta::NotificationMeta::default(),
+        scrollback,
+    );
+}
+
+fn span_range(scrollback: &ScrollbackState, idx: usize) -> Option<std::ops::Range<usize>> {
+    scrollback.span_at(idx).map(|span| span.range.clone())
+}
+
+fn other_feedback<'a>(
+    scrollback: &'a ScrollbackState,
+    idx: usize,
+) -> &'a crate::scrollback::blocks::OtherToolCallBlock {
+    let block = &scrollback.get(idx).expect("row").block;
+    let RenderBlock::ToolCall(ToolCallBlock::Other(other)) = block else {
+        panic!("expected an Other tool row at {idx}, got {block:?}");
+    };
+    other
+}
+
+fn finish_draft_list(
+    app: &mut AppView,
+    effects: Vec<Effect>,
+    result: Result<Vec<crate::views::feedback_modal::FeedbackDraft>, String>,
+) {
+    let (agent_id, modal_id, generation) = match effects.as_slice() {
+        [Effect::FeedbackDraftRequest {
+            agent_id,
+            request:
+                crate::views::feedback_modal::FeedbackDraftRequest::List {
+                    modal_id,
+                    generation,
+                },
+            ..
+        }] => (*agent_id, *modal_id, *generation),
+        other => panic!("expected one draft list effect, got {other:?}"),
+    };
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::FeedbackDraftListComplete {
+            agent_id,
+            modal_id,
+            generation,
+            result,
+        }),
+        app,
+    );
+}
+
+fn assert_drafts_tab(app: &AppView, id: AgentId, selected: Option<&str>) {
+    let modal = agent_ref(app, id)
+        .feedback_modal
+        .as_ref()
+        .expect("feedback modal");
+    assert_eq!(
+        modal.active_tab(),
+        crate::views::feedback_modal::FeedbackTab::Drafts
+    );
+    assert!(
+        modal.draft_id().is_none(),
+        "opening a row stays off the Write editor"
+    );
+    assert_eq!(
+        modal
+            .browse_selected_draft_id()
+            .map(crate::views::feedback_modal::FeedbackDraftId::as_str),
+        selected
+    );
+}
+
+fn open_selected_row(app: &mut AppView, id: AgentId, idx: usize) -> Vec<Effect> {
+    app.agents
+        .get_mut(&id)
+        .unwrap()
+        .scrollback
+        .set_selected(Some(idx));
+    let effects = dispatch(Action::OpenBlockViewer, app);
+    assert!(
+        agent_ref(app, id).block_viewer.is_none(),
+        "a feedback row does not open the block viewer"
+    );
+    effects
+}
+
+fn double_click_row(app: &mut AppView, id: AgentId, idx: usize) -> Option<Action> {
+    let agent = app.agents.get_mut(&id).unwrap();
+    let started = std::time::Instant::now();
+    let (last, tip, action) = agent.handle_scrollback_click(started, idx, false);
+    assert!(action.is_none() && !tip, "the first click only selects");
+    agent.last_click = last;
+    let (last, _, action) =
+        agent.handle_scrollback_click(started + std::time::Duration::from_millis(100), idx, false);
+    agent.last_click = last;
+    action
+}
+
+/// Feedback draft rows stay outside verb folds and "N more" packs.
+/// Enter and double-click open Drafts with the draft the tool already saved.
+#[test]
+fn feedback_draft_rows_stand_alone_and_open_the_selected_draft() {
+    use crate::scrollback::block::BlockContent;
+    use xai_grok_tools::implementations::grok_build::send_feedback::SendFeedbackOutput;
+    use xai_grok_tools::types::output::ToolOutput;
+
+    let saved = ToolOutput::from(SendFeedbackOutput {
+        message: "Local feedback draft saved.".to_owned(),
+        draft_id: "draft-target".to_owned(),
+    });
+    assert_eq!(saved.to_prompt_format(), "Local feedback draft saved.");
+    assert!(
+        !saved.to_prompt_format().contains("draft-target"),
+        "the model prompt stays the saved-draft sentence"
+    );
+    let raw_output = serde_json::to_value(&saved).expect("shipped tool output");
+    assert_eq!(
+        raw_output
+            .get("feedback_draft_id")
+            .and_then(serde_json::Value::as_str),
+        Some("draft-target")
+    );
+    let blank = ToolOutput::from(SendFeedbackOutput {
+        message: "Local feedback draft saved.".to_owned(),
+        draft_id: "  ".to_owned(),
+    });
+    assert!(
+        serde_json::to_value(&blank)
+            .expect("blank id")
+            .get("feedback_draft_id")
+            .is_none()
+    );
+
+    crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactAllGrouped,
+    );
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    let mut tracker = AcpUpdateTracker::new();
+    {
+        let scrollback = &mut app.agents.get_mut(&id).unwrap().scrollback;
+        scrollback.push_block(RenderBlock::ToolCall(ToolCallBlock::Read(
+            crate::scrollback::blocks::ReadToolCallBlock::new("src/a.rs"),
+        )));
+        scrollback.push_block(RenderBlock::ToolCall(ToolCallBlock::Read(
+            crate::scrollback::blocks::ReadToolCallBlock::new("src/b.rs"),
+        )));
+        let mut completed = send_feedback_call("fb-done", acp::ToolCallStatus::Completed);
+        completed.raw_output = Some(raw_output);
+        completed.raw_input = Some(serde_json::json!({ "draft_id": "draft-stale" }));
+        push_feedback(&mut tracker, scrollback, completed);
+        scrollback.push_block(RenderBlock::ToolCall(ToolCallBlock::Other(
+            crate::scrollback::blocks::OtherToolCallBlock::new("Feedback drafted", String::new()),
+        )));
+        scrollback.push_block(RenderBlock::ToolCall(ToolCallBlock::Other(
+            crate::scrollback::blocks::OtherToolCallBlock::new("todo_write", "one"),
+        )));
+        scrollback.push_block(RenderBlock::ToolCall(ToolCallBlock::Other(
+            crate::scrollback::blocks::OtherToolCallBlock::new("todo_write", "two"),
+        )));
+        scrollback.push_block(RenderBlock::ToolCall(ToolCallBlock::Skill(
+            crate::scrollback::blocks::OtherToolCallBlock::new("Skill", "deploy"),
+        )));
+        scrollback.push_block(RenderBlock::ToolCall(ToolCallBlock::Skill(
+            crate::scrollback::blocks::OtherToolCallBlock::new("Skill", "review"),
+        )));
+        push_feedback(
+            &mut tracker,
+            scrollback,
+            send_feedback_call("fb-pending", acp::ToolCallStatus::Pending),
+        );
+        let mut updating = send_feedback_call("fb-update", acp::ToolCallStatus::Pending);
+        updating.raw_input = Some(serde_json::json!({ "draft_id": "draft-update" }));
+        push_feedback(&mut tracker, scrollback, updating);
+        let mut failed = send_feedback_call("fb-failed", acp::ToolCallStatus::Failed);
+        failed.raw_output = Some(serde_json::json!({
+            "error": "tool_execution_failed",
+            "message": "boom",
+        }));
+        failed.raw_input = Some(serde_json::json!({ "draft_id": "draft-failed" }));
+        failed.content = vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
+            acp::TextContent::new("Tool `send_feedback` failed: boom".to_owned()),
+        ))];
+        push_feedback(&mut tracker, scrollback, failed);
+        let mut absent = send_feedback_call("fb-absent", acp::ToolCallStatus::Pending);
+        absent.raw_input = Some(serde_json::json!({ "draft_id": "draft-absent" }));
+        push_feedback(&mut tracker, scrollback, absent);
+
+        scrollback.prepare_layout(80, 40);
+        let reads = span_range(scrollback, 0).expect("reads fold");
+        assert_eq!(span_range(scrollback, 1), Some(reads.clone()));
+        assert!(!reads.contains(&2));
+        assert!(span_range(scrollback, 2).is_none());
+        let others = span_range(scrollback, 3).expect("other tools fold");
+        assert!(others.contains(&3) && others.contains(&4) && others.contains(&5));
+        assert!(!others.contains(&2));
+        let skills = span_range(scrollback, 6).expect("skills fold");
+        assert!(skills.contains(&6) && skills.contains(&7));
+        assert!(!skills.contains(&2) && !skills.contains(&8));
+        assert!(span_range(scrollback, 8).is_none());
+        assert!(span_range(scrollback, 9).is_none());
+        assert!(span_range(scrollback, 10).is_none());
+        assert!(span_range(scrollback, 11).is_none());
+        assert!(scrollback.get_cached_entry_height(2).unwrap_or(0) > 0);
+
+        let drafted = other_feedback(scrollback, 2);
+        assert!(drafted.is_feedback_draft());
+        assert_eq!(drafted.feedback_draft_id(), Some("draft-target"));
+        assert!(
+            !scrollback
+                .get(2)
+                .unwrap()
+                .block
+                .searchable_text()
+                .unwrap_or_default()
+                .contains("draft-target")
+        );
+        let titled = &scrollback.get(3).unwrap().block;
+        assert!(
+            titled.is_groupable(),
+            "a tool titled Feedback drafted still groups"
+        );
+        assert!(!other_feedback(scrollback, 8).is_groupable());
+        assert!(other_feedback(scrollback, 8).feedback_draft_id().is_none());
+        assert_eq!(
+            other_feedback(scrollback, 9).feedback_draft_id(),
+            Some("draft-update")
+        );
+        assert_eq!(
+            other_feedback(scrollback, 10).feedback_draft_id(),
+            Some("draft-failed")
+        );
+        assert!(other_feedback(scrollback, 10).error.is_some());
+    }
+
+    let listed = vec![feedback_draft("draft-other"), feedback_draft("draft-target")];
+    let effects = open_selected_row(&mut app, id, 2);
+    assert_eq!(
+        agent_ref(&app, id)
+            .feedback_modal
+            .as_ref()
+            .unwrap()
+            .active_tab(),
+        crate::views::feedback_modal::FeedbackTab::Drafts
+    );
+    finish_draft_list(&mut app, effects, Ok(listed.clone()));
+    assert_drafts_tab(&app, id, Some("draft-target"));
+    app.agents.get_mut(&id).unwrap().feedback_modal = None;
+
+    let before = app
+        .agents
+        .get(&id)
+        .unwrap()
+        .scrollback
+        .get(2)
+        .unwrap()
+        .display_mode();
+    let action = double_click_row(&mut app, id, 2).expect("double-click opens drafts");
+    assert_eq!(
+        app.agents
+            .get(&id)
+            .unwrap()
+            .scrollback
+            .get(2)
+            .unwrap()
+            .display_mode(),
+        before
+    );
+    let Action::OpenFeedbackModal(open) = action else {
+        panic!("double-click must open feedback");
+    };
+    assert!(open.open_drafts);
+    assert!(open.draft_id.is_none());
+    assert_eq!(
+        open.select_draft_id
+            .as_ref()
+            .map(crate::views::feedback_modal::FeedbackDraftId::as_str),
+        Some("draft-target")
+    );
+    let effects = dispatch(Action::OpenFeedbackModal(open), &mut app);
+    finish_draft_list(&mut app, effects, Ok(listed.clone()));
+    assert_drafts_tab(&app, id, Some("draft-target"));
+    app.agents.get_mut(&id).unwrap().feedback_modal = None;
+
+    let failed_before = app
+        .agents
+        .get(&id)
+        .unwrap()
+        .scrollback
+        .get(10)
+        .unwrap()
+        .display_mode();
+    assert_eq!(
+        failed_before,
+        crate::scrollback::types::DisplayMode::Collapsed
+    );
+    let action = double_click_row(&mut app, id, 10).expect("failed row opens drafts");
+    assert_eq!(
+        app.agents
+            .get(&id)
+            .unwrap()
+            .scrollback
+            .get(10)
+            .unwrap()
+            .display_mode(),
+        crate::scrollback::types::DisplayMode::Collapsed,
+        "double-click opens Drafts instead of folding the failed row"
+    );
+    let effects = dispatch(action, &mut app);
+    finish_draft_list(
+        &mut app,
+        effects,
+        Ok(vec![
+            feedback_draft("draft-other"),
+            feedback_draft("draft-failed"),
+        ]),
+    );
+    assert_drafts_tab(&app, id, Some("draft-failed"));
+    app.agents.get_mut(&id).unwrap().feedback_modal = None;
+
+    let effects = open_selected_row(&mut app, id, 8);
+    finish_draft_list(&mut app, effects, Ok(listed.clone()));
+    assert_drafts_tab(&app, id, Some("draft-other"));
+    app.agents.get_mut(&id).unwrap().feedback_modal = None;
+
+    let effects = open_selected_row(&mut app, id, 8);
+    finish_draft_list(&mut app, effects, Ok(Vec::new()));
+    assert_drafts_tab(&app, id, None);
+    app.agents.get_mut(&id).unwrap().feedback_modal = None;
+
+    let effects = open_selected_row(&mut app, id, 9);
+    finish_draft_list(
+        &mut app,
+        effects,
+        Ok(vec![
+            feedback_draft("draft-other"),
+            feedback_draft("draft-update"),
+        ]),
+    );
+    assert_drafts_tab(&app, id, Some("draft-update"));
+    app.agents.get_mut(&id).unwrap().feedback_modal = None;
+
+    let effects = open_selected_row(&mut app, id, 11);
+    finish_draft_list(&mut app, effects, Ok(listed));
+    assert_drafts_tab(&app, id, Some("draft-other"));
+    app.agents.get_mut(&id).unwrap().feedback_modal = None;
+
+    let effects = open_selected_row(&mut app, id, 11);
+    finish_draft_list(&mut app, effects, Err("unavailable".to_owned()));
+    assert_drafts_tab(&app, id, None);
+
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactGrouped,
+    );
+    let mut packed = ScrollbackState::new();
+    let mut appearance = crate::appearance::AppearanceConfig::default();
+    appearance.scrollback.display.group_max_visible = 3;
+    packed.set_appearance(appearance);
+    let mut packed_tracker = AcpUpdateTracker::new();
+    for index in 0..6 {
+        packed.push_block(RenderBlock::ToolCall(ToolCallBlock::Execute(
+            crate::scrollback::blocks::ExecuteToolCallBlock::new(format!("echo {index}")),
+        )));
+    }
+    push_feedback(
+        &mut packed_tracker,
+        &mut packed,
+        send_feedback_call("fb-pack", acp::ToolCallStatus::Completed),
+    );
+    for index in 0..6 {
+        packed.push_block(RenderBlock::ToolCall(ToolCallBlock::Execute(
+            crate::scrollback::blocks::ExecuteToolCallBlock::new(format!("printf {index}")),
+        )));
+    }
+    packed.prepare_layout(80, 40);
+    assert!(packed.span_at(6).is_none());
+    assert!(packed.get_cached_entry_height(6).unwrap_or(0) > 0);
+    let left = span_range(&packed, 0).expect("left pack");
+    assert!(left.contains(&0) && left.contains(&5) && !left.contains(&6));
+    let right = span_range(&packed, 7).expect("right pack");
+    assert!(right.contains(&7) && right.contains(&12) && !right.contains(&6));
+
+    let mut cancelled_scrollback = ScrollbackState::new();
+    let mut cancelled = AcpUpdateTracker::new();
+    push_feedback(
+        &mut cancelled,
+        &mut cancelled_scrollback,
+        send_feedback_call("fb-cancel", acp::ToolCallStatus::Pending),
+    );
+    cancelled.finish_cancelled_turn(&mut cancelled_scrollback);
+    let block = &cancelled_scrollback.get(0).unwrap().block;
+    assert!(!block.is_groupable());
+    let RenderBlock::ToolCall(ToolCallBlock::Other(other)) = block else {
+        panic!("expected feedback row");
+    };
+    assert!(other.is_feedback_draft());
+    assert_eq!(other.name, "Feedback cancelled");
+}

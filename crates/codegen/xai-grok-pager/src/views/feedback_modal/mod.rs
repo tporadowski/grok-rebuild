@@ -136,6 +136,10 @@ pub struct OpenFeedbackModal {
     pub failure_mode: Option<FeedbackFailureMode>,
     pub images: FeedbackImages,
     pub draft_id: Option<FeedbackDraftId>,
+    /// Open on Drafts even when the list is empty. A transcript feedback row uses this.
+    pub open_drafts: bool,
+    /// Select this draft once, when the list for this open arrives.
+    pub select_draft_id: Option<FeedbackDraftId>,
 }
 
 #[derive(Debug, Clone)]
@@ -283,6 +287,10 @@ pub struct FeedbackModalState {
     /// Bare `/feedback` with an empty Write form starts on Drafts when a list comes back nonempty.
     /// Any user tab change clears it so a late list never moves them.
     open_on_drafts_if_any: bool,
+    /// A transcript row opened Drafts. Stay there even when the list is empty or fails.
+    force_drafts: bool,
+    /// Consumed by the next list result, then cleared so a later reload keeps today's selection.
+    pending_select_draft_id: Option<FeedbackDraftId>,
     draft_generation: u64,
     draft_load: Option<FeedbackDraftLoad>,
     pending_request: Option<FeedbackDraftRequest>,
@@ -332,10 +340,15 @@ pub struct FeedbackModalRender {
 
 impl FeedbackModalState {
     pub fn new(mut open: OpenFeedbackModal) -> Self {
-        let open_on_drafts_if_any = open
-            .text
-            .as_deref()
-            .is_none_or(|text| text.trim().is_empty())
+        let pending_select_draft_id = open.select_draft_id.take().filter(|id| {
+            !id.as_str().trim().is_empty()
+        });
+        let force_drafts = open.open_drafts || pending_select_draft_id.is_some();
+        let open_on_drafts_if_any = !force_drafts
+            && open
+                .text
+                .as_deref()
+                .is_none_or(|text| text.trim().is_empty())
             && open.images.is_empty()
             && open.draft_id.is_none();
         let id = FeedbackModalId(NEXT_FEEDBACK_MODAL_ID.fetch_add(1, Ordering::Relaxed));
@@ -390,6 +403,8 @@ impl FeedbackModalState {
                 .then(|| format!("Dropped {rejected_images} invalid image(s).")),
             drafts: DraftsState::Unloaded,
             open_on_drafts_if_any,
+            force_drafts,
+            pending_select_draft_id,
             draft_generation: 0,
             draft_load: None,
             pending_request: None,
@@ -483,9 +498,11 @@ impl FeedbackModalState {
         let before = self.composer.images.len();
         let _rejected = self.composer.seed_images(images);
         // Composer chips make this a new report, not a bare open: stay on Write.
-        if self.open_on_drafts_if_any {
+        if self.open_on_drafts_if_any || self.force_drafts {
             self.window.active_tab = FeedbackTab::Write.index();
             self.open_on_drafts_if_any = false;
+            self.force_drafts = false;
+            self.pending_select_draft_id = None;
         }
         let requests = self
             .composer

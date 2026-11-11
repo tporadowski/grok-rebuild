@@ -65,6 +65,20 @@ async fn valid_inputs_append_canonical_drafts_and_omit_absent_optionals() {
 
     let output = run(session.path(), full.clone()).await.unwrap();
     assert_eq!(output.message, SUCCESS_MESSAGE);
+    let stored_first = FeedbackDraftStore::new(session.path())
+        .list()
+        .unwrap()
+        .first()
+        .map(|draft| draft.id.as_str().to_owned())
+        .expect("saved draft");
+    assert_eq!(output.draft_id, stored_first);
+    let converted = crate::types::output::ToolOutput::from(output);
+    assert_eq!(converted.to_prompt_format(), SUCCESS_MESSAGE);
+    let json = serde_json::to_value(&converted).unwrap();
+    assert_eq!(
+        json.get("feedback_draft_id").and_then(|value| value.as_str()),
+        Some(stored_first.as_str())
+    );
     run(session.path(), sparse.clone()).await.unwrap();
 
     let stored: Vec<(FeedbackDraftInput, u64)> = FeedbackDraftStore::new(session.path())
@@ -142,6 +156,7 @@ async fn draft_id_updates_existing_draft_instead_of_appending() {
     let output = run_tool(session.path(), update).await.unwrap();
 
     assert_eq!(output.message, SUCCESS_MESSAGE);
+    assert_eq!(output.draft_id, existing.id.as_str());
     let drafts = FeedbackDraftStore::new(session.path()).list().unwrap();
     let [draft] = drafts.as_slice() else {
         panic!("expected exactly one draft: {drafts:?}");

@@ -1179,7 +1179,11 @@ impl AgentView {
         now: Instant,
         idx: usize,
         header_row_click: bool,
-    ) -> (Option<(Instant, usize, u8)>, bool) {
+    ) -> (
+        Option<(Instant, usize, u8)>,
+        bool,
+        Option<crate::app::actions::Action>,
+    ) {
         let click_count = if let Some((last_time, last_idx, prev_count)) = self.last_click
             && last_idx == idx
             && now.duration_since(last_time).as_millis() < MULTI_CLICK_TIMEOUT_MS
@@ -1209,6 +1213,8 @@ impl AgentView {
         if word_select_probe {
             self.last_word_select_probe = Some(now);
         }
+        let feedback_open =
+            entry_block.and_then(crate::app::dispatch::notes::feedback_draft_open_action);
 
         self.scrollback.set_selected(Some(idx));
 
@@ -1218,10 +1224,10 @@ impl AgentView {
         if header_row_click {
             if click_count == 2 {
                 self.scrollback.collapse_group_if_expanded();
-                return (None, show_word_select_tip);
+                return (None, show_word_select_tip, None);
             }
             if click_count >= 3 {
-                return (None, false);
+                return (None, false, None);
             }
         }
 
@@ -1231,10 +1237,10 @@ impl AgentView {
         if is_group_header {
             if click_count == 2 {
                 self.scrollback.toggle_group_expansion();
-                return (None, show_word_select_tip);
+                return (None, show_word_select_tip, None);
             }
             if click_count >= 3 {
-                return (None, false);
+                return (None, false, None);
             }
         }
 
@@ -1295,6 +1301,7 @@ impl AgentView {
                 }
                 self.scrollback.scroll_to_entry_top(idx);
             }
+            2 if feedback_open.is_some() => {}
             2 => {
                 if foldable {
                     self.scrollback.toggle_fold_selected();
@@ -1314,7 +1321,8 @@ impl AgentView {
         } else {
             Some((now, idx, click_count))
         };
-        (last_click, show_word_select_tip)
+        let open_drafts = (click_count == 2).then_some(feedback_open).flatten();
+        (last_click, show_word_select_tip, open_drafts)
     }
 
     /// Return the correct selection model for a hit, accounting for the /btw overlay panel which has its own model.
@@ -2191,10 +2199,10 @@ mod tests {
     /// Run one double-click gesture (two clicks 100ms apart) at `t` on `idx`, threading `last_click` the way the mouse caller does.
     /// Returns the tip flag of the second click.
     fn double_click_gesture(agent: &mut AgentView, t: Instant, idx: usize) -> bool {
-        let (last, tip1) = agent.handle_scrollback_click(t, idx, false);
+        let (last, tip1, _) = agent.handle_scrollback_click(t, idx, false);
         assert!(!tip1, "a single click must never tip");
         agent.last_click = last;
-        let (last, tip2) =
+        let (last, tip2, _) =
             agent.handle_scrollback_click(t + Duration::from_millis(100), idx, false);
         agent.last_click = last;
         tip2

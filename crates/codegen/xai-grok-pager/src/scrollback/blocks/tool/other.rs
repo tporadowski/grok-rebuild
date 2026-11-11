@@ -23,6 +23,10 @@ pub struct OtherToolCallBlock {
     image_refs: Vec<crate::prompt_images::ScrollbackImageRef>,
     /// Video references detected in the tool output.
     video_refs: Vec<crate::prompt_images::ScrollbackVideoRef>,
+    /// `send_feedback` row. Stays outside tool groups and opens the Drafts tab.
+    feedback_draft: bool,
+    /// Saved draft id, when the tool result or the in-progress input carried one.
+    feedback_draft_id: Option<String>,
 }
 
 impl OtherToolCallBlock {
@@ -38,7 +42,34 @@ impl OtherToolCallBlock {
             elapsed_ms: None,
             image_refs: Vec::new(),
             video_refs: Vec::new(),
+            feedback_draft: false,
+            feedback_draft_id: None,
         }
+    }
+
+    /// Mark this row as `send_feedback`. `draft_id` is kept only when it is non-empty.
+    pub(crate) fn with_feedback_draft(mut self, draft_id: Option<String>) -> Self {
+        self.feedback_draft = true;
+        self.feedback_draft_id = draft_id.and_then(|id| {
+            let trimmed = id.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_owned())
+            }
+        });
+        self
+    }
+
+    pub(crate) fn is_feedback_draft(&self) -> bool {
+        self.feedback_draft
+    }
+
+    pub(crate) fn feedback_draft_id(&self) -> Option<&str> {
+        self.feedback_draft_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
     }
 
     /// Set error (marks as failed).

@@ -860,6 +860,7 @@ mod tests {
         let output = ToolOutput::Text(TextOutput {
             text: "Task completed in 100ms with exit code: 0.".into(),
             consumed_completion_task_id: Some("bg-uuid-42".into()),
+            feedback_draft_id: None,
         });
         let ids = consumed_completion_ids(&output);
         assert_eq!(ids, vec!["bg-uuid-42"]);
@@ -869,6 +870,7 @@ mod tests {
         let output = ToolOutput::Text(TextOutput {
             text: "Task completed in 100ms with exit code: 0.".into(),
             consumed_completion_task_id: None,
+            feedback_draft_id: None,
         });
         assert!(consumed_completion_ids(&output).is_empty());
     }
@@ -1533,6 +1535,7 @@ mod tests {
         let output = ToolOutput::Text(crate::types::output::TextOutput {
             text: "ok".into(),
             consumed_completion_task_id: None,
+            feedback_draft_id: None,
         });
         let joined = TaskCompletionReminder
             .collect_reminders(shared, &output)
@@ -1595,6 +1598,7 @@ mod tests {
         let output = ToolOutput::Text(crate::types::output::TextOutput {
             text: "ok".into(),
             consumed_completion_task_id: None,
+            feedback_draft_id: None,
         });
         let reminders = TaskCompletionReminder
             .collect_reminders(shared, &output)
@@ -1632,6 +1636,7 @@ mod tests {
         let output = ToolOutput::Text(TextOutput {
             text: "Task completed in 100ms with exit code: 0.".into(),
             consumed_completion_task_id: Some("t1".into()),
+            feedback_draft_id: None,
         });
         let r = reminder.collect_reminders(shared, &output).await;
         assert!(
@@ -2541,6 +2546,7 @@ mod tests {
         let output = ToolOutput::Text(crate::types::output::TextOutput {
             text: "ok".into(),
             consumed_completion_task_id: None,
+            feedback_draft_id: None,
         });
         let reminders = TaskCompletionReminder
             .collect_reminders(shared, &output)

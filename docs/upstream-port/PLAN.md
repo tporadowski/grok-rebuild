@@ -1542,7 +1542,7 @@ id | status | wave | kind | flag | covered | note
 - v71-x05 | done | W14 | Bug Fixes |  |  | **Turn failed rows** no longer repeat a generic "Request failed:" before the error.
 - v72-f01 | done | W14 | Features |  |  | **Relative file paths** in the agent's output, such as `src/app/main.rs`, open on click when the file exists under the session's folder, as absolute paths already do.
 - v72-f03 | done | W14 | Features |  |  | **Pull-request numbers** such as `#123` in the agent's replies open that pull request on the session repository's forge.
-- v72-f06 | pending | W14 | Features |  |  | **Feedback draft rows** show on their own instead of inside a group of tool rows, and opening one shows the `/feedback` Drafts tab with that draft selected.
+- v72-f06 | done | W14 | Features |  |  | **Feedback draft rows** show on their own instead of inside a group of tool rows, and opening one shows the `/feedback` Drafts tab with that draft selected.
 - v72-x01 | pending | W14 | Bug Fixes |  |  | **Warp**: clicking a URL that wraps across rows opens the whole URL instead of only its first row.
 - v72-x02 | pending | W14 | Bug Fixes |  |  | **`/delete`** confirmation starts on Cancel, so pressing `Enter` no longer deletes the session; press `1` to delete.
 - v72-x03 | pending | W14 | Bug Fixes |  |  | **Max thoughts width** (`/settings`, `[ui].max_thoughts_width`) sets how wide thinking blocks wrap; it previously had no effect.

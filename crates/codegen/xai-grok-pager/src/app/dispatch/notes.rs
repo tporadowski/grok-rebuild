@@ -80,6 +80,29 @@ fn feedback_notice(app: &mut AppView, message: &str) {
     }
 }
 
+/// Enter or double-click on a feedback draft row opens Drafts with that draft selected.
+/// Any other block stays on the block viewer.
+pub(crate) fn feedback_draft_open_action(
+    block: &RenderBlock,
+) -> Option<crate::app::actions::Action> {
+    let RenderBlock::ToolCall(ToolCallBlock::Other(other)) = block else {
+        return None;
+    };
+    if !other.is_feedback_draft() {
+        return None;
+    }
+    let select_draft_id = other.feedback_draft_id().map(|id| {
+        crate::views::feedback_modal::FeedbackDraftId::from(id.to_owned())
+    });
+    Some(crate::app::actions::Action::OpenFeedbackModal(
+        crate::views::feedback_modal::OpenFeedbackModal {
+            open_drafts: true,
+            select_draft_id,
+            ..Default::default()
+        },
+    ))
+}
+
 /// Open the feedback modal (every screen mode; minimal hosts it in its live band).
 /// Every refusal is visible (voice notice, blocker notice, or no-session notice); the state is never set invisibly.
 /// Early exits drop `open`, whose image owner cleans up the staged temp files.
