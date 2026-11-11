@@ -707,6 +707,70 @@ fn push_link_segments(
     true
 }
 
+/// How many existence checks one spaced-path extension may do. Each drop is one segment.
+const SPACED_PATH_EXISTENCE_CHECKS: usize = 8;
+
+/// A path match that stopped at a space grows through later segments when that longer path exists.
+/// Trailing prose stays unlinked: a candidate that is not on disk is shortened a segment at a time.
+fn extend_existing_spaced_path(text: &str, start: usize, end: usize) -> usize {
+    if text.as_bytes().get(end) != Some(&b' ') {
+        return end;
+    }
+    let limit = spaced_path_scan_limit(text, end);
+    let Some(mut cand_end) = trim_spaced_candidate(text, start, limit) else {
+        return end;
+    };
+    let mut checks = 0usize;
+    while cand_end > end && checks < SPACED_PATH_EXISTENCE_CHECKS {
+        checks = checks.saturating_add(1);
+        let Some(cand) = text.get(start..cand_end) else {
+            return end;
+        };
+        if spaced_display_path_exists(cand) {
+            return cand_end;
+        }
+        let Some(rel) = cand.rfind([' ', '/', '\\']) else {
+            return end;
+        };
+        let Some(next) = start.checked_add(rel) else {
+            return end;
+        };
+        let Some(trimmed) = trim_spaced_candidate(text, start, next) else {
+            return end;
+        };
+        if trimmed >= cand_end {
+            return end;
+        }
+        cand_end = trimmed;
+    }
+    end
+}
+
+fn spaced_path_scan_limit(text: &str, end: usize) -> usize {
+    let Some(rest) = text.get(end..) else {
+        return end;
+    };
+    let mut i = end;
+    for ch in rest.chars() {
+        if ch.is_control() || matches!(ch, '"' | '\'' | '`' | '<' | '>' | '|') {
+            break;
+        }
+        i = i.saturating_add(ch.len_utf8());
+    }
+    i
+}
+
+fn trim_spaced_candidate(text: &str, start: usize, end: usize) -> Option<usize> {
+    let raw = text.get(start..end)?;
+    let trimmed = raw.trim_end_matches([' ', '.', ',', ';', ':', '!', '?', ')', '/', '\\']);
+    let trimmed_end = start.checked_add(trimmed.len())?;
+    (trimmed_end > start).then_some(trimmed_end)
+}
+
+fn spaced_display_path_exists(path: &str) -> bool {
+    crate::render::tool_paths::resolve_tool_path_target(path, None).is_some_and(|p| p.exists())
+}
+
 /// Run URL and file-path detection over one joined logical line and emit per-row overlay regions for every match (see [`push_link_segments`]).
 fn scan_logical_line(
     text: &str,
@@ -815,10 +879,23 @@ fn scan_logical_line(
                 continue;
             }
         }
+        // A space right after the match may be a later path segment (`Application Support/…`).
+        // Keep that longer path only when it exists; otherwise the sentence stays unlinked.
+        let mut matched_end = m.end();
+        let extended = extend_existing_spaced_path(text, m.start(), matched_end);
+        if extended > matched_end && !range_overlaps_urls(m.start(), extended) {
+            matched_end = extended;
+        }
+        let Some(raw) = text.get(m.start()..matched_end) else {
+            continue;
+        };
         // Drop trailing sentence punctuation so a path ending a sentence (`…/images/1.jpg.`) links to the file, not `file.jpg.`
-        let path = m
-            .as_str()
-            .trim_end_matches(['.', ',', ';', ':', '!', '?', ')']);
+        // An extended path is already the on-disk spelling, so do not strip a real trailing character from it.
+        let path = if matched_end > m.end() {
+            raw
+        } else {
+            raw.trim_end_matches(['.', ',', ';', ':', '!', '?', ')'])
+        };
         if path.is_empty() {
             continue;
         }
@@ -2204,6 +2281,39 @@ mod tests {
         // "See " = 4 cols; path is 12 cols (`/tmp/foo/bar`).
         assert_eq!(nth_link(&overlay, 0).col_start, 4);
         assert_eq!(nth_link(&overlay, 0).col_end, 4 + 12);
+    }
+
+    #[test]
+    fn scan_inline_code_path_with_spaces_links_the_whole_existing_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let spaced = dir.path().join("Application Support");
+        std::fs::create_dir_all(&spaced).unwrap();
+        let file = spaced.join("notes.txt");
+        std::fs::write(&file, b"x").unwrap();
+        let path = file.to_str().expect("temp path is utf-8");
+        let prefix = "Saved `";
+        let line = make_line(&format!("{prefix}{path}` already."));
+        let mut overlay = LinkOverlay::new();
+        scan_unjoined(std::iter::once((0, &line)), 0, &[], &mut overlay);
+
+        assert_eq!(overlay.links().len(), 1, "the whole inline path is one link");
+        let link = nth_link(&overlay, 0);
+        let expected = url::Url::from_file_path(&file).expect("file url");
+        assert_eq!(
+            &*resolve_link_target(&link.target)
+                .and_then(|resolved| resolved.osc8_url)
+                .expect("url"),
+            expected.as_str()
+        );
+        assert!(
+            expected.as_str().contains("Application%20Support"),
+            "the space in the directory stays in the link"
+        );
+        assert_eq!(link.col_start, UnicodeWidthStr::width(prefix) as u16);
+        assert_eq!(
+            link.col_end,
+            (UnicodeWidthStr::width(prefix) + UnicodeWidthStr::width(path)) as u16
+        );
     }
 
     // ── Home-relative (`~/`) path detection ──
