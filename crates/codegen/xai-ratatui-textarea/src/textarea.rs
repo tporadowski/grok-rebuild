@@ -292,12 +292,18 @@ enum MutationKind {
     Replace,
 }
 
+/// Byte budget for undo and redo snapshots together. A deleted multi-megabyte paste is one
+/// snapshot; past this budget the oldest snapshots are dropped, including that paste.
+const MAX_UNDO_BYTES: usize = 1024 * 1024;
+
 /// Manages the undo/redo stacks.
 #[derive(Debug)]
 struct UndoState {
     stack: Vec<UndoEntry>,
     redo: Vec<UndoEntry>,
     max_depth: usize,
+    /// `stack` and `redo` text bytes combined. Entries are dropped oldest-first once this is exceeded.
+    max_bytes: usize,
     /// The kind of the last mutation that was checkpointed.
     last_kind: Option<MutationKind>,
     /// Cursor position *after* the last mutation completed.
@@ -320,11 +326,42 @@ impl Default for UndoState {
             stack: Vec::new(),
             redo: Vec::new(),
             max_depth: 100,
+            max_bytes: MAX_UNDO_BYTES,
             last_kind: None,
             last_cursor: 0,
             last_insert_ws: false,
             group_depth: 0,
             group_checkpoint: None,
+        }
+    }
+}
+
+impl UndoState {
+    fn history_bytes(&self) -> usize {
+        self.stack
+            .iter()
+            .chain(self.redo.iter())
+            .map(|entry| entry.text.len())
+            .sum()
+    }
+
+    /// Depth cap first, then any snapshot larger than the budget (a deleted paste), then oldest
+    /// snapshots until the remainder fits.
+    fn trim_history(&mut self) {
+        while self.stack.len() > self.max_depth {
+            self.stack.remove(0);
+        }
+        let budget = self.max_bytes;
+        self.stack.retain(|entry| entry.text.len() <= budget);
+        self.redo.retain(|entry| entry.text.len() <= budget);
+        let mut total = self.history_bytes();
+        while total > budget && !self.stack.is_empty() {
+            let removed = self.stack.remove(0);
+            total = total.saturating_sub(removed.text.len());
+        }
+        while total > budget && !self.redo.is_empty() {
+            let removed = self.redo.remove(0);
+            total = total.saturating_sub(removed.text.len());
         }
     }
 }
@@ -2115,11 +2152,9 @@ impl TextArea {
         if should_push {
             let entry = self.snapshot();
             self.undo.stack.push(entry);
-            if self.undo.stack.len() > self.undo.max_depth {
-                self.undo.stack.remove(0);
-            }
         }
         self.undo.redo.clear();
+        self.undo.trim_history();
         self.undo.last_kind = Some(kind);
     }
 
@@ -2144,6 +2179,7 @@ impl TextArea {
             self.scroll_override = None;
             let current = self.snapshot();
             self.undo.redo.push(current);
+            self.undo.trim_history();
             self.restore(entry);
             // Reset batching — next mutation starts a fresh group.
             self.undo.last_kind = None;
@@ -2160,6 +2196,7 @@ impl TextArea {
             self.scroll_override = None;
             let current = self.snapshot();
             self.undo.stack.push(current);
+            self.undo.trim_history();
             self.restore(entry);
             // Reset batching — next mutation starts a fresh group.
             self.undo.last_kind = None;
@@ -2204,10 +2241,8 @@ impl TextArea {
                     || checkpoint.elements.len() != self.elements.len();
                 if changed {
                     self.undo.stack.push(checkpoint);
-                    if self.undo.stack.len() > self.undo.max_depth {
-                        self.undo.stack.remove(0);
-                    }
                     self.undo.redo.clear();
+                    self.undo.trim_history();
                 }
             }
             // Reset batching state so the next mutation starts fresh.

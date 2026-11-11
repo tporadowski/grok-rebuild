@@ -3230,6 +3230,47 @@ fn undo_stack_depth_capped() {
 }
 
 #[test]
+fn undo_history_drops_oldest_entries_to_stay_within_the_byte_cap() {
+    let mut ta = TextArea::new();
+    ta.undo.max_bytes = 20;
+    ta.set_text("aaaa");
+    ta.set_text("bbbbbbbb");
+    ta.set_text("cccccccc");
+    ta.set_text("dddddddd");
+    ta.set_text("eeeeeeee");
+    let retained: usize = ta.undo.stack.iter().map(|entry| entry.text.len()).sum();
+    assert!(retained <= 20, "undo text is {retained} bytes");
+    assert!(ta.undo());
+    assert_eq!(ta.text(), "dddddddd");
+    assert!(ta.undo());
+    assert_eq!(ta.text(), "cccccccc");
+    assert!(!ta.undo());
+}
+
+#[test]
+fn undo_history_drops_a_deleted_large_paste() {
+    let mut ta = TextArea::new();
+    let big = "x".repeat(MAX_UNDO_BYTES + 1);
+    ta.insert_str(&big);
+    assert_eq!(ta.text().len(), big.len());
+    ta.set_selection(0, ta.text().len());
+    assert!(ta.delete_selection());
+    assert_eq!(ta.text(), "");
+    let retained = ta.undo.history_bytes();
+    assert!(
+        retained <= MAX_UNDO_BYTES,
+        "deleted paste stayed in undo history ({retained} bytes)"
+    );
+    assert!(
+        ta.undo
+            .stack
+            .iter()
+            .chain(ta.undo.redo.iter())
+            .all(|entry| entry.text.len() <= MAX_UNDO_BYTES)
+    );
+}
+
+#[test]
 fn undo_set_text_restores_previous() {
     let mut ta = TextArea::new();
     ta.insert_str("hello");
