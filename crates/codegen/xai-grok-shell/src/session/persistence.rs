@@ -2927,11 +2927,25 @@ pub(crate) struct SessionDeps {
     pub(crate) session_kind: Option<String>,
 }
 
+/// Set by `session/new` when the `.envrc` load has been spawned. Read once at persistence entry.
+#[cfg(test)]
+pub(crate) static ENVRC_LOAD_STARTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+/// True when persistence init observed an `.envrc` load that was already started.
+#[cfg(test)]
+pub(crate) static PERSISTENCE_SAW_ENVRC_LOAD: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub(crate) async fn new(
     info: &Info,
     model_id: acp::ModelId,
     deps: SessionDeps,
 ) -> io::Result<(PersistenceHandle, SessionIdentity)> {
+    #[cfg(test)]
+    PERSISTENCE_SAW_ENVRC_LOAD.store(
+        ENVRC_LOAD_STARTED.load(std::sync::atomic::Ordering::SeqCst),
+        std::sync::atomic::Ordering::SeqCst,
+    );
     let SessionDeps {
         sampling_client,
         storage_mode,

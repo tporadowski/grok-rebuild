@@ -5457,6 +5457,33 @@ fn new_session_records_setup_phases_for_bisection() {
     });
 }
 #[test]
+fn new_session_starts_envrc_before_persistence() {
+    run_local_for_bridge_test(|| async {
+        crate::session::persistence::ENVRC_LOAD_STARTED
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        crate::session::persistence::PERSISTENCE_SAW_ENVRC_LOAD
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let agent = build_minimal_agent_for_tests();
+        let cwd = tempfile::tempdir().unwrap();
+        std::fs::write(
+            cwd.path().join(".envrc"),
+            "export V47_ENVRC=1\ntouch .v47-envrc-ran\n",
+        )
+        .unwrap();
+        let sid = new_root_session(&agent, cwd.path()).await;
+        assert!(
+            crate::session::persistence::PERSISTENCE_SAW_ENVRC_LOAD
+                .load(std::sync::atomic::Ordering::SeqCst),
+            ".envrc loading must already be in flight when persistence init starts"
+        );
+        assert!(
+            cwd.path().join(".v47-envrc-ran").is_file(),
+            "a trusted repository .envrc must be evaluated during session/new"
+        );
+        agent.remove_session(&sid);
+    });
+}
+#[test]
 fn cold_load_stamps_identity_exactly_once() {
     run_local_for_bridge_test(|| async {
         let agent = build_minimal_agent_for_tests();

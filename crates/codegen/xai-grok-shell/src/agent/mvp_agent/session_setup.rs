@@ -501,7 +501,20 @@ impl MvpAgent {
                 self.plugin_registry_handle.clone(),
                 arguments.meta.as_ref(),
             );
-        prefetch.resolve_trust(cwd.as_path(), remote_settings.as_ref());
+        let project_env_trusted =
+            prefetch.resolve_trust(cwd.as_path(), remote_settings.as_ref());
+        // Overlap .envrc evaluation with model resolution and persistence. The join stays in
+        // `spawn_and_register_session`, which must not start a second load.
+        let load_envrc = self.cfg.borrow().session.load_envrc.unwrap_or(true);
+        let envrc_load = xai_grok_workspace::envrc::spawn_envrc_load(
+            cwd.as_path().to_path_buf(),
+            load_envrc && project_env_trusted,
+        );
+        #[cfg(test)]
+        crate::session::persistence::ENVRC_LOAD_STARTED.store(
+            true,
+            std::sync::atomic::Ordering::SeqCst,
+        );
         #[cfg(all(feature = "local-workspace", unix))]
         let mut local_ws_reap_guard =
             self.new_local_workspace_reap_guard(session_id.clone(), false);
@@ -727,6 +740,7 @@ impl MvpAgent {
                 }
             };
             spawn_opts.prefetch = Some(prefetch);
+            spawn_opts.envrc = Some(envrc_load);
             let mut spawn_timer = crate::instrumentation_timer!("session.spawn");
             spawn_timer.with_field("session_id", session_id.0.as_ref());
             spawn_timer.with_subphase(xai_grok_telemetry::startup::Subphase::SessionSpawn);

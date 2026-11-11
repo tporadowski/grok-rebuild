@@ -1582,7 +1582,7 @@ id | status | wave | kind | flag | covered | note
 - v77-x04 | done | W14 | Bug Fixes |  |  | Context usage shown in the footer no longer drops to zero or shows stale values after a rewind.
 - v46-p01 | done | W15 | Performance |  |  | list_dir on network or virtual filesystems now skips slow subtree counts and prints a notice instead.
 - v46-p02 | done | W15 | Performance |  |  | **Session startup** is faster when loading skills from large directories and shows what it is doing instead of a generic spinner.
-- v47-p01 | pending | W15 | Performance |  |  | **Sessions** in repositories with an .envrc file now start faster.
+- v47-p01 | done | W15 | Performance |  |  | **Sessions** in repositories with an .envrc file now start faster.
 - v50-p01 | pending | W15 | Performance |  |  | Command hooks no longer cause large memory spikes when they print a lot of output.
 - v50-p02 | pending | W15 | Performance |  |  | **Retry waits** now vary between processes instead of being identical.
 - v51-p01 | pending | W15 | Performance |  |  | Opening the resume picker is now much faster on machines with many worktrees.

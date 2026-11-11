@@ -182,6 +182,8 @@ fn load_envrc_with_timeout(
     }
 
     match try_direnv_export(dir, deadline, sandbox) {
+        // An empty diff is a finished evaluation. Bash must not source the file again.
+        DirenvExport::Env(env) if env.is_empty() => None,
         DirenvExport::Env(env) => Some(env),
         DirenvExport::TimedOut => None,
         DirenvExport::SideEffectsRan => None,
@@ -189,14 +191,58 @@ fn load_envrc_with_timeout(
     }
 }
 
+#[derive(Debug)]
 enum DirenvExport {
     Env(HashMap<String, String>),
     /// Deadline hit; bash would block on the same file.
     TimedOut,
     /// Ran but output was unusable; bash must not re-run the side effects.
     SideEffectsRan,
-    /// direnv missing or produced nothing; bash may evaluate.
+    /// direnv missing or failed; bash may evaluate.
     Unavailable,
+}
+
+fn direnv_program_names() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["direnv.exe", "direnv.cmd", "direnv.bat"]
+    } else {
+        &["direnv"]
+    }
+}
+
+/// `direnv` is absent on most machines. A PATH search is cheaper than spawning a binary that cannot exist.
+fn direnv_binary_on_path(path: &std::ffi::OsStr) -> bool {
+    let names = direnv_program_names();
+    std::env::split_paths(path).any(|dir| names.iter().any(|name| dir.join(name).is_file()))
+}
+
+fn direnv_installed() -> bool {
+    std::env::var_os("PATH").is_some_and(|path| direnv_binary_on_path(&path))
+}
+
+/// Classify a finished `direnv export json`. Failure and "not allowed" stay [`DirenvExport::Unavailable`]
+/// so bash can evaluate. A successful empty diff is final.
+fn classify_direnv_export(success: bool, stdout: &str) -> DirenvExport {
+    if !success {
+        return DirenvExport::Unavailable;
+    }
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return DirenvExport::Env(HashMap::new());
+    }
+    match serde_json::from_str::<HashMap<String, serde_json::Value>>(trimmed) {
+        Ok(json) => {
+            let env = json
+                .into_iter()
+                .filter_map(|(k, v)| match v {
+                    serde_json::Value::String(s) => Some((k, s)),
+                    _ => None,
+                })
+                .collect();
+            DirenvExport::Env(env)
+        }
+        Err(_) => DirenvExport::SideEffectsRan,
+    }
 }
 
 fn try_direnv_export(
@@ -204,6 +250,9 @@ fn try_direnv_export(
     deadline: Instant,
     sandbox: Option<&dyn SandboxLaunch>,
 ) -> DirenvExport {
+    if !direnv_installed() {
+        return DirenvExport::Unavailable;
+    }
     let mut cmd = Command::new("direnv");
     cmd.args(["export", "json"]).current_dir(dir);
     let output = match run_with_deadline(cmd, deadline, "direnv", sandbox) {
@@ -223,7 +272,7 @@ fn try_direnv_export(
     };
 
     if !output.status.success() {
-        // direnv not allowed, or other error
+        // direnv not allowed, or other error. Bash may still evaluate.
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("not allowed") {
             tracing::debug!(?dir, %stderr, "direnv export failed");
@@ -232,38 +281,16 @@ fn try_direnv_export(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    if stdout.trim().is_empty() {
-        // No changes from direnv
-        return DirenvExport::Unavailable;
+    let classified = classify_direnv_export(true, &stdout);
+    if let DirenvExport::Env(env) = &classified
+        && !env.is_empty()
+    {
+        tracing::info!(?dir, count = env.len(), "Loaded environment via direnv");
     }
-
-    // Parse JSON output: {"VAR": "value", ...}
-    // direnv also outputs null for vars to unset, but we ignore those
-    match serde_json::from_str::<HashMap<String, serde_json::Value>>(&stdout) {
-        Ok(json) => {
-            let env: HashMap<String, String> = json
-                .into_iter()
-                .filter_map(|(k, v)| {
-                    if let serde_json::Value::String(s) = v {
-                        Some((k, s))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            if env.is_empty() {
-                DirenvExport::Unavailable
-            } else {
-                tracing::info!(?dir, count = env.len(), "Loaded environment via direnv");
-                DirenvExport::Env(env)
-            }
-        }
-        Err(e) => {
-            tracing::warn!(?dir, ?e, "Failed to parse direnv JSON output");
-            DirenvExport::SideEffectsRan
-        }
+    if matches!(classified, DirenvExport::SideEffectsRan) {
+        tracing::warn!(?dir, "Failed to parse direnv JSON output");
     }
+    classified
 }
 
 /// This is the fallback when direnv is not installed.
@@ -674,6 +701,86 @@ mod tests {
 
         let env = load_envrc_with_timeout(dir.path(), Duration::from_secs(10), None).unwrap();
         assert_eq!(env.get("FOO"), Some(&"bar".to_string()));
+    }
+
+    #[test]
+    fn direnv_binary_on_path_requires_a_regular_file() {
+        let missing = TempDir::new().unwrap();
+        assert!(!direnv_binary_on_path(missing.path().as_os_str()));
+        let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join("direnv")).unwrap();
+        assert!(
+            !direnv_binary_on_path(dir.path().as_os_str()),
+            "a directory named direnv is not the evaluator"
+        );
+        let bin_name = direnv_program_names()
+            .first()
+            .copied()
+            .expect("direnv program name");
+        let file_dir = TempDir::new().unwrap();
+        fs::write(file_dir.path().join(bin_name), b"#!/bin/sh\n").unwrap();
+        assert!(direnv_binary_on_path(file_dir.path().as_os_str()));
+    }
+
+    #[test]
+    fn successful_empty_direnv_export_does_not_fall_through_to_bash() {
+        assert!(matches!(
+            classify_direnv_export(true, ""),
+            DirenvExport::Env(env) if env.is_empty()
+        ));
+        assert!(matches!(
+            classify_direnv_export(true, " \n"),
+            DirenvExport::Env(env) if env.is_empty()
+        ));
+        assert!(matches!(
+            classify_direnv_export(true, "{}"),
+            DirenvExport::Env(env) if env.is_empty()
+        ));
+        match classify_direnv_export(true, r#"{"FOO":"bar","GONE":null}"#) {
+            DirenvExport::Env(env) => {
+                assert_eq!(env.get("FOO").map(String::as_str), Some("bar"));
+                assert!(!env.contains_key("GONE"));
+            }
+            other => panic!("expected an env diff, got {other:?}"),
+        }
+        assert!(matches!(
+            classify_direnv_export(false, r#"{"FOO":"bar"}"#),
+            DirenvExport::Unavailable
+        ));
+        assert!(matches!(
+            classify_direnv_export(true, "not-json"),
+            DirenvExport::SideEffectsRan
+        ));
+    }
+
+    #[test]
+    fn missing_direnv_evaluates_envrc_with_one_bash_process() {
+        if direnv_installed() {
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join(".envrc"), "export FOO=from-bash\n").unwrap();
+        let hook = RecordingHook {
+            seen: Mutex::new(Vec::new()),
+            refuse: false,
+        };
+        let env =
+            load_envrc_with_timeout(dir.path(), Duration::from_secs(10), Some(&hook)).unwrap();
+        assert_eq!(env.get("FOO").map(String::as_str), Some("from-bash"));
+        let seen = lock_ignore_poison_pairs(&hook.seen);
+        assert_eq!(
+            seen.len(),
+            1,
+            "a missing direnv must not be spawned"
+        );
+        let program = seen
+            .first()
+            .map(|(_, program)| program.as_str())
+            .unwrap_or("");
+        assert!(
+            program.ends_with("bash") || program.ends_with("bash.exe"),
+            "{program}"
+        );
     }
 
     #[test]
