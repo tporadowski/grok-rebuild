@@ -927,17 +927,17 @@ These rows are already `skipped` in the catalog. Do not implement them.
 
 ## Protected fork check (W16)
 
-Status: `pending`. Run after W15, and sooner when a wave touches that behavior.
+Status: `done`. Re-checked after W15; each behavior below is still present.
 
-- [ ] `w16-copyable-errors` Copyable collapsed and expanded tool errors.
-- [ ] `w16-turn-index` Turn index on plain user prompts only.
-- [ ] `w16-sticky-edit` Sticky Edit path and its config flag.
-- [ ] `w16-subagent-id` Subagent session id display and copy.
-- [ ] `w16-hooks-at-start` Trusted plugin hooks register at session start.
-- [ ] `w16-release-notes` Full `/release-notes` plus CDN prepend. Changelog file not rewritten as 1.0.78.
-- [ ] `w16-copy-markdown` Ctrl+Shift+Y / F6 markdown copy.
-- [ ] `w16-tool-step` Shift+Up / Shift+Down tool stepping, other chords unchanged.
-- [ ] `w16-windows-link` Windows proto and stack changes still present in the build files.
+- [x] `w16-copyable-errors` Copyable collapsed and expanded tool errors.
+- [x] `w16-turn-index` Turn index on plain user prompts only.
+- [x] `w16-sticky-edit` Sticky Edit path and its config flag.
+- [x] `w16-subagent-id` Subagent session id display and copy.
+- [x] `w16-hooks-at-start` Trusted plugin hooks register at session start.
+- [x] `w16-release-notes` Full `/release-notes` plus CDN prepend. Changelog file not rewritten as 1.0.78.
+- [x] `w16-copy-markdown` Ctrl+Shift+Y / F6 markdown copy.
+- [x] `w16-tool-step` Shift+Up / Shift+Down tool stepping, other chords unchanged.
+- [x] `w16-windows-link` Windows proto and stack changes still present in the build files.
 
 ## Summary
 
@@ -961,7 +961,7 @@ Refresh these numbers at the end of a session.
 | W14 | Pager and remaining bug fixes | 36 | 0 | 94 | 14 | 3 |
 | W15 | Performance | 20 | 0 | 0 | 3 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
-| W16 | Fork regression | 9 | 0 | 0 | 0 | 0 |
+| W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
 Catalog rows: 583. Pending: 56. Skipped: 8. Done: 421. Already: 77. Deferred: 21.
 
