@@ -1548,7 +1548,7 @@ id | status | wave | kind | flag | covered | note
 - v72-x03 | done | W14 | Bug Fixes |  |  | **Max thoughts width** (`/settings`, `[ui].max_thoughts_width`) sets how wide thinking blocks wrap; it previously had no effect.
 - v72-x05 | done | W14 | Bug Fixes |  |  | **Custom models on the Responses API** with a non-xAI `base_url` no longer fail every turn with an HTTP 400 schema error for `use_tool`.
 - v72-x06 | done | W14 | Bug Fixes |  |  | **`/feedback` Drafts tab** keeps the selected draft when the list reloads, such as after leaving Drafts and coming back.
-- v72-x08 | pending | W14 | Bug Fixes |  |  | **Plan review notes** accept every key, so a note that starts with `a` no longer approves the plan.
+- v72-x08 | done | W14 | Bug Fixes |  |  | **Plan review notes** accept every key, so a note that starts with `a` no longer approves the plan.
 - v73-f01 | pending | W14 | Features |  |  | **`Page Up`/`Page Down`, `Home` and `End`** move the selection in `/skills` and other pickers.
 - v73-x01 | pending | W14 | Bug Fixes |  |  | **Windows**: quitting Grok ends `grok.exe` once the terminal is restored, so the shell no longer sometimes waits with no prompt.
 - v73-x04 | pending | W14 | Bug Fixes |  |  | **`--restore-code`**: when the code restore fails, your uncommitted and untracked files stay in the working tree instead of in a stash.

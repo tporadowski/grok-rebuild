@@ -818,7 +818,13 @@ impl AgentView {
             self.discard_in_progress_comment();
             return InputOutcome::Changed;
         }
+        // `a` approves from the plan preview. The note field takes every key, including a note that starts with `a`.
+        let note_field = self
+            .plan_approval_view
+            .as_ref()
+            .is_some_and(|pav| pav.focus == PlanApprovalFocus::Prompt);
         if !is_commenting
+            && !note_field
             && key.code == KeyCode::Char('a')
             && key.modifiers.is_empty()
             && self.prompt.text_without_image_chips().trim().is_empty()
@@ -1441,21 +1447,27 @@ mod plan_approval_enter_tests {
         );
     }
     #[test]
-    fn a_on_empty_revise_prompt_approves() {
+    fn plan_review_note_starting_with_a_does_not_approve() {
         let mut agent = agent_with_revise_prompt();
         let a = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
         let outcome = agent.handle_plan_feedback_key(&a);
         assert!(matches!(outcome, InputOutcome::Changed));
-        assert!(agent.plan_approval_view.is_none(), "`a` must approve");
-        assert_ne!(
-            agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-            Some("Plan revision sent.")
+        assert!(
+            agent.plan_approval_view.is_some(),
+            "a note that starts with `a` must not approve the plan"
         );
+        assert_eq!(agent.prompt.text(), "a");
+        let d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE);
+        let _ = agent.handle_plan_feedback_key(&d);
+        let _ = agent.handle_plan_feedback_key(&d);
+        assert_eq!(agent.prompt.text(), "add");
+        assert!(agent.plan_approval_view.is_some());
     }
     #[test]
-    fn a_with_pending_comments_and_empty_freeform_approves() {
+    fn a_on_preview_with_pending_comments_approves() {
         let mut agent = agent_with_revise_prompt();
         if let Some(ref mut pav) = agent.plan_approval_view {
+            pav.focus = PlanApprovalFocus::Preview;
             pav.comments.push(PlanComment {
                 id: 1,
                 line_range: 0..1,
@@ -1466,7 +1478,7 @@ mod plan_approval_enter_tests {
         let outcome = agent.handle_plan_feedback_key(&a);
         assert!(
             agent.plan_approval_view.is_none(),
-            "empty freeform + comments: `a` must approve with comments"
+            "preview focus: `a` still approves when the note field is empty"
         );
         assert!(matches!(
             outcome,
@@ -1846,13 +1858,14 @@ mod plan_approval_enter_tests {
         let a = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
         let outcome = agent.handle_plan_feedback_key(&a);
         assert!(
-            agent.plan_approval_view.is_none(),
-            "image-only freeform: `a` must approve (not type the letter)"
+            agent.plan_approval_view.is_some(),
+            "the note field accepts `a` even when the only other content is an image"
         );
         assert!(matches!(outcome, InputOutcome::Changed));
         assert!(
-            agent.prompt.text().contains("[Image #1]"),
-            "freeform image folds into restored session draft"
+            agent.prompt.text().contains('a'),
+            "a must be typed into the note, got {:?}",
+            agent.prompt.text()
         );
     }
     #[test]
