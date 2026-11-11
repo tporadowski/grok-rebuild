@@ -901,6 +901,11 @@ impl PromptWidget {
         self.compact = compact;
     }
 
+    /// `[ui] at_picker_outside_workspace`. `false` keeps `@` completion inside the workspace.
+    pub(crate) fn set_at_picker_outside_workspace(&mut self, allow: bool) {
+        self.file_search.set_allow_outside_workspace(allow);
+    }
+
     /// Current compact flag (the derived render value fanned out by `AppView::apply_effective_compact`).
     pub fn compact(&self) -> bool {
         self.compact

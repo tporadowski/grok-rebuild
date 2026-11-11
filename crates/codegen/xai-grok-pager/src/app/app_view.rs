@@ -2136,6 +2136,26 @@ impl AppView {
             }
         }
     }
+
+    /// Push `[ui] at_picker_outside_workspace` onto every `@` picker.
+    pub(crate) fn apply_at_picker_outside_workspace(&mut self) {
+        let allow = self.current_ui.at_picker_outside_workspace_enabled();
+        self.welcome_prompt.set_at_picker_outside_workspace(allow);
+        if let Some(dashboard) = self.dashboard.as_mut() {
+            dashboard
+                .dispatch
+                .set_at_picker_outside_workspace(allow);
+            dashboard
+                .peek_reply
+                .set_at_picker_outside_workspace(allow);
+        }
+        for agent in self.agents.values_mut() {
+            agent.prompt.set_at_picker_outside_workspace(allow);
+            for child in agent.subagent_views.values_mut() {
+                child.prompt.set_at_picker_outside_workspace(allow);
+            }
+        }
+    }
     /// Recompute the render-value compact flag from the user setting and terminal height (`views::agent::effective_compact`).
     /// Propagate it to the appearance fan-out and every agent's prompt widget when it changed.
     /// In-memory only: never touches the user setting (`current_ui.compact_mode`), the render cache, or disk.
@@ -5439,6 +5459,7 @@ impl AppView {
     /// Produces redraws when there are running entries with animated accents.
     pub fn tick(&mut self) -> bool {
         self.fps_hud.note_tick();
+        self.apply_at_picker_outside_workspace();
         let mut needs_redraw = false;
         needs_redraw |= self.minimal_state.needs_frames();
         needs_redraw |= self.poll_clipboard_focus_tip();

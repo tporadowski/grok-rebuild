@@ -204,6 +204,10 @@ pub struct UiConfig {
     /// Per-field `None` inherits remote/default; skipped when untouched.
     #[serde(default, skip_serializing_if = "DisplayRefreshSettings::is_default")]
     pub display_refresh: DisplayRefreshSettings,
+    /// `@` paths that start with `/`, `~/`, or `../` list that folder.
+    /// Unset means on. `false` keeps the picker inside the workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_picker_outside_workspace: Option<bool>,
     /// `[ui.status_line]`. Disabled by default.
     #[serde(default, skip_serializing_if = "status_line_should_not_be_saved")]
     pub status_line: StatusLineConfig,
@@ -501,6 +505,7 @@ impl Default for UiConfig {
             combine_queued_prompts: None,
             follow_up_behavior: None,
             display_refresh: DisplayRefreshSettings::default(),
+            at_picker_outside_workspace: None,
             status_line: StatusLineConfig::default(),
         }
     }
@@ -555,6 +560,15 @@ impl UiConfig {
     pub fn page_flip_on_send_enabled(&self) -> bool {
         self.page_flip_on_send
             .unwrap_or(Self::PAGE_FLIP_ON_SEND_DEFAULT)
+    }
+
+    /// Default for [`Self::at_picker_outside_workspace`]. Outside `@` paths list that folder.
+    pub const AT_PICKER_OUTSIDE_WORKSPACE_DEFAULT: bool = true;
+
+    /// Whether `@/`, `@~/`, and `@../` list the folder they name.
+    pub fn at_picker_outside_workspace_enabled(&self) -> bool {
+        self.at_picker_outside_workspace
+            .unwrap_or(Self::AT_PICKER_OUTSIDE_WORKSPACE_DEFAULT)
     }
 
     /// Default for [`Self::confirm_before_rewind`] when unset.

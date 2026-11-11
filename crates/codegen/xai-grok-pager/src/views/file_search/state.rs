@@ -101,6 +101,102 @@ pub struct FileSearchState {
     /// Directory being drilled into; keeps the @-token alive when its name has whitespace (`my dir`).
     /// Self-validating: applies only while the path matches.
     drill_prefix: Option<String>,
+    /// `@/`, `@~/`, and `@../` list that folder. `false` keeps the workspace walk.
+    allow_outside_workspace: bool,
+    /// Home directory `~/` lists. `None` leaves those queries empty.
+    home: Option<PathBuf>,
+    /// The hits on screen came from an outside-folder listing, not the workspace daemon.
+    outside_listing: bool,
+}
+
+/// Outside `@` queries name a folder with `/`, `~/`, or `../`. The text through the last separator is that folder.
+fn outside_dir_and_prefix(query: &str) -> Option<(&str, &str)> {
+    let outside = query.starts_with('/')
+        || query.starts_with("~/")
+        || query.starts_with("~\\")
+        || query.starts_with("../")
+        || query.starts_with("..\\");
+    if !outside {
+        return None;
+    }
+    let sep = query.rfind(['/', '\\'])?;
+    let dir = query.get(..=sep)?;
+    let prefix = query.get(sep.saturating_add(1)..).unwrap_or("");
+    Some((dir, prefix))
+}
+
+fn resolve_outside_dir(dir_text: &str, workspace: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    if dir_text.starts_with('/') || dir_text.starts_with('\\') {
+        return Some(PathBuf::from(dir_text));
+    }
+    if let Some(rest) = dir_text
+        .strip_prefix("~/")
+        .or_else(|| dir_text.strip_prefix("~\\"))
+    {
+        let home = home?;
+        return Some(if rest.is_empty() {
+            home.to_path_buf()
+        } else {
+            home.join(rest)
+        });
+    }
+    if dir_text.starts_with("../") || dir_text.starts_with("..\\") {
+        return Some(workspace.join(dir_text));
+    }
+    None
+}
+
+/// One level of `dir`. Names that do not start with `prefix` are dropped. Dot names stay hidden unless `hidden`.
+fn list_outside_folder(
+    query: &str,
+    workspace: &Path,
+    home: Option<&Path>,
+    hidden: bool,
+) -> Option<Vec<FuzzyMatchResult>> {
+    let (dir_text, prefix) = outside_dir_and_prefix(query)?;
+    let Some(dir) = resolve_outside_dir(dir_text, workspace, home) else {
+        return Some(Vec::new());
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Some(Vec::new());
+    };
+    let mut rows: Vec<(String, bool)> = Vec::new();
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if name.is_empty() || (!hidden && name.starts_with('.')) {
+            continue;
+        }
+        if !prefix.is_empty() && !name.starts_with(prefix) {
+            continue;
+        }
+        let is_dir = match entry.file_type() {
+            Ok(kind) if kind.is_dir() => true,
+            Ok(kind) if kind.is_symlink() => entry
+                .path()
+                .metadata()
+                .map(|meta| meta.is_dir())
+                .unwrap_or(false),
+            _ => false,
+        };
+        rows.push((name, is_dir));
+    }
+    rows.sort_by(|left, right| left.0.cmp(&right.0));
+    rows.truncate(256);
+    let hits = rows
+        .into_iter()
+        .map(|(name, is_dir)| FuzzyMatchResult {
+            path: nucleo::Utf32String::from(format!("{dir_text}{name}")),
+            score: 0,
+            indices: Vec::new(),
+            is_dir,
+        })
+        .collect();
+    Some(hits)
 }
 
 impl FileSearchState {
@@ -121,14 +217,33 @@ impl FileSearchState {
             min_generation: 0,
             shown_query: None,
             drill_prefix: None,
+            allow_outside_workspace: true,
+            home: xai_dirs::home_dir(),
+            outside_listing: false,
         }
     }
 
     /// Point @-completion at a new tree (e.g. after worktree creation).
     ///
     /// Drops any built daemon; the next @-use rebuilds it lazily against `root`.
+    /// The outside-workspace switch and the home directory stay.
     pub fn retarget(&mut self, root: &Path) {
+        let allow_outside_workspace = self.allow_outside_workspace;
+        let home = self.home.clone();
         *self = Self::new(root);
+        self.allow_outside_workspace = allow_outside_workspace;
+        self.home = home;
+    }
+
+    /// `[ui] at_picker_outside_workspace`. `false` stops `@/`, `@~/`, and `@../` from leaving the workspace.
+    pub(crate) fn set_allow_outside_workspace(&mut self, allow: bool) {
+        self.allow_outside_workspace = allow;
+    }
+
+    /// Home folder used when the query starts with `~/`.
+    #[cfg(test)]
+    pub(crate) fn set_home_dir(&mut self, home: PathBuf) {
+        self.home = Some(home);
     }
 
     /// The directory the matcher currently walks (the `@`-completion root).
@@ -249,6 +364,34 @@ impl FileSearchState {
     pub fn update_context(&mut self, text: &str, cursor: usize) {
         let new_ctx = context::detect_with_drill(text, cursor, self.drill_prefix.as_deref());
 
+        let anchor_stale = new_ctx.as_ref().is_some_and(|new| {
+            self.drill_prefix.as_deref().is_some_and(|prefix| {
+                !text
+                    .get(new.path_range().start..)
+                    .is_some_and(|rest| rest.starts_with(prefix))
+            })
+        });
+        if anchor_stale {
+            self.drill_prefix = None;
+        }
+
+        if self.allow_outside_workspace
+            && let Some(ctx) = new_ctx.clone()
+            && let Some(hits) = list_outside_folder(
+                ctx.matcher_query(),
+                &self.root,
+                self.home.as_deref(),
+                ctx.is_hidden_mode(),
+            )
+        {
+            if self.context.is_none() {
+                self.drill_prefix = None;
+            }
+            self.install_outside_listing(ctx, hits);
+            return;
+        }
+
+        self.outside_listing = false;
         match (&self.context, &new_ctx) {
             (None, Some(ctx)) => {
                 // Fresh `@` token is never a drill; drop any stale anchor
@@ -262,16 +405,6 @@ impl FileSearchState {
                 );
             }
             (Some(old), Some(new)) => {
-                // Drop a stale anchor once the @-token's path content no longer starts with it (e.g. undo/paste reverted the drill).
-                // It then can't silently re-match on a later edit
-                let anchor_stale = self.drill_prefix.as_deref().is_some_and(|prefix| {
-                    !text
-                        .get(new.path_range().start..)
-                        .is_some_and(|rest| rest.starts_with(prefix))
-                });
-                if anchor_stale {
-                    self.drill_prefix = None;
-                }
                 // Staying in @-mode only re-walks when hidden mode toggled.
                 let restart = if old.is_hidden_mode() != new.is_hidden_mode() {
                     RestartWalk::Restart {
@@ -298,11 +431,35 @@ impl FileSearchState {
         debug_assert!(self.context.is_none() || self.daemon.is_some());
     }
 
+    /// Show `hits` for an `@` path that names a folder outside the workspace walk.
+    fn install_outside_listing(&mut self, ctx: AtContext, hits: Vec<FuzzyMatchResult>) {
+        let query = ctx.matcher_query().to_owned();
+        let num_items = hits.len();
+        self.min_generation = self.min_generation.saturating_add(1);
+        self.outside_listing = true;
+        self.shown_query = Some(query.clone());
+        self.results = FuzzyMatcherDaemonResults {
+            topk: Arc::from(hits),
+            num_items,
+            status: xai_grok_workspace::file_system::FuzzyMatcherStatus {
+                done: true,
+                changed: true,
+            },
+            generation: self.min_generation,
+            query,
+        };
+        self.context = Some(ctx);
+        self.selected = 0;
+        self.hovered = None;
+        self.scroll_offset = 0;
+    }
+
     /// Clear the context (e.g., on Esc).
     pub fn clear_context(&mut self) {
         self.context = None;
         self.drill_prefix = None;
         self.shown_query = None;
+        self.outside_listing = false;
         self.results = FuzzyMatcherDaemonResults::default();
     }
 
@@ -314,7 +471,7 @@ impl FileSearchState {
         {
             self.poll_calls += 1;
         }
-        if self.context.is_none() {
+        if self.context.is_none() || self.outside_listing {
             return false;
         }
 
@@ -705,5 +862,95 @@ mod tests {
             .selected_result()
             .expect("settled results are selectable");
         assert_eq!(hit.path.to_string(), "b.rs");
+    }
+
+    fn listed_paths(state: &FileSearchState) -> Vec<String> {
+        state
+            .results()
+            .topk
+            .iter()
+            .map(|hit| hit.path.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn at_paths_outside_the_workspace_list_that_folder() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let workspace = tmp.path().join("workspace");
+        let sibling = tmp.path().join("sibling");
+        let home = tmp.path().join("home");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&sibling).expect("sibling");
+        std::fs::create_dir_all(&home).expect("home");
+        std::fs::write(workspace.join("inside.txt"), b"in").expect("inside");
+        std::fs::write(sibling.join("outside.txt"), b"out").expect("outside");
+        std::fs::write(sibling.join(".secret"), b"hid").expect("secret");
+        std::fs::write(home.join("notes.txt"), b"note").expect("notes");
+
+        let mut state = FileSearchState::new(&workspace);
+        state.set_home_dir(home);
+        assert!(
+            xai_grok_shell::agent::config::UiConfig::default()
+                .at_picker_outside_workspace_enabled()
+        );
+
+        let parent = "@../sibling/";
+        state.update_context(parent, parent.len());
+        let listed = listed_paths(&state);
+        assert!(
+            listed.iter().any(|path| path == "../sibling/outside.txt"),
+            "parent folder should list outside.txt, got {listed:?}"
+        );
+        assert!(
+            listed.iter().all(|path| !path.ends_with(".secret")),
+            "dotfiles stay hidden, got {listed:?}"
+        );
+        assert!(listed.iter().all(|path| !path.contains("inside.txt")));
+
+        let hidden = "@!../sibling/";
+        state.update_context(hidden, hidden.len());
+        let listed = listed_paths(&state);
+        assert!(
+            listed.iter().any(|path| path == "../sibling/.secret"),
+            "hidden mode lists the dotfile, got {listed:?}"
+        );
+
+        let filtered = "@../sib";
+        state.update_context(filtered, filtered.len());
+        let listed = listed_paths(&state);
+        assert!(
+            listed.iter().any(|path| path == "../sibling"),
+            "a partial name lists that folder, got {listed:?}"
+        );
+
+        let tilde = "@~/";
+        state.update_context(tilde, tilde.len());
+        let listed = listed_paths(&state);
+        assert!(
+            listed.iter().any(|path| path == "~/notes.txt"),
+            "home folder should list notes.txt, got {listed:?}"
+        );
+
+        let absolute = format!("{}/", sibling.display());
+        let absolute_query = format!("@{absolute}");
+        state.update_context(&absolute_query, absolute_query.len());
+        let listed = listed_paths(&state);
+        let expected = format!("{absolute}outside.txt");
+        assert!(
+            listed.iter().any(|path| path == &expected),
+            "absolute folder should list outside.txt, got {listed:?}"
+        );
+        assert!(!state.daemon_is_built());
+
+        let off: xai_grok_shell::agent::config::UiConfig =
+            toml::from_str("at_picker_outside_workspace = false").expect("ui config");
+        assert!(!off.at_picker_outside_workspace_enabled());
+        state.set_allow_outside_workspace(off.at_picker_outside_workspace_enabled());
+        state.update_context(parent, parent.len());
+        let listed = listed_paths(&state);
+        assert!(
+            listed.iter().all(|path| !path.contains("outside.txt")),
+            "the switch keeps the picker inside the workspace, got {listed:?}"
+        );
     }
 }

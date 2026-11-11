@@ -1618,6 +1618,7 @@ pub(crate) async fn run(
         &app.current_ui,
     );
     app.apply_effective_compact();
+    app.apply_at_picker_outside_workspace();
     app.scroll_config = crate::input::mouse::ScrollConfig::from_settings();
     crate::terminal::xtversion::probe_at_startup();
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel::<TimedInputEvent>();
