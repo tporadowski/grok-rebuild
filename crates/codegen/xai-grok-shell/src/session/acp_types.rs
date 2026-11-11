@@ -365,6 +365,11 @@ pub struct RewindResponse {
     /// Populated on successful conversation rewind (All or ConversationOnly).
     #[serde(default)]
     pub prompt_text: Option<String>,
+    /// Scaled context estimate of the conversation kept by this rewind.
+    /// `None` when the conversation was not rewound. A present value replaces the footer
+    /// numerator; absence leaves the footer alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u64>,
     pub error: Option<String>,
 }
 
@@ -836,12 +841,14 @@ mod tests {
             clean_files: vec![],
             conflicts: vec![],
             prompt_text: Some("fix the bug".into()),
+            context_tokens: Some(25_000),
             error: None,
         };
         let v = serde_json::to_value(&resp).unwrap();
         assert_eq!(v.get("mode"), Some(&json!("conversation_only")));
         assert_eq!(v.get("prompt_text"), Some(&json!("fix the bug")));
         assert_eq!(v.get("success"), Some(&json!(true)));
+        assert_eq!(v.get("context_tokens"), Some(&json!(25_000)));
     }
 
     #[test]
@@ -854,11 +861,16 @@ mod tests {
             clean_files: vec![],
             conflicts: vec![],
             prompt_text: None,
+            context_tokens: None,
             error: None,
         };
         let v = serde_json::to_value(&resp).unwrap();
         assert_eq!(v.get("prompt_text"), Some(&json!(null)));
         assert_eq!(v.get("reverted_files"), Some(&json!(["src/main.rs"])));
+        assert!(
+            v.get("context_tokens").is_none(),
+            "an absent estimate must be omitted, not sent as zero"
+        );
     }
 
     #[test]
@@ -881,6 +893,7 @@ mod tests {
             resp.conflicts.first().map(|c| c.path.as_str()),
             Some("a.rs")
         );
+        assert!(resp.context_tokens.is_none());
     }
 
     // ── RewindPointInfo.has_file_changes ──────────────────────────────

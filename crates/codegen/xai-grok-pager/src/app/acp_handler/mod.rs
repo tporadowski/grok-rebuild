@@ -107,6 +107,7 @@ use session_notification::{
     PlanModeTransition, advance_reconnect_cursor, confirm_context_used,
     handle_session_notification, handle_session_notification_with_origin,
 };
+pub(crate) use session_notification::refresh_context_used;
 #[cfg(test)]
 #[allow(unused_imports)]
 use settings::*;

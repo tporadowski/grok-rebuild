@@ -534,6 +534,7 @@ fn rewind_success_nonzero_target_keeps_prefix_and_toasts() {
                 error: None,
                 mode: Some("conversation_only".into()),
                 prompt_text: Some("turn 1".into()),
+                context_tokens: None,
             },
         }),
         &mut app,
@@ -658,6 +659,7 @@ fn rewind_success_truncation_releases_retained_memory() {
         error: None,
         mode: Some("conversation_only".into()),
         prompt_text: Some("alpha".into()),
+        context_tokens: None,
     };
 
     let mut app = test_app_with_agent();
@@ -698,6 +700,7 @@ fn rewind_success_toasts_in_full_tui_and_commits_system_block_in_minimal() {
         error: None,
         mode: Some("conversation_only".into()),
         prompt_text: None,
+        context_tokens: None,
     };
 
     let mut app = test_app_with_agent();
@@ -851,4 +854,105 @@ fn fallback_path_returns_correct_idx_when_prompt_index_is_none() {
         find_user_prompt_entry_for_shell_index(&sb, 2),
         Some(charlie_idx)
     );
+}
+
+/// The status-bar context chip, built the same way the footer renders it.
+fn footer_context_text(agent: &AgentView) -> String {
+    let used = agent.context_state.as_ref().map(|state| state.used);
+    let total = agent
+        .context_state
+        .as_ref()
+        .and_then(|state| (state.total > 0).then_some(state.total))
+        .or_else(|| agent.session.models.get_context_window());
+    let line = crate::views::context_bar::context_bar_line_for_session(
+        used,
+        total,
+        false,
+        &crate::theme::Theme::default(),
+        agent.chat_kind,
+    )
+    .expect("context footer");
+    line.spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect()
+}
+
+/// A successful conversation rewind replaces the footer numerator with the shell's post-rewind estimate and keeps the reported window.
+#[test]
+fn rewind_success_replaces_footer_context_with_post_rewind_usage() {
+    let response: crate::views::rewind::RewindResponse = serde_json::from_value(serde_json::json!({
+        "success": true,
+        "target_prompt_index": 0,
+        "mode": "conversation_only",
+        "prompt_text": "alpha",
+        "context_tokens": 25_000,
+    }))
+    .expect("shell rewind json");
+    assert_eq!(response.context_tokens, Some(25_000));
+
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.apply_context_used(80_000, 200_000);
+        agent.scrollback.push_block(user_block("alpha", Some(0)));
+        agent
+            .scrollback
+            .push_block(RenderBlock::agent_message("a"));
+    }
+    assert_eq!(footer_context_text(agent_ref(&app, id)), "80K / 200K");
+
+    dispatch(
+        Action::TaskComplete(TaskResult::RewindExecuteComplete {
+            agent_id: id,
+            response,
+        }),
+        &mut app,
+    );
+
+    let agent = agent_ref(&app, id);
+    let state = agent.context_state.as_ref().expect("context bar");
+    assert_eq!(state.used, 25_000);
+    assert_eq!(state.total, 200_000);
+    assert_eq!(footer_context_text(agent), "25K / 200K");
+    assert_eq!(
+        agent.toast.as_ref().map(|(message, _)| message.as_str()),
+        Some("Reverted conversation")
+    );
+}
+
+/// A rewind result with no estimate leaves the footer where it was, including a non-zero reading.
+#[test]
+fn rewind_success_without_context_tokens_keeps_footer_usage() {
+    let response: crate::views::rewind::RewindResponse = serde_json::from_value(serde_json::json!({
+        "success": true,
+        "target_prompt_index": 0,
+        "mode": "files_only",
+        "reverted_files": ["src/main.rs"],
+    }))
+    .expect("files-only rewind json");
+    assert!(response.context_tokens.is_none());
+
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.apply_context_used(80_000, 200_000);
+        agent.scrollback.push_block(user_block("alpha", Some(0)));
+    }
+
+    dispatch(
+        Action::TaskComplete(TaskResult::RewindExecuteComplete {
+            agent_id: id,
+            response,
+        }),
+        &mut app,
+    );
+
+    let agent = agent_ref(&app, id);
+    let state = agent.context_state.as_ref().expect("context bar");
+    assert_eq!(state.used, 80_000);
+    assert_eq!(state.total, 200_000);
+    assert_eq!(footer_context_text(agent), "80K / 200K");
 }

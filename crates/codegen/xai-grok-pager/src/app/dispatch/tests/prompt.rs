@@ -5321,6 +5321,7 @@ fn send_now_marks_the_sent_image_and_rewind_restores_it() {
                 error: None,
                 mode: Some("conversation_only".into()),
                 prompt_text: Some(text),
+                context_tokens: None,
             },
         }),
         &mut app,

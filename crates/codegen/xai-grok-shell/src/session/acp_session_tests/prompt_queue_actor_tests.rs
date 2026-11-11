@@ -3548,6 +3548,123 @@ async fn claimed_rewind_leaves_queued_next_prompt_untouched() {
         .await;
 }
 
+/// Seed preamble + two turns, record `provider_total`, and claim a rewind of the front prompt.
+/// Returns `(prompt_total_tokens, estimated_after, scaled_kept)`.
+async fn run_claimed_rewind(provider_total: u64) -> (u64, u64, u64) {
+    let (actor, _rx) = build_actor().await;
+    actor
+        .chat_state_handle
+        .push_user_message(crate::sampling::ConversationItem::user("preamble"));
+    actor
+        .chat_state_handle
+        .push_user_message(crate::sampling::ConversationItem::user("x".repeat(4000)));
+    actor.chat_state_handle.increment_prompt_index();
+    actor
+        .chat_state_handle
+        .push_user_message(crate::sampling::ConversationItem::user("y".repeat(4000)));
+    actor.chat_state_handle.increment_prompt_index();
+    actor
+        .chat_state_handle
+        .record_token_usage(provider_total);
+
+    let seeded = actor
+        .chat_state_handle
+        .snapshot()
+        .await
+        .expect("seeded snapshot");
+    assert_eq!(seeded.prompt_index, 2);
+    assert_eq!(seeded.total_tokens, provider_total);
+    let keep = crate::sampling::conversation_truncate_for_prompt(&seeded.conversation, 1);
+    let kept = seeded.conversation.get(..keep).expect("cut in range");
+    let base = xai_chat_state::estimate_conversation_tokens(kept);
+    let expected = xai_chat_state::scaled_context_tokens(
+        seeded.total_tokens,
+        seeded.estimate_at_last_response,
+        base,
+    );
+    assert!(base > 0, "kept conversation must estimate above zero");
+    assert!(
+        keep < seeded.conversation.len(),
+        "fixture must drop the second turn"
+    );
+
+    let (old_item, mut old_rx) = input_with_origin_rx("old-0", crate::session::PromptOrigin::User);
+    {
+        let mut state = actor.state.lock().await;
+        state.pending_inputs.push_back(old_item);
+        state.running_task = Some(running_task_stub("old-0"));
+        state.rewindable = true;
+    }
+    let outcome = actor
+        .cancel_running_task(crate::session::CancelOptions {
+            cancel_subagents: true,
+            history: crate::session::CancelHistoryDisposition::RewindIfNoOutput {
+                prompt_id: Some("old-0".into()),
+            },
+            trigger: Some(crate::session::CancelTrigger::CtrlC),
+            user_initiated: true,
+            ..Default::default()
+        })
+        .await;
+    assert!(outcome.settled);
+
+    let reported = match old_rx.try_recv() {
+        Ok(Ok(turn)) => {
+            assert!(
+                matches!(turn.completion_kind, PromptCompletionKind::Rewound),
+                "claimed rewind must resolve as Rewound, got {:?}",
+                turn.completion_kind
+            );
+            turn.total_tokens
+        }
+        other => panic!("expected a rewound turn, got {other:?}"),
+    };
+    let estimated = actor
+        .chat_state_handle
+        .try_get_estimated_total_tokens()
+        .await
+        .expect("chat-state actor alive");
+    let conv = actor.chat_state_handle.get_conversation().await;
+    assert!(
+        conv.iter()
+            .all(|item| item.text_content() != "y".repeat(4000)),
+        "the rewound turn must leave the conversation"
+    );
+    (reported, estimated, expected)
+}
+
+/// Cancel-during-turn rewind reports the scaled kept-conversation total, under the pre-cut provider count.
+#[tokio::test(flavor = "current_thread")]
+async fn claimed_rewind_reseeds_context_below_the_pre_cut_total() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (reported, estimated, expected) = run_claimed_rewind(100_000).await;
+            assert!(
+                expected < 100_000,
+                "scaled kept total {expected} must sit under the pre-cut provider count"
+            );
+            assert_eq!(reported, expected);
+            assert_eq!(estimated, expected);
+        })
+        .await;
+}
+
+/// An unconfirmed provider total must not rewind the displayed context down to zero.
+#[tokio::test(flavor = "current_thread")]
+async fn claimed_rewind_keeps_context_when_provider_total_is_zero() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (reported, estimated, expected) = run_claimed_rewind(0).await;
+            assert!(
+                expected > 0,
+                "kept conversation estimate must survive an unconfirmed total"
+            );
+            assert_eq!(reported, expected);
+            assert_eq!(estimated, expected);
+        })
+        .await;
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn no_task_cancel_and_promoter_choose_one_owner() {
     tokio::task::LocalSet::new()

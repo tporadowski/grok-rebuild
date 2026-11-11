@@ -154,6 +154,7 @@ impl SessionActor {
                 clean_files: vec![],
                 conflicts: vec![],
                 prompt_text: None,
+                context_tokens: None,
                 error: Some(format!(
                     "Cannot rewind to prompt #{} — current prompt index is {}. \
                      Valid targets: 0..{}",
@@ -238,6 +239,7 @@ impl SessionActor {
                 clean_files,
                 conflicts,
                 prompt_text: None,
+                context_tokens: None,
                 error,
             });
         }
@@ -360,6 +362,7 @@ impl SessionActor {
                             clean_files: vec![],
                             conflicts: vec![],
                             prompt_text: None,
+                            context_tokens: None,
                             error: Some(format!("Cannot rewind to prompt #{target_index}: {e}")),
                         });
                     }
@@ -461,6 +464,16 @@ impl SessionActor {
             self.merge_rewind_tracker_from(target_index).await;
         }
 
+        // File-tracker awaits above do not touch chat state. This query sits behind
+        // the queued replace and restore, so it reads the reseeded kept-conversation total.
+        let context_tokens = if wants_conversation_rewind {
+            self.chat_state_handle
+                .try_get_estimated_total_tokens()
+                .await
+        } else {
+            None
+        };
+
         Ok(RewindResponse {
             success: true,
             target_prompt_index: target_index,
@@ -469,6 +482,7 @@ impl SessionActor {
             clean_files: vec![],
             conflicts,
             prompt_text,
+            context_tokens,
             error: None,
         })
     }

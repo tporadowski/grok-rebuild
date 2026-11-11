@@ -216,6 +216,10 @@ impl SessionActor {
         total_tokens: u64,
         turn_stopped: bool,
     ) -> CancelOutcome {
+        // `restore_snapshot` copies token fields as given and drops the since-model delta.
+        // Reseed from the kept conversation first, or the footer keeps the pre-cut total
+        // (or falls to zero when that total was still unconfirmed).
+        let mut reported_tokens = total_tokens;
         if let Some(mut snapshot) = self.chat_state_handle.snapshot().await {
             let target_prompt_index =
                 target_prompt_index.unwrap_or_else(|| snapshot.prompt_index.saturating_sub(1));
@@ -225,6 +229,15 @@ impl SessionActor {
             let keep_count =
                 conversation_truncate_for_prompt(&snapshot.conversation, target_prompt_index);
             snapshot.conversation.truncate(keep_count);
+            let base_estimate =
+                xai_chat_state::estimate_conversation_tokens(&snapshot.conversation);
+            reported_tokens = xai_chat_state::scaled_context_tokens(
+                snapshot.total_tokens,
+                snapshot.estimate_at_last_response,
+                base_estimate,
+            );
+            snapshot.total_tokens = reported_tokens;
+            snapshot.estimate_at_last_response = base_estimate;
             self.chat_state_handle.restore_snapshot(snapshot);
             self.file_state_tracker
                 .truncate_from(target_prompt_index)
@@ -232,7 +245,7 @@ impl SessionActor {
         }
         let _ = input.respond_to.send(Ok(PromptTurnOk {
             stop_reason: acp::StopReason::Cancelled,
-            total_tokens,
+            total_tokens: reported_tokens,
             turn_snapshot: None,
             completion_kind: PromptCompletionKind::Rewound,
             structured_output: None,

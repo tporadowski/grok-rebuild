@@ -45,6 +45,10 @@ pub struct RewindResponse {
     pub mode: Option<String>,
     #[serde(default, alias = "promptText")]
     pub prompt_text: Option<String>,
+    /// Scaled context estimate after a conversation rewind.
+    /// Absent when the shell did not rewind the conversation, and the footer stays as it was.
+    #[serde(default, alias = "contextTokens")]
+    pub context_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

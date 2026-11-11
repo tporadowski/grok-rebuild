@@ -515,20 +515,11 @@ impl ChatStateActor {
     /// Reseed `total_tokens` after a conversation rewrite.
     /// Scales `base_estimate` by the provider-confirmed ratio, capped at the pre-rewrite total.
     pub(super) fn reseed_total_tokens(&self, base_estimate: u64) -> u64 {
-        let pre_replace_total = self.state.total_tokens;
-        let mut estimated_tokens =
-            if pre_replace_total > 0 && self.state.estimate_at_last_response > 0 {
-                let ratio = pre_replace_total as f64 / self.state.estimate_at_last_response as f64;
-                (base_estimate as f64 * ratio).round() as u64
-            } else {
-                base_estimate
-            };
-        // Over-counting fires premature compaction; an under-count self-heals
-        // on the next model response.
-        if pre_replace_total > 0 {
-            estimated_tokens = estimated_tokens.min(pre_replace_total);
-        }
-        estimated_tokens
+        super::state::scaled_context_tokens(
+            self.state.total_tokens,
+            self.state.estimate_at_last_response,
+            base_estimate,
+        )
     }
 
     /// Replace the entire conversation, persist, re-estimate `total_tokens`, and emit reset events.

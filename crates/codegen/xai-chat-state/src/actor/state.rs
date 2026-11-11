@@ -100,6 +100,24 @@ pub fn estimate_conversation_tokens(items: &[ConversationItem]) -> u64 {
     items.iter().map(estimate_item_tokens).sum()
 }
 
+/// Scale `base_estimate` by the provider-confirmed ratio `pre_total / frozen_estimate`.
+/// A rewrite must not raise the displayed total above `pre_total` when that total is known.
+/// With no confirmed total, `base_estimate` stands: a missing provider count must not become zero.
+pub fn scaled_context_tokens(pre_total: u64, frozen_estimate: u64, base_estimate: u64) -> u64 {
+    let mut estimated_tokens = if pre_total > 0 && frozen_estimate > 0 {
+        let ratio = pre_total as f64 / frozen_estimate as f64;
+        (base_estimate as f64 * ratio).round() as u64
+    } else {
+        base_estimate
+    };
+    // Over-counting fires premature compaction; an under-count self-heals
+    // on the next model response.
+    if pre_total > 0 {
+        estimated_tokens = estimated_tokens.min(pre_total);
+    }
+    estimated_tokens
+}
+
 /// grok-build's token counter for the shared compaction engine.
 /// Exposes the same bytes/4 estimate the triggers already use, so budgeting stays consistent.
 /// Other hosts may plug a real BPE tokenizer into the same seam.
@@ -417,5 +435,19 @@ mod tests {
         );
         let single = estimate_tool_definition_tokens(&a);
         assert_eq!(estimate_tool_definitions_tokens(&[a, b]), single * 2);
+    }
+
+    #[test]
+    fn scaled_context_tokens_uses_provider_ratio() {
+        // 100_000 confirmed against an 80_000 estimate, kept half of that estimate → 50_000.
+        assert_eq!(scaled_context_tokens(100_000, 80_000, 40_000), 50_000);
+        // The cap stops a larger base from raising the displayed total.
+        assert_eq!(scaled_context_tokens(1_000, 500, 2_000), 1_000);
+    }
+
+    #[test]
+    fn scaled_context_tokens_keeps_base_when_unconfirmed() {
+        // No provider total and no frozen estimate: the kept conversation's own estimate, not zero.
+        assert_eq!(scaled_context_tokens(0, 0, 40_000), 40_000);
     }
 }

@@ -360,6 +360,11 @@ pub(super) fn dispatch_rewind_success(
         return vec![];
     }
 
+    if let Some(used) = response.context_tokens {
+        // The reported window stays. A rewind changes how full that window is, not its size.
+        crate::app::acp_handler::refresh_context_used(agent, used);
+    }
+
     let target = response.target_prompt_index;
     let stashed_draft = agent.rewind_state.take().and_then(|s| s.stashed_draft);
     let target_idx = find_user_prompt_entry_for_shell_index(&agent.scrollback, target);

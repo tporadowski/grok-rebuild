@@ -38,7 +38,7 @@ fn is_foreign_hook_batch(agent: &AgentView, batch_prompt_id: Option<&str>) -> bo
 }
 /// Update the context bar's used count.
 /// A window the session already reported stays. Compaction and token stamps must not replace it with the catalog default.
-pub(super) fn refresh_context_used(view: &mut AgentView, used: u64) {
+pub(crate) fn refresh_context_used(view: &mut AgentView, used: u64) {
     let reported = view
         .context_state
         .as_ref()

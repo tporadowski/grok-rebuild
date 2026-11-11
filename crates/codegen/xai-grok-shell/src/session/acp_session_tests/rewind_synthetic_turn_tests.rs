@@ -490,3 +490,87 @@ async fn rewind_to_synthetic_auto_wake_turn_cuts_at_the_wake() {
         })
         .await;
 }
+
+/// `/rewind` publishes the scaled estimate of the kept conversation, and a files-only rewind publishes nothing.
+#[tokio::test(flavor = "current_thread")]
+async fn rewind_response_carries_scaled_context_tokens() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (gateway_tx, _gateway_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (persistence_tx, _persistence_rx) = tokio::sync::mpsc::unbounded_channel();
+            let actor = create_test_actor(0, 200_000, 80, gateway_tx, persistence_tx).await;
+
+            let mut snap = actor
+                .chat_state_handle
+                .snapshot()
+                .await
+                .expect("snapshot available");
+            snap.conversation = vec![
+                ConversationItem::user("preamble"),
+                ConversationItem::user("x".repeat(4000)),
+                ConversationItem::user("y".repeat(4000)),
+            ];
+            snap.prompt_index = 2;
+            snap.prompt_texts = vec!["kept".into(), "dropped".into()];
+            snap.total_tokens = 100_000;
+            snap.estimate_at_last_response = 80_000;
+            snap.last_compaction_prompt_index = None;
+            actor.chat_state_handle.restore_snapshot(snap);
+
+            let seeded = actor
+                .chat_state_handle
+                .snapshot()
+                .await
+                .expect("seeded snapshot");
+            let keep = crate::sampling::conversation_truncate_for_prompt(&seeded.conversation, 1);
+            let kept = seeded.conversation.get(..keep).expect("cut in range");
+            let base = xai_chat_state::estimate_conversation_tokens(kept);
+            let expected = xai_chat_state::scaled_context_tokens(100_000, 80_000, base);
+            assert!(
+                keep < seeded.conversation.len() && expected > 0 && expected < 100_000,
+                "fixture must scale the kept conversation under the pre-cut total (base {base}, expected {expected})"
+            );
+            let kept_texts: Vec<String> = kept.iter().map(|item| item.text_content()).collect();
+
+            let resp = actor
+                .handle_rewind(RewindRequest {
+                    target_prompt_index: 1,
+                    force: true,
+                    mode: RewindMode::ConversationOnly,
+                })
+                .await
+                .expect("handle_rewind ok");
+            assert!(resp.success, "{resp:?}");
+            assert_eq!(resp.context_tokens, Some(expected));
+            assert_eq!(
+                actor
+                    .chat_state_handle
+                    .try_get_estimated_total_tokens()
+                    .await,
+                Some(expected)
+            );
+            let conv = actor.chat_state_handle.get_conversation().await;
+            let texts: Vec<String> = conv.iter().map(|item| item.text_content()).collect();
+            assert_eq!(texts, kept_texts);
+
+            let files = actor
+                .handle_rewind(RewindRequest {
+                    target_prompt_index: 0,
+                    force: true,
+                    mode: RewindMode::FilesOnly,
+                })
+                .await
+                .expect("files-only rewind ok");
+            assert!(files.success, "{files:?}");
+            assert!(files.context_tokens.is_none());
+            assert_eq!(
+                actor
+                    .chat_state_handle
+                    .try_get_estimated_total_tokens()
+                    .await,
+                Some(expected)
+            );
+        })
+        .await;
+}
