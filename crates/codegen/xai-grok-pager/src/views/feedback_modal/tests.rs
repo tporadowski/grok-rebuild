@@ -1705,6 +1705,58 @@ fn selected_draft(modal: &FeedbackModalState) -> Option<&str> {
     }
 }
 
+/// Leaving Drafts and coming back reloads the list without moving the selection to the first row.
+#[test]
+fn drafts_tab_keeps_the_selected_draft_when_the_list_reloads() {
+    let rows = vec![
+        draft("first", "first body", FeedbackTaxonomy::default()),
+        draft("second", "second body", FeedbackTaxonomy::default()),
+    ];
+    let mut modal = FeedbackModalState::new(OpenFeedbackModal::default());
+    modal.window.active_tab = FeedbackTab::Drafts.index();
+    modal.drafts = DraftsState::Browse {
+        rows: rows.clone(),
+        selected_id: Some("second".to_owned().into()),
+        query: LineEditor::default(),
+        search_focused: false,
+        error: None,
+    };
+
+    modal.handle_key(&key(KeyCode::Tab, KeyModifiers::CONTROL));
+    assert_eq!(modal.active_tab(), FeedbackTab::Write);
+    modal.handle_key(&key(KeyCode::Tab, KeyModifiers::CONTROL));
+    assert_eq!(modal.active_tab(), FeedbackTab::Drafts);
+    let FeedbackDraftRequest::List {
+        modal_id,
+        generation,
+    } = modal.take_pending_request().expect("draft list reload")
+    else {
+        panic!("expected draft list");
+    };
+    modal.apply_draft_list(modal_id, generation, rows);
+    assert_eq!(selected_draft(&modal), Some("second"));
+
+    modal.handle_key(&key(KeyCode::Tab, KeyModifiers::CONTROL));
+    modal.handle_key(&key(KeyCode::Tab, KeyModifiers::CONTROL));
+    let FeedbackDraftRequest::List {
+        modal_id,
+        generation,
+    } = modal.take_pending_request().expect("draft list reload")
+    else {
+        panic!("expected draft list");
+    };
+    modal.apply_draft_list(
+        modal_id,
+        generation,
+        vec![draft("first", "first body", FeedbackTaxonomy::default())],
+    );
+    assert_eq!(
+        selected_draft(&modal),
+        Some("first"),
+        "a draft that left the list falls back to the first row"
+    );
+}
+
 #[test]
 fn home_and_end_jump_to_the_first_and_last_draft() {
     let mut modal = browse_thirty("draft-4");

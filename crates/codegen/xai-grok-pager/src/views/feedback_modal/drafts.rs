@@ -338,6 +338,13 @@ impl FeedbackModalState {
     }
 
     pub(super) fn refresh_drafts(&mut self) {
+        // A reload (leaving Drafts and coming back) must not jump to the first row.
+        // An explicit open-with-id already stored in `pending_select_draft_id` wins.
+        if self.pending_select_draft_id.is_none()
+            && let DraftsState::Browse { selected_id, .. } = &self.drafts
+        {
+            self.pending_select_draft_id = selected_id.clone();
+        }
         self.invalidate_draft_load();
         self.draft_generation = self.draft_generation.wrapping_add(1);
         let generation = self.draft_generation;
