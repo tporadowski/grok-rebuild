@@ -44,6 +44,8 @@ pub struct LoadedPlugin {
     pub lsp_config_path: Option<PathBuf>,
     /// Number of skill subdirectories found.
     pub skill_count: usize,
+    /// Skills not loaded because a symlink resolves outside the plugin root.
+    pub skills_linked_outside: usize,
     /// Number of agent files found.
     pub agent_count: usize,
     /// Skill names (directory names under skills/).
@@ -142,12 +144,16 @@ impl PluginRegistry {
             }
 
             // Count components
-            let skill_count =
-                count_skill_subdirs(&dp.skill_dirs) + count_md_files(&dp.command_dirs);
+            let (skill_paths, skill_skipped) =
+                contained_skill_mds(&dp.skill_dirs, &dp.canonical_root);
+            let (command_names, command_count, command_skipped) =
+                contained_md_names(&dp.command_dirs, &dp.canonical_root);
+            let skill_count = skill_paths.len() + command_count;
+            let skills_linked_outside = skill_skipped + command_skipped;
             let agent_count = count_md_files(&dp.agent_dirs);
             let skill_names = {
-                let mut names = collect_skill_names(&dp.skill_dirs);
-                names.extend(collect_md_names(&dp.command_dirs));
+                let mut names = skill_names_from_paths(&skill_paths);
+                names.extend(command_names);
                 names
             };
             let agent_names = collect_md_names(&dp.agent_dirs);
@@ -196,6 +202,7 @@ impl PluginRegistry {
                 mcp_config_path: dp.mcp_config_path.clone(),
                 lsp_config_path: dp.lsp_config_path.clone(),
                 skill_count,
+                skills_linked_outside,
                 agent_count,
                 has_hooks,
                 hook_count,
@@ -431,14 +438,29 @@ impl SharedPluginRegistryHandle {
 /// Deduped by normalized parent-dir basename, the identity the skill loader dedupes on.
 /// Counts therefore equal what actually loads.
 pub fn skill_md_paths(skill_dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let root = skill_dirs.first().map(|dir| dir.as_path());
+    match root {
+        Some(root) => contained_skill_mds(skill_dirs, root).0,
+        None => Vec::new(),
+    }
+}
+
+/// Skill files that stay inside `plugin_root`, plus how many symlinks were skipped
+/// because they resolve outside that root.
+pub fn contained_skill_mds(skill_dirs: &[PathBuf], plugin_root: &Path) -> (Vec<PathBuf>, usize) {
     use xai_grok_tools::implementations::skills::discovery::{
-        find_skill_md_paths, normalize_skill_name,
+        normalize_skill_name, MAX_SKILL_WALK_DEPTH,
     };
 
-    let mut paths: Vec<PathBuf> = skill_dirs
-        .iter()
-        .flat_map(|d| find_skill_md_paths(d))
-        .collect();
+    let mut paths = Vec::new();
+    let mut skipped = 0usize;
+    for dir in skill_dirs {
+        if link_leaves_plugin(dir, plugin_root) {
+            skipped += 1;
+            continue;
+        }
+        walk_contained_skills(dir, plugin_root, &mut paths, &mut skipped, 0, MAX_SKILL_WALK_DEPTH);
+    }
     let mut seen = std::collections::HashSet::new();
     paths.retain(|p| {
         p.parent()
@@ -447,12 +469,77 @@ pub fn skill_md_paths(skill_dirs: &[PathBuf]) -> Vec<PathBuf> {
             .map(|name| seen.insert(normalize_skill_name(name)))
             .unwrap_or(true)
     });
-    paths
+    (paths, skipped)
+}
+
+fn walk_contained_skills(
+    dir: &Path,
+    plugin_root: &Path,
+    paths: &mut Vec<PathBuf>,
+    skipped: &mut usize,
+    depth: usize,
+    max_depth: usize,
+) {
+    if depth > max_depth {
+        return;
+    }
+    let self_skill = dir.join("SKILL.md");
+    if link_leaves_plugin(&self_skill, plugin_root) {
+        *skipped += 1;
+    } else if self_skill.is_file() {
+        paths.push(self_skill);
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut children: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_dir()
+                || (link_leaves_plugin(path, plugin_root)
+                    && path.file_name().is_some_and(|name| name == "SKILL.md"))
+        })
+        .collect();
+    children.sort();
+    for path in children {
+        if link_leaves_plugin(&path, plugin_root) {
+            *skipped += 1;
+            continue;
+        }
+        if !path.is_dir() {
+            continue;
+        }
+        let skill_md = path.join("SKILL.md");
+        if link_leaves_plugin(&skill_md, plugin_root) {
+            *skipped += 1;
+        } else if skill_md.is_file() {
+            paths.push(skill_md);
+        }
+        walk_contained_skills(&path, plugin_root, paths, skipped, depth + 1, max_depth);
+    }
+}
+
+/// A symlink whose target is outside `plugin_root`, or that cannot be resolved.
+pub(crate) fn link_leaves_plugin(path: &Path, plugin_root: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !meta.file_type().is_symlink() {
+        return false;
+    }
+    let Ok(root) = dunce::canonicalize(plugin_root) else {
+        return true;
+    };
+    match dunce::canonicalize(path) {
+        Ok(target) => !target.starts_with(&root),
+        Err(_) => true,
+    }
 }
 
 /// Count skills under the skill dirs (each discovered SKILL.md is one skill).
-fn count_skill_subdirs(skill_dirs: &[PathBuf]) -> usize {
-    skill_md_paths(skill_dirs).len()
+fn count_skill_subdirs(skill_dirs: &[PathBuf], plugin_root: &Path) -> usize {
+    contained_skill_mds(skill_dirs, plugin_root).0.len()
 }
 
 fn count_md_files(dirs: &[PathBuf]) -> usize {
@@ -485,13 +572,48 @@ fn collect_md_names(dirs: &[PathBuf]) -> Vec<String> {
         .collect()
 }
 
-fn collect_skill_names(skill_dirs: &[PathBuf]) -> Vec<String> {
-    // The skill name is the basename of the directory containing SKILL.md
-    skill_md_paths(skill_dirs)
+fn skill_names_from_paths(paths: &[PathBuf]) -> Vec<String> {
+    paths
         .iter()
         .filter_map(|p| p.parent())
         .filter_map(|dir| dir.file_name().and_then(|n| n.to_str()).map(String::from))
         .collect()
+}
+
+fn collect_skill_names(skill_dirs: &[PathBuf], plugin_root: &Path) -> Vec<String> {
+    skill_names_from_paths(&contained_skill_mds(skill_dirs, plugin_root).0)
+}
+
+/// Markdown command files that stay inside the plugin, and how many symlinks point outside.
+fn contained_md_names(dirs: &[PathBuf], plugin_root: &Path) -> (Vec<String>, usize, usize) {
+    let mut names = Vec::new();
+    let mut skipped = 0usize;
+    for dir in dirs {
+        if link_leaves_plugin(dir, plugin_root) {
+            skipped += 1;
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|ext| ext != "md") {
+                continue;
+            }
+            if link_leaves_plugin(&path, plugin_root) {
+                skipped += 1;
+                continue;
+            }
+            if path.is_file()
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+            {
+                names.push(name.to_string());
+            }
+        }
+    }
+    let count = names.len();
+    (names, count, skipped)
 }
 
 /// Deduped union of MCP server names from a plugin's `.mcp.json` file and its inline `mcpServers` manifest block.
@@ -650,8 +772,8 @@ pub(crate) mod tests {
         }
 
         let dirs = vec![one, two];
-        assert_eq!(count_skill_subdirs(&dirs), 2);
-        let mut names = collect_skill_names(&dirs);
+        assert_eq!(count_skill_subdirs(&dirs, tmp.path()), 2);
+        let mut names = collect_skill_names(&dirs, tmp.path());
         names.sort();
         assert_eq!(names, vec!["one".to_string(), "two".to_string()]);
     }
@@ -668,8 +790,8 @@ pub(crate) mod tests {
         }
 
         let dirs = vec![tmp.path().join("a"), tmp.path().join("b")];
-        assert_eq!(count_skill_subdirs(&dirs), 1);
-        assert_eq!(collect_skill_names(&dirs), vec!["dup-skill".to_string()]);
+        assert_eq!(count_skill_subdirs(&dirs, tmp.path()), 1);
+        assert_eq!(collect_skill_names(&dirs, tmp.path()), vec!["dup-skill".to_string()]);
     }
 
     #[test]
@@ -682,8 +804,8 @@ pub(crate) mod tests {
         std::fs::write(child.join("SKILL.md"), "---\nname: one\n---\n").unwrap();
 
         let dirs = vec![parent, child];
-        assert_eq!(count_skill_subdirs(&dirs), 1);
-        assert_eq!(collect_skill_names(&dirs), vec!["one".to_string()]);
+        assert_eq!(count_skill_subdirs(&dirs, tmp.path()), 1);
+        assert_eq!(collect_skill_names(&dirs, tmp.path()), vec!["one".to_string()]);
     }
 
     #[test]
@@ -697,11 +819,31 @@ pub(crate) mod tests {
             std::fs::write(d.join("SKILL.md"), "---\nname: x\n---\n").unwrap();
         }
 
-        let dirs = vec![parent];
-        assert_eq!(count_skill_subdirs(&dirs), 2);
-        let mut names = collect_skill_names(&dirs);
+        let dirs = vec![parent.clone()];
+        assert_eq!(count_skill_subdirs(&dirs, tmp.path()), 2);
+        let mut names = collect_skill_names(&dirs, tmp.path());
         names.sort();
         assert_eq!(names, vec!["alpha".to_string(), "beta".to_string()]);
+    }
+
+    #[test]
+    fn skill_counts_skip_a_symlink_that_leaves_the_plugin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let plugin = tmp.path().join("plugin");
+        let skills = plugin.join("skills");
+        let inside = skills.join("inside");
+        std::fs::create_dir_all(&inside).unwrap();
+        std::fs::write(inside.join("SKILL.md"), "---\nname: inside\n---\n").unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("SKILL.md"), "---\nname: outside\n---\n").unwrap();
+        std::os::unix::fs::symlink(&outside, skills.join("linked")).unwrap();
+
+        let dirs = vec![skills];
+        let (paths, skipped) = contained_skill_mds(&dirs, &plugin);
+        assert_eq!(paths.len(), 1, "only the skill inside the plugin loads");
+        assert_eq!(skipped, 1, "the outside link is counted once");
+        assert_eq!(count_skill_subdirs(&dirs, &plugin), 1);
     }
 
     #[test]

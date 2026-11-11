@@ -692,6 +692,7 @@ mod tests {
             hooks_path: None,
             mcp_config_path: None,
             skill_count: 0,
+            skills_linked_outside: 0,
             agent_count: 0,
             skill_names: vec![],
             agent_names: vec![],

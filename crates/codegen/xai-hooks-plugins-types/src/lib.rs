@@ -289,6 +289,9 @@ pub struct PluginInfo {
     pub description: Option<String>,
     /// Number of skill subdirectories.
     pub skill_count: usize,
+    /// Skills skipped because a symlink resolves outside the plugin folder.
+    #[serde(default)]
+    pub skills_linked_outside: usize,
     /// Skill names (directory names under skills/).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skill_names: Vec<String>,
@@ -740,6 +743,7 @@ mod tests {
             version: Some("1.0.0".into()),
             description: Some("A test plugin".into()),
             skill_count: 2,
+            skills_linked_outside: 0,
             skill_names: vec!["hello".into(), "check".into()],
             agent_names: vec!["reviewer".into()],
             agent_count: 1,

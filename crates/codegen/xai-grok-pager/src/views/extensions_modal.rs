@@ -272,6 +272,7 @@ pub(crate) fn test_plugin_info(
         version: None,
         description: None,
         skill_count: 0,
+        skills_linked_outside: 0,
         skill_names: vec![],
         agent_count: 0,
         agent_names: vec![],
@@ -2695,6 +2696,12 @@ fn build_plugin_fields(plugin: &xai_hooks_plugins_types::PluginInfo) -> Vec<Stri
     } else if plugin.skill_count > 0 {
         components.push(format!("{} skills", plugin.skill_count));
     }
+    if plugin.skills_linked_outside > 0 {
+        components.push(format!(
+            "{} skipped because they link outside the plugin folder",
+            plugin.skills_linked_outside
+        ));
+    }
     if !plugin.agent_names.is_empty() {
         components.push(format!("agents: {}", plugin.agent_names.join(", ")));
     } else if plugin.agent_count > 0 {
@@ -2713,6 +2720,23 @@ fn build_plugin_fields(plugin: &xai_hooks_plugins_types::PluginInfo) -> Vec<Stri
         McpStatus::None => {}
     }
     components
+}
+
+#[cfg(test)]
+mod plugin_field_tests {
+    use super::{build_plugin_fields, test_plugin_info};
+
+    #[test]
+    fn plugin_fields_name_skills_skipped_for_outside_links() {
+        let mut plugin = test_plugin_info("demo", None);
+        plugin.skill_names = vec!["inside".into()];
+        plugin.skills_linked_outside = 2;
+        let fields = build_plugin_fields(&plugin);
+        assert!(fields.iter().any(|field| field == "skills: inside"));
+        assert!(fields.iter().any(|field| {
+            field == "2 skipped because they link outside the plugin folder"
+        }));
+    }
 }
 
 /// Names shown per component category before "+N more".

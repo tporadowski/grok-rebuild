@@ -532,20 +532,21 @@ pub fn collect_plugin_skills(registry: Option<&crate::plugins::PluginRegistry>) 
     for plugin in registry.active_plugins() {
         let mut paths: Vec<(PathBuf, SkillScope)> = Vec::new();
 
-        for skill_dir in &plugin.skill_dirs {
-            if !skill_dir.is_dir() {
+        let (skill_files, _) = crate::plugins::registry::contained_skill_mds(
+            &plugin.skill_dirs,
+            &plugin.canonical_root,
+        );
+        paths.extend(skill_files.into_iter().map(|p| (p, SkillScope::Repo)));
+        for cmd_dir in &plugin.command_dirs {
+            if crate::plugins::registry::link_leaves_plugin(cmd_dir, &plugin.canonical_root) {
                 continue;
             }
             paths.extend(
-                find_skill_md_paths(skill_dir)
-                    .into_iter()
-                    .map(|p| (p, SkillScope::Repo)),
-            );
-        }
-        for cmd_dir in &plugin.command_dirs {
-            paths.extend(
                 scan_md_files(cmd_dir)
                     .into_iter()
+                    .filter(|path| {
+                        !crate::plugins::registry::link_leaves_plugin(path, &plugin.canonical_root)
+                    })
                     .map(|p| (p, SkillScope::Repo)),
             );
         }
@@ -1577,6 +1578,7 @@ mod tests {
             mcp_config_path: None,
             lsp_config_path: None,
             skill_count: 0,
+            skills_linked_outside: 0,
             agent_count: 0,
             skill_names: vec![],
             agent_names: vec![],
@@ -2442,6 +2444,7 @@ mod tests {
             mcp_config_path: None,
             lsp_config_path: None,
             skill_count: 0,
+            skills_linked_outside: 0,
             agent_count: 0,
             skill_names: vec![],
             agent_names: vec![],
