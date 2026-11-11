@@ -582,13 +582,15 @@ pub(in crate::app::dispatch) fn open_delete_current_session_question(
         multi_select: Some(false),
     };
     let stashed = agent.prompt.stash();
-    let state = QuestionViewState::new(
+    let mut state = QuestionViewState::new(
         format!("delete-session-{}", uuid::Uuid::new_v4()),
         vec![question],
         stashed,
     )
     .with_local_kind(LocalQuestionKind::DeleteCurrentSession)
     .with_no_freeform();
+    // Delete is the first row. Open on Cancel so Enter does not delete the session.
+    state.set_cursor(1);
     agent.install_local_question(state);
     agent.prompt.set_text("");
     vec![]

@@ -2763,6 +2763,82 @@ fn delete_current_session_confirm_emits_effect() {
         "got {effects:?}"
     );
 }
+/// `/delete` opens on Cancel. Enter keeps the session; `1` selects Delete and submits.
+#[test]
+fn delete_confirmation_opens_on_cancel() {
+    use crate::app::app_view::InputOutcome;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut app = test_app_with_agent();
+    {
+        let a = app.agents.get_mut(&AgentId(0)).unwrap();
+        a.session.session_id = Some(acp::SessionId::new("sess-cancel-default"));
+        a.session.cwd = std::path::PathBuf::from("/repo");
+    }
+    assert!(dispatch(Action::DeleteCurrentSession, &mut app).is_empty());
+    {
+        let question = expect_agent(&app, AgentId(0))
+            .question_view
+            .as_ref()
+            .expect("delete opens a confirmation");
+        assert_eq!(question.cursor(), 1, "the card opens on Cancel");
+        let label = question
+            .questions
+            .first()
+            .and_then(|q| q.options.get(1))
+            .map(|option| option.label.as_str());
+        assert_eq!(label, Some("Cancel"));
+    }
+    let outcome = app
+        .agents
+        .get_mut(&AgentId(0))
+        .unwrap()
+        .handle_question_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let InputOutcome::Action(action) = outcome else {
+        panic!("Enter on Cancel must answer the card, got {outcome:?}");
+    };
+    assert!(
+        matches!(
+            action,
+            Action::DeleteCurrentSessionAnswered { confirmed: false }
+        ),
+        "Enter must not delete, got {action:?}"
+    );
+    let effects = dispatch(action, &mut app);
+    assert!(
+        effects.is_empty(),
+        "cancelling must not delete the session, got {effects:?}"
+    );
+    assert!(expect_agent(&app, AgentId(0)).question_view.is_none());
+
+    assert!(dispatch(Action::DeleteCurrentSession, &mut app).is_empty());
+    let outcome = app
+        .agents
+        .get_mut(&AgentId(0))
+        .unwrap()
+        .handle_question_key_for_test(&KeyEvent::new(
+            KeyCode::Char('1'),
+            KeyModifiers::NONE,
+        ));
+    let InputOutcome::Action(action) = outcome else {
+        panic!("1 must select Delete and submit, got {outcome:?}");
+    };
+    assert!(
+        matches!(
+            action,
+            Action::DeleteCurrentSessionAnswered { confirmed: true }
+        ),
+        "1 must delete, got {action:?}"
+    );
+    let effects = dispatch(action, &mut app);
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::DeleteSession { session_id, .. } if session_id == "sess-cancel-default"
+        )),
+        "pressing 1 must delete the session, got {effects:?}"
+    );
+}
 /// Session delete must kill background tasks as `Teardown`; the wire default (`ClientUi`) would auto-wake.
 #[test]
 fn delete_current_session_kills_bg_tasks_as_teardown() {
