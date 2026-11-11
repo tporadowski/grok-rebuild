@@ -1580,7 +1580,7 @@ id | status | wave | kind | flag | covered | note
 - v75-x12 | done | W14 | Bug Fixes |  |  | **Emoji and keycap symbols** such as `⚠️` or `#️⃣` are measured at the width the terminal draws them, so rows no longer run past their box or lose their `…`.
 - v75-x13 | done | W14 | Bug Fixes |  |  | **`/export` to a named pipe** that nothing is reading fails right away instead of freezing Grok until it is killed.
 - v77-x04 | done | W14 | Bug Fixes |  |  | Context usage shown in the footer no longer drops to zero or shows stale values after a rewind.
-- v46-p01 | pending | W15 | Performance |  |  | list_dir on network or virtual filesystems now skips slow subtree counts and prints a notice instead.
+- v46-p01 | done | W15 | Performance |  |  | list_dir on network or virtual filesystems now skips slow subtree counts and prints a notice instead.
 - v46-p02 | pending | W15 | Performance |  |  | **Session startup** is faster when loading skills from large directories and shows what it is doing instead of a generic spinner.
 - v47-p01 | pending | W15 | Performance |  |  | **Sessions** in repositories with an .envrc file now start faster.
 - v50-p01 | pending | W15 | Performance |  |  | Command hooks no longer cause large memory spikes when they print a lot of output.

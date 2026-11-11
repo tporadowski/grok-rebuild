@@ -18,6 +18,7 @@
 //!
 //! Under `legacy-0.4.10`, the old depth-threshold algorithm is used instead
 //! (see `versions::legacy_0_4_10` module).
+mod slow_fs;
 mod versions;
 use crate::types::output::{ListDirContent, ListDirOutput};
 #[allow(unused_imports)]
@@ -172,6 +173,9 @@ struct DirNode {
     children: HashMap<String, DirNode>,
     subtree: DirAccum,
     is_expanded: bool,
+    /// Set on the root when the deep walk was skipped. Collapsed children
+    /// then have no `[N files in subtree]` line; the listing prints a notice.
+    subtree_counts_skipped: bool,
 }
 impl DirNode {
     fn new(depth: usize) -> Self {
@@ -182,6 +186,7 @@ impl DirNode {
             children: HashMap::new(),
             subtree: DirAccum::default(),
             is_expanded: false,
+            subtree_counts_skipped: false,
         }
     }
     fn add_item(&mut self, rel_parts: &[&str], is_dir: bool) {
@@ -330,33 +335,45 @@ fn build_tree_with_limit(
     let mut root_node = DirNode::new(0);
     let seed_truncated =
         seed_depth1_children(root, &mut root_node, respect_gitignore, MAX_SEED_ITEMS);
-    let walker = list_dir_walk_builder(root, respect_gitignore).build();
-    let mut item_count: usize = 0;
+    // Depth ≥ 2 is what fills `[N files in subtree]`. On a network or virtual
+    // filesystem that walk stats every nested file, so skip it and let
+    // `budget_expand` print a notice instead of the count.
+    let skip_subtree_counts = slow_fs::subtree_counts_are_slow(root);
+    root_node.subtree_counts_skipped = skip_subtree_counts;
     let mut walk_truncated = false;
-    for entry in walker {
-        let Ok(entry) = entry else { continue };
-        let Some(ft) = entry.file_type() else {
-            continue;
-        };
-        if entry.depth() <= 1 {
-            continue;
+    if !skip_subtree_counts {
+        let walker = list_dir_walk_builder(root, respect_gitignore).build();
+        let mut item_count: usize = 0;
+        for entry in walker {
+            let Ok(entry) = entry else { continue };
+            let Some(ft) = entry.file_type() else {
+                continue;
+            };
+            if entry.depth() <= 1 {
+                continue;
+            }
+            let Ok(rel) = entry.path().strip_prefix(root) else {
+                continue;
+            };
+            let parts: Vec<&str> = rel.iter().filter_map(|c| c.to_str()).collect();
+            if parts.is_empty() {
+                continue;
+            }
+            item_count += 1;
+            if item_count > max_items {
+                walk_truncated = true;
+                break;
+            }
+            root_node.add_item(&parts, ft.is_dir());
         }
-        let Ok(rel) = entry.path().strip_prefix(root) else {
-            continue;
-        };
-        let parts: Vec<&str> = rel.iter().filter_map(|c| c.to_str()).collect();
-        if parts.is_empty() {
-            continue;
-        }
-        item_count += 1;
-        if item_count > max_items {
-            walk_truncated = true;
-            break;
-        }
-        root_node.add_item(&parts, ft.is_dir());
     }
     root_node.sort_recursive();
     (root_node, seed_truncated || walk_truncated)
+}
+fn push_slow_fs_notice(out: &mut String, root: &DirNode) {
+    if root.subtree_counts_skipped && !root.subdirs.is_empty() {
+        out.push_str(slow_fs::SLOW_FS_SUBTREE_NOTICE);
+    }
 }
 /// BFS-expand directories within the character budget, return rendered body.
 fn budget_expand(
@@ -388,6 +405,7 @@ fn budget_expand(
         );
         let mut out = render_truncated_root(root, max_chars, top_k, truncation_notice);
         out.push_str(&cutoff_msg);
+        push_slow_fs_notice(&mut out, root);
         return out;
     }
     let mut remaining = max_chars - root_expanded.len();
@@ -417,6 +435,7 @@ fn budget_expand(
     }
     let mut out = root.render_expanded(top_k);
     out.push_str(&cutoff_msg);
+    push_slow_fs_notice(&mut out, root);
     out
 }
 fn navigate_mut<'a>(root: &'a mut DirNode, path: &[String]) -> Option<&'a mut DirNode> {
@@ -665,7 +684,8 @@ The '${{ params.list.target_directory }}' parameter can be relative to the works
 Other details:
     - The result does not display dot-files and dot-directories.
     - Respects .gitignore patterns (files/directories ignored by git are not shown).
-    - Large directories are summarized with file counts and extension breakdowns instead of listing all files."#
+    - Large directories are summarized with file counts and extension breakdowns instead of listing all files.
+    - On a network or virtual filesystem, those subtree counts are skipped and a notice is printed instead."#
     }
 }
 #[cfg(test)]
@@ -765,6 +785,98 @@ mod tests {
         assert!(
             !body.contains("file0.rs"),
             "individual files should not appear"
+        );
+        assert!(
+            !body.contains("subtree file counts were skipped"),
+            "a local temp dir must still count: {body}"
+        );
+    }
+    #[test]
+    fn virtual_filesystem_skips_subtree_counts_and_prints_a_notice() {
+        let root = Path::new("/proc/self/task");
+        assert!(
+            root.is_dir(),
+            "/proc/self/task is the virtual-filesystem fixture"
+        );
+        assert!(
+            slow_fs::subtree_counts_are_slow(root),
+            "/proc should classify as a virtual filesystem"
+        );
+        let mut nested: Option<String> = None;
+        let tids = fs::read_dir(root).expect("read /proc/self/task");
+        for tid in tids.flatten() {
+            if !tid.path().is_dir() {
+                continue;
+            }
+            let inner = fs::read_dir(tid.path()).expect("read tid dir");
+            for child in inner.flatten() {
+                if let Some(name) = child.file_name().to_str() {
+                    nested = Some(name.to_string());
+                    break;
+                }
+            }
+            if nested.is_some() {
+                break;
+            }
+        }
+        let nested = nested.expect("a task directory should contain nested entries");
+        let (mut tree, trunc) = build_tree(root, true);
+        assert!(tree.subtree_counts_skipped);
+        let body = budget_expand(
+            &mut tree,
+            DEFAULT_MAX_OUTPUT_CHARS,
+            TOP_K_EXTENSIONS,
+            trunc,
+            ROOT_TRUNCATION_NOTICE_FALLBACK,
+        );
+        assert!(
+            body.contains("subtree file counts were skipped"),
+            "notice missing: {body}"
+        );
+        assert!(
+            !body.contains("files in subtree") && !body.contains("file in subtree"),
+            "subtree count leaked: {body}"
+        );
+        let needle = format!("- {nested}");
+        assert!(
+            !body.lines().any(|line| line.trim() == needle),
+            "nested {nested} should not be listed when counts are skipped: {body}"
+        );
+        assert!(
+            body.lines().any(|line| line.trim_start().starts_with("- ")),
+            "depth-1 entries should still be listed: {body}"
+        );
+    }
+    #[test]
+    fn local_disk_still_walks_nested_files() {
+        let repo = Path::new("/projects/workspace/grok-rebuild");
+        if repo.is_dir() {
+            assert!(
+                !slow_fs::subtree_counts_are_slow(repo),
+                "the workspace disk must keep subtree counts"
+            );
+        }
+        let tmp = TempDir::new().unwrap();
+        assert!(
+            !slow_fs::subtree_counts_are_slow(tmp.path()),
+            "overlay and tmpfs temp dirs must keep subtree counts"
+        );
+        let deep = tmp.path().join("a").join("b");
+        fs::create_dir_all(&deep).unwrap();
+        File::create(deep.join("deep.rs")).unwrap();
+        let (mut tree, trunc) = build_tree(tmp.path(), true);
+        assert!(!tree.subtree_counts_skipped);
+        let body = budget_expand(
+            &mut tree,
+            DEFAULT_MAX_OUTPUT_CHARS,
+            TOP_K_EXTENSIONS,
+            trunc,
+            ROOT_TRUNCATION_NOTICE_FALLBACK,
+        );
+        assert!(body.contains("deep.rs"), "nested file should be listed: {body}");
+        assert!(
+            !body.contains("subtree file counts were skipped"),
+            "local listing must not print the slow-fs notice: {body}"
         );
     }
     #[test]
