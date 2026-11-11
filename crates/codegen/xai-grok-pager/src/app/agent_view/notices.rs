@@ -1,11 +1,15 @@
 //! Transient user feedback: toasts, ephemeral tips, mode-switch banners, terminal-size notes, clipboard-copy feedback, and their tick timers.
 
 use super::{
-    ActivePane, AgentView, CLIPBOARD_TOAST_DEBOUNCE_MS, MODE_BANNER_TOTAL_TICKS, PromptInputMode,
+    ActivePane, AgentView, CLIPBOARD_TOAST_DEBOUNCE_MS, MODE_BANNER_FADE_TICKS,
+    MODE_BANNER_TOTAL_TICKS, PromptInputMode,
 };
 #[cfg(test)]
 use super::{AgentPane, test_fixtures};
 use crate::app::actions::Action;
+use crate::theme::Theme;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
 use std::time::Instant;
 
 impl AgentView {
@@ -224,7 +228,7 @@ impl AgentView {
     /// Triggered on Shift+Tab mode cycles.
     /// Renders at full visibility for 2 s, then fades out over the final 0.3 s.
     pub fn show_mode_switch_banner(&mut self, mode_name: &str) {
-        let msg = format!("Switched to mode: {}", mode_name);
+        let msg = format!("{MODE_SWITCH_LABEL}{mode_name}");
         self.mode_switch_banner = Some((msg, MODE_BANNER_TOTAL_TICKS));
     }
 
@@ -471,6 +475,151 @@ fn image_number_list(display_numbers: &[usize]) -> String {
         .map(|n| format!("#{n}"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Text before the mode name on the Shift+Tab banner.
+pub(crate) const MODE_SWITCH_LABEL: &str = "Switched to mode: ";
+
+/// Color for an Agent, Plan, or Ask name. Other banner names stay in the secondary text color.
+/// Plan and Ask use the accents those modes already use. Agent is the default mode, so it uses the primary text color.
+pub(crate) fn mode_switch_name_color(name: &str, theme: &Theme) -> Option<ratatui::style::Color> {
+    match name {
+        "Agent" => Some(theme.text_primary),
+        "Plan" => Some(theme.accent_plan),
+        "Ask" => Some(theme.accent_success),
+        _ => None,
+    }
+}
+
+/// Paint the mode-switch banner. The mode name is drawn in [`mode_switch_name_color`] when it is Agent, Plan, or Ask.
+pub(crate) fn paint_mode_switch_banner(
+    buf: &mut Buffer,
+    area: Rect,
+    msg: &str,
+    remaining: u8,
+    theme: &Theme,
+) {
+    if area.height == 0 || area.width <= 4 {
+        return;
+    }
+    let bg = theme.bg_base;
+    for col in 0..area.width {
+        if let Some(cell) = buf.cell_mut((area.x + col, area.y)) {
+            cell.set_char(' ');
+            cell.fg = bg;
+            cell.bg = bg;
+        }
+    }
+    let opacity = if remaining > MODE_BANNER_FADE_TICKS {
+        1.0
+    } else {
+        remaining as f32 / MODE_BANNER_FADE_TICKS as f32
+    };
+    let base_fg = theme.text_secondary;
+    let fg = crate::render::color::blend_color(bg, base_fg, opacity).unwrap_or(base_fg);
+    let name = msg.strip_prefix(MODE_SWITCH_LABEL);
+    let name_fg = name
+        .and_then(|name| mode_switch_name_color(name, theme))
+        .map(|color| crate::render::color::blend_color(bg, color, opacity).unwrap_or(color));
+    let text = format!("  {msg}");
+    let maxw = area.width.saturating_sub(2) as usize;
+    let truncated = text.len() > maxw;
+    let display: String = if truncated {
+        text.chars()
+            .take(maxw.saturating_sub(1))
+            .collect::<String>()
+            + "…"
+    } else {
+        text
+    };
+    let name_start = 2 + MODE_SWITCH_LABEL.chars().count();
+    let name_end = name_start + name.map(|mode_name| mode_name.chars().count()).unwrap_or(0);
+    for (i, ch) in display.chars().enumerate() {
+        if let Some(cell) = buf.cell_mut((area.x + i as u16, area.y)) {
+            cell.set_char(ch);
+            let in_name = name_fg.is_some() && i >= name_start && i < name_end && ch != '…';
+            cell.fg = if in_name { name_fg.unwrap_or(fg) } else { fg };
+            cell.bg = bg;
+        }
+    }
+}
+
+#[cfg(test)]
+mod mode_switch_banner_tests {
+    use super::*;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    fn row_text(buf: &Buffer, width: u16) -> String {
+        (0..width)
+            .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+            .collect()
+    }
+
+    fn fg_at(buf: &Buffer, x: u16) -> ratatui::style::Color {
+        buf.cell((x, 0)).expect("cell").fg
+    }
+
+    #[test]
+    fn mode_switch_banner_paints_agent_plan_and_ask_in_their_own_colors() {
+        let _guard = crate::theme::cache::pin_theme();
+        crate::theme::cache::set(crate::theme::ThemeKind::GrokNight);
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 80, 1);
+        let cases = [
+            ("Agent", theme.text_primary),
+            ("Plan", theme.accent_plan),
+            ("Ask", theme.accent_success),
+        ];
+        let mut seen = Vec::new();
+        for (name, expected) in cases {
+            let mut buf = Buffer::empty(area);
+            let msg = format!("{MODE_SWITCH_LABEL}{name}");
+            paint_mode_switch_banner(&mut buf, area, &msg, MODE_BANNER_TOTAL_TICKS, &theme);
+            let text = row_text(&buf, area.width);
+            let byte = text
+                .find(name)
+                .unwrap_or_else(|| panic!("banner missing {name}: {text:?}"));
+            let x = text
+                .get(..byte)
+                .map(|prefix| prefix.chars().count())
+                .unwrap_or(0) as u16;
+            assert_eq!(
+                fg_at(&buf, 2),
+                theme.text_secondary,
+                "prefix stays secondary"
+            );
+            for offset in 0..name.chars().count() {
+                assert_eq!(
+                    fg_at(&buf, x + offset as u16),
+                    expected,
+                    "{name} char {offset}"
+                );
+            }
+            let before = x.saturating_sub(1);
+            assert_eq!(fg_at(&buf, before), theme.text_secondary);
+            seen.push(expected);
+        }
+        assert_ne!(seen.first(), seen.get(1));
+        assert_ne!(seen.get(1), seen.get(2));
+        assert_ne!(seen.first(), seen.get(2));
+
+        let mut buf = Buffer::empty(area);
+        paint_mode_switch_banner(
+            &mut buf,
+            area,
+            "Switched to mode: Auto-review",
+            MODE_BANNER_TOTAL_TICKS,
+            &theme,
+        );
+        let text = row_text(&buf, area.width);
+        let byte = text.find("Auto-review").expect("auto-review name");
+        let x = text
+            .get(..byte)
+            .map(|prefix| prefix.chars().count())
+            .unwrap_or(0) as u16;
+        assert_eq!(fg_at(&buf, x), theme.text_secondary);
+    }
 }
 
 #[cfg(test)]

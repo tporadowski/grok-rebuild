@@ -1,7 +1,7 @@
 //! Frame rendering for [`AgentView`]: the `draw` entry point plus shortcut hints.
 use super::{
     ActivePane, AgentPane, AgentView, AgentViewLayout, BlockingCard, ComposerRoute, CtaPhase,
-    EscStep, InlineMediaHitAreas, KeyOwner, MODE_BANNER_FADE_TICKS, PromptMode, ViewSurface,
+    EscStep, InlineMediaHitAreas, KeyOwner, PromptMode, ViewSurface,
     collect_citation_links, dropdown_content_inset, dropdown_items_width, record_dot_pulse,
     render_dropdown_chrome, supports_osc22,
 };
@@ -2222,43 +2222,7 @@ impl AgentView {
         } else if let Some((ref msg, remaining)) = self.mode_switch_banner {
             self.hit_announcement_hide.clear();
             self.hit_announcement_cta.clear();
-            if layout.banner.height > 0 && layout.banner.width > 4 {
-                let bg = theme.bg_base;
-                for col in 0..layout.banner.width {
-                    if let Some(cell) = buf.cell_mut((layout.banner.x + col, layout.banner.y)) {
-                        cell.set_char(' ');
-                        cell.fg = bg;
-                        cell.bg = bg;
-                    }
-                }
-                let opacity = if remaining > MODE_BANNER_FADE_TICKS {
-                    1.0
-                } else {
-                    remaining as f32 / MODE_BANNER_FADE_TICKS as f32
-                };
-                let base_fg = theme.text_secondary;
-                let fg = crate::render::color::blend_color(theme.bg_base, base_fg, opacity)
-                    .unwrap_or(base_fg);
-                let text = format!("  {}", msg);
-                let maxw = layout.banner.width.saturating_sub(2) as usize;
-                let display: String = if text.len() > maxw {
-                    text.chars()
-                        .take(maxw.saturating_sub(1))
-                        .collect::<String>()
-                        + "…"
-                } else {
-                    text
-                };
-                let x = layout.banner.x;
-                let y = layout.banner.y;
-                for (i, ch) in display.chars().enumerate() {
-                    if let Some(cell) = buf.cell_mut((x + i as u16, y)) {
-                        cell.set_char(ch);
-                        cell.fg = fg;
-                        cell.bg = bg;
-                    }
-                }
-            }
+            super::notices::paint_mode_switch_banner(buf, layout.banner, msg, remaining, &theme);
         } else {
             let announcement_banner_owns_slot =
                 self.session_banner_active && layout.banner.height > 0;
