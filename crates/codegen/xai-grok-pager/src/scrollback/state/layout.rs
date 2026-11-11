@@ -624,6 +624,7 @@ impl ScrollbackState {
     /// Evict heavyweight render caches from entries far outside the viewport. For a multi-MB transcript those copies
     /// are easily hundreds of MB that can never be seen without scrolling. Heights are cached separately
     /// (`cached_truncated_height` / `cached_estimate_lines` / the layout cache) and are deliberately kept.
+    /// Finished markdown also drops its styled pre-wrap layout here; search keeps a plain-text snapshot of those words.
     pub(crate) fn evict_offscreen_render_caches(&self) -> usize {
         let Some((win_start, win_end)) = self.measurement_window() else {
             // No layout (nothing rendered yet): nothing worth sweeping

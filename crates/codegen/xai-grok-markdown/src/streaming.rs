@@ -139,6 +139,12 @@ pub struct StreamingMarkdownRenderer {
     /// Rewrites `\(…\)` / `\[…\]` / `\begin{equation}` into the canonical `$` / `$$` forms before text is appended to `source`.
     /// Held-back ambiguous bytes (a partial delimiter at a chunk boundary) are flushed by `finish()`.
     normalizer: LatexDelimiterNormalizer,
+
+    /// Plain text of the last rendered lines. Kept after [`Self::release_rendered_layout`] so search and pretty-copy still see the words that were on screen.
+    search_text: Option<String>,
+
+    /// Styled pre-wrap layout was dropped. The next [`Self::render`] rebuilds it from `source`.
+    layout_released: bool,
 }
 
 impl std::fmt::Debug for StreamingMarkdownRenderer {
@@ -149,6 +155,7 @@ impl std::fmt::Debug for StreamingMarkdownRenderer {
             .field("frozen_bytes", &self.frozen.source_bytes)
             .field("output_lines", &self.output.lines.len())
             .field("pretty", &self.pretty)
+            .field("layout_released", &self.layout_released)
             .finish()
     }
 }
@@ -185,6 +192,8 @@ impl StreamingMarkdownRenderer {
             collapse_soft_breaks: true,
             open_code: None,
             normalizer: LatexDelimiterNormalizer::new(),
+            search_text: None,
+            layout_released: false,
         }
     }
 
@@ -228,6 +237,10 @@ impl StreamingMarkdownRenderer {
     pub fn push(&mut self, chunk: &str) {
         let normalized = self.normalizer.push(chunk);
         self.source.push_str(&normalized);
+        // The snapshot is the previous render. A deferred append makes it stale until the next render.
+        if self.layout_released {
+            self.search_text = None;
+        }
     }
 
     /// Append already-normalized source text, bypassing the delimiter normalizer.
@@ -255,6 +268,11 @@ impl StreamingMarkdownRenderer {
 
     /// Internal: render the unfrozen tail and update frozen state.
     fn rerender_tail(&mut self, syntect: Option<&Syntect>) {
+        // Released layout has no frozen prefix. Rebuild from the start of `source`.
+        if self.layout_released {
+            self.frozen = FrozenState::default();
+        }
+
         // Truncate output to frozen state (discard stale tail)
         self.output.lines.truncate(self.frozen.lines_len);
         self.output.line_source_map.truncate(self.frozen.lines_len);
@@ -287,6 +305,10 @@ impl StreamingMarkdownRenderer {
         let Some(tail) = self.source.get(tail_start..) else {
             return;
         };
+        if self.layout_released {
+            self.layout_released = false;
+            self.search_text = None;
+        }
         // Lazily create the incremental open-code cache once syntect is present.
         // It rebuilds itself on fence/offset change, so a stale cache from a previous tail (e.g. after a checkpoint advanced) is self-correcting.
         let open_code = match syntect {
@@ -419,6 +441,8 @@ impl StreamingMarkdownRenderer {
         self.max_table_width = None;
         self.open_code = None;
         self.normalizer.reset();
+        self.search_text = None;
+        self.layout_released = false;
     }
 
     /// Set pretty mode (true = hide syntax, false = show raw markdown).
@@ -499,8 +523,55 @@ impl StreamingMarkdownRenderer {
         // Streaming is over: release the highlighter caches (open-block state and closed-fence memo) rather than keep them for the block's lifetime
         // They are lazily rebuilt if rendering ever resumes
         self.open_code = None;
+        self.layout_released = false;
+        self.search_text = None;
 
         self.output.as_view()
+    }
+
+    /// Drop the styled pre-wrap layout while keeping `source`.
+    ///
+    /// The plain text of the current lines is retained so search and pretty-copy still match the words that were displayed (`**important**` stays findable as `important`).
+    /// [`Self::render`] rebuilds the layout from `source`. A second call, an empty source, or a renderer that has not produced lines yet does nothing.
+    pub fn release_rendered_layout(&mut self) {
+        if self.layout_released || self.source.is_empty() || self.output.lines.is_empty() {
+            return;
+        }
+        self.search_text = Some(Self::plain_text_from_lines(&self.output.lines));
+        self.output = MarkdownRenderOutput::new();
+        self.frozen = FrozenState::default();
+        self.buffers = MarkdownBuffers::new();
+        self.open_code = None;
+        self.layout_released = true;
+    }
+
+    /// Whether [`Self::release_rendered_layout`] dropped the styled lines.
+    pub fn layout_released(&self) -> bool {
+        self.layout_released
+    }
+
+    /// Rendered words with styles removed. After a layout release this is the retained snapshot, not a walk of empty lines.
+    pub fn rendered_plain_text(&self) -> String {
+        if self.layout_released {
+            if let Some(text) = &self.search_text {
+                return text.clone();
+            }
+            return self.source.clone();
+        }
+        Self::plain_text_from_lines(&self.output.lines)
+    }
+
+    fn plain_text_from_lines(lines: &[ratatui::text::Line<'_>]) -> String {
+        let mut result = String::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i > 0 {
+                result.push('\n');
+            }
+            for span in &line.spans {
+                result.push_str(&span.content);
+            }
+        }
+        result
     }
 
     /// Finalize streaming and return owned output.

@@ -196,20 +196,14 @@ impl MarkdownContent {
 
     /// Get the rendered text as plain text (all ratatui styles stripped).
     ///
-    /// Useful for copy-to-clipboard in pretty mode.
+    /// Useful for copy-to-clipboard in pretty mode. After an off-screen layout release this is the retained snapshot of those words, so search still matches the display rather than the raw source.
     pub fn rendered_plain_text(&self) -> String {
-        let state = self.state.borrow();
-        let view = state.renderer.view();
-        let mut result = String::new();
-        for (i, line) in view.lines.iter().enumerate() {
-            if i > 0 {
-                result.push('\n');
-            }
-            for span in &line.spans {
-                result.push_str(&span.content);
-            }
-        }
-        result
+        self.state.borrow().renderer.rendered_plain_text()
+    }
+
+    /// Whether [`Self::release_offscreen_layout`] dropped the styled pre-wrap lines.
+    pub(crate) fn layout_released(&self) -> bool {
+        self.state.borrow().renderer.layout_released()
     }
 
     /// Get the line source map (rendered line index to source line number).
@@ -296,6 +290,20 @@ impl MarkdownContent {
         state.cache_generation = u64::MAX; // force rebuild on next use
         state.frozen_pre_wrap_count = 0;
         state.frozen_wrapped_count = 0;
+    }
+
+    /// Drop rebuildable layout for an off-screen block.
+    ///
+    /// The word-wrap cache always goes. A finished document also drops the styled pre-wrap layout. Streaming replies keep that layout. Source text stays, and a finished document keeps a plain-text snapshot of the rendered words so search still matches them. The next [`Self::output`] rebuilds whatever was dropped.
+    pub(crate) fn release_offscreen_layout(&self) {
+        self.evict_wrap_cache();
+        if !self.finished {
+            return;
+        }
+        self.state
+            .borrow_mut()
+            .renderer
+            .release_rendered_layout();
     }
 
     /// Toggle raw mode, re-rendering if changed.

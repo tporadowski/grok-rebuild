@@ -852,14 +852,16 @@ impl RenderBlock {
         }
     }
 
-    /// Drop rebuildable render caches held inside the block. Currently the markdown word-wrap cache on markdown-backed
-    /// blocks (agent messages, thinking, /btw). The source text and pre-wrap render stay. the next `output()` call
-    /// rebuilds the wrap transparently. Called by `ScrollbackState::evict_offscreen_render_caches`.
+    /// Drop rebuildable render caches held inside the block. Markdown-backed blocks (agent messages, thinking, /btw)
+    /// drop their word-wrap cache. Finished markdown also drops the styled pre-wrap layout and keeps the source plus
+    /// a plain-text snapshot, so search still finds the words that were on screen. Streaming markdown keeps that
+    /// layout. The next `output()` rebuilds whatever was dropped. Called by
+    /// `ScrollbackState::evict_offscreen_render_caches`.
     pub fn evict_render_caches(&self) {
         match self {
-            RenderBlock::AgentMessage(b) => b.content().evict_wrap_cache(),
-            RenderBlock::Thinking(b) => b.content().evict_wrap_cache(),
-            RenderBlock::Btw(b) => b.content().evict_wrap_cache(),
+            RenderBlock::AgentMessage(b) => b.release_offscreen_layout(),
+            RenderBlock::Thinking(b) => b.content().release_offscreen_layout(),
+            RenderBlock::Btw(b) => b.content().release_offscreen_layout(),
             _ => {}
         }
     }
@@ -1030,8 +1032,9 @@ impl RenderBlock {
     }
 
     /// Full searchable text of this block for full-text scrollback search. Searching `is important` finds the rendered
-    /// `is important` rather than missing the source `is important`. This reads the renderer's last-rendered view
-    /// without running layout (`output()` word-wrap) or re-highlighting syntax.
+    /// `is important` rather than missing the source `is important`. This reads the renderer's last-rendered view, or
+    /// the plain-text snapshot kept after an off-screen layout release, without running layout (`output()` word-wrap)
+    /// or re-highlighting syntax.
     pub fn searchable_text(&self) -> Option<String> {
         match self {
             RenderBlock::Stub(b) => join_searchable([Some(b.text.clone())]),

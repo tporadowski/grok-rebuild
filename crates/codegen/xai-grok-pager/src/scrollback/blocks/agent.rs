@@ -104,6 +104,12 @@ impl AgentMessageBlock {
         &self.content
     }
 
+    /// Drop the labeled render copy and the underlying markdown layout. The labeled copy is rebuilt from source on the next paint.
+    pub(crate) fn release_offscreen_layout(&self) {
+        *self.labeled.borrow_mut() = None;
+        self.content.release_offscreen_layout();
+    }
+
     /// Mutable access to the underlying markdown content.
     pub fn content_mut(&mut self) -> &mut MarkdownContent {
         &mut self.content

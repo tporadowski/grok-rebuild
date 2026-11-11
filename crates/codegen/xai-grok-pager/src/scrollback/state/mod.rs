@@ -2801,6 +2801,140 @@ mod tests {
         assert_eq!(state.evict_offscreen_render_caches(), 0);
     }
 
+    /// Finished markdown far above the viewport drops its styled pre-wrap lines. Search still finds the rendered
+    /// words (`**really**` matches `really`), and scrolling the block back rebuilds the lines. A streaming reply and
+    /// a finished reply inside the keep zone keep their layout.
+    #[test]
+    fn evict_offscreen_finished_markdown_releases_layout_and_search_still_finds_text() {
+        fn agent_markdown(
+            entry: &ScrollbackEntry,
+        ) -> &crate::scrollback::blocks::markdown_content::MarkdownContent {
+            entry
+                .block
+                .as_agent_message()
+                .expect("agent message")
+                .content()
+        }
+
+        let mut state = ScrollbackState::new();
+        let far_id = state.push_block(RenderBlock::agent_message("this is **really** important"));
+        let streaming_id = state.start_streaming_agent();
+        assert!(state.push_chunk_to_agent(streaming_id, "still **streaming** now"));
+        for i in 0..400 {
+            state.push_block(stub_block(&format!("entry {i}")));
+        }
+        let near_id = state.push_block(RenderBlock::agent_message("near **visible** tail"));
+
+        state.prepare_layout(80, 10);
+        let max_offset_before = state.max_scroll_offset();
+        let appearance = state.appearance().clone();
+        for (_, entry) in state.entries.iter() {
+            entry.ensure_cached(78, &appearance, false, None);
+        }
+
+        let far_before = agent_markdown(state.get_by_id(far_id).unwrap());
+        assert!(
+            !far_before.layout_released(),
+            "finished markdown starts with its layout"
+        );
+        assert!(
+            !far_before.pre_wrap_lines().is_empty(),
+            "finished markdown starts with rendered lines"
+        );
+        assert!(far_before.text().contains("**really**"));
+
+        let evicted = state.evict_offscreen_render_caches();
+        assert!(evicted > 0, "far entries must be swept (got {evicted})");
+
+        let far = agent_markdown(state.get_by_id(far_id).unwrap());
+        assert!(
+            far.layout_released(),
+            "finished markdown far off screen releases its layout"
+        );
+        assert!(
+            far.pre_wrap_lines().is_empty(),
+            "released layout keeps no styled lines"
+        );
+        assert!(
+            far.text().contains("**really**"),
+            "source markdown stays after the layout release"
+        );
+        let far_plain = far.rendered_plain_text();
+        assert!(
+            far_plain.contains("is really important"),
+            "search snapshot keeps the rendered words, got {far_plain:?}"
+        );
+        assert!(
+            !far_plain.contains("**"),
+            "snapshot is the display text, not the source markers, got {far_plain:?}"
+        );
+
+        let streaming = agent_markdown(state.get_by_id(streaming_id).unwrap());
+        assert!(
+            !streaming.layout_released(),
+            "an unfinished stream keeps its layout"
+        );
+        assert!(
+            !streaming.pre_wrap_lines().is_empty(),
+            "an unfinished stream keeps its rendered lines"
+        );
+        let streaming_plain = streaming.rendered_plain_text();
+        assert!(
+            streaming_plain.contains("streaming"),
+            "got {streaming_plain:?}"
+        );
+        assert!(
+            !streaming_plain.contains("**"),
+            "live render still strips markers, got {streaming_plain:?}"
+        );
+
+        let near = agent_markdown(state.get_by_id(near_id).unwrap());
+        assert!(
+            !near.layout_released(),
+            "a finished reply inside the keep zone keeps its layout"
+        );
+        assert!(!near.pre_wrap_lines().is_empty());
+
+        let mut index = crate::scrollback::search::ScrollbackSearchIndex::new();
+        assert!(
+            index.sync(&state),
+            "search must read the blocks after the layout release"
+        );
+        let hits = index.find(&crate::search::TextMatcher::new(
+            "really important",
+            crate::search::QueryKind::Substring,
+        ));
+        assert!(
+            hits.iter().any(|hit| hit.entry_id == far_id),
+            "search still finds the released block, got {hits:?}"
+        );
+
+        state.prepare_layout(80, 10);
+        assert_eq!(
+            state.max_scroll_offset(),
+            max_offset_before,
+            "releasing markdown layout must not change scroll geometry"
+        );
+
+        let far_entry = state.get_by_id(far_id).unwrap();
+        far_entry.ensure_cached(78, &appearance, false, None);
+        let far_back = agent_markdown(far_entry);
+        assert!(
+            !far_back.layout_released(),
+            "scrolling the block back rebuilds the layout"
+        );
+        assert!(
+            !far_back.pre_wrap_lines().is_empty(),
+            "rebuilt layout has styled lines again"
+        );
+        let rebuilt = far_back.rendered_plain_text();
+        assert!(
+            rebuilt.contains("is really important"),
+            "got {rebuilt:?}"
+        );
+        assert!(!rebuilt.contains("**"), "got {rebuilt:?}");
+    }
+
     #[test]
     fn test_push_and_selection() {
         let mut state = ScrollbackState::new();

@@ -1596,7 +1596,7 @@ id | status | wave | kind | flag | covered | note
 - v66-p01 | done | W15 | Performance |  |  | **`@` file completion** shows results about 5 ms after you type instead of about 40 ms.
 - v69-p01 | already | W15 | Performance |  |  | **Quitting Grok** returns you to your shell sooner because it no longer waits out fixed intervals.
 - v73-p01 | deferred | W15 | Performance |  |  | **Startup** no longer waits about 100 ms for a sign-in file when you use an API key or have not signed in yet.
-- v74-p01 | pending | W15 | Performance |  |  | **Long sessions** use less memory: finished Markdown blocks far off screen release their rendered layout, and search still finds their text.
+- v74-p01 | done | W15 | Performance |  |  | **Long sessions** use less memory: finished Markdown blocks far off screen release their rendered layout, and search still finds their text.
 - v74-p02 | pending | W15 | Performance |  |  | **Typing** no longer lags when ffmpeg isn't installed and `PATH` holds slow directories, such as Windows drives under WSL.
 - v74-p03 | pending | W15 | Performance |  |  | **Long pastes that arrive as keystrokes**, such as pastes on native Windows or in terminals without bracketed paste, no longer freeze the prompt for seconds while the plan-mode tip is on.
 - v74-p04 | pending | W15 | Performance |  |  | **Pasting long single-line text** such as logs, JSON or base64 into the prompt no longer freezes the TUI for seconds.
