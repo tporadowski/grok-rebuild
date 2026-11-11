@@ -3194,6 +3194,26 @@ async fn authenticate_failure_keeps_a_plain_next_step() {
 }
 
 #[test]
+fn session_load_error_shows_the_whole_reason() {
+    let middle = "cause-sits-in-the-middle";
+    let tail = "end-of-the-reason";
+    let raw = format!(
+        "ACP error: failed to read history.jsonl: {} {middle} {tail}",
+        "x".repeat(240)
+    );
+    assert!(raw.chars().count() > 200, "fixture must exceed the shared cap");
+    let shown = session_load_error_text(&raw);
+    assert!(shown.contains(middle), "{shown}");
+    assert!(shown.contains(tail), "{shown}");
+    assert!(!shown.contains("ACP error:"), "{shown}");
+    assert!(!shown.ends_with("..."), "{shown}");
+    let capped = sanitize_user_error(&raw);
+    assert!(
+        !capped.contains(middle) && capped.ends_with("..."),
+        "shared cap drops the middle of a long message: {capped}"
+    );
+}
+#[test]
 fn sanitize_user_error_strips_auth_prefixes() {
     assert_eq!(
             sanitize_user_error(

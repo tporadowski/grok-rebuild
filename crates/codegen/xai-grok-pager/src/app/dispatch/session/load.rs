@@ -1404,7 +1404,10 @@ pub(in crate::app::dispatch) fn handle_session_load_failed(
         agent
             .scrollback
             .push_block(RenderBlock::session_event(SessionEvent::TurnFailed {
-                error: format!("Couldn't load session: {error}"),
+                error: format!(
+                    "Couldn't load session: {}",
+                    crate::app::effects::session_load_error_text(&error)
+                ),
                 elapsed: None,
             }));
     }

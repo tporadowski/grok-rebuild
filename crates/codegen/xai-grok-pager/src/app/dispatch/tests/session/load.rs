@@ -788,6 +788,40 @@ fn session_restored_does_not_consume_flag_and_defers_to_load() {
     );
 }
 #[test]
+fn session_load_failed_row_shows_the_whole_reason() {
+    let middle = "cause-sits-in-the-middle";
+    let tail = "end-of-the-reason";
+    let raw = format!(
+        "ACP error: failed to read history.jsonl: {} {middle} {tail}",
+        "x".repeat(240)
+    );
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    dispatch(
+        Action::TaskComplete(TaskResult::SessionLoadFailed {
+            agent_id: id,
+            session_id: acp::SessionId::new("sess-long"),
+            error: raw,
+        }),
+        &mut app,
+    );
+    let agent = expect_agent(&app, id);
+    let len = agent.scrollback.len();
+    let entry = agent
+        .scrollback
+        .get(len.checked_sub(1).expect("scrollback"))
+        .expect("failed-load row");
+    let RenderBlock::SessionEvent(block) = &entry.block else {
+        panic!("expected a session event, got {:?}", entry.block);
+    };
+    let shown = block.event.message();
+    assert!(shown.contains("Couldn't load session:"), "{shown}");
+    assert!(shown.contains(middle), "{shown}");
+    assert!(shown.contains(tail), "{shown}");
+    assert!(!shown.contains("ACP error:"), "{shown}");
+    assert!(!shown.ends_with("..."), "{shown}");
+}
+#[test]
 fn session_load_failed_clears_flag_no_fetches() {
     use crate::views::extensions_modal::{ExtensionsModalState, ExtensionsTab};
     let mut app = test_app_with_agent();

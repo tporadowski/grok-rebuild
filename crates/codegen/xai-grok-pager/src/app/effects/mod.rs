@@ -17,6 +17,7 @@ pub(crate) use helpers::{
     EffectMeta, RestoreProgressMsg, SessionFlags, acp_send_bounded, compact_error,
     is_disk_full_error, parse_worktree_restore_payload, parse_worktree_strategy_summary,
     persist_permission_mode_and_notify, persist_setting, sanitize_user_error,
+    session_load_error_text,
 };
 #[cfg(feature = "local-workspace")]
 pub(crate) use helpers::reject_non_fs_only_advertised_tools;
@@ -565,7 +566,7 @@ pub(crate) fn execute(
                             TaskResult::SessionLoadFailed {
                                 agent_id,
                                 session_id: acp_session_id,
-                                error: sanitize_user_error(&error),
+                                error: session_load_error_text(&error),
                             }
                         }
                     }

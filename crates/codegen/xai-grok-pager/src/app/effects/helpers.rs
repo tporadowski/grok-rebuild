@@ -459,7 +459,16 @@ pub(crate) fn recap_ack_error(body: &str) -> Option<String> {
 /// Sanitize an error string before showing it to the user.
 ///
 /// Strips protocol jargon (ACP, JSON-RPC) and other technical noise that would be meaningless in a toast, and collapses known disk-full markers.
+/// Messages longer than 200 characters keep the first 180 and drop the rest.
 pub(crate) fn sanitize_user_error(raw: &str) -> String {
+    sanitize_user_error_inner(raw, true)
+}
+/// Session-load failures show the whole reason.
+/// [`sanitize_user_error`] keeps a short prefix of a long message and drops the rest, which removes the cause.
+pub(crate) fn session_load_error_text(raw: &str) -> String {
+    sanitize_user_error_inner(raw, false)
+}
+fn sanitize_user_error_inner(raw: &str, cap: bool) -> String {
     if is_disk_full_error(raw) {
         return xai_fast_worktree::ENOSPC_OS_MESSAGE.to_string();
     }
@@ -477,7 +486,7 @@ pub(crate) fn sanitize_user_error(raw: &str) -> String {
     for (pattern, replacement) in REPLACEMENTS {
         result = result.replace(pattern, replacement);
     }
-    if result.chars().count() > 200 {
+    if cap && result.chars().count() > 200 {
         let truncated: String = result.chars().take(180).collect();
         result = format!("{truncated}...");
     }
