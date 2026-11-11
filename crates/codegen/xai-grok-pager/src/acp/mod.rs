@@ -224,7 +224,7 @@ pub async fn connect(cancel: &CancellationToken, flags: ConnectFlags) -> Result<
         interactivity: Interactivity::Interactive,
     });
     let memory_config = agent_config.memory_config.clone();
-    let spawned = spawn::spawn_grok_shell(agent_config, cancel, memory_config).await?;
+    let spawned = spawn::spawn_grok_shell(agent_config, cancel, memory_config, true).await?;
     let auth_manager = spawned.auth_manager.clone();
     initialize_connection(AgentEndpoint::from(spawned), &flags, auth_manager).await
 }

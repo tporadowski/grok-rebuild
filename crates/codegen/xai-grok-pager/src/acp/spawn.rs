@@ -265,10 +265,14 @@ pub(crate) fn boot_auth_manager(
 }
 
 /// Spawn a GrokShell agent in a background thread.
+///
+/// `load_models` is false for commands that never read the catalog (`grok worktree`).
+/// That skips the startup catalog wait and the cold-cache retry.
 pub async fn spawn_grok_shell(
     agent_config: AgentConfig,
     cancel: &CancellationToken,
     memory_config: Option<xai_grok_shell::config::MemoryConfig>,
+    load_models: bool,
 ) -> Result<SpawnedAgent> {
     let auth_manager = boot_auth_manager(&grok_home(), &agent_config);
     // Pause token refreshes across system sleep so an OIDC refresh can't
@@ -297,10 +301,11 @@ pub async fn spawn_grok_shell(
     let boot = xai_grok_shell::agent::init::resolve_boot_startup_settings(
         &mut agent_config,
         cancel,
-        true,
+        load_models,
         auth_manager.current(),
     )
     .await?;
+    let refresh_catalog = boot.refreshes_model_catalog();
 
     // On a blocking thread so the connect `select!` can preempt `bootstrap`'s synchronous I/O. A child of the connect
     // token so a user cancel stops the worker, but a timeout drop does not cancel the parent (the embedded fallback
@@ -319,7 +324,9 @@ pub async fn spawn_grok_shell(
     })
     .await?
     .map_err(anyhow::Error::new)?;
-    models_manager.spawn_background_refresh();
+    if refresh_catalog {
+        models_manager.spawn_background_refresh();
+    }
 
     let (acp_client, acp_agent) = acp_channels();
 

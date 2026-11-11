@@ -42,6 +42,18 @@ impl From<String> for BootstrapError {
 pub struct BootstrapPrefetch {
     settings_wait: Option<SettingsWait>,
     models: ResolvedModels,
+    /// False when the caller skipped the catalog (`grok worktree`). A cold cache
+    /// must not start a retry the command never reads.
+    refreshes_model_catalog: bool,
+}
+
+impl BootstrapPrefetch {
+    /// Whether this boot should start the post-ready catalog retry.
+    /// False for a boot that skipped the catalog prefetch.
+    #[must_use]
+    pub fn refreshes_model_catalog(&self) -> bool {
+        self.refreshes_model_catalog
+    }
 }
 /// One bootstrap at a time. A connect-timeout drop does not abort
 /// `spawn_blocking`, so the fallback connect would otherwise overlap
@@ -261,6 +273,7 @@ pub async fn resolve_boot_startup_settings(
     Ok(BootstrapPrefetch {
         settings_wait: wait,
         models,
+        refreshes_model_catalog: start_models_prefetch,
     })
 }
 fn install_settings_wait(

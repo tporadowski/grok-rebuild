@@ -650,7 +650,7 @@ async fn spawn_agent(
     options: &HeadlessOptions,
 ) -> Result<SpawnedAgent> {
     let _ = options;
-    spawn_grok_shell(agent_config, cancel, memory_config).await
+    spawn_grok_shell(agent_config, cancel, memory_config, true).await
 }
 /// `true` when this auth method is the external `auth_provider_command` login.
 fn method_runs_auth_provider(method: &acp::AuthMethod) -> bool {

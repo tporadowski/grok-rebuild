@@ -174,3 +174,103 @@ fn second_bootstrap_bails_when_cancelled_while_the_gate_is_held() {
     };
     assert!(matches!(err, BootstrapError::Cancelled), "got {err}");
 }
+
+/// `grok worktree` boots with `start_models_prefetch: false`. The seeded session and
+/// proxy would serve `/v1/models`; that handoff must not fetch the catalog or ask
+/// for the cold-cache retry.
+#[test]
+#[serial_test::serial(remote_sig_disarm, startup_settings)]
+fn v51_worktree_boot_skips_model_catalog() {
+    let home = tempfile::tempdir().expect("grok home");
+    // SAFETY: this filtered test is the only env user; isolate before grok_home is cached.
+    unsafe { xai_grok_test_support::isolate_grok_env(home.path()) };
+    crate::agent::remote_config::settings_get::reset_startup_settings_for_tests();
+    crate::managed_config::clear_startup_profile_for_tests();
+    assert_eq!(
+        crate::util::grok_home::grok_home().as_path(),
+        home.path(),
+        "grok home was already cached; this test must run alone in the process"
+    );
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build current-thread runtime");
+    runtime.block_on(async {
+        let server = xai_grok_test_support::MockInferenceServer::start()
+            .await
+            .expect("start mock server");
+        std::fs::write(home.path().join("agent_id"), "test-agent-id").expect("seed agent_id");
+        let scope = xai_grok_login::GrokComConfig::default().auth_scope();
+        let auth = serde_json::json!({
+            scope: {
+                "key": "test-session-token",
+                "auth_mode": "oidc",
+                "oidc_issuer": xai_grok_login::xai_oauth2_issuer(),
+                "create_time": "2026-01-01T00:00:00Z",
+                "expires_at": "2099-01-01T00:00:00Z",
+                "user_id": "test-user",
+            }
+        });
+        std::fs::write(home.path().join("auth.json"), auth.to_string()).expect("write auth.json");
+        std::fs::write(
+            home.path().join("config.toml"),
+            format!(
+                "[endpoints]\ncli_chat_proxy_base_url = \"{}\"\n",
+                server.url()
+            ),
+        )
+        .expect("write config.toml");
+        server.set_settings(crate::util::config::RemoteSettings {
+            tips: Some(vec!["worktree-boot-skips-catalog".into()]),
+            ..crate::util::config::RemoteSettings::default()
+        });
+        server.set_models(vec![xai_grok_test_support::MockModelEntry::new(
+            "worktree-boot-should-not-fetch",
+        )]);
+
+        let mut cfg = AgentConfig::default();
+        let auth_manager = Arc::new(cfg.create_auth_manager());
+        assert!(
+            auth_manager.current().is_some(),
+            "the seeded session must be loaded, or a skipped catalog fetch is not observable"
+        );
+        let cancel = CancellationToken::new();
+        let boot = super::resolve_boot_startup_settings(
+            &mut cfg,
+            &cancel,
+            false,
+            auth_manager.current(),
+        )
+        .await
+        .expect("boot settings resolve");
+        assert!(
+            !boot.refreshes_model_catalog(),
+            "a catalog-free boot must not schedule the cold-cache retry"
+        );
+
+        let (resolved, models_manager) =
+            bootstrap_with_cancel(&cfg, &auth_manager, None, &cancel, Some(boot))
+                .expect("catalog-free bootstrap succeeds");
+
+        assert_eq!(
+            resolved
+                .remote_settings
+                .as_ref()
+                .and_then(|settings| settings.tips.clone()),
+            Some(vec!["worktree-boot-skips-catalog".to_string()]),
+            "settings must still load, so the mock is the boot's endpoint"
+        );
+        assert_eq!(
+            server.request_count_for("/v1/models"),
+            0,
+            "skipping the catalog prefetch must not fall through to a blocking models fetch"
+        );
+        assert!(
+            !models_manager
+                .models()
+                .contains_key("worktree-boot-should-not-fetch"),
+            "the mock catalog must not be installed when prefetch is skipped"
+        );
+    });
+}
