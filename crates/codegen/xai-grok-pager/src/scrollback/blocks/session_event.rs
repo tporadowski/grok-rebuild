@@ -368,6 +368,23 @@ fn sanitize_model_debug_text(text: &str) -> String {
     sanitized
 }
 
+/// Detail shown on a turn-failed row.
+/// A leading generic `Request failed:` is dropped so the row does not repeat it.
+/// `Request failed (400):` and other status-coded prefixes stay.
+fn turn_failed_row_detail(error: &str) -> &str {
+    const PREFIX: &str = "request failed:";
+    let trimmed = error.trim_start();
+    if trimmed.len() >= PREFIX.len()
+        && trimmed.as_bytes()[..PREFIX.len()].eq_ignore_ascii_case(PREFIX.as_bytes())
+    {
+        let rest = trimmed[PREFIX.len()..].trim_start();
+        if !rest.is_empty() {
+            return rest;
+        }
+    }
+    error
+}
+
 impl SessionEvent {
     /// Format the event as a human-readable string.
     pub fn message(&self) -> String {
@@ -407,13 +424,17 @@ impl SessionEvent {
                 error,
                 elapsed: Some(elapsed),
             } => {
-                format!("Turn failed in {}: {error}", format_duration(*elapsed))
+                format!(
+                    "Turn failed in {}: {}",
+                    format_duration(*elapsed),
+                    turn_failed_row_detail(error)
+                )
             }
             SessionEvent::TurnFailed {
                 error,
                 elapsed: None,
             } => {
-                format!("Turn failed: {error}")
+                format!("Turn failed: {}", turn_failed_row_detail(error))
             }
             SessionEvent::CompactionStarted { percentage, reason } => {
                 if reason == MODEL_FAMILY_SWITCH_COMPACT_BANNER {
@@ -901,6 +922,47 @@ mod tests {
             elapsed: None,
         };
         assert_eq!(event.message(), "Turn failed: auth error");
+    }
+
+    #[test]
+    fn turn_failed_row_drops_generic_request_failed_prefix() {
+        let event = SessionEvent::TurnFailed {
+            error: "Request failed: boom. Try sending again.".into(),
+            elapsed: None,
+        };
+        assert_eq!(
+            event.message(),
+            "Turn failed: boom. Try sending again."
+        );
+        let event = SessionEvent::TurnFailed {
+            error: "Request failed: boom. Try sending again.".into(),
+            elapsed: Some(Duration::from_secs(3)),
+        };
+        assert_eq!(
+            event.message(),
+            "Turn failed in 3.0s: boom. Try sending again."
+        );
+        let coded = SessionEvent::TurnFailed {
+            error: "Request failed (400): bad request".into(),
+            elapsed: None,
+        };
+        assert_eq!(
+            coded.message(),
+            "Turn failed: Request failed (400): bad request"
+        );
+        let bare = SessionEvent::TurnFailed {
+            error: "Request failed:".into(),
+            elapsed: None,
+        };
+        assert_eq!(bare.message(), "Turn failed: Request failed:");
+        let retries = SessionEvent::TurnFailed {
+            error: "Request failed after 3 retries. upstream timed out".into(),
+            elapsed: None,
+        };
+        assert_eq!(
+            retries.message(),
+            "Turn failed: Request failed after 3 retries. upstream timed out"
+        );
     }
 
     #[test]

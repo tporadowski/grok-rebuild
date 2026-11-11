@@ -1539,7 +1539,7 @@ id | status | wave | kind | flag | covered | note
 - v71-f07 | done | W14 | Features |  |  | **Answers to the agent's questions** show one row per question and answer, and end in `…` only when the text is cut.
 - v71-x03 | done | W14 | Bug Fixes |  |  | **Feedback draft rows** show the draft's state: drafted, declined, cancelled or failed.
 - v71-x04 | done | W14 | Bug Fixes |  |  | **A slash menu closed with `Esc`** no longer reopens by itself when the command list refreshes, such as right after startup.
-- v71-x05 | pending | W14 | Bug Fixes |  |  | **Turn failed rows** no longer repeat a generic "Request failed:" before the error.
+- v71-x05 | done | W14 | Bug Fixes |  |  | **Turn failed rows** no longer repeat a generic "Request failed:" before the error.
 - v72-f01 | pending | W14 | Features |  |  | **Relative file paths** in the agent's output, such as `src/app/main.rs`, open on click when the file exists under the session's folder, as absolute paths already do.
 - v72-f03 | pending | W14 | Features |  |  | **Pull-request numbers** such as `#123` in the agent's replies open that pull request on the session repository's forge.
 - v72-f06 | pending | W14 | Features |  |  | **Feedback draft rows** show on their own instead of inside a group of tool rows, and opening one shows the `/feedback` Drafts tab with that draft selected.
