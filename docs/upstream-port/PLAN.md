@@ -1567,7 +1567,7 @@ id | status | wave | kind | flag | covered | note
 - v74-x10 | done | W14 | Bug Fixes |  |  | **A failed session delete** shows the "Couldn't delete session" prefix once, so the reason is no longer cut off.
 - v74-x11 | done | W14 | Bug Fixes |  |  | **Windows**: Grok exits fully after a startup error, a `/minimal` or `/fullscreen` switch, or a signal, instead of sometimes hanging.
 - v74-x16 | done | W14 | Bug Fixes |  |  | **Command-line arguments that aren't valid UTF-8** no longer crash `grok` at startup: paths such as `--cwd` accept them, and text such as `-p` gets a usage error.
-- v74-x18 | pending | W14 | Bug Fixes |  |  | **Environment variables with non-UTF-8 bytes** no longer stop Grok from starting.
+- v74-x18 | done | W14 | Bug Fixes |  |  | **Environment variables with non-UTF-8 bytes** no longer stop Grok from starting.
 - v74-x25 | pending | W14 | Bug Fixes |  |  | **File paths with spaces** in inline code, such as `~/Library/Application Support/...`, link to the whole path when it exists instead of stopping at the first space.
 - v74-x26 | pending | W14 | Bug Fixes |  |  | **Feedback that can't be sent** leads with the outcome, such as "Couldn't send feedback. Saved to Drafts.", then gives the reason and says to retry from `/feedback`.
 - v74-x28 | pending | W14 | Bug Fixes |  |  | **Prompt history search** highlights matched letters in the same color as other fuzzy lists, and the counts on the `/` and `@` menu borders are dimmed like other border captions.

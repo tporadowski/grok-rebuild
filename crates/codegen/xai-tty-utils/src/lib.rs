@@ -1174,11 +1174,22 @@ pub fn is_wsl() -> bool {
     *CACHE.get_or_init(detect_is_wsl)
 }
 
+/// UTF-8 env pairs. `std::env::vars` panics on a non-Unicode key or value, and startup calls this
+/// while building the keymap and the display probe (`panic = "abort"` ends the process).
+fn unicode_env_from_os(
+    pairs: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> HashMap<String, String> {
+    pairs
+        .into_iter()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect()
+}
+
 fn detect_is_wsl() -> bool {
     if !cfg!(target_os = "linux") {
         return false;
     }
-    let env: HashMap<String, String> = std::env::vars().collect();
+    let env = unicode_env_from_os(std::env::vars_os());
     let osrelease = std::fs::read_to_string("/proc/sys/kernel/osrelease").ok();
     is_wsl_from_inputs(&env, osrelease.as_deref())
 }
@@ -1597,6 +1608,49 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
             .collect()
+    }
+
+    #[test]
+    fn non_utf8_env_bytes_do_not_stop_wsl_detection() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let bad = std::ffi::OsString::from_vec(b"caf\xff".to_vec());
+            let env = unicode_env_from_os([
+                (
+                    std::ffi::OsString::from_vec(b"BAD_\xff".to_vec()),
+                    std::ffi::OsString::from("nope"),
+                ),
+                (std::ffi::OsString::from("ALSO"), bad),
+                (
+                    std::ffi::OsString::from("WSL_DISTRO_NAME"),
+                    std::ffi::OsString::from("Ubuntu"),
+                ),
+            ]);
+            assert_eq!(
+                env.get("WSL_DISTRO_NAME").map(String::as_str),
+                Some("Ubuntu")
+            );
+            assert!(!env.contains_key("ALSO"));
+            assert!(!env.keys().any(|key| key.starts_with("BAD_")));
+            assert!(is_wsl_from_inputs(&env, None));
+            let _ = detect_is_wsl();
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt;
+            let bad = std::ffi::OsString::from_wide(&[0xD800]);
+            let env = unicode_env_from_os([
+                (bad.clone(), std::ffi::OsString::from("nope")),
+                (std::ffi::OsString::from("ALSO"), bad),
+                (
+                    std::ffi::OsString::from("WSL_DISTRO_NAME"),
+                    std::ffi::OsString::from("Ubuntu"),
+                ),
+            ]);
+            assert!(is_wsl_from_inputs(&env, None));
+            assert!(!env.contains_key("ALSO"));
+        }
     }
 
     #[test]
