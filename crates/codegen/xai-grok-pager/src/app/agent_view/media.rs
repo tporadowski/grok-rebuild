@@ -496,13 +496,9 @@ impl AgentView {
     /// Open a media file in the OS-native default application (Preview, default video player, etc.).
     /// The `[Open]` button, the inline-image click target, and the Enter-key handler all route here.
     pub(crate) fn open_media_natively(&mut self, path: &std::path::Path) -> bool {
-        if crate::app::link_opener::open_path(path) {
-            self.show_toast("Opening in default app\u{2026}");
-            true
-        } else {
-            self.show_toast("Could not open file");
-            false
-        }
+        let outcome = crate::app::link_opener::open_path_for_user(path);
+        self.show_toast(outcome.notice);
+        outcome.opened
     }
 
     /// Enter on a video card. Inline playback when the terminal can show it and
@@ -833,7 +829,7 @@ mod tests {
         agent.activate_video_card(std::path::Path::new("/tmp/clip.mp4"));
         assert!(agent.video_load_rx.is_none());
         let toast = agent.toast.as_ref().map(|(msg, _)| msg.as_str());
-        assert_eq!(toast, Some("Opening in default app\u{2026}"));
+        assert_eq!(toast, Some(native_file_toast_for_this_host()));
 
         drop((_none, _ffmpeg));
         let _kitty = set_protocol_for_test(GraphicsProtocol::Kitty);
@@ -842,7 +838,37 @@ mod tests {
         agent.activate_video_card(std::path::Path::new("/tmp/clip.mp4"));
         assert!(agent.video_load_rx.is_none());
         let toast = agent.toast.as_ref().map(|(msg, _)| msg.as_str());
-        assert_eq!(toast, Some("Opening in default app\u{2026}"));
+        assert_eq!(toast, Some(native_file_toast_for_this_host()));
+    }
+
+    /// What a file click shows on this machine: the SSH or no-display reason when a GUI opener cannot run, otherwise the default-app toast.
+    fn native_file_toast_for_this_host() -> &'static str {
+        if cfg!(any(target_os = "macos", target_os = "windows")) {
+            return "Opening in default app\u{2026}";
+        }
+        let non_empty = |key| std::env::var_os(key).is_some_and(|value| !value.is_empty());
+        let ssh = non_empty("SSH_CONNECTION") || non_empty("SSH_TTY") || non_empty("SSH_CLIENT");
+        let can_try =
+            non_empty("DISPLAY") || non_empty("WAYLAND_DISPLAY") || non_empty("BROWSER");
+        if ssh && !can_try {
+            "Can't open files over SSH"
+        } else if !can_try {
+            "Can't open files without a display"
+        } else {
+            "Opening in default app\u{2026}"
+        }
+    }
+
+    #[test]
+    fn clicking_a_file_names_why_it_cannot_open() {
+        let mut agent = make_agent();
+        let opened = agent.open_media_natively(std::path::Path::new("/tmp/notes.txt"));
+        let toast = agent.toast.as_ref().map(|(msg, _)| msg.as_str());
+        let expected = native_file_toast_for_this_host();
+        assert_eq!(toast, Some(expected));
+        if expected.starts_with("Can't open") {
+            assert!(!opened, "a blocked file click must not report success");
+        }
     }
 
     fn stub_inline_video() -> crate::app::agent_view::InlineVideoState {

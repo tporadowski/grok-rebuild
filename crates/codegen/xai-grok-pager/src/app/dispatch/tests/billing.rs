@@ -1528,6 +1528,23 @@ fn unknown_non_restricted_command_still_passes_through() {
     );
 }
 
+/// Reason a link click shows on this machine. Literals stay here so the assertion is not the production helper.
+fn link_click_reason_for_this_host() -> &'static str {
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        return "Could not open a browser. Open this URL manually";
+    }
+    let non_empty = |key| std::env::var_os(key).is_some_and(|value| !value.is_empty());
+    let ssh = non_empty("SSH_CONNECTION") || non_empty("SSH_TTY") || non_empty("SSH_CLIENT");
+    let can_try = non_empty("DISPLAY") || non_empty("WAYLAND_DISPLAY") || non_empty("BROWSER");
+    if ssh && !can_try {
+        "Can't open links over SSH"
+    } else if !can_try {
+        "Can't open links without a display"
+    } else {
+        "Could not open a browser. Open this URL manually"
+    }
+}
+
 /// `Action::OpenUrl` for a billing CTA must push a scrollback system message that includes the full URL when the OS browser opener cannot run.
 /// The opener failure is simulated via a broken `GROK_TEST_OPEN_URL_FILE` path.
 /// On a headless VM the opener always fails, so without this message the Upgrade and Buy-more-credits buttons do nothing visible.
@@ -1562,7 +1579,44 @@ fn open_url_shows_manual_url_when_browser_unavailable() {
         .toast
         .as_ref()
         .map(|(m, _)| m.as_str());
-    assert_eq!(toast, Some("Browser unavailable - URL shown above"));
+    let reason = link_click_reason_for_this_host();
+    assert_eq!(toast, Some(reason));
+    assert!(
+        text.starts_with(reason),
+        "scrollback should lead with why the link cannot open: {text}"
+    );
+
+    // SAFETY: serialized via `serial_test`; restore the env for other tests.
+    unsafe { std::env::remove_var("GROK_TEST_OPEN_URL_FILE") };
+}
+
+/// Transcript link clicks (`Action::OpenLink`) used to drop a failed open. The scrollback and toast name why.
+#[serial_test::serial(GROK_TEST_OPEN_URL_FILE)]
+#[test]
+fn clicked_link_names_why_it_cannot_open() {
+    let bad = std::env::temp_dir().join(format!(
+        "grok-open-link-missing-{}/out.txt",
+        std::process::id()
+    ));
+    // SAFETY: serialized via `serial_test` so no other test races the env var.
+    unsafe { std::env::set_var("GROK_TEST_OPEN_URL_FILE", &bad) };
+
+    let mut app = test_app_with_agent();
+    let url = "https://example.com/docs";
+    let effects = dispatch(
+        Action::OpenLink(crate::render::osc8::LinkTarget::Url(std::sync::Arc::from(url))),
+        &mut app,
+    );
+    assert!(effects.is_empty());
+    let text = last_system_text(&app, AgentId(0));
+    let reason = link_click_reason_for_this_host();
+    assert!(text.starts_with(reason), "{text}");
+    assert!(text.contains(url), "{text}");
+    let toast = test_agent(&app, AgentId(0))
+        .toast
+        .as_ref()
+        .map(|(m, _)| m.as_str());
+    assert_eq!(toast, Some(reason));
 
     // SAFETY: serialized via `serial_test`; restore the env for other tests.
     unsafe { std::env::remove_var("GROK_TEST_OPEN_URL_FILE") };

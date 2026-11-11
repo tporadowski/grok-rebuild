@@ -40,18 +40,99 @@ pub fn browser_open_likely_available() -> bool {
 
 const BROWSER_UNAVAILABLE_NOTICE: &str = "Could not open a browser. Open this URL manually";
 
+/// Why a GUI open cannot even be attempted. Spawn failures with a display stay [`None`] and keep the generic notice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenBlock {
+    /// Remote SSH session and no display or `BROWSER` override.
+    Ssh,
+    /// Local session with no display server and no `BROWSER` override.
+    NoDisplay,
+}
+
+fn ssh_session(env: &HashMap<String, String>) -> bool {
+    ["SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT"]
+        .iter()
+        .any(|key| env.get(*key).is_some_and(|value| !value.is_empty()))
+}
+
+/// `None` when the opener should be attempted (desktop OS, display server, or `BROWSER`).
+pub fn open_block_from_env(env: &HashMap<String, String>) -> Option<OpenBlock> {
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        return None;
+    }
+    if browser_open_likely_available_from_env(env) {
+        return None;
+    }
+    if ssh_session(env) {
+        Some(OpenBlock::Ssh)
+    } else {
+        Some(OpenBlock::NoDisplay)
+    }
+}
+
+/// Block for this process, if a GUI opener cannot run.
+pub fn current_open_block() -> Option<OpenBlock> {
+    open_block_from_env(&crate::host::collect_unicode_env())
+}
+
+/// Short reason shown when a link click cannot open. The example SSH sentence is the remote case.
+pub fn link_open_notice(block: Option<OpenBlock>) -> &'static str {
+    match block {
+        Some(OpenBlock::Ssh) => "Can't open links over SSH",
+        Some(OpenBlock::NoDisplay) => "Can't open links without a display",
+        None => BROWSER_UNAVAILABLE_NOTICE,
+    }
+}
+
+/// Short reason shown when a file click cannot open.
+pub fn file_open_notice(block: Option<OpenBlock>) -> &'static str {
+    match block {
+        Some(OpenBlock::Ssh) => "Can't open files over SSH",
+        Some(OpenBlock::NoDisplay) => "Can't open files without a display",
+        None => "Could not open file",
+    }
+}
+
+/// Outcome of a user click on a file path: either the native opener was launched, or a reason toast.
+pub struct NativeFileOpen {
+    pub opened: bool,
+    pub notice: &'static str,
+}
+
+/// Open `path` unless this environment cannot launch a GUI opener. The notice is what the click should show.
+pub fn open_path_for_user(path: &std::path::Path) -> NativeFileOpen {
+    if let Some(block) = current_open_block() {
+        return NativeFileOpen {
+            opened: false,
+            notice: file_open_notice(Some(block)),
+        };
+    }
+    if open_path(path) {
+        NativeFileOpen {
+            opened: true,
+            notice: "Opening in default app\u{2026}",
+        }
+    } else {
+        NativeFileOpen {
+            opened: false,
+            notice: file_open_notice(None),
+        }
+    }
+}
+
 /// Multi-line copy for agent scrollback: notice, then the full URL alone so it is easy to select/copy in the TUI.
 pub fn browser_unavailable_message(url: &str) -> String {
-    format!("{BROWSER_UNAVAILABLE_NOTICE}:\n{url}")
+    format!("{}:\n{url}", link_open_notice(current_open_block()))
 }
 
 /// Single-line welcome toast: URL first so prefix truncation keeps the destination.
 /// `copied` is true only when clipboard delivery reported success, so the toast never claims a copy that did not happen.
 pub fn browser_unavailable_line(url: &str, copied: bool) -> String {
+    let notice = link_open_notice(current_open_block());
     if copied {
-        format!("{url} \u{00b7} {BROWSER_UNAVAILABLE_NOTICE} (URL copied)")
+        format!("{url} \u{00b7} {notice} (URL copied)")
     } else {
-        format!("{url} \u{00b7} {BROWSER_UNAVAILABLE_NOTICE}")
+        format!("{url} \u{00b7} {notice}")
     }
 }
 
@@ -636,11 +717,55 @@ mod tests {
     }
 
     #[test]
+    fn blocked_open_names_ssh_and_a_missing_display() {
+        if cfg!(any(target_os = "macos", target_os = "windows")) {
+            assert_eq!(open_block_from_env(&env(&[])), None);
+            return;
+        }
+        let ssh = env(&[("SSH_CONNECTION", "203.0.113.4 50000 203.0.113.5 22")]);
+        assert_eq!(open_block_from_env(&ssh), Some(OpenBlock::Ssh));
+        assert_eq!(link_open_notice(Some(OpenBlock::Ssh)), "Can't open links over SSH");
+        assert_eq!(file_open_notice(Some(OpenBlock::Ssh)), "Can't open files over SSH");
+        assert_eq!(
+            format!("{}:\nhttps://example.com/docs", link_open_notice(Some(OpenBlock::Ssh))),
+            "Can't open links over SSH:\nhttps://example.com/docs"
+        );
+
+        assert_eq!(open_block_from_env(&env(&[])), Some(OpenBlock::NoDisplay));
+        assert_eq!(
+            link_open_notice(Some(OpenBlock::NoDisplay)),
+            "Can't open links without a display"
+        );
+        assert_eq!(
+            file_open_notice(Some(OpenBlock::NoDisplay)),
+            "Can't open files without a display"
+        );
+        assert_eq!(
+            open_block_from_env(&env(&[
+                ("SSH_TTY", "/dev/pts/3"),
+                ("DISPLAY", ":0"),
+            ])),
+            None,
+            "a forwarded display still attempts the opener"
+        );
+        assert_eq!(
+            open_block_from_env(&env(&[("BROWSER", "lynx"), ("SSH_CLIENT", "1 2 3")])),
+            None
+        );
+        assert_eq!(link_open_notice(None), BROWSER_UNAVAILABLE_NOTICE);
+        assert_eq!(file_open_notice(None), "Could not open file");
+    }
+
+    #[test]
     fn browser_unavailable_message_includes_full_url() {
         let url = "https://grok.com/supergrok?referrer=grok-build";
-        assert_eq!(
-            browser_unavailable_message(url),
-            format!("{BROWSER_UNAVAILABLE_NOTICE}:\n{url}")
+        let notice = link_open_notice(current_open_block());
+        assert_eq!(browser_unavailable_message(url), format!("{notice}:\n{url}"));
+        assert!(
+            notice == "Can't open links over SSH"
+                || notice == "Can't open links without a display"
+                || notice == BROWSER_UNAVAILABLE_NOTICE,
+            "{notice}"
         );
     }
 
@@ -648,6 +773,7 @@ mod tests {
     fn browser_unavailable_line_is_url_first_single_line() {
         let url = "https://grok.com/supergrok?referrer=grok-build";
         let plain = browser_unavailable_line(url, false);
+        let notice = link_open_notice(current_open_block());
         assert!(plain.starts_with(url), "{plain}");
         assert!(!plain.contains('\n'), "{plain}");
         assert!(
@@ -655,7 +781,7 @@ mod tests {
             "must not claim copy on failure: {plain}"
         );
         assert!(
-            plain.contains(BROWSER_UNAVAILABLE_NOTICE),
+            plain.contains(notice),
             "shares notice stem with multi-line form: {plain}"
         );
 

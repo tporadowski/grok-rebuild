@@ -1240,15 +1240,16 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::RetryCreditLimitPrompt => super::billing::dispatch_retry_credit_limit_prompt(app),
         Action::OpenUrl(url) => {
             if url.starts_with("file://") {
-                let opened = url::Url::parse(&url)
+                let notice = url::Url::parse(&url)
                     .ok()
                     .and_then(|u| u.to_file_path().ok())
-                    .is_some_and(|path| crate::app::link_opener::open_path(&path));
-                app.show_toast(if opened {
-                    "Opening in default app\u{2026}"
-                } else {
-                    "Could not open file"
-                });
+                    .map(|path| crate::app::link_opener::open_path_for_user(&path).notice)
+                    .unwrap_or_else(|| {
+                        crate::app::link_opener::file_open_notice(
+                            crate::app::link_opener::current_open_block(),
+                        )
+                    });
+                app.show_toast(notice);
             } else {
                 open_url_or_show(app, &url);
             }
@@ -1268,15 +1269,11 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                     });
                 }
                 Some(LinkTarget::File(path)) => {
-                    let opened = crate::app::link_opener::open_path(&path);
-                    app.show_toast(if opened {
-                        "Opening in default app\u{2026}"
-                    } else {
-                        "Could not open file"
-                    });
+                    let outcome = crate::app::link_opener::open_path_for_user(&path);
+                    app.show_toast(outcome.notice);
                 }
                 Some(LinkTarget::Url(url)) => {
-                    crate::app::link_opener::open_url(&url);
+                    open_url_or_show(app, &url);
                 }
                 None => {}
             }

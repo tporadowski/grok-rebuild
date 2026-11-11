@@ -338,7 +338,9 @@ impl AgentView {
                     .push_block(RenderBlock::system(browser_unavailable_message(url)));
                 // Best-effort clipboard so SSH/VM users can paste into a browser on another machine without selecting TUI text
                 let _ = crate::clipboard::SystemClipboard::try_set(url);
-                self.show_toast("Browser unavailable - URL shown above");
+                self.show_toast(crate::app::link_opener::link_open_notice(
+                    crate::app::link_opener::current_open_block(),
+                ));
             }
         }
     }
@@ -356,7 +358,9 @@ impl AgentView {
             OpenUrlResult::BrowserUnavailable => {
                 self.scrollback
                     .push_block(RenderBlock::system(browser_unavailable_message(url)));
-                self.show_toast("Browser unavailable - URL shown above");
+                self.show_toast(crate::app::link_opener::link_open_notice(
+                    crate::app::link_opener::current_open_block(),
+                ));
             }
         }
     }
