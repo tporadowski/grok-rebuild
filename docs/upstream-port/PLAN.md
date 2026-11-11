@@ -1611,7 +1611,7 @@ id | status | wave | kind | flag | covered | note
 - v74-p05 | already | W15 | Performance |  |  | **File watching on Linux** no longer keeps a CPU core busy for about a minute after startup in large repositories.
 - v74-p06 | done | W15 | Performance |  |  | **Lower CPU use while subagents run**: the TUI repaints only for animations on screen, about 7 times a second instead of 30 when no running row is visible.
 - v74-p07 | done | W15 | Performance |  |  | **`grok --resume <id>`** opens much faster on large session stores, reading only the resumed session instead of every session.
-- v78-p01 | pending | W15 | Performance |  |  | **grok export** of sessions containing large shell output is now faster and uses less memory.
+- v78-p01 | done | W15 | Performance |  |  | **grok export** of sessions containing large shell output is now faster and uses less memory.
 - v52-f01 | skipped | SKIP | Features | skip-superseded | v63-f01 | **Rex terminal support**: Grok now reports its status (working, waiting for you, done, or failed) to Rex through OSC 7501, so Rex tabs show what each session is doing.
 - v55-x01 | skipped | SKIP | Bug Fixes | skip-unspecified |  | Minor bug fixes.
 - v56-x01 | skipped | SKIP | Bug Fixes | skip-unspecified |  | Minor bug fixes.
