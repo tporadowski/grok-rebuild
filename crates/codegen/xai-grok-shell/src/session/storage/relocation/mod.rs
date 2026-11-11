@@ -3,7 +3,7 @@
 //! Resolves session directories under the sessions root (`<encoded-cwd>/<session-id>/` buckets).
 //! The journaled relocation transaction this module was named for never ran in production and was deleted.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -65,6 +65,8 @@ impl RelocationView {
     }
 
     pub(crate) fn load_for_sessions_root(sessions_root: &Path) -> Result<Self> {
+        #[cfg(test)]
+        index_load_probe::note();
         let (all_candidates, persisted_candidates) = load_candidates(sessions_root)?;
         Ok(Self {
             sessions_root: sessions_root.into(),
@@ -90,6 +92,31 @@ impl RelocationView {
             })
             .filter_map(|paths| select(paths, cwd_parent.as_deref()))
             .collect())
+    }
+
+    /// Session directories for every `cwd` in one loaded index.
+    /// An id stored under more than one cwd bucket stays ambiguous and is skipped, matching [`Self::session_dirs`].
+    pub(crate) fn session_dirs_for_cwds(&self, cwds: &[String]) -> Result<Vec<PathBuf>> {
+        let mut parents = HashSet::with_capacity(cwds.len());
+        for cwd in cwds {
+            parents.insert(
+                self.sessions_root
+                    .join(xai_grok_config::encode_cwd_dirname(cwd)),
+            );
+        }
+        let mut dirs = Vec::new();
+        for paths in self.persisted_candidates.values() {
+            let Some(path) = select(paths, None) else {
+                continue;
+            };
+            if path
+                .parent()
+                .is_some_and(|parent| parents.contains(parent))
+            {
+                dirs.push(path);
+            }
+        }
+        Ok(dirs)
     }
 
     pub(crate) fn find_persisted_session_dir(&self, session_id: &str) -> Result<Option<PathBuf>> {
@@ -184,6 +211,53 @@ fn load_candidates(sessions_root: &Path) -> Result<(SessionCandidates, SessionCa
         }
     }
     Ok((all, persisted))
+}
+
+/// Counts `RelocationView` loads on the blocking thread that installed the probe.
+/// The resume picker test uses this to tell one sibling-wide walk from one walk per worktree.
+#[cfg(test)]
+pub(crate) mod index_load_probe {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    tokio::task_local! {
+        pub(crate) static INDEX_LOAD_PROBE: Arc<AtomicUsize>;
+    }
+
+    thread_local! {
+        static SLOT: std::cell::RefCell<Option<Arc<AtomicUsize>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    pub(crate) fn capture() -> Option<Arc<AtomicUsize>> {
+        INDEX_LOAD_PROBE.try_with(Arc::clone).ok()
+    }
+
+    pub(crate) struct IndexLoadGuard {
+        previous: Option<Arc<AtomicUsize>>,
+    }
+
+    impl IndexLoadGuard {
+        pub(crate) fn install(probe: Arc<AtomicUsize>) -> Self {
+            let previous = SLOT.with(|slot| slot.replace(Some(probe)));
+            Self { previous }
+        }
+    }
+
+    impl Drop for IndexLoadGuard {
+        fn drop(&mut self) {
+            let previous = self.previous.take();
+            SLOT.with(|slot| *slot.borrow_mut() = previous);
+        }
+    }
+
+    pub(crate) fn note() {
+        SLOT.with(|slot| {
+            if let Some(probe) = slot.borrow().as_ref() {
+                probe.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+    }
 }
 
 #[cfg(test)]

@@ -3278,9 +3278,31 @@ pub(crate) async fn load_light(
 /// List session summaries, optionally filtered by cwd (absolute path string).
 /// Returns summaries sorted by `last_active_at` (else `updated_at`) descending.
 pub async fn list_summaries(cwd: Option<&str>) -> io::Result<Vec<Summary>> {
-    let root_dir = crate::util::grok_home::grok_home();
+    let root_dir = session_list_root();
     let storage: Box<dyn StorageAdapter> = Box::new(JsonlStorageAdapter::with_root(root_dir));
     storage.list_sessions(cwd).await
+}
+
+/// Sessions under any of `cwds`, from one walk of the session index.
+/// Sorted the same way as [`list_summaries`].
+pub(crate) async fn list_summaries_for_cwds(cwds: &[String]) -> io::Result<Vec<Summary>> {
+    let root_dir = session_list_root();
+    JsonlStorageAdapter::with_root(root_dir)
+        .list_sessions_for_cwds(cwds)
+        .await
+}
+
+#[cfg(test)]
+tokio::task_local! {
+    pub(crate) static SESSION_LIST_ROOT: std::path::PathBuf;
+}
+
+fn session_list_root() -> std::path::PathBuf {
+    #[cfg(test)]
+    if let Ok(root) = SESSION_LIST_ROOT.try_with(std::clone::Clone::clone) {
+        return root;
+    }
+    crate::util::grok_home::grok_home()
 }
 
 /// Failure modes of [`delete_session_history`].

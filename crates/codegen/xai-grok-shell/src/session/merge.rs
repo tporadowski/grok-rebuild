@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::agent::session_registry_client::{SessionRecord, SessionRegistryClient};
-use crate::session::persistence::{Summary, list_summaries};
+use crate::session::persistence::{Summary, list_summaries, list_summaries_for_cwds};
 use xai_grok_workspace::session::git::normalize_repo_url;
 
 pub const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -198,9 +198,11 @@ pub(crate) async fn fetch_lanes(
                 all.extend(v);
             }
         } else {
-            for c in &cwds {
-                if let Ok(v) = list_summaries(Some(c)).await {
-                    all.extend(v);
+            // One index walk covers every sibling cwd. Walking once per worktree re-reads the whole sessions tree.
+            match list_summaries_for_cwds(&cwds).await {
+                Ok(v) => all.extend(v),
+                Err(error) => {
+                    tracing::warn!(%error, "resume list failed to read worktree sessions");
                 }
             }
         }
@@ -1638,5 +1640,122 @@ mod tests {
         // 9 local sessions across 3 cwds, limit 5
         let merged = merge(Vec::new(), local, None, &[], 5);
         assert_eq!(merged.len(), 5);
+    }
+
+    fn write_resume_summary(root: &std::path::Path, cwd: &str, id: &str) {
+        let mut summary = make_summary(id, "kept title", "2026-04-01T00:00:00Z");
+        summary.info.cwd = cwd.to_owned();
+        summary.num_messages = 3;
+        summary.session_kind = Some("worktree".into());
+        summary.worktree_label = Some("labeled".into());
+        summary.last_active_at = Some(summary.updated_at);
+        let encoded = crate::util::grok_home::encode_cwd_dirname(cwd);
+        let dir = root.join("sessions").join(encoded).join(id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("summary.json"),
+            serde_json::to_vec(&summary).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// Sibling worktrees used to reload the session index once per cwd.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn v51_resume_picker_loads_session_index_once() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = dunce::canonicalize(tmp.path()).unwrap();
+        let home = root.join("grok-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let init = std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(
+            init.status.success(),
+            "git init: {}",
+            String::from_utf8_lossy(&init.stderr)
+        );
+        let cwd = repo.join("crates");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let _env = xai_grok_test_support::EnvGuard::set("GROK_HOME", &home);
+        let main = xai_grok_workspace::session::git::find_main_repo_root_from_path(&cwd).unwrap();
+        let base = crate::session::worktree::worktree_base_dir(&main);
+        for name in ["alpha", "beta", "gamma", "delta"] {
+            let worktree = base.join(name);
+            std::fs::create_dir_all(worktree.join("crates")).unwrap();
+            std::fs::write(worktree.join(".git"), "gitdir: /unused\n").unwrap();
+        }
+        let cwd_str = cwd.to_string_lossy().into_owned();
+        let discovered = crate::session::worktree::candidate_worktree_cwds_for_same_repo(
+            std::path::Path::new(&cwd_str),
+        )
+        .unwrap();
+        for name in ["alpha", "beta", "gamma", "delta"] {
+            let worktree = dunce::canonicalize(base.join(name)).unwrap();
+            let worktree = worktree.to_string_lossy().into_owned();
+            assert!(
+                discovered.iter().any(|candidate| candidate == &worktree),
+                "worktree {name} missing from {discovered:?}"
+            );
+            let nested = format!("{worktree}/crates");
+            assert!(
+                discovered.iter().any(|candidate| candidate == &nested),
+                "nested folder of {name} missing from {discovered:?}"
+            );
+        }
+        assert!(
+            discovered.len() >= 10,
+            "expected the cwd, the main checkout, and each worktree plus its nested folder: {discovered:?}"
+        );
+        let mut expected = std::collections::HashSet::new();
+        for (index, candidate) in discovered.iter().enumerate() {
+            let id = format!("sib-{index:02}");
+            write_resume_summary(&home, candidate, &id);
+            expected.insert(id);
+        }
+        for index in 0..8 {
+            write_resume_summary(
+                &home,
+                &format!("/unrelated/noise-{index}"),
+                &format!("noise-{index:02}"),
+            );
+        }
+        let loads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let probe = std::sync::Arc::clone(&loads);
+        let lanes = crate::session::persistence::SESSION_LIST_ROOT
+            .scope(
+                home,
+                crate::session::storage::relocation::index_load_probe::INDEX_LOAD_PROBE.scope(
+                    probe,
+                    fetch_lanes(
+                        None,
+                        Some(cwd_str.as_str()),
+                        CwdScope::WithSiblings,
+                        None,
+                        100,
+                        HeadlessPolicy::Include,
+                    ),
+                ),
+            )
+            .await;
+        let got: std::collections::HashSet<String> = lanes
+            .local
+            .iter()
+            .map(|summary| summary.info.id.0.as_ref().to_owned())
+            .collect();
+        assert_eq!(
+            got, expected,
+            "sibling resume list must include every worktree cwd and no unrelated folder"
+        );
+        assert_eq!(
+            loads.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "session index walks for {} sibling cwds",
+            discovered.len()
+        );
     }
 }

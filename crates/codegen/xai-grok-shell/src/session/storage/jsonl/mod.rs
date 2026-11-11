@@ -70,6 +70,26 @@ impl std::fmt::Display for AppendLineError {
         }
     }
 }
+fn blocking_session_scan<T, F>(
+    work: F,
+) -> impl std::future::Future<Output = io::Result<T>> + Send
+where
+    T: Send + 'static,
+    F: FnOnce() -> io::Result<T> + Send + 'static,
+{
+    #[cfg(test)]
+    let probe = crate::session::storage::relocation::index_load_probe::capture();
+    async move {
+        tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            let _guard =
+                probe.map(crate::session::storage::relocation::index_load_probe::IndexLoadGuard::install);
+            work()
+        })
+        .await
+        .map_err(io::Error::other)?
+    }
+}
 impl Default for JsonlStorageAdapter {
     fn default() -> Self {
         Self::new()
@@ -275,16 +295,34 @@ impl JsonlStorageAdapter {
     }
     /// Both `list_sessions` (full scan) and `list_sessions_recent` (mtime-based tail) share this.
     fn scan_session_dirs(&self, cwd: Option<&str>) -> io::Result<Vec<PathBuf>> {
+        self.session_dirs_from_loaded_index(|view| view.session_dirs(cwd))
+    }
+    fn scan_session_dirs_for_cwds(&self, cwds: &[String]) -> io::Result<Vec<PathBuf>> {
+        self.session_dirs_from_loaded_index(|view| view.session_dirs_for_cwds(cwds))
+    }
+    fn session_dirs_from_loaded_index(
+        &self,
+        select_dirs: impl FnOnce(
+            crate::session::storage::relocation::RelocationView,
+        ) -> crate::session::storage::relocation::Result<Vec<PathBuf>>,
+    ) -> io::Result<Vec<PathBuf>> {
         let root_dir = match &self.dir_mode {
             SessionDirMode::FromRoot(root) => root,
             SessionDirMode::Explicit(_) => return Ok(Vec::new()),
         };
         crate::session::storage::relocation::RelocationView::load(root_dir)
-            .and_then(|view| view.session_dirs(cwd))
+            .and_then(select_dirs)
             .map_err(io::Error::other)
     }
     fn list_sessions_sync(&self, cwd: Option<&str>) -> io::Result<Vec<Summary>> {
         let session_dirs = self.scan_session_dirs(cwd)?;
+        Ok(Self::summaries_from_session_dirs(session_dirs))
+    }
+    fn list_sessions_for_cwds_sync(&self, cwds: &[String]) -> io::Result<Vec<Summary>> {
+        let session_dirs = self.scan_session_dirs_for_cwds(cwds)?;
+        Ok(Self::summaries_from_session_dirs(session_dirs))
+    }
+    fn summaries_from_session_dirs(session_dirs: Vec<PathBuf>) -> Vec<Summary> {
         let mut summaries = Vec::new();
         for session_dir in session_dirs {
             let summary_path = session_dir.join(super::SUMMARY_FILE);
@@ -311,7 +349,7 @@ impl JsonlStorageAdapter {
                 s.info.id.0.to_string(),
             )
         });
-        Ok(summaries)
+        summaries
     }
     /// Extra `summary.json` reads allowed past `limit` while skipping hidden/headless rows.
     /// The slack lets a mixed store still fill a page without scanning a headless-dominated tree.
@@ -321,9 +359,16 @@ impl JsonlStorageAdapter {
     /// Final order among candidates uses `last_active_at` else `updated_at`.
     pub async fn list_sessions_recent(&self, limit: usize) -> io::Result<Vec<Summary>> {
         let adapter = self.clone();
-        tokio::task::spawn_blocking(move || adapter.list_sessions_recent_sync(limit))
-            .await
-            .map_err(io::Error::other)?
+        blocking_session_scan(move || adapter.list_sessions_recent_sync(limit)).await
+    }
+    /// One session-index load whose rows are the sessions under any of `cwds`.
+    pub(crate) async fn list_sessions_for_cwds(
+        &self,
+        cwds: &[String],
+    ) -> io::Result<Vec<Summary>> {
+        let adapter = self.clone();
+        let cwds = cwds.to_vec();
+        blocking_session_scan(move || adapter.list_sessions_for_cwds_sync(&cwds)).await
     }
     fn list_sessions_recent_sync(&self, limit: usize) -> io::Result<Vec<Summary>> {
         let session_dirs = self.scan_session_dirs(None)?;
@@ -1793,9 +1838,7 @@ impl StorageAdapter for JsonlStorageAdapter {
     async fn list_sessions(&self, cwd: Option<&str>) -> io::Result<Vec<Summary>> {
         let adapter = self.clone();
         let cwd = cwd.map(str::to_owned);
-        tokio::task::spawn_blocking(move || adapter.list_sessions_sync(cwd.as_deref()))
-            .await
-            .map_err(io::Error::other)?
+        blocking_session_scan(move || adapter.list_sessions_sync(cwd.as_deref())).await
     }
     async fn delete_session(&self, info: &Info) -> io::Result<()> {
         let dir = self.session_dir(info);
