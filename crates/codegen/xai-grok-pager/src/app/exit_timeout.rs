@@ -50,14 +50,80 @@ fn spawn_hard_exit(exit_code: i32) {
     }
 }
 
+/// How a quit ends the process once the terminal belongs to the shell again.
+///
+/// Windows must not use [`std::process::exit`]: that flushes stdio and can block on a
+/// console lock still held after restore, so `grok.exe` stays alive and the shell
+/// never draws a prompt. `ExitProcess` ends the process without that flush.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RestoredQuitExit {
+    /// Unix `_exit`. Skips atexit handlers.
+    UnderscoreExit,
+    /// Windows `ExitProcess`.
+    ExitProcess,
+    /// Targets without either call.
+    ProcessExit,
+}
+
+pub(crate) fn restored_quit_exit(unix: bool, windows: bool) -> RestoredQuitExit {
+    if unix {
+        RestoredQuitExit::UnderscoreExit
+    } else if windows {
+        RestoredQuitExit::ExitProcess
+    } else {
+        RestoredQuitExit::ProcessExit
+    }
+}
+
+fn this_process_restored_quit_exit() -> RestoredQuitExit {
+    restored_quit_exit(cfg!(unix), cfg!(windows))
+}
+
+/// On Windows, end `grok.exe` after the terminal is restored. Other targets return.
+pub(crate) fn end_restored_quit(exit_code: i32) {
+    if this_process_restored_quit_exit() == RestoredQuitExit::ExitProcess {
+        hard_exit(exit_code);
+    }
+}
+
 fn hard_exit(exit_code: i32) -> ! {
+    match this_process_restored_quit_exit() {
+        RestoredQuitExit::UnderscoreExit => underscore_exit(exit_code),
+        RestoredQuitExit::ExitProcess => exit_process(exit_code),
+        RestoredQuitExit::ProcessExit => std::process::exit(exit_code),
+    }
+}
+
+fn underscore_exit(exit_code: i32) -> ! {
     #[cfg(unix)]
     // SAFETY: `_exit` is async-signal-safe and skips atexit handlers.
     unsafe {
         libc::_exit(exit_code)
-    };
+    }
     #[cfg(not(unix))]
-    std::process::exit(exit_code);
+    {
+        let _ = exit_code;
+        unreachable!("`_exit` is selected only when cfg(unix)");
+    }
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn ExitProcess(uexitcode: u32);
+}
+
+fn exit_process(exit_code: i32) -> ! {
+    #[cfg(windows)]
+    unsafe {
+        ExitProcess(exit_code as u32);
+        unreachable!("ExitProcess does not return");
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = exit_code;
+        unreachable!("ExitProcess is selected only when cfg(windows)");
+    }
 }
 
 /// Hold teardown for [`TEST_HOLD_TEARDOWN_ENV`] seconds; a no-op when unset.
@@ -116,5 +182,29 @@ mod tests {
         assert_eq!(forced_exit_code(false, false, true), Some(1));
         assert_eq!(forced_exit_code(true, true, false), None);
         assert_eq!(forced_exit_code(false, true, false), None);
+    }
+
+    #[test]
+    fn quitting_ends_the_process_once_the_terminal_is_restored() {
+        assert_eq!(
+            restored_quit_exit(false, true),
+            RestoredQuitExit::ExitProcess,
+            "Windows quit must end grok.exe with ExitProcess once the terminal is restored"
+        );
+        assert_eq!(
+            restored_quit_exit(true, false),
+            RestoredQuitExit::UnderscoreExit
+        );
+        assert_eq!(
+            restored_quit_exit(false, false),
+            RestoredQuitExit::ProcessExit
+        );
+        // This host is not Windows, so the quit tail returns. The ExitProcess
+        // branch above is what `hard_exit` runs for grok.exe.
+        end_restored_quit(0);
+        assert_eq!(
+            this_process_restored_quit_exit(),
+            RestoredQuitExit::UnderscoreExit
+        );
     }
 }

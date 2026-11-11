@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-219 — Quitting ends the process after the terminal is restored
+
+Once teardown has given the terminal back, a Windows quit ends `grok.exe` with `ExitProcess`. `std::process::exit` flushes stdio and can block on a console lock still held after restore, so the shell waits with no prompt. The quit watchdog uses that same immediate exit if the tail never returns. Unix keeps `_exit` for the watchdog and returns from the quit tail. This host is Linux, so `grok.exe` was not executed (`quitting_ends_the_process_once_the_terminal_is_restored`) (`v73-x01`).
+
 ### D-218 — Outside plugin skill links are counted, not walked
 
 A skill directory or `SKILL.md` that is a symlink resolving outside the plugin root does not load and is not part of `skill_count`. Each such link counts once. The walk does not enter the outside tree (`skill_counts_skip_a_symlink_that_leaves_the_plugin`). `/plugins` says how many were skipped (`plugin_fields_name_skills_skipped_for_outside_links`). A symlink that stays inside the plugin still loads (`v70-x01`).
@@ -1550,7 +1554,7 @@ id | status | wave | kind | flag | covered | note
 - v72-x06 | done | W14 | Bug Fixes |  |  | **`/feedback` Drafts tab** keeps the selected draft when the list reloads, such as after leaving Drafts and coming back.
 - v72-x08 | done | W14 | Bug Fixes |  |  | **Plan review notes** accept every key, so a note that starts with `a` no longer approves the plan.
 - v73-f01 | done | W14 | Features |  |  | **`Page Up`/`Page Down`, `Home` and `End`** move the selection in `/skills` and other pickers.
-- v73-x01 | pending | W14 | Bug Fixes |  |  | **Windows**: quitting Grok ends `grok.exe` once the terminal is restored, so the shell no longer sometimes waits with no prompt.
+- v73-x01 | done | W14 | Bug Fixes |  |  | **Windows**: quitting Grok ends `grok.exe` once the terminal is restored, so the shell no longer sometimes waits with no prompt.
 - v73-x04 | pending | W14 | Bug Fixes |  |  | **`--restore-code`**: when the code restore fails, your uncommitted and untracked files stay in the working tree instead of in a stash.
 - v73-x09 | pending | W14 | Bug Fixes |  |  | **Session load errors** show the whole reason instead of cutting out the middle of a long message.
 - v74-f09 | pending | W14 | Features |  |  | **`@` paths outside the workspace**: an `@` path that starts with `/`, `~/` or `../` lists files from that folder; set `[ui] at_picker_outside_workspace = false` to turn it off.

@@ -1358,9 +1358,17 @@ pub async fn run(
                 let width = crossterm::terminal::size().map_or(80, |(cols, _)| cols as usize);
                 print_exit_resume_hint(&info, width, &mut io::stderr());
             }
+            // The shell prompt returns only after this process ends. On Windows that is
+            // `ExitProcess` here, not a later `std::process::exit` that can block on the console.
+            xai_grok_sandbox::flush();
+            exit_timeout::end_restored_quit(0);
             Ok(false)
         }
-        Err(run_error) => Err(run_error),
+        Err(run_error) => {
+            xai_grok_sandbox::flush();
+            exit_timeout::end_restored_quit(1);
+            Err(run_error)
+        }
     }
 }
 /// Plain-quit "Resume this session with…" lines (after terminal restore).
