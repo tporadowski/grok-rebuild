@@ -210,6 +210,53 @@ pub fn is_command_available(name: &str) -> bool {
     which::which(name).is_ok()
 }
 
+/// `$PATH` with Windows drives and other slow mounts removed.
+///
+/// `which` stats every directory. Under WSL those entries are often `/mnt/c/...`, and stating them stalls the UI thread. Callers that run on each keystroke (the ffmpeg probe) search this list instead.
+pub fn local_command_search_path() -> std::ffi::OsString {
+    let Some(raw) = std::env::var_os("PATH") else {
+        return std::ffi::OsString::new();
+    };
+    let dirs: Vec<_> = std::env::split_paths(&raw)
+        .filter(|dir| !path_dir_is_slow(dir))
+        .collect();
+    std::env::join_paths(dirs).unwrap_or_default()
+}
+
+/// Whether `name` resolves on [`local_command_search_path`].
+pub fn is_command_on_local_path(name: &str) -> bool {
+    let path = local_command_search_path();
+    if path.is_empty() {
+        return false;
+    }
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    which::which_in(name, Some(path), cwd).is_ok()
+}
+
+/// Drive-letter mounts and UNC paths. Stating these from a TUI frame is what makes typing hitch.
+fn path_dir_is_slow(dir: &std::path::Path) -> bool {
+    let Some(text) = dir.to_str() else {
+        return false;
+    };
+    if text.starts_with("//") || text.starts_with(r"\\") {
+        return true;
+    }
+    let mut chars = text.chars();
+    if let (Some(drive), Some(':')) = (chars.next(), chars.next())
+        && drive.is_ascii_alphabetic()
+    {
+        return true;
+    }
+    let Some(rest) = text.strip_prefix("/mnt/") else {
+        return false;
+    };
+    let mut rest_chars = rest.chars();
+    let Some(letter) = rest_chars.next() else {
+        return false;
+    };
+    letter.is_ascii_alphabetic() && matches!(rest_chars.next(), None | Some('/'))
+}
+
 /// How a shell interprets a bare `&` token.
 /// Drives `run_terminal_cmd` background-operator detection and remediation, which must differ per shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,6 +1,62 @@
 //! FFmpeg PATH probes and the "install ffmpeg" banner for inline video posters.
 
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use crate::prompt_images::InlineMediaInfo;
+
+/// How long a "not on PATH" answer is reused. A hit is kept for the process.
+/// Re-probing every frame walked slow PATH entries (WSL Windows drives) and stalled typing.
+const FFMPEG_PROBE_RETRY: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy)]
+struct TimedProbe<T> {
+    value: T,
+    checked_at: Option<Instant>,
+}
+
+static FFMPEG_PROBE: Mutex<TimedProbe<bool>> = Mutex::new(TimedProbe {
+    value: false,
+    checked_at: None,
+});
+
+static INSTALL_PROBE: Mutex<TimedProbe<Option<&'static str>>> = Mutex::new(TimedProbe {
+    value: None,
+    checked_at: None,
+});
+
+#[cfg(test)]
+static PATH_LOOKUPS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn lock_probe<T>(slot: &Mutex<TimedProbe<T>>) -> std::sync::MutexGuard<'_, TimedProbe<T>> {
+    slot.lock().unwrap_or_else(|err| err.into_inner())
+}
+
+fn read_cached<T: Copy>(slot: &Mutex<TimedProbe<T>>, settled: impl Fn(T) -> bool) -> Option<T> {
+    let guard = lock_probe(slot);
+    if settled(guard.value) {
+        return Some(guard.value);
+    }
+    let fresh = guard.checked_at.is_some_and(|at| {
+        Instant::now().saturating_duration_since(at) < FFMPEG_PROBE_RETRY
+    });
+    fresh.then_some(guard.value)
+}
+
+fn store_probe<T: Copy>(slot: &Mutex<TimedProbe<T>>, value: T, settled: impl Fn(T) -> bool) {
+    let mut guard = lock_probe(slot);
+    if settled(guard.value) && !settled(value) {
+        return;
+    }
+    guard.value = value;
+    guard.checked_at = Some(Instant::now());
+}
+
+fn command_on_path(name: &str) -> bool {
+    #[cfg(test)]
+    PATH_LOOKUPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    xai_grok_config::shell::is_command_on_local_path(name)
+}
 
 pub const FFMPEG_HINT_TEXT: &str = "Install ffmpeg to view inline";
 
@@ -10,25 +66,21 @@ pub fn inline_video_playback_available() -> bool {
     crate::terminal::image::detect_graphics_protocol().supports_images() && ffmpeg_available()
 }
 
-/// Caches the first success and keeps re-probing failures, so installing ffmpeg mid-session recovers posters.
+/// Whether ffmpeg is on a local PATH entry.
+///
+/// A hit is cached for the process. A miss is reused for [`FFMPEG_PROBE_RETRY`] so typing does not stat PATH on every frame, then probed again so a mid-session install still replaces the banner.
 pub fn ffmpeg_available() -> bool {
     #[cfg(test)]
     if let Some(v) = TEST_FFMPEG_OVERRIDE.with(|c| c.get()) {
         return v;
     }
 
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    static FOUND: AtomicBool = AtomicBool::new(false);
-    if FOUND.load(Ordering::Relaxed) {
-        return true;
+    if let Some(cached) = read_cached(&FFMPEG_PROBE, |found| found) {
+        return cached;
     }
-
-    let available = xai_grok_config::shell::is_command_available("ffmpeg");
-    if available {
-        FOUND.store(true, Ordering::Relaxed);
-    }
-    available
+    let available = command_on_path("ffmpeg");
+    store_probe(&FFMPEG_PROBE, available, |found| found);
+    read_cached(&FFMPEG_PROBE, |found| found).unwrap_or(available)
 }
 
 #[cfg(test)]
@@ -75,25 +127,52 @@ fn ffmpeg_install_candidates() -> &'static [(&'static str, &'static str)] {
     }
 }
 
-/// Caches the first success and keeps re-probing failures, so installing a package manager mid-session recovers the install line.
+/// Install hint for the first package manager on the local PATH.
+///
+/// A hit is cached for the process. A miss is reused for [`FFMPEG_PROBE_RETRY`], same as [`ffmpeg_available`], because the banner is measured on the frame path.
 pub fn ffmpeg_install_cmd() -> Option<&'static str> {
     #[cfg(test)]
     if let Some(v) = TEST_FFMPEG_INSTALL_CMD_OVERRIDE.with(|c| c.get()) {
         return v;
     }
 
-    use std::sync::OnceLock;
-    static FOUND: OnceLock<&'static str> = OnceLock::new();
-    if let Some(cmd) = FOUND.get() {
-        return Some(*cmd);
+    if let Some(cached) = read_cached(&INSTALL_PROBE, |cmd| cmd.is_some()) {
+        return cached;
     }
+    let mut found = None;
     for (manager, cmd) in ffmpeg_install_candidates() {
-        if xai_grok_config::shell::is_command_available(manager) {
-            let _ = FOUND.set(*cmd);
-            return Some(*cmd);
+        if command_on_path(manager) {
+            found = Some(*cmd);
+            break;
         }
     }
-    None
+    store_probe(&INSTALL_PROBE, found, |cmd| cmd.is_some());
+    read_cached(&INSTALL_PROBE, |cmd| cmd.is_some()).unwrap_or(found)
+}
+
+#[cfg(test)]
+fn reset_ffmpeg_path_probe_for_test() {
+    PATH_LOOKUPS.store(0, std::sync::atomic::Ordering::Relaxed);
+    *lock_probe(&FFMPEG_PROBE) = TimedProbe {
+        value: false,
+        checked_at: None,
+    };
+    *lock_probe(&INSTALL_PROBE) = TimedProbe {
+        value: None,
+        checked_at: None,
+    };
+}
+
+#[cfg(test)]
+fn expire_ffmpeg_path_probe_for_test() {
+    let stale = Instant::now().checked_sub(FFMPEG_PROBE_RETRY + Duration::from_secs(1));
+    lock_probe(&FFMPEG_PROBE).checked_at = stale;
+    lock_probe(&INSTALL_PROBE).checked_at = stale;
+}
+
+#[cfg(test)]
+fn path_lookups_for_test() -> u32 {
+    PATH_LOOKUPS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[cfg(test)]
@@ -229,5 +308,104 @@ mod tests {
             "poster budget: {image_rows}"
         );
         assert_eq!(total_rows, image_rows + 3);
+    }
+
+    /// Each frame lays out the scrollback. With ffmpeg missing, that used to stat every PATH entry, including WSL
+    /// Windows drives. The second frame must not walk PATH. A later frame, after the retry interval, looks again.
+    #[test]
+    #[serial_test::serial]
+    fn missing_ffmpeg_layout_does_not_walk_path_every_frame() {
+        let fast = tempfile::tempdir().expect("temp dir");
+        let path = format!("/mnt/c/Windows/System32:{}", fast.path().display());
+        let _env = xai_grok_test_support::EnvGuard::set("PATH", &path);
+        reset_ffmpeg_path_probe_for_test();
+
+        let searched: Vec<_> = std::env::split_paths(
+            &xai_grok_config::shell::local_command_search_path(),
+        )
+        .collect();
+        assert!(
+            searched.iter().all(|dir| !dir.starts_with("/mnt/c")),
+            "Windows drive mounts stay out of the frame probe, got {searched:?}"
+        );
+        assert!(
+            searched.iter().any(|dir| dir == fast.path()),
+            "local PATH entries stay searchable, got {searched:?}"
+        );
+
+        let mut state = crate::scrollback::ScrollbackState::new();
+        state.prepare_layout(80, 10);
+        let after_frame = path_lookups_for_test();
+        assert_eq!(
+            after_frame, 1,
+            "the first layout probes ffmpeg once, got {after_frame}"
+        );
+        state.prepare_layout(80, 10);
+        assert_eq!(
+            path_lookups_for_test(),
+            after_frame,
+            "the next frame must not walk PATH"
+        );
+        assert!(!ffmpeg_available());
+
+        let video = media(true);
+        assert_eq!(inline_media_reserved_rows(&video, 80), (1, 2));
+        let after_banner = path_lookups_for_test();
+        let managers = ffmpeg_install_candidates().len() as u32;
+        assert_eq!(
+            after_banner,
+            after_frame + managers,
+            "the install banner probes each package manager once, got {after_banner}"
+        );
+        assert_eq!(inline_media_reserved_rows(&video, 80), (1, 2));
+        assert_eq!(
+            path_lookups_for_test(),
+            after_banner,
+            "measuring the banner again must not walk PATH"
+        );
+
+        #[cfg(unix)]
+        {
+            let exe = fast.path().join("ffmpeg");
+            std::fs::write(&exe, b"#!/bin/sh\nexit 0\n").expect("write ffmpeg");
+            std::fs::set_permissions(
+                &exe,
+                std::os::unix::fs::PermissionsExt::from_mode(0o755),
+            )
+            .expect("chmod ffmpeg");
+        }
+        assert!(
+            !ffmpeg_available(),
+            "a cached miss stays until the retry interval"
+        );
+        assert_eq!(path_lookups_for_test(), after_banner);
+
+        expire_ffmpeg_path_probe_for_test();
+        state.prepare_layout(80, 10);
+        assert!(
+            ffmpeg_available(),
+            "after the retry interval a layout notices ffmpeg on the local PATH"
+        );
+        let after_install = path_lookups_for_test();
+        assert_eq!(
+            after_install,
+            after_banner + 1,
+            "the refresh probes ffmpeg once, got {after_install}"
+        );
+        state.prepare_layout(80, 10);
+        assert_eq!(
+            path_lookups_for_test(),
+            after_install,
+            "a hit stays cached and later frames do not walk PATH"
+        );
+        let (image_rows, total_rows) = inline_media_reserved_rows(&video, 80);
+        assert!(
+            (4..=20).contains(&image_rows),
+            "ffmpeg present reserves a poster, not the banner: {image_rows}"
+        );
+        assert_eq!(total_rows, image_rows + 3);
+        assert_eq!(path_lookups_for_test(), after_install);
+
+        reset_ffmpeg_path_probe_for_test();
     }
 }
