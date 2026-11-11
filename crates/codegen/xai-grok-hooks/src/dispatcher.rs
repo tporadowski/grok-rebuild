@@ -1000,6 +1000,216 @@ pub async fn dispatch_post_tool_use_failure(
     .await
 }
 
+/// Matcher-group id from a generated hook name (`prefix:Notification[0].hooks[1]`).
+/// Hooks that share it stay ordered. Anything else is its own chain.
+fn notification_chain_key(name: &str) -> &str {
+    match name.rsplit_once(".hooks[") {
+        Some((chain, _)) => chain,
+        None => name,
+    }
+}
+
+async fn run_observe_hook(
+    spec: &HookSpec,
+    event: HookEventName,
+    envelope: &HookEventEnvelope,
+    ctx: &RunContext<'_>,
+) -> HookRunResult {
+    let hook_span = hook_run_span(spec, event);
+    let (result, elapsed, http_info, system_message) =
+        runner::run_hook(spec, envelope, ctx, GateKind::Observe)
+            .instrument(hook_span.clone())
+            .await;
+    let _in_hook = hook_span.enter();
+    match result {
+        HookRunnerResult::Success => {
+            tracing::info!(
+                hook_name = %spec.name,
+                elapsed_ms = elapsed.as_millis() as u64,
+                "hook completed"
+            );
+            HookRunResult::Success {
+                hook_name: spec.name.clone(),
+                elapsed,
+                http_info,
+                system_message,
+            }
+        }
+        HookRunnerResult::Failed(err) => {
+            tracing::warn!(
+                hook_name = %spec.name,
+                elapsed_ms = elapsed.as_millis() as u64,
+                hook_failure = %err,
+                "hook failed"
+            );
+            HookRunResult::Failed {
+                hook_name: spec.name.clone(),
+                error: err,
+                elapsed,
+                http_info,
+                system_message,
+            }
+        }
+        HookRunnerResult::Allow { .. }
+        | HookRunnerResult::Ask { .. }
+        | HookRunnerResult::Defer
+        | HookRunnerResult::Deny { .. }
+        | HookRunnerResult::Block { .. } => {
+            tracing::info!(
+                hook_name = %spec.name,
+                elapsed_ms = elapsed.as_millis() as u64,
+                "hook completed"
+            );
+            HookRunResult::Success {
+                hook_name: spec.name.clone(),
+                elapsed,
+                http_info,
+                system_message,
+            }
+        }
+        HookRunnerResult::Stop(_) | HookRunnerResult::PostToolUse { .. } => HookRunResult::Failed {
+            hook_name: spec.name.clone(),
+            error: "a gate hook result routed to the observe dispatch".to_string(),
+            elapsed,
+            http_info,
+            system_message,
+        },
+    }
+}
+
+async fn join_all<T, F>(futures: Vec<F>) -> Vec<T>
+where
+    F: std::future::Future<Output = T>,
+{
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::Poll;
+
+    let mut futures: Vec<Pin<Box<dyn Future<Output = T>>>> = futures
+        .into_iter()
+        .map(|fut| Box::pin(fut) as Pin<Box<dyn Future<Output = T>>>)
+        .collect();
+    let mut slots: Vec<Option<T>> = (0..futures.len()).map(|_| None).collect();
+    std::future::poll_fn(|cx| {
+        let mut pending = false;
+        for (index, fut) in futures.iter_mut().enumerate() {
+            if slots.get(index).is_some_and(|slot| slot.is_some()) {
+                continue;
+            }
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(value) => {
+                    if let Some(slot) = slots.get_mut(index) {
+                        *slot = Some(value);
+                    }
+                }
+                Poll::Pending => pending = true,
+            }
+        }
+        if pending { Poll::Pending } else { Poll::Ready(()) }
+    })
+    .await;
+    let mut finished = Vec::with_capacity(slots.len());
+    for slot in slots {
+        match slot {
+            Some(value) => finished.push(value),
+            None => unreachable!("every joined future completed"),
+        }
+    }
+    finished
+}
+
+/// Notification matcher groups start together. Hooks inside one group stay in order.
+async fn run_notification_chains(
+    hooks: Vec<&HookSpec>,
+    event: HookEventName,
+    envelope: &HookEventEnvelope,
+    ctx: &RunContext<'_>,
+) -> Vec<HookRunResult> {
+    let match_value = envelope.payload.match_value().map(str::to_string);
+    let mut ran = std::collections::HashSet::new();
+    enum Plan {
+        Skipped(HookRunResult),
+        Run { chain_index: usize, index_in_chain: usize },
+    }
+    let mut plan = Vec::new();
+    let mut chains: Vec<Vec<&HookSpec>> = Vec::new();
+    let mut chain_index_by_key = std::collections::HashMap::<String, usize>::new();
+    for spec in hooks {
+        let mut skipped = Vec::new();
+        let eligible = eligible_or_record_skip(
+            spec,
+            match_value.as_deref(),
+            &mut skipped,
+            ctx.disabled(),
+            &mut ran,
+        );
+        if !eligible {
+            if let Some(skip) = skipped.pop() {
+                plan.push(Plan::Skipped(skip));
+            }
+            continue;
+        }
+        let key = notification_chain_key(&spec.name).to_string();
+        let chain_index = if let Some(index) = chain_index_by_key.get(&key).copied() {
+            index
+        } else {
+            let index = chains.len();
+            chain_index_by_key.insert(key, index);
+            chains.push(Vec::new());
+            index
+        };
+        let Some(chain) = chains.get_mut(chain_index) else {
+            continue;
+        };
+        let index_in_chain = chain.len();
+        chain.push(spec);
+        plan.push(Plan::Run {
+            chain_index,
+            index_in_chain,
+        });
+    }
+
+    let chain_runs: Vec<_> = chains
+        .into_iter()
+        .map(|chain| async move {
+            let mut out = Vec::with_capacity(chain.len());
+            for spec in chain {
+                out.push(run_observe_hook(spec, event, envelope, ctx).await);
+            }
+            out
+        })
+        .collect();
+    let mut chain_results: Vec<Vec<Option<HookRunResult>>> = join_all(chain_runs)
+        .await
+        .into_iter()
+        .map(|chain| chain.into_iter().map(Some).collect())
+        .collect();
+
+    let mut results = Vec::with_capacity(plan.len());
+    for item in plan {
+        match item {
+            Plan::Skipped(skip) => results.push(skip),
+            Plan::Run {
+                chain_index,
+                index_in_chain,
+            } => {
+                let result = chain_results
+                    .get_mut(chain_index)
+                    .and_then(|chain| chain.get_mut(index_in_chain))
+                    .and_then(Option::take);
+                results.push(result.unwrap_or_else(|| HookRunResult::Failed {
+                    hook_name: "notification-chain".to_string(),
+                    error: "notification chain result missing".to_string(),
+                    elapsed: std::time::Duration::ZERO,
+                    http_info: None,
+                    system_message: None,
+                }));
+            }
+        }
+    }
+    results
+}
+
 pub async fn dispatch_non_blocking(
     registry: &HookRegistry,
     event: HookEventName,
@@ -1017,85 +1227,27 @@ pub async fn dispatch_non_blocking(
 
     let span = dispatch_span(event, hooks.len());
     async {
-        let match_value = envelope.payload.match_value().map(str::to_string);
-        let mut results = Vec::with_capacity(hooks.len());
-        let mut ran = std::collections::HashSet::new();
-
-        for spec in hooks {
-            if !eligible_or_record_skip(
-                spec,
-                match_value.as_deref(),
-                &mut results,
-                ctx.disabled(),
-                &mut ran,
-            ) {
-                continue;
+        let results = if event.canonical() == HookEventName::Notification {
+            // Matcher groups are chains: groups start together, hooks inside a group stay ordered.
+            run_notification_chains(hooks, event, envelope, ctx).await
+        } else {
+            let match_value = envelope.payload.match_value().map(str::to_string);
+            let mut results = Vec::with_capacity(hooks.len());
+            let mut ran = std::collections::HashSet::new();
+            for spec in hooks {
+                if !eligible_or_record_skip(
+                    spec,
+                    match_value.as_deref(),
+                    &mut results,
+                    ctx.disabled(),
+                    &mut ran,
+                ) {
+                    continue;
+                }
+                results.push(run_observe_hook(spec, event, envelope, ctx).await);
             }
-
-            let hook_span = hook_run_span(spec, event);
-            let (result, elapsed, http_info, system_message) =
-                runner::run_hook(spec, envelope, ctx, GateKind::Observe)
-                    .instrument(hook_span.clone())
-                    .await;
-            let _in_hook = hook_span.enter();
-
-            match result {
-                HookRunnerResult::Success => {
-                    tracing::info!(
-                        hook_name = %spec.name,
-                        elapsed_ms = elapsed.as_millis() as u64,
-                        "hook completed"
-                    );
-                    results.push(HookRunResult::Success {
-                        hook_name: spec.name.clone(),
-                        elapsed,
-                        http_info,
-                        system_message,
-                    });
-                }
-                HookRunnerResult::Failed(err) => {
-                    tracing::warn!(
-                        hook_name = %spec.name,
-                        elapsed_ms = elapsed.as_millis() as u64,
-                        hook_failure = %err,
-                        "hook failed"
-                    );
-                    results.push(HookRunResult::Failed {
-                        hook_name: spec.name.clone(),
-                        error: err,
-                        elapsed,
-                        http_info,
-                        system_message,
-                    });
-                }
-                HookRunnerResult::Allow { .. }
-                | HookRunnerResult::Ask { .. }
-                | HookRunnerResult::Defer
-                | HookRunnerResult::Deny { .. }
-                | HookRunnerResult::Block { .. } => {
-                    tracing::info!(
-                        hook_name = %spec.name,
-                        elapsed_ms = elapsed.as_millis() as u64,
-                        "hook completed"
-                    );
-                    results.push(HookRunResult::Success {
-                        hook_name: spec.name.clone(),
-                        elapsed,
-                        http_info,
-                        system_message,
-                    });
-                }
-                HookRunnerResult::Stop(_) | HookRunnerResult::PostToolUse { .. } => {
-                    results.push(HookRunResult::Failed {
-                        hook_name: spec.name.clone(),
-                        error: "a gate hook result routed to the observe dispatch".to_string(),
-                        elapsed,
-                        http_info,
-                        system_message,
-                    });
-                }
-            }
-        }
+            results
+        };
 
         record_dispatch_counts(&span, &results);
         results
@@ -2248,6 +2400,90 @@ mod tests {
                 .unwrap_or_else(|| panic!("expected results item 1: {results:?}")),
             HookRunResult::Success { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn notification_chains_start_without_waiting_for_the_previous_chain() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let log = dir.path().join("order");
+        let log_path = log.display().to_string();
+        let mut slow = make_command_spec(
+            "notes:Notification[0].hooks[0]",
+            None,
+            true,
+            &format!(
+                "printf 'slow start\\n' >> '{log_path}'; sleep 0.5; printf 'slow end\\n' >> '{log_path}'"
+            ),
+        );
+        slow.event = HookEventName::Notification;
+        let mut next = make_command_spec(
+            "notes:Notification[0].hooks[1]",
+            None,
+            true,
+            &format!("printf 'slow next\\n' >> '{log_path}'"),
+        );
+        next.event = HookEventName::Notification;
+        let mut other = make_command_spec(
+            "notes:Notification[1].hooks[0]",
+            None,
+            true,
+            &format!("printf 'other start\\n' >> '{log_path}'"),
+        );
+        other.event = HookEventName::Notification;
+        let registry = registry_from_specs(vec![slow, next, other]);
+        let envelope = HookEventEnvelope {
+            hook_event_name: HookEventName::Notification,
+            session_id: "notification-chains".into(),
+            cwd: dir.path().display().to_string(),
+            workspace_root: dir.path().display().to_string(),
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            transcript_path: None,
+            client_identifier: None,
+            prompt_id: None,
+            permission_mode: None,
+            payload: HookPayload::Notification {
+                notification_type: "permission_prompt".into(),
+                message: None,
+                title: None,
+                level: None,
+            },
+        };
+        let ctx = RunContext {
+            session_id: "notification-chains",
+            workspace_root: dir.path().to_str().unwrap_or("/tmp"),
+            process_scope: None,
+            disabled: Default::default(),
+        };
+        let results = dispatch_non_blocking(
+            &registry,
+            HookEventName::Notification,
+            &envelope,
+            &ctx,
+        )
+        .await;
+        assert!(
+            results.len() == 3
+                && results
+                    .iter()
+                    .all(|result| matches!(result, HookRunResult::Success { .. })),
+            "{results:?}"
+        );
+        let text = std::fs::read_to_string(&log).expect("order log");
+        let lines: Vec<&str> = text.lines().collect();
+        let pos = |label: &str| {
+            lines
+                .iter()
+                .position(|line| *line == label)
+                .unwrap_or_else(|| panic!("missing {label} in {lines:?}"))
+        };
+        assert!(
+            pos("other start") < pos("slow end"),
+            "the second chain must start before the first chain finishes, got {lines:?}"
+        );
+        assert!(
+            pos("slow end") < pos("slow next"),
+            "hooks inside one chain stay in order, got {lines:?}"
+        );
     }
 
     #[test]

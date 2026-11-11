@@ -573,7 +573,8 @@ pub(crate) fn post_tool_use_json_to_outcome(
 
 pub type HookRunOutput = (HookRunnerResult, Duration, Option<HttpInfo>, Option<String>);
 
-/// One hook at a time for a session. Parallel tool calls share this gate.
+/// One non-notification hook at a time for a session. Parallel tool calls share this gate.
+/// Notification chains do not take it, so those chains can start together.
 fn session_hook_turnstile(session_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -594,8 +595,20 @@ pub async fn run_hook(
     ctx: &RunContext<'_>,
     mode: GateKind,
 ) -> HookRunOutput {
+    if spec.event.canonical() == crate::event::HookEventName::Notification {
+        return execute_hook(spec, envelope, ctx, mode).await;
+    }
     let gate = session_hook_turnstile(ctx.session_id);
     let _session_turn = gate.lock().await;
+    execute_hook(spec, envelope, ctx, mode).await
+}
+
+async fn execute_hook(
+    spec: &HookSpec,
+    envelope: &HookEventEnvelope,
+    ctx: &RunContext<'_>,
+    mode: GateKind,
+) -> HookRunOutput {
     match spec.handler_type {
         crate::config::HandlerType::Command => {
             let (result, elapsed, system_message) =

@@ -1587,7 +1587,7 @@ id | status | wave | kind | flag | covered | note
 - v50-p02 | done | W15 | Performance |  |  | **Retry waits** now vary between processes instead of being identical.
 - v51-p01 | done | W15 | Performance |  |  | Opening the resume picker is now much faster on machines with many worktrees.
 - v51-p02 | done | W15 | Performance |  |  | **grok worktree commands start faster** by skipping unnecessary model catalog work at boot.
-- v52-p01 | pending | W15 | Performance |  |  | Multiple Notification hook chains now start in parallel instead of waiting for the previous chain to finish.
+- v52-p01 | done | W15 | Performance |  |  | Multiple Notification hook chains now start in parallel instead of waiting for the previous chain to finish.
 - v53-p01 | pending | W15 | Performance |  |  | **@-mentions** reuse the file list until the folder tree changes, so suggestions appear faster.
 - v54-p01 | already | W15 | Performance |  |  | **The idle welcome screen** uses less CPU.
 - v54-p02 | pending | W15 | Performance |  |  | **Prompt undo history** is capped by size, so large pastes you delete no longer stay in memory.
