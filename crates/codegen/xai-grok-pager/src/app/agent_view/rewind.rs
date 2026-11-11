@@ -325,3 +325,108 @@ mod sync_rewind_anchor_to_picker_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod confirm_short_terminal_tests {
+    use super::super::{AppRenderParams, BannerSlotParams, test_fixtures};
+    use super::AgentView;
+    use crate::actions::ActionRegistry;
+    use crate::scrollback::render::ScratchBuffer;
+    use crate::views::rewind::{RewindPhase, RewindState};
+    use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    fn open_confirm(agent: &mut AgentView) {
+        agent.rewind_state = Some(RewindState {
+            phase: RewindPhase::Confirm {
+                target_prompt_index: 1,
+                active_idx: 0,
+                prompt_preview: Some("ship the port".into()),
+            },
+            anchor_entry_idx: 0,
+            stashed_draft: None,
+            selected_prompt_index: Some(1),
+        });
+    }
+
+    fn draw(agent: &mut AgentView, area: Rect) -> String {
+        let mut buf = Buffer::empty(area);
+        let mut scratch = ScratchBuffer::new();
+        agent.draw(
+            area,
+            &mut buf,
+            &ActionRegistry::defaults(),
+            &mut scratch,
+            None,
+            false,
+            BannerSlotParams::none(),
+            false,
+            &mut Vec::new(),
+            AppRenderParams::default(),
+        );
+        let mut rows = Vec::new();
+        for y in 0..area.height {
+            let mut row = String::new();
+            for x in 0..area.width {
+                if let Some(cell) = buf.cell((x, y)) {
+                    row.push_str(cell.symbol());
+                }
+            }
+            rows.push(row);
+        }
+        rows.join("\n")
+    }
+
+    #[test]
+    fn rewind_confirm_draw_survives_a_short_terminal_and_a_shrink() {
+        let mut agent = test_fixtures::make_agent();
+        open_confirm(&mut agent);
+        let tall = Rect::new(0, 0, 80, 24);
+        let text = draw(&mut agent, tall);
+        assert!(
+            text.contains("ship the port"),
+            "a normal terminal shows the confirm preview:\n{text}"
+        );
+        assert!(
+            text.contains("don't ask again"),
+            "a normal terminal shows every choice:\n{text}"
+        );
+        assert!(
+            matches!(
+                agent.rewind_state.as_ref().map(|state| &state.phase),
+                Some(RewindPhase::Confirm { .. })
+            ),
+            "drawing does not dismiss the confirmation"
+        );
+
+        for height in [12u16, 8, 6, 4, 2, 1] {
+            let short = Rect::new(0, 0, 80, height);
+            let _painted = draw(&mut agent, short);
+            let prompt = agent.pane_areas.prompt;
+            assert!(
+                prompt.bottom() <= height,
+                "height {height}: prompt {prompt:?} leaves the screen"
+            );
+        }
+
+        let _ = draw(&mut agent, tall);
+        let _ = draw(&mut agent, Rect::new(0, 0, 40, 8));
+        for row in 0..8 {
+            let mouse = MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 5,
+                row,
+                modifiers: KeyModifiers::empty(),
+            };
+            let _ = agent.handle_rewind_mouse(&mouse);
+        }
+        assert!(
+            matches!(
+                agent.rewind_state.as_ref().map(|state| &state.phase),
+                Some(RewindPhase::Confirm { .. })
+            ),
+            "a shrink leaves the confirmation open"
+        );
+    }
+}

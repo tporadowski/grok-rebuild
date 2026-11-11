@@ -4,6 +4,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::render::SafeBuf;
 use crate::theme::Theme;
 use crate::views::prompt_widget::StashedPrompt;
 
@@ -329,7 +330,8 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
     buf.set_style(area, Style::default().bg(bg));
 
     let accent_style = Style::default().fg(theme.accent_user);
-    for row in area.y..area.y + area.height {
+    // `bottom()` saturates. A shrink can hand us a rect whose y + height would overflow.
+    for row in area.y..area.bottom() {
         if let Some(cell) = buf.cell_mut((area.x, row)) {
             cell.set_symbol(crate::glyphs::accent_bar());
             cell.set_style(accent_style);
@@ -345,8 +347,10 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
 
     match phase {
         RewindPhase::Loading => {
-            let y = area.y + 1;
-            buf.set_line(
+            let y = area.y.saturating_add(1);
+            paint_line(
+                buf,
+                area,
                 content_x,
                 y,
                 &Line::from(Span::styled(
@@ -389,15 +393,19 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
             return;
         }
         RewindPhase::CancelOffer { active_idx } => {
-            let mut y = area.y + 1;
-            buf.set_line(
+            let mut y = area.y.saturating_add(1);
+            paint_line(
+                buf,
+                area,
                 content_x,
                 y,
                 &Line::from(Span::styled("A turn is currently running.", title_style)),
                 content_w,
             );
-            y += 1;
-            buf.set_line(
+            y = y.saturating_add(1);
+            paint_line(
+                buf,
+                area,
                 content_x,
                 y,
                 &Line::from(Span::styled(
@@ -406,9 +414,10 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 )),
                 content_w,
             );
-            y += 1;
+            y = y.saturating_add(1);
             render_radio_row(
                 buf,
+                area,
                 content_x,
                 y,
                 content_w,
@@ -418,9 +427,10 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 focused,
                 &theme,
             );
-            y += 1;
+            y = y.saturating_add(1);
             render_radio_row(
                 buf,
+                area,
                 content_x,
                 y,
                 content_w,
@@ -432,8 +442,10 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
             );
         }
         RewindPhase::Executing { .. } => {
-            let y = area.y + 1;
-            buf.set_line(
+            let y = area.y.saturating_add(1);
+            paint_line(
+                buf,
+                area,
                 content_x,
                 y,
                 &Line::from(Span::styled(
@@ -448,7 +460,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
             prompt_preview,
             ..
         } => {
-            let mut y = area.y + 1;
+            let mut y = area.y.saturating_add(1);
             let preview_text = prompt_preview.as_deref().unwrap_or("this turn");
             let prefix = "Rewind conversation to \u{201C}";
             let suffix = "\u{201D}?";
@@ -464,15 +476,18 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 preview_text.to_string()
             };
             let title = format!("{prefix}{preview_trunc}{suffix}");
-            buf.set_line(
+            paint_line(
+                buf,
+                area,
                 content_x,
                 y,
                 &Line::from(Span::styled(title, title_style)),
                 content_w,
             );
-            y += 1;
+            y = y.saturating_add(1);
             render_radio_row(
                 buf,
+                area,
                 content_x,
                 y,
                 content_w,
@@ -482,9 +497,10 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 focused,
                 &theme,
             );
-            y += 1;
+            y = y.saturating_add(1);
             render_radio_row(
                 buf,
+                area,
                 content_x,
                 y,
                 content_w,
@@ -494,9 +510,10 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 focused,
                 &theme,
             );
-            y += 1;
+            y = y.saturating_add(1);
             render_radio_row(
                 buf,
+                area,
                 content_x,
                 y,
                 content_w,
@@ -508,8 +525,10 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
             );
         }
         RewindPhase::Error { message } => {
-            let mut y = area.y + 1;
-            buf.set_line(
+            let mut y = area.y.saturating_add(1);
+            paint_line(
+                buf,
+                area,
                 content_x,
                 y,
                 &Line::from(Span::styled(
@@ -520,9 +539,11 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 )),
                 content_w,
             );
-            y += 1;
+            y = y.saturating_add(1);
             let truncated: String = message.chars().take(content_w as usize).collect();
-            buf.set_line(
+            paint_line(
+                buf,
+                area,
                 content_x,
                 y,
                 &Line::from(Span::styled(
@@ -531,9 +552,9 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 )),
                 content_w,
             );
-            y += 1;
+            y = y.saturating_add(1);
             render_radio_row(
-                buf, content_x, y, content_w, '\x1b', "Dismiss", true, focused, &theme,
+                buf, area, content_x, y, content_w, '\x1b', "Dismiss", true, focused, &theme,
             );
         }
     }
@@ -542,6 +563,14 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
     // Mirrors the unfocused prompt widget pattern (see `prompt_widget.rs`)
     if !focused {
         crate::render::color::recede_area(buf, area, bg, 0.66);
+    }
+}
+
+/// `Buffer::set_line` panics outside the buffer. A short terminal, or a shrink
+/// while the panel is open, can leave `y` past `area` or past the buffer.
+fn paint_line(buf: &mut Buffer, area: Rect, x: u16, y: u16, line: &Line<'_>, width: u16) {
+    if y >= area.y && y < area.bottom() {
+        buf.set_line_safe(x, y, line, width);
     }
 }
 
@@ -556,6 +585,7 @@ fn key_label(key: char) -> String {
 
 fn render_radio_row(
     buf: &mut Buffer,
+    area: Rect,
     x: u16,
     y: u16,
     w: u16,
@@ -565,6 +595,9 @@ fn render_radio_row(
     panel_focused: bool,
     theme: &Theme,
 ) {
+    if y < area.y || y >= area.bottom() {
+        return;
+    }
     let bg = theme.bg_light;
 
     let row_rect = Rect {
@@ -602,7 +635,7 @@ fn render_radio_row(
         Span::styled(format!("({marker}) "), marker_style),
         Span::styled(label.to_string(), label_style),
     ]);
-    buf.set_line(x, y, &line, w);
+    buf.set_line_safe(x, y, &line, w);
     if is_cursor && panel_focused {
         buf.set_style(row_rect, theme.selection_overlay());
     }
@@ -871,5 +904,113 @@ mod tests {
         assert_eq!(key_label('\x08'), "Bksp");
         assert_eq!(key_label('y'), "y");
         assert_eq!(key_label('a'), "a");
+    }
+
+    fn confirm_phase() -> RewindPhase {
+        RewindPhase::Confirm {
+            target_prompt_index: 2,
+            active_idx: 0,
+            prompt_preview: Some("ship the port".into()),
+        }
+    }
+
+    fn buffer_text(buf: &Buffer) -> String {
+        let mut rows = Vec::new();
+        for y in 0..buf.area.height {
+            rows.push(row_text(buf, y));
+        }
+        rows.join("\n")
+    }
+
+    fn row_text(buf: &Buffer, y: u16) -> String {
+        let mut row = String::new();
+        for x in 0..buf.area.width {
+            if let Some(cell) = buf.cell((x, y)) {
+                row.push_str(cell.symbol());
+            }
+        }
+        row
+    }
+
+    #[test]
+    fn confirm_dialog_shows_the_prompt_and_choices_when_it_fits() {
+        let area = Rect::new(0, 0, 60, 8);
+        let mut buf = Buffer::empty(area);
+        render_rewind_overlay(&mut buf, area, &confirm_phase(), true);
+        let text = buffer_text(&buf);
+        assert!(text.contains("Rewind conversation"), "{text}");
+        assert!(text.contains("ship the port"), "{text}");
+        assert!(text.contains("Yes"), "{text}");
+        assert!(text.contains("don't ask again"), "{text}");
+        assert!(text.contains("No"), "{text}");
+    }
+
+    #[test]
+    fn confirm_on_a_short_terminal_does_not_paint_past_its_rect() {
+        // The four confirm rows start at y+1. A 2-row panel on the last rows
+        // of a 5-row screen used to call set_line past the buffer.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 40, 5));
+        let panel = Rect::new(0, 3, 40, 2);
+        render_rewind_overlay(&mut buf, panel, &confirm_phase(), true);
+        let above = row_text(&buf, 0);
+        assert!(
+            above.trim().is_empty(),
+            "rows above the panel stay blank: {above:?}"
+        );
+        assert!(
+            row_text(&buf, 4).contains("Rewind") || row_text(&buf, 4).contains("ship"),
+            "the title row that fits is still drawn: {:?}",
+            row_text(&buf, 4)
+        );
+    }
+
+    #[test]
+    fn confirm_clips_rows_that_fall_below_a_short_panel() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 50, 10));
+        buf.set_string(0, 5, "SHORTCUTS", Style::default());
+        let panel = Rect::new(0, 2, 50, 3);
+        render_rewind_overlay(&mut buf, panel, &confirm_phase(), true);
+        let below = row_text(&buf, 5);
+        assert!(
+            below.contains("SHORTCUTS"),
+            "the row under the panel is not overwritten: {below:?}"
+        );
+        let text = buffer_text(&buf);
+        assert!(
+            text.contains("Rewind conversation"),
+            "the rows that fit are still drawn:\n{text}"
+        );
+    }
+
+    #[test]
+    fn confirm_survives_a_shrink_that_leaves_the_rect_past_the_buffer() {
+        let phase = confirm_phase();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 30, 4));
+        // The previous frame's rect, still taller and wider than the buffer.
+        render_rewind_overlay(&mut buf, Rect::new(0, 1, 80, 16), &phase, false);
+        render_rewind_overlay(&mut buf, Rect::new(0, 0, 8, 4), &phase, true);
+        let mut narrow = Buffer::empty(Rect::new(0, 0, 6, 2));
+        let narrow_area = narrow.area;
+        render_rewind_overlay(&mut narrow, narrow_area, &phase, true);
+        for height in 1..20 {
+            let area = Rect::new(0, 0, 80, height);
+            let prompt_h = rewind_overlay_height(&phase, height);
+            let layout = crate::views::agent::AgentViewLayout::compute(
+                crate::views::agent::AgentViewLayoutParams {
+                    area,
+                    prompt_height: prompt_h,
+                    shortcuts_height: 1,
+                    status_line_height: 1,
+                    ..Default::default()
+                },
+            );
+            let mut screen = Buffer::empty(area);
+            render_rewind_overlay(&mut screen, layout.prompt, &phase, true);
+            assert!(
+                layout.prompt.bottom() <= area.bottom(),
+                "height {height}: prompt {:?} leaves the screen",
+                layout.prompt
+            );
+        }
     }
 }
