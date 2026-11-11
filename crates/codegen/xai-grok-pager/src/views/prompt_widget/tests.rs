@@ -916,6 +916,28 @@
     }
 
     #[test]
+    fn long_single_line_paste_lays_out_as_one_row() {
+        // Logs, JSON, and base64 often arrive as one line. Past the byte threshold the
+        // composer chips the payload, so the box stays one text row instead of one row
+        // per terminal column.
+        let mut pw = PromptWidget::new();
+        let text = "info {\"level\":\"error\",\"msg\":\"timeout\"} ".repeat(2_000);
+        assert_eq!(text.lines().count(), 1, "fixture must be a single line");
+        assert!(text.len() > PASTE_CHIP_DISPLAY_BYTES);
+        assert_eq!(pw.handle_paste(&text), PromptEvent::Edited);
+        assert_eq!(pw.textarea.elements().len(), 1);
+        assert_eq!(at(pw.textarea.elements(), 0).kind, KIND_PASTE);
+
+        let style = PromptStyle {
+            chrome: false,
+            ..Default::default()
+        };
+        // Empty composer: top divider + one text row + bottom divider.
+        // Wrapping the raw payload at 80 columns would hit the cap of 30.
+        assert_eq!(pw.desired_height(80, &style, true, 30), 3);
+    }
+
+    #[test]
     fn paste_single_line_exactly_threshold_stays_inline() {
         // Exactly at the threshold stays inline (guards `>` vs `>=`).
         let mut pw = PromptWidget::new();

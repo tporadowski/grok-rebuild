@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-221 — A long single-line paste already lays out as a chip
+
+`PromptWidget::handle_paste` chips a paste once it is longer than `PASTE_CHIP_DISPLAY_BYTES` (10_000), including a single line of logs, JSON, or base64. `TextArea::wrapped_lines` then uses `element_aware_wrap_ranges`, which treats that chip as one unit, and `render_lines` paints the short display label. The composer height stays one text row (`long_single_line_paste_lays_out_as_one_row`). `Event::Paste` still runs `try_read_dropped_paths` first; a prose line is not a drop, so it falls through to that chip. Ctrl+Shift+V remains the explicit inline insert and does not chip. No second cache (`v74-p04`).
+
 ### D-220 — Windows exits after a startup failure, a screen-mode switch, or a signal
 
 `std::process::exit` flushes stdio and can block on a console lock still held after the terminal is restored, so `grok.exe` stays running. A startup failure (the exit after `app::run` returns the error), the Windows parent of a `/minimal` or `/fullscreen` relaunch, and signal teardown call `exit_after_restore`, which uses `ExitProcess` on Windows. Unix keeps `process::exit` on those paths. A screen-mode switch on Unix still `exec`s. This host is Linux, so `grok.exe` was not executed (`windows_startup_screen_switch_and_signal_end_the_process`) (`v74-x11`).
@@ -1599,7 +1603,7 @@ id | status | wave | kind | flag | covered | note
 - v74-p01 | done | W15 | Performance |  |  | **Long sessions** use less memory: finished Markdown blocks far off screen release their rendered layout, and search still finds their text.
 - v74-p02 | done | W15 | Performance |  |  | **Typing** no longer lags when ffmpeg isn't installed and `PATH` holds slow directories, such as Windows drives under WSL.
 - v74-p03 | done | W15 | Performance |  |  | **Long pastes that arrive as keystrokes**, such as pastes on native Windows or in terminals without bracketed paste, no longer freeze the prompt for seconds while the plan-mode tip is on.
-- v74-p04 | pending | W15 | Performance |  |  | **Pasting long single-line text** such as logs, JSON or base64 into the prompt no longer freezes the TUI for seconds.
+- v74-p04 | already | W15 | Performance |  |  | **Pasting long single-line text** such as logs, JSON or base64 into the prompt no longer freezes the TUI for seconds.
 - v74-p05 | pending | W15 | Performance |  |  | **File watching on Linux** no longer keeps a CPU core busy for about a minute after startup in large repositories.
 - v74-p06 | pending | W15 | Performance |  |  | **Lower CPU use while subagents run**: the TUI repaints only for animations on screen, about 7 times a second instead of 30 when no running row is visible.
 - v74-p07 | pending | W15 | Performance |  |  | **`grok --resume <id>`** opens much faster on large session stores, reading only the resumed session instead of every session.
