@@ -2997,10 +2997,8 @@ impl AgentView {
                         let hint_w = hint.len() as u16;
                         if hint_w + 2 <= panel_width {
                             let hint_x = panel_x + panel_width - hint_w - 1;
-                            let hint_line = Line::styled(
-                                hint,
-                                Style::default().fg(theme.gray).bg(theme.bg_base),
-                            );
+                            let hint_line =
+                                Line::styled(hint, theme.muted_over_chrome().bg(theme.bg_base));
                             buf.set_line_safe(hint_x, top_border_y, &hint_line, hint_w);
                         }
                     }
@@ -3252,7 +3250,7 @@ impl AgentView {
                             }
                         }
                         let match_style = Style::default()
-                            .fg(theme.accent_user)
+                            .fg(theme.fuzzy_accent)
                             .bg(row_bg)
                             .add_modifier(bold);
                         let normal_style = Style::default()

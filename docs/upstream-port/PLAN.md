@@ -1570,7 +1570,7 @@ id | status | wave | kind | flag | covered | note
 - v74-x18 | done | W14 | Bug Fixes |  |  | **Environment variables with non-UTF-8 bytes** no longer stop Grok from starting.
 - v74-x25 | done | W14 | Bug Fixes |  |  | **File paths with spaces** in inline code, such as `~/Library/Application Support/...`, link to the whole path when it exists instead of stopping at the first space.
 - v74-x26 | done | W14 | Bug Fixes |  |  | **Feedback that can't be sent** leads with the outcome, such as "Couldn't send feedback. Saved to Drafts.", then gives the reason and says to retry from `/feedback`.
-- v74-x28 | pending | W14 | Bug Fixes |  |  | **Prompt history search** highlights matched letters in the same color as other fuzzy lists, and the counts on the `/` and `@` menu borders are dimmed like other border captions.
+- v74-x28 | done | W14 | Bug Fixes |  |  | **Prompt history search** highlights matched letters in the same color as other fuzzy lists, and the counts on the `/` and `@` menu borders are dimmed like other border captions.
 - v74-x30 | pending | W14 | Bug Fixes |  |  | **Custom agent files** saved with a UTF-8 byte order mark, as some Windows editors write them, load instead of being skipped.
 - v75-f05 | pending | W14 | Features |  |  | **Clicking a link or file that can't open**, such as over SSH with no display, shows why, for example "Can't open links over SSH".
 - v75-x02 | pending | W14 | Bug Fixes |  |  | **Stop buttons in the dock** stop a background run while its approval card is open, instead of doing nothing until you answer the card.

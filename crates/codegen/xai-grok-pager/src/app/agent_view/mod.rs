@@ -188,6 +188,8 @@ pub use render::{AppRenderParams, OverlayHeader};
 #[cfg(test)]
 mod dock_input_tests;
 #[cfg(test)]
+mod fuzzy_menu_tests;
+#[cfg(test)]
 mod header_tests;
 #[cfg(test)]
 mod model_notice_tests;
@@ -1827,7 +1829,7 @@ pub(crate) fn render_dropdown_chrome(
         let hint_w = hint.len() as u16;
         if hint_w + 2 <= panel_width {
             let hint_x = panel_x + panel_width - hint_w - 1;
-            let hint_line = Line::styled(hint, Style::default().fg(theme.gray).bg(theme.bg_base));
+            let hint_line = Line::styled(hint, theme.muted_over_chrome().bg(theme.bg_base));
             buf.set_line_safe(hint_x, top_border_y, &hint_line, hint_w);
         }
     }
