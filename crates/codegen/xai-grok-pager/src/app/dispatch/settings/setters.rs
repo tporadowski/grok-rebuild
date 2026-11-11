@@ -2175,9 +2175,10 @@ fn clamp_max_thoughts_width(value: i64) -> i64 {
 }
 
 /// State-only mutation for `max_thoughts_width`.
-/// Updates the `app.current_ui.max_thoughts_width` field; the renderer picks up the new value on the next frame.
+/// Updates `app.current_ui.max_thoughts_width` and rewraps thinking blocks already on screen.
 pub(super) fn set_max_thoughts_width_inner(app: &mut AppView, value: i64) {
     app.current_ui.max_thoughts_width = clamp_max_thoughts_width(value) as u16;
+    app.apply_max_thoughts_width();
 }
 
 /// Outer dispatcher for `Action::SetMaxThoughtsWidth`: state, refresh, persist, and toast.

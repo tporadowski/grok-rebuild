@@ -389,6 +389,7 @@ pub(in crate::app::dispatch) fn dispatch_new_session_inner_with_id(
     app.next_agent_id += 1;
     let mut scrollback = ScrollbackState::new();
     scrollback.set_appearance(app.appearance.clone());
+    scrollback.set_max_thoughts_width(app.current_ui.max_thoughts_width);
     let agent = AgentView::from_app(
         app,
         AgentSession {
@@ -1220,6 +1221,7 @@ pub(in crate::app::dispatch) fn dispatch_new_worktree_session(
     app.next_agent_id += 1;
     let mut scrollback = ScrollbackState::new();
     scrollback.set_appearance(app.appearance.clone());
+    scrollback.set_max_thoughts_width(app.current_ui.max_thoughts_width);
     let mut agent = AgentView::from_app(
         app,
         AgentSession {

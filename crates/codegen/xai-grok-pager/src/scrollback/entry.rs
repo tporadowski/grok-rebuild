@@ -109,6 +109,10 @@ pub struct ScrollbackEntry {
 
     /// Subagent ids this entry may replace in a finished reply. Copied from the scrollback before layout.
     subagent_labels: RefCell<std::sync::Arc<crate::scrollback::subagent_labels::SubagentLabelSet>>,
+
+    /// `[ui].max_thoughts_width` for this session. Thinking blocks wrap at `min(area, this)`.
+    /// `u16::MAX` leaves the terminal width in charge. Copied from the scrollback on push and on setting changes.
+    max_thoughts_width: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +179,7 @@ impl ScrollbackEntry {
             subagent_labels: RefCell::new(std::sync::Arc::new(
                 crate::scrollback::subagent_labels::SubagentLabelSet::empty(),
             )),
+            max_thoughts_width: u16::MAX,
         }
     }
 
@@ -207,6 +212,31 @@ impl ScrollbackEntry {
             subagent_labels: RefCell::new(std::sync::Arc::new(
                 crate::scrollback::subagent_labels::SubagentLabelSet::empty(),
             )),
+            max_thoughts_width: u16::MAX,
+        }
+    }
+
+    /// `[ui].max_thoughts_width` currently applied to this entry.
+    pub(crate) fn max_thoughts_width(&self) -> u16 {
+        self.max_thoughts_width
+    }
+
+    /// Store the session's thoughts-width cap and drop cached layout when it changes.
+    pub(crate) fn set_max_thoughts_width(&mut self, width: u16) {
+        let width = width.max(1);
+        if self.max_thoughts_width == width {
+            return;
+        }
+        self.max_thoughts_width = width;
+        self.invalidate_cache();
+    }
+
+    /// Thinking blocks wrap at `min(available, max_thoughts_width)`. Other blocks keep `width`.
+    fn layout_width(&self, width: u16) -> u16 {
+        if self.block.is_thinking() {
+            width.min(self.max_thoughts_width)
+        } else {
+            width
         }
     }
 
@@ -310,6 +340,7 @@ impl ScrollbackEntry {
     /// An APPROXIMATION: it ignores word boundaries, and for a markdown block it reflects the last rendered view.
     /// On-screen entries are always measured exactly, so nothing depends on it being right.
     pub fn estimate_source_lines(&self, content_width: u16) -> u16 {
+        let content_width = self.layout_width(content_width);
         let mut slot = self.cached_line_widths.borrow_mut();
         let widths = slot.get_or_insert_with(|| {
             let Some(text) = self.block.searchable_text() else {
@@ -346,6 +377,7 @@ impl ScrollbackEntry {
         is_selected: bool,
         cwd: Option<&Path>,
     ) {
+        let width = self.layout_width(width);
         // UserPrompt, ToolCall, Thinking, BgTask and Subagent vary their output() based on is_selected; for all other blocks the output is identical
         // Normalize to false for those blocks so selection changes don't thrash the cache
         let effective_selected = is_selected
@@ -430,6 +462,7 @@ impl ScrollbackEntry {
         appearance: &AppearanceConfig,
         cwd: Option<&Path>,
     ) -> u16 {
+        let content_width = self.layout_width(content_width);
         let current_theme = theme_cache::current_kind();
         let cwd_key = cwd.map(|p| p.to_path_buf());
         let inline_overlay_off = crate::terminal::image::scrollback_inline_overlay_forced_off();
@@ -522,6 +555,7 @@ impl ScrollbackEntry {
         appearance: &AppearanceConfig,
         cwd: Option<&Path>,
     ) -> BlockContext {
+        let width = self.layout_width(width);
         BlockContext {
             mode: self.display_mode,
             is_running: self.is_running,
@@ -555,6 +589,7 @@ impl ScrollbackEntry {
         appearance: &AppearanceConfig,
         cwd: Option<&Path>,
     ) -> BlockContext {
+        let width = self.layout_width(width);
         BlockContext {
             mode: self.display_mode,
             is_running: self.is_running,
@@ -575,6 +610,7 @@ impl ScrollbackEntry {
         appearance: &AppearanceConfig,
         cwd: Option<&Path>,
     ) -> BlockContext {
+        let width = self.layout_width(width);
         BlockContext {
             mode,
             is_running: self.is_running,
@@ -598,6 +634,7 @@ impl ScrollbackEntry {
         is_selected: bool,
         cwd: Option<&Path>,
     ) -> BlockContext {
+        let width = self.layout_width(width);
         BlockContext {
             mode,
             is_running: self.is_running,

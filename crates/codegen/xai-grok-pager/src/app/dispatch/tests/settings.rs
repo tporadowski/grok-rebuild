@@ -2007,6 +2007,145 @@ fn set_max_thoughts_width_clamps_out_of_range() {
     let _ = dispatch(Action::SetMaxThoughtsWidth(200), &mut app);
     assert_eq!(app.current_ui.max_thoughts_width, 200);
 }
+
+/// `[ui].max_thoughts_width` wraps thinking blocks. Agent messages keep the terminal width.
+#[test]
+fn max_thoughts_width_wraps_thinking_blocks() {
+    use unicode_width::UnicodeWidthStr;
+
+    use crate::appearance::cache::set_show_thinking_blocks;
+    use crate::scrollback::types::{DisplayMode, line_plain_text};
+    use crate::scrollback::ScrollbackEntry;
+
+    fn alpha_line_widths(
+        entry: &mut ScrollbackEntry,
+        width: u16,
+        appearance: &crate::appearance::AppearanceConfig,
+    ) -> Vec<usize> {
+        entry
+            .output(width, appearance, None)
+            .lines
+            .iter()
+            .filter_map(|line| {
+                let text = line_plain_text(&line.content);
+                text.contains("alpha")
+                    .then(|| UnicodeWidthStr::width(text.as_str()))
+            })
+            .collect()
+    }
+
+    set_show_thinking_blocks(true);
+    // 21 words: six fit on a 40-column row and five on a 30-column row, so the narrower terminal takes another line.
+    let text = "alpha ".repeat(21);
+    let text = text.trim_end();
+    let mut app = test_app_with_agent();
+    let (thinking_id, message_id, uncapped_height) = {
+        let agent = test_agent_mut(&mut app, AgentId(0));
+        let thinking_id = agent.scrollback.push_block(RenderBlock::thinking(text));
+        let message_id = agent
+            .scrollback
+            .push_block(RenderBlock::agent_message(text));
+        agent
+            .scrollback
+            .get_by_id_mut(thinking_id)
+            .expect("thinking entry")
+            .set_display_mode(DisplayMode::Expanded);
+        agent.scrollback.prepare_layout(220, 40);
+        let uncapped_height = agent
+            .scrollback
+            .get_cached_entry_height(0)
+            .expect("uncapped thinking height");
+        let appearance = agent.scrollback.appearance().clone();
+        let uncapped = alpha_line_widths(
+            agent
+                .scrollback
+                .get_by_id_mut(thinking_id)
+                .expect("thinking entry"),
+            200,
+            &appearance,
+        );
+        assert_eq!(
+            uncapped.len(),
+            1,
+            "wide terminal leaves the thought on one line, got {uncapped:?}"
+        );
+        (thinking_id, message_id, uncapped_height)
+    };
+
+    let _ = dispatch(Action::SetMaxThoughtsWidth(40), &mut app);
+    assert_eq!(app.current_ui.max_thoughts_width, 40);
+
+    let agent = test_agent_mut(&mut app, AgentId(0));
+    assert_eq!(agent.scrollback.max_thoughts_width(), 40);
+    agent.scrollback.prepare_layout(220, 40);
+    let capped_height = agent
+        .scrollback
+        .get_cached_entry_height(0)
+        .expect("capped thinking height");
+    assert!(
+        capped_height > uncapped_height,
+        "capping thoughts at 40 must grow the thinking block ({uncapped_height} -> {capped_height})"
+    );
+
+    let appearance = agent.scrollback.appearance().clone();
+    let capped = alpha_line_widths(
+        agent
+            .scrollback
+            .get_by_id_mut(thinking_id)
+            .expect("thinking entry"),
+        200,
+        &appearance,
+    );
+    assert!(
+        capped.len() > 1,
+        "the thought must wrap onto several lines, got {capped:?}"
+    );
+    assert!(
+        capped.iter().all(|width| *width <= 40),
+        "thinking body lines must stay within 40 columns, got {capped:?}"
+    );
+    assert!(
+        capped.iter().any(|width| *width > 24),
+        "wrap must use the 40-column budget, got {capped:?}"
+    );
+
+    let narrow = alpha_line_widths(
+        agent
+            .scrollback
+            .get_by_id_mut(thinking_id)
+            .expect("thinking entry"),
+        30,
+        &appearance,
+    );
+    assert!(
+        narrow.len() > capped.len(),
+        "a terminal narrower than the setting wraps tighter ({capped:?} vs {narrow:?})"
+    );
+    assert!(
+        narrow.iter().all(|width| *width <= 30),
+        "narrow terminal wraps at 30 columns, got {narrow:?}"
+    );
+
+    let message = alpha_line_widths(
+        agent
+            .scrollback
+            .get_by_id_mut(message_id)
+            .expect("agent message"),
+        200,
+        &appearance,
+    );
+    let message_width = message.first().copied().unwrap_or(0);
+    assert_eq!(
+        message.len(),
+        1,
+        "agent messages are not capped, got {message:?}"
+    );
+    assert!(
+        message_width > 40,
+        "agent message keeps the full line ({message_width})"
+    );
+}
+
 #[test]
 fn pr13_set_show_tips_emits_persist_with_rollback() {
     use crate::settings::SettingValue;

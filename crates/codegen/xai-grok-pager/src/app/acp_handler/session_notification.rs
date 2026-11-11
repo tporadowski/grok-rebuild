@@ -689,6 +689,7 @@ pub(super) fn handle_session_notification_with_origin(
                 };
                 let mut child_scrollback = crate::scrollback::state::ScrollbackState::new();
                 child_scrollback.set_appearance(agent.scrollback.appearance().clone());
+                child_scrollback.set_max_thoughts_width(agent.scrollback.max_thoughts_width());
                 let mut child_view = AgentView::new(child_session, child_scrollback);
                 child_view.set_input_mode(InputMode::Vim);
                 child_view.set_sharing_enabled(agent.sharing_enabled);

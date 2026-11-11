@@ -1527,6 +1527,7 @@ pub(crate) async fn run(
     crate::appearance::set_tab_width(initial_config.scrollback.display.tab_width);
     app.set_appearance(initial_config);
     app.current_ui = load_initial_ui_config();
+    app.apply_max_thoughts_width();
     crate::app::status_line::metrics::global().report_config(&app.current_ui.status_line);
     let show_timeline = crate::appearance::cache::load_show_timeline();
     app.current_ui.show_timeline = Some(show_timeline);

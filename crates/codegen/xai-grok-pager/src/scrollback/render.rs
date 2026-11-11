@@ -428,7 +428,10 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
         // Use cached output for selection model building. Must use the same effective width as the renderer (reduced by
         // timestamp reservation for message blocks) to avoid cache thrashing.
         let ts_reserved = timestamp_reserved_for_block(&entry.block, appearance);
-        let content_width = entry_row_layout.content_width().saturating_sub(ts_reserved);
+        let mut content_width = entry_row_layout.content_width().saturating_sub(ts_reserved);
+        if entry.block.is_thinking() {
+            content_width = content_width.min(entry.max_thoughts_width());
+        }
         entry.ensure_cached(content_width, appearance, is_selected, cwd);
         let cached_rendered = entry.cached_rendered_output_ref();
         let cached_output = &cached_rendered.output;

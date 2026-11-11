@@ -1545,7 +1545,7 @@ id | status | wave | kind | flag | covered | note
 - v72-f06 | done | W14 | Features |  |  | **Feedback draft rows** show on their own instead of inside a group of tool rows, and opening one shows the `/feedback` Drafts tab with that draft selected.
 - v72-x01 | done | W14 | Bug Fixes |  |  | **Warp**: clicking a URL that wraps across rows opens the whole URL instead of only its first row.
 - v72-x02 | done | W14 | Bug Fixes |  |  | **`/delete`** confirmation starts on Cancel, so pressing `Enter` no longer deletes the session; press `1` to delete.
-- v72-x03 | pending | W14 | Bug Fixes |  |  | **Max thoughts width** (`/settings`, `[ui].max_thoughts_width`) sets how wide thinking blocks wrap; it previously had no effect.
+- v72-x03 | done | W14 | Bug Fixes |  |  | **Max thoughts width** (`/settings`, `[ui].max_thoughts_width`) sets how wide thinking blocks wrap; it previously had no effect.
 - v72-x05 | pending | W14 | Bug Fixes |  |  | **Custom models on the Responses API** with a non-xAI `base_url` no longer fail every turn with an HTTP 400 schema error for `use_tool`.
 - v72-x06 | pending | W14 | Bug Fixes |  |  | **`/feedback` Drafts tab** keeps the selected draft when the list reloads, such as after leaving Drafts and coming back.
 - v72-x08 | pending | W14 | Bug Fixes |  |  | **Plan review notes** accept every key, so a note that starts with `a` no longer approves the plan.

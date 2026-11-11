@@ -173,6 +173,7 @@ fn dispatch_load_session_ungated(
     app.next_agent_id += 1;
     let mut scrollback = ScrollbackState::new();
     scrollback.set_appearance(app.appearance.clone());
+    scrollback.set_max_thoughts_width(app.current_ui.max_thoughts_width);
     let loading_msg = if matches!(app.restore_code, Some(true)) {
         format!("Restoring code for session {}...", &session_id)
     } else {
@@ -1111,6 +1112,7 @@ pub(in crate::app::dispatch) fn dispatch_load_session_with_restore(
     app.next_agent_id += 1;
     let mut scrollback = ScrollbackState::new();
     scrollback.set_appearance(app.appearance.clone());
+    scrollback.set_max_thoughts_width(app.current_ui.max_thoughts_width);
     scrollback.push_block(RenderBlock::system(format!(
         "Restoring session {session_id} from remote..."
     )));

@@ -177,6 +177,10 @@ pub struct ScrollbackState {
     /// Current appearance configuration (hot-reloadable).
     appearance: AppearanceConfig,
 
+    /// `[ui].max_thoughts_width`. Thinking blocks wrap at the minimum of this and the content area.
+    /// `u16::MAX` means the terminal width alone decides the wrap.
+    max_thoughts_width: u16,
+
     // Batching
     /// When > 0, `push()` skips `rebuild_turns()` and `invalidate_layout_cache()`.
     /// Call `begin_batch()` before bulk insertions and `end_batch()` after.
@@ -266,6 +270,7 @@ impl ScrollbackState {
             thinking_display_mode: DisplayMode::Collapsed,
             tick: 0,
             appearance: AppearanceConfig::default(),
+            max_thoughts_width: u16::MAX,
             batch_depth: 0,
             gaps_may_be_dirty: false,
             full_settlement_pending: false,
@@ -343,6 +348,7 @@ impl ScrollbackState {
         let mut fresh = Self::new();
         fresh.next_id = self.next_id;
         fresh.appearance = self.appearance.clone();
+        fresh.max_thoughts_width = self.max_thoughts_width;
         fresh.thinking_display_mode = self.thinking_display_mode;
         fresh.view_mode = self.view_mode;
         fresh.follow_mode = self.follow_mode;
@@ -406,6 +412,28 @@ impl ScrollbackState {
         self.gaps_may_be_dirty = true;
         self.invalidate_layout_cache();
         self.bump_content_generation();
+    }
+
+    /// `[ui].max_thoughts_width` currently applied to thinking-block wrap.
+    pub fn max_thoughts_width(&self) -> u16 {
+        self.max_thoughts_width
+    }
+
+    /// Cap thinking-block wrap width and remeasure. Other blocks are unchanged.
+    /// `u16::MAX` clears the cap. Same value is a no-op.
+    pub fn set_max_thoughts_width(&mut self, width: u16) {
+        let width = width.max(1);
+        if self.max_thoughts_width == width {
+            return;
+        }
+        self.max_thoughts_width = width;
+        for entry in self.entries.values_mut() {
+            entry.set_max_thoughts_width(width);
+        }
+        self.layout_cache = None;
+        self.gaps_may_be_dirty = true;
+        self.dirty_heights = self.entries.keys().copied().collect();
+        self.bump_generation();
     }
 
     /// Update the appearance configuration.
@@ -588,6 +616,7 @@ impl ScrollbackState {
 
         let mut entry = entry;
         entry.id = id;
+        entry.set_max_thoughts_width(self.max_thoughts_width);
 
         self.apply_entry_display_policy(&mut entry);
 

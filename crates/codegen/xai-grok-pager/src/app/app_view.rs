@@ -2126,6 +2126,16 @@ impl AppView {
         self.welcome_prompt.sync_tab_width_from_appearance();
         self.appearance = config;
     }
+    /// Push `[ui].max_thoughts_width` onto every open session so thinking blocks rewrap.
+    pub(crate) fn apply_max_thoughts_width(&mut self) {
+        let width = self.current_ui.max_thoughts_width;
+        for agent in self.agents.values_mut() {
+            agent.scrollback.set_max_thoughts_width(width);
+            for child in agent.subagent_views.values_mut() {
+                child.scrollback.set_max_thoughts_width(width);
+            }
+        }
+    }
     /// Recompute the render-value compact flag from the user setting and terminal height (`views::agent::effective_compact`).
     /// Propagate it to the appearance fan-out and every agent's prompt widget when it changed.
     /// In-memory only: never touches the user setting (`current_ui.compact_mode`), the render cache, or disk.

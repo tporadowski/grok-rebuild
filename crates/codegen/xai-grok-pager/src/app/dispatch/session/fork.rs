@@ -276,6 +276,7 @@ fn build_fork_placeholder(
 ) -> AgentView {
     let mut scrollback = ScrollbackState::new();
     scrollback.set_appearance(app.appearance.clone());
+    scrollback.set_max_thoughts_width(app.current_ui.max_thoughts_width);
     let mut agent = AgentView::from_app(
         app,
         AgentSession {
