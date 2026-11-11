@@ -130,11 +130,12 @@ mod tests {
     }
 
     #[test]
-    fn warp_skip_reason() {
-        assert_eq!(
-            warp_ctx().hyperlink_skip_reason(),
-            Some("unsupported_terminal")
-        );
+    fn warp_emits_osc8_with_id() {
+        assert_eq!(warp_ctx().hyperlink_skip_reason(), None);
+        let route = resolve_hyperlink_route(&warp_ctx());
+        assert!(route.emit_osc8);
+        assert!(route.emit_id);
+        assert!(route.skip_reason.is_none());
     }
 
     #[test]
@@ -206,12 +207,6 @@ mod tests {
         let route = resolve_hyperlink_route(&apple_terminal_ctx());
         assert!(!route.emit_osc8);
         assert_eq!(route.skip_reason, Some("apple_terminal"));
-    }
-
-    #[test]
-    fn warp_fallback() {
-        let route = resolve_hyperlink_route(&warp_ctx());
-        assert!(!route.emit_osc8);
     }
 
     #[test]

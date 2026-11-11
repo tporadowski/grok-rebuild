@@ -1897,6 +1897,212 @@ mod link_click_tests {
             &test_file_link(file_path, 8)
         ));
     }
+
+    #[derive(Default)]
+    struct RecordingBackend {
+        buf: Vec<u8>,
+    }
+    impl std::io::Write for RecordingBackend {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.buf.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl ratatui::backend::Backend for RecordingBackend {
+        fn draw<'a, I>(&mut self, content: I) -> std::io::Result<()>
+        where
+            I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
+        {
+            for (_x, _y, cell) in content {
+                self.buf.extend_from_slice(cell.symbol().as_bytes());
+            }
+            Ok(())
+        }
+        fn hide_cursor(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn show_cursor(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn get_cursor_position(&mut self) -> std::io::Result<ratatui::layout::Position> {
+            Ok(ratatui::layout::Position::ORIGIN)
+        }
+        fn set_cursor_position<P: Into<ratatui::layout::Position>>(
+            &mut self,
+            _position: P,
+        ) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn clear(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn clear_region(
+            &mut self,
+            _clear_type: ratatui::backend::ClearType,
+        ) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn append_lines(&mut self, _n: u16) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn size(&self) -> std::io::Result<ratatui::layout::Size> {
+            Ok(ratatui::layout::Size::new(80, 24))
+        }
+        fn window_size(&mut self) -> std::io::Result<ratatui::backend::WindowSize> {
+            Ok(ratatui::backend::WindowSize {
+                columns_rows: ratatui::layout::Size::new(80, 24),
+                pixels: ratatui::layout::Size::new(0, 0),
+            })
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Warp opens a wrapped bare URL from OSC 8, which carries the whole address on every row.
+    /// The plain-text locator would open only the clicked row. A one-row URL is left to that locator.
+    #[test]
+    fn warp_wrapped_url_click_opens_the_whole_address() {
+        use ratatui::style::Style;
+        use ratatui::text::Line;
+        use ratatui::{TerminalOptions, Viewport};
+
+        use crate::hyperlink_route::resolve_hyperlink_route;
+        use crate::render::osc8::{LinkTarget, scan_lines_for_url_overlays};
+        use crate::terminal::{TerminalContext, TerminalName};
+        use xai_ratatui_inline::Terminal;
+
+        let url = "https://example.com/some/long/path?key=val";
+        let row0_text = "See https://example.com/some/lo";
+        let row1_text = "ng/path?key=val for details.";
+        let row0 = Line::from(row0_text);
+        let row1 = Line::from(row1_text);
+        let mut overlay = LinkOverlay::new();
+        scan_lines_for_url_overlays(
+            [(0, &row0, None), (1, &row1, Some(""))].into_iter(),
+            0,
+            &[],
+            &mut overlay,
+        );
+
+        let ctx = TerminalContext {
+            brand: TerminalName::WarpTerminal,
+            ..Default::default()
+        };
+        let route = resolve_hyperlink_route(&ctx);
+        let caps = ctx.hyperlink_capabilities();
+        assert!(route.emit_osc8);
+        assert!(route.emit_id);
+        assert!(caps.native_plain_url_open);
+        assert_eq!(route.skip_reason, None);
+
+        let spans = super::super::render::osc8_spans_from_overlay(
+            &overlay,
+            route.emit_id,
+            &[],
+            caps.native_plain_url_open,
+        );
+        let first = spans.first().expect("first wrap row");
+        let second = spans.get(1).expect("second wrap row");
+        assert_eq!(spans.len(), 2);
+        assert_eq!(first.url.as_ref(), url);
+        assert_eq!(second.url.as_ref(), url);
+        assert_eq!(first.id, second.id);
+        assert!(first.id.is_some());
+
+        let first_visible = row0_text
+            .get(usize::from(first.col_start)..usize::from(first.col_end))
+            .expect("first row slice");
+        let second_visible = row1_text
+            .get(usize::from(second.col_start)..usize::from(second.col_end))
+            .expect("second row slice");
+        assert_eq!(format!("{first_visible}{second_visible}"), url);
+        assert_ne!(first_visible, url);
+        assert!(url.starts_with(first_visible));
+
+        let link = crate::scrollback::VisibleLink {
+            rects: spans
+                .iter()
+                .map(|span| {
+                    Rect::new(
+                        span.col_start,
+                        span.row,
+                        span.col_end.saturating_sub(span.col_start),
+                        1,
+                    )
+                })
+                .collect(),
+            target: LinkTarget::Url(first.url.clone()),
+            id: first.id,
+        };
+        assert!(
+            !app_should_open_link_on_click_with(true, &link),
+            "Warp opens the OSC 8 address; the app must not open it again"
+        );
+
+        let whole = Line::from(url);
+        let mut one_row = LinkOverlay::new();
+        scan_lines_for_url_overlays([(0, &whole, None)].into_iter(), 0, &[], &mut one_row);
+        assert!(
+            super::super::render::osc8_spans_from_overlay(
+                &one_row,
+                route.emit_id,
+                &[],
+                caps.native_plain_url_open,
+            )
+            .is_empty(),
+            "a one-row URL stays with Warp's plain-text locator"
+        );
+
+        let mut term = Terminal::with_options(
+            RecordingBackend::default(),
+            TerminalOptions {
+                viewport: Viewport::Fixed(Rect::new(0, 0, 40, 3)),
+            },
+        )
+        .expect("terminal");
+        {
+            let mut frame = term.get_frame();
+            frame
+                .buffer_mut()
+                .set_string(0, 0, row0_text, Style::default());
+            frame
+                .buffer_mut()
+                .set_string(0, 1, row1_text, Style::default());
+        }
+        term.set_frame_links(&spans);
+        term.flush_with_links().expect("flush");
+        term.swap_buffers();
+        let out = String::from_utf8(term.backend().buf.clone()).expect("utf8");
+        let open_whole = format!("\x1b]8;id=1;{url}\x07");
+        let open_first_row = format!("\x1b]8;id=1;{first_visible}\x07");
+        let close = "\x1b]8;;\x07";
+        let mut payload = String::new();
+        let mut rest = out.as_str();
+        while let Some(i) = rest.find(&open_whole) {
+            let Some(after) = rest.get(i + open_whole.len()..) else {
+                break;
+            };
+            let Some(end) = after.find(close) else {
+                break;
+            };
+            if let Some(chunk) = after.get(..end) {
+                payload.push_str(chunk);
+            }
+            rest = after.get(end + close.len()..).unwrap_or("");
+        }
+        assert!(
+            payload.contains(first_visible) && payload.contains(second_visible),
+            "both wrap rows must sit in the whole-URL OSC 8 run: payload={payload:?} out={out:?}"
+        );
+        assert!(
+            !out.contains(&open_first_row),
+            "OSC 8 must not target only the first row: {out:?}"
+        );
+    }
     /// Regression: with the plan preview (line viewer) open and the feedback prompt focused, a left-drag that starts in the prompt stays with it.
     /// Drag/Up keep routing to the prompt even when the pointer wanders up into the plan area, so text selection works in the input.
     /// The line viewer's plan-line gutter drag must NOT swallow it.

@@ -122,11 +122,12 @@ pub fn hyperlink_capabilities(brand: TerminalName) -> HyperlinkCapabilities {
             native_link_hover: true,
             native_plain_url_open: false,
         },
-        // Warp's OSC 8 support is an open issue (warpdotdev/Warp#4194)
-        // Its UrlLocator opens bare URLs under mouse reporting; keep native_link_hover false for the file:// fallback
+        // Warp linkifies bare URLs under mouse reporting, one row at a time, and honors OSC 8.
+        // id= groups a wrap so a click opens the whole address, not the clicked row's text.
+        // native_link_hover stays false so file and label clicks stay with the app.
         TerminalName::WarpTerminal => HyperlinkCapabilities {
-            osc8: Unsupported,
-            id_param: false,
+            osc8: Native,
+            id_param: true,
             scheme_filter: SchemeFilter::Standard,
             osc22_cursor: false,
             native_link_hover: false,
@@ -231,10 +232,10 @@ mod tests {
     }
 
     #[test]
-    fn warp_unsupported() {
+    fn warp_osc8_groups_a_wrapped_url() {
         let caps = hyperlink_capabilities(TerminalName::WarpTerminal);
-        assert_eq!(caps.osc8, Osc8Support::Unsupported);
-        assert!(!caps.id_param);
+        assert_eq!(caps.osc8, Osc8Support::Native);
+        assert!(caps.id_param);
         assert!(caps.native_plain_url_open);
         assert!(!caps.native_link_hover);
     }

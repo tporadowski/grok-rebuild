@@ -32,6 +32,82 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 use std::collections::HashSet;
 use std::time::Instant;
+
+/// OSC 8 spans for one frame of overlay links.
+/// `bare_wraps_only` (Warp) keeps a standard-scheme URL only when its painted
+/// text is the address itself and that address spans more than one row. Warp's
+/// plain-text locator would open just the clicked row; the shared id carries
+/// the whole address. One-row URLs, labels, and files stay out of OSC 8 so the
+/// app or Warp's locator still opens them once.
+pub(super) fn osc8_spans_from_overlay(
+    overlay: &crate::render::osc8::LinkOverlay,
+    emit_id: bool,
+    occluders: &[ratatui::layout::Rect],
+    bare_wraps_only: bool,
+) -> Vec<xai_ratatui_inline::LinkSpan> {
+    let spans: Vec<xai_ratatui_inline::LinkSpan> = overlay
+        .links()
+        .iter()
+        .filter(|link| {
+            !occluders.iter().any(|r| {
+                link.screen_row >= r.y
+                    && link.screen_row < r.y.saturating_add(r.height)
+                    && link.col_start < r.x.saturating_add(r.width)
+                    && r.x < link.col_end
+            })
+        })
+        .filter_map(|link| {
+            crate::render::osc8::resolve_link_target_with_presentation(
+                &link.target,
+                link.presentation,
+            )
+            .and_then(|resolved| resolved.osc8_url)
+            .map(|url| xai_ratatui_inline::LinkSpan {
+                row: link.screen_row,
+                col_start: link.col_start,
+                col_end: link.col_end,
+                url,
+                id: if emit_id { link.id } else { None },
+            })
+        })
+        .collect();
+    if !bare_wraps_only {
+        return spans;
+    }
+    spans
+        .iter()
+        .filter(|span| wrapped_bare_url(&spans, span))
+        .cloned()
+        .collect()
+}
+
+fn wrapped_bare_url(
+    spans: &[xai_ratatui_inline::LinkSpan],
+    span: &xai_ratatui_inline::LinkSpan,
+) -> bool {
+    if !crate::app::link_opener::is_safe_to_open(
+        span.url.as_ref(),
+        crate::terminal::hyperlinks::SchemeFilter::Standard,
+    ) {
+        return false;
+    }
+    let url_width = unicode_width::UnicodeWidthStr::width(span.url.as_ref());
+    let mut painted = 0usize;
+    let mut rows: Vec<u16> = Vec::new();
+    for other in spans {
+        if other.id != span.id || other.url.as_ref() != span.url.as_ref() {
+            continue;
+        }
+        painted = painted.saturating_add(usize::from(
+            other.col_end.saturating_sub(other.col_start),
+        ));
+        if !rows.contains(&other.row) {
+            rows.push(other.row);
+        }
+    }
+    rows.len() > 1 && painted == url_width
+}
+
 /// AppView-owned per-frame inputs to [`AgentView::draw`]: state the agent view cannot see itself (voice pipeline, Esc ownership, status row).
 /// Grouped (mirroring `WelcomeRenderParams`) so the next app-level render fact extends this struct instead of every `draw` call site.
 /// Tests take `Default` and override only what they exercise.
@@ -4005,7 +4081,11 @@ impl AgentView {
                 compact,
                 tick,
             );
-            if crate::hyperlink_route::hyperlink_route().emit_osc8 {
+            if crate::hyperlink_route::hyperlink_route().emit_osc8
+                && !crate::terminal::terminal_context()
+                    .hyperlink_capabilities()
+                    .native_plain_url_open
+            {
                 Self::push_managed_connectors_wait_link_spans(link_spans_out, modal_state);
             }
             if modal_state.input.is_some() {
@@ -4331,49 +4411,31 @@ impl AgentView {
         {
             let route = crate::hyperlink_route::hyperlink_route();
             if route.emit_osc8 {
-                let occluders = &self.frame_occluder_rects;
-                let emit_id = route.emit_id;
-                *link_spans_out = self
-                    .last_link_overlay
-                    .links()
-                    .iter()
-                    .filter(|link| {
-                        !occluders.iter().any(|r| {
-                            link.screen_row >= r.y
-                                && link.screen_row < r.y.saturating_add(r.height)
-                                && link.col_start < r.x.saturating_add(r.width)
-                                && r.x < link.col_end
-                        })
-                    })
-                    .filter_map(|link| {
-                        crate::render::osc8::resolve_link_target_with_presentation(
-                            &link.target,
-                            link.presentation,
-                        )
-                        .and_then(|resolved| resolved.osc8_url)
-                        .map(|url| xai_ratatui_inline::LinkSpan {
-                            row: link.screen_row,
-                            col_start: link.col_start,
-                            col_end: link.col_end,
-                            url,
-                            id: if emit_id { link.id } else { None },
-                        })
-                    })
-                    .collect();
-                self.push_promo_cta_link_span(
-                    link_spans_out,
-                    banner_announcements,
-                    hidden_announcement_ids,
+                let bare_wraps_only = crate::terminal::terminal_context()
+                    .hyperlink_capabilities()
+                    .native_plain_url_open;
+                *link_spans_out = osc8_spans_from_overlay(
+                    &self.last_link_overlay,
+                    route.emit_id,
+                    &self.frame_occluder_rects,
+                    bare_wraps_only,
                 );
-                self.push_upgrade_cta_link_span(
-                    link_spans_out,
-                    banner_announcements,
-                    hidden_announcement_ids,
-                );
-                self.push_status_line_link_spans(
-                    link_spans_out,
-                    std::mem::take(&mut status_line_link_spans),
-                );
+                if !bare_wraps_only {
+                    self.push_promo_cta_link_span(
+                        link_spans_out,
+                        banner_announcements,
+                        hidden_announcement_ids,
+                    );
+                    self.push_upgrade_cta_link_span(
+                        link_spans_out,
+                        banner_announcements,
+                        hidden_announcement_ids,
+                    );
+                    self.push_status_line_link_spans(
+                        link_spans_out,
+                        std::mem::take(&mut status_line_link_spans),
+                    );
+                }
             }
         }
         let on_link = self.hovered_link_idx.is_some();
