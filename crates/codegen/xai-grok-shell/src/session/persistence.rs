@@ -559,9 +559,10 @@ fn find_local_child_for_remote_in_root(
     candidates.into_iter().next().map(|(_, _, id)| id)
 }
 
-/// Searches across ALL cwd directories under `~/.grok/sessions/`.
-/// Use `session_exists_for_cwd` instead when the target cwd is known to avoid false-positive matches.
-/// Unlike [`resolve_local_session`] which only checks a single CWD, this scans every encoded-CWD subdirectory.
+/// Searches cwd buckets under `~/.grok/sessions/` for this id only.
+/// Use `session_exists_for_cwd` instead when the target cwd is known.
+/// Unlike [`resolve_local_session`], which checks one cwd, this stats
+/// `<bucket>/<session_id>/summary.json` and does not read any other session.
 pub fn resolve_local_session_any_cwd(session_id: &str) -> Option<String> {
     resolve_local_session_any_cwd_result(session_id)
         .ok()
@@ -602,7 +603,8 @@ fn resolve_local_session_any_cwd_in_root(
     session_id: &str,
     sessions_root: &Path,
 ) -> Result<Option<String>, crate::session::storage::relocation::RelocationError> {
-    let Some(session_path) = storage_view(sessions_root)?.find_persisted_session_dir(session_id)?
+    let Some(session_path) =
+        crate::session::storage::relocation::locate_session_dir(sessions_root, session_id, true)?
     else {
         return Ok(None);
     };
@@ -626,15 +628,17 @@ pub(crate) fn find_persisted_session_dir_by_id_in_root_result(
     session_id: &str,
     sessions_root: &Path,
 ) -> io::Result<Option<PathBuf>> {
-    storage_view(sessions_root)
-        .and_then(|view| view.find_persisted_session_dir(session_id))
+    crate::session::storage::relocation::locate_session_dir(sessions_root, session_id, true)
         .map_err(io::Error::other)
 }
 
 pub(crate) fn find_any_session_dir_by_id_result(session_id: &str) -> io::Result<Option<PathBuf>> {
-    storage_view(&grok_home().join("sessions"))
-        .and_then(|view| view.find_any_session_dir(session_id))
-        .map_err(io::Error::other)
+    crate::session::storage::relocation::locate_session_dir(
+        &grok_home().join("sessions"),
+        session_id,
+        false,
+    )
+    .map_err(io::Error::other)
 }
 
 #[cfg(test)]
@@ -669,7 +673,7 @@ thread_local! {
     pub(crate) static FAIL_NEXT_STAMP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Find and read a session summary given only its ID (scans all CWD directories).
+/// Find and read one session summary by id. Other sessions' files stay closed.
 pub(crate) fn find_summary_by_session_id(session_id: &str) -> Option<Summary> {
     #[cfg(test)]
     assert!(
@@ -684,11 +688,9 @@ pub(crate) fn find_summary_by_session_id_in_root(
     session_id: &str,
     sessions_root: &Path,
 ) -> Option<Summary> {
-    let path = storage_view(sessions_root)
-        .ok()?
-        .find_persisted_session_dir(session_id)
-        .ok()
-        .flatten()?;
+    let path =
+        crate::session::storage::relocation::locate_session_dir(sessions_root, session_id, true)
+            .ok()??;
     read_summary_from_dir(&path).ok()
 }
 

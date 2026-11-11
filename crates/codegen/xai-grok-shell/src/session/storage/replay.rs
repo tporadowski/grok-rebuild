@@ -11,7 +11,6 @@ use std::path::{Component, Path, PathBuf};
 
 use agent_client_protocol as acp;
 
-use super::relocation::RelocationView;
 use super::{
     RawLinePeek, RawParamsPeek, RawUpdatePeek, SessionUpdate, SessionUpdateEnvelope,
     filter_rewind_lines, replay_updates_path_in_dir, strip_context_wrappers,
@@ -36,8 +35,8 @@ pub enum ReplayLookupFallback {
     HintedOnly,
 }
 
-/// Optional location hints so child `updates.jsonl` lookup can skip a full
-/// `~/.grok/sessions` RelocationView scan.
+/// Optional location hints so child `updates.jsonl` lookup can skip a walk of
+/// every cwd bucket under `~/.grok/sessions`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ReplayPathHint<'a> {
     /// Parent session working directory; tried as `<sessions>/<encoded_cwd>/<child_id>/updates.jsonl`.
@@ -45,7 +44,7 @@ pub struct ReplayPathHint<'a> {
     /// Child working directory when it differs from the parent (worktree / custom cwd).
     /// Tried before [`Self::parent_cwd`].
     pub child_cwd: Option<&'a Path>,
-    /// When cwd hints miss: scan via [`RelocationView`], or return None.
+    /// When cwd hints miss: stat this id under each cwd bucket, or return None.
     pub fallback: ReplayLookupFallback,
 }
 
@@ -227,16 +226,18 @@ pub(crate) fn resolve_replay_updates_path(
     match try_fast_replay_updates_path(session_id, grok_home, hint) {
         Some(path) => return Ok(Some(path)),
         None if hint.fallback == ReplayLookupFallback::HintedOnly => {
-            // The cwd hints missed; skip the RelocationView scan, which would run on the UI thread
+            // The cwd hints missed; do not walk the store on the UI thread.
             return Ok(None);
         }
         None => {}
     }
     let sessions_root = grok_home.join("sessions");
-    let view = RelocationView::load_for_sessions_root(&sessions_root).map_err(io::Error::other)?;
-    let Some(session_dir) = view
-        .find_persisted_session_dir(session_id)
-        .map_err(io::Error::other)?
+    let Some(session_dir) = crate::session::storage::relocation::locate_session_dir(
+        &sessions_root,
+        session_id,
+        true,
+    )
+    .map_err(io::Error::other)?
     else {
         return Ok(None);
     };

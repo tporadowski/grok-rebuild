@@ -144,6 +144,62 @@ fn select(paths: &[PathBuf], cwd_parent: Option<&Path>) -> Option<PathBuf> {
     selected.filter(|path| cwd_parent.is_none_or(|parent| path.parent() == Some(parent)))
 }
 
+/// Find `<sessions>/<cwd-bucket>/<session_id>` without reading any other session.
+/// Listing cwd buckets is enough: the id is the directory name, so sibling
+/// `summary.json` files stay closed. Two buckets with the same id stay ambiguous.
+pub(crate) fn locate_session_dir(
+    sessions_root: &Path,
+    session_id: &str,
+    persisted_only: bool,
+) -> Result<Option<PathBuf>> {
+    validate_component("session id", session_id)?;
+    let entries = match fs::read_dir(sessions_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(io_error("read", sessions_root, error)),
+    };
+    let mut matches = Vec::new();
+    for cwd_entry in entries {
+        let cwd_entry = cwd_entry.map_err(|error| io_error("read", sessions_root, error))?;
+        let cwd_path = cwd_entry.path();
+        let cwd_type = match cwd_entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(error) if skip_unreadable(&error) => continue,
+            Err(error) => return Err(io_error("inspect", &cwd_path, error)),
+        };
+        if !cwd_type.is_dir() || cwd_type.is_symlink() {
+            continue;
+        }
+        let path = cwd_path.join(session_id);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                let file_type = metadata.file_type();
+                if !file_type.is_dir() || file_type.is_symlink() {
+                    continue;
+                }
+            }
+            Err(error) if skip_unreadable(&error) => continue,
+            Err(error) => return Err(io_error("inspect", &path, error)),
+        }
+        if persisted_only && !summary_is_persisted_file(&path.join(super::SUMMARY_FILE))? {
+            continue;
+        }
+        matches.push(path);
+    }
+    Ok(select(&matches, None))
+}
+
+fn summary_is_persisted_file(summary: &Path) -> Result<bool> {
+    match fs::symlink_metadata(summary) {
+        Ok(metadata) => {
+            let file_type = metadata.file_type();
+            Ok(file_type.is_file() && !file_type.is_symlink())
+        }
+        Err(error) if skip_unreadable(&error) => Ok(false),
+        Err(error) => Err(io_error("inspect", summary, error)),
+    }
+}
+
 /// One unreadable session directory must not fail `grok sessions list` or `/resume`.
 fn skip_unreadable(error: &io::Error) -> bool {
     matches!(
@@ -264,7 +320,64 @@ pub(crate) mod index_load_probe {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[test]
+    fn locate_session_dir_reads_only_the_named_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sessions = tmp.path();
+        let target = sessions.join("cwd-target").join("target-session");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("summary.json"), b"{}").unwrap();
+        for cwd in 0..8 {
+            for session in 0..6 {
+                let dir = sessions
+                    .join(format!("cwd-{cwd}"))
+                    .join(format!("sess-{session}"));
+                fs::create_dir_all(&dir).unwrap();
+                fs::write(dir.join("summary.json"), b"not-the-target").unwrap();
+            }
+        }
+        let bare = sessions.join("cwd-bare").join("bare-session");
+        fs::create_dir_all(&bare).unwrap();
+
+        let probe = Arc::new(AtomicUsize::new(0));
+        let _guard = index_load_probe::IndexLoadGuard::install(Arc::clone(&probe));
+        assert_eq!(
+            locate_session_dir(sessions, "target-session", true)
+                .unwrap()
+                .as_deref(),
+            Some(target.as_path())
+        );
+        assert_eq!(
+            probe.load(Ordering::SeqCst),
+            0,
+            "one id must not build the every-session index"
+        );
+        assert!(
+            locate_session_dir(sessions, "bare-session", true)
+                .unwrap()
+                .is_none(),
+            "a directory without summary.json is not a resumed session"
+        );
+        assert_eq!(
+            locate_session_dir(sessions, "bare-session", false)
+                .unwrap()
+                .as_deref(),
+            Some(bare.as_path())
+        );
+
+        let other = sessions.join("cwd-other").join("target-session");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("summary.json"), b"{}").unwrap();
+        assert!(
+            locate_session_dir(sessions, "target-session", true)
+                .unwrap()
+                .is_none(),
+            "the same id under two folders stays ambiguous"
+        );
+        assert_eq!(probe.load(Ordering::SeqCst), 0);
+    }
 
     #[test]
     fn load_skips_cwd_bucket_that_vanishes_during_scan() {

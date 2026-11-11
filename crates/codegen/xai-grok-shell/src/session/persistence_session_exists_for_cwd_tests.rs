@@ -174,3 +174,55 @@ fn find_summary_by_session_id_reads_cross_cwd_uuid() {
     assert_eq!(summary.info.cwd, cwd);
     assert_eq!(summary.session_summary, "cross-cwd hit");
 }
+
+/// `grok --resume <id>` opens that session. Sibling summaries stay unread, and
+/// the every-session index is not built.
+#[test]
+fn resume_by_id_reads_that_session_without_walking_the_store() {
+    use super::find_summary_by_session_id_in_root;
+    use crate::session::storage::relocation::index_load_probe::IndexLoadGuard;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().join("sessions");
+    for n in 0..24 {
+        let other = root.join(format!("bucket-{n}")).join(format!("sess-{n}"));
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("summary.json"), b"not-json").unwrap();
+    }
+    let session_id = "019f870d-6976-7d73-a12a-52e9d4aebcd4";
+    let cwd = "/project/elsewhere";
+    let encoded = crate::util::grok_home::encode_cwd_dirname(cwd);
+    let dir = root.join(&encoded).join(session_id);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("summary.json"),
+        serde_json::json!({
+            "info": { "id": session_id, "cwd": cwd },
+            "session_summary": "the one session",
+            "created_at": "2026-03-01T00:00:00Z",
+            "updated_at": "2026-03-01T00:00:00Z",
+            "num_messages": 2,
+            "num_chat_messages": 1,
+            "current_model_id": "test",
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let probe = Arc::new(AtomicUsize::new(0));
+    let _guard = IndexLoadGuard::install(Arc::clone(&probe));
+    let resolved = resolve_local_session_any_cwd_in_root(session_id, &root)
+        .expect("lookup")
+        .expect("the id is present under one cwd");
+    assert_eq!(resolved, cwd);
+    let summary = find_summary_by_session_id_in_root(session_id, &root)
+        .expect("the resumed summary is the only one parsed");
+    assert_eq!(summary.session_summary, "the one session");
+    assert_eq!(
+        probe.load(Ordering::SeqCst),
+        0,
+        "resume by id must not load the every-session index"
+    );
+}
