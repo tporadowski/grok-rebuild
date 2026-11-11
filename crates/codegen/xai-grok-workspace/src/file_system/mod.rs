@@ -243,7 +243,7 @@ impl FuzzySearchManager {
         let ctx = self.searches.get_mut(search_id)?;
         ctx.last_activity = Instant::now();
 
-        // Rewalk on empty query to refresh index when picker opens.
+        // An empty query is the picker opening. The matcher reuses its file list until the tree changes.
         if query.is_empty() {
             ctx.daemon.restart_walk(ctx.hidden);
         }

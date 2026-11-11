@@ -112,14 +112,37 @@ fn check_entry<'a>(entry: &'a DirEntry, root: &Path) -> Option<(&'a str, bool)> 
     }
 }
 
+/// One directory in a listing, with the mtime observed while it was walked.
+struct DirStamp {
+    path: PathBuf,
+    modified: std::time::SystemTime,
+}
+
+fn record_dir_stamp(stamps: &Mutex<Vec<DirStamp>>, path: &Path) {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    let Ok(modified) = meta.modified() else {
+        return;
+    };
+    stamps.lock().unwrap().push(DirStamp {
+        path: path.to_path_buf(),
+        modified,
+    });
+}
+
 fn push_match(
     injector: &nucleo::Injector<MatchEntry>,
     root: &Path,
     entry: Result<DirEntry, ignore::Error>,
+    stamps: &Mutex<Vec<DirStamp>>,
 ) {
     if let Ok(entry) = entry
         && let Some((path, is_dir)) = check_entry(&entry, root)
     {
+        if is_dir {
+            record_dir_stamp(stamps, entry.path());
+        }
         injector.push(MatchEntry { is_dir }, |_entry, columns| {
             if let Some(col) = columns.get_mut(0) {
                 *col = path.into();
@@ -183,6 +206,13 @@ pub struct FuzzyFileMatcher {
     cancel: Arc<AtomicBool>,
     top_entries: Vec<FuzzyMatchResult>,
     dirs: bool,
+    /// `Some(true)` after an unfiltered listing was started; `Some(false)` after a normal one.
+    /// `None` until a listing is actually running, so a failed spawn is retried.
+    listed: Option<bool>,
+    /// Directory mtimes from the current listing. A restart reuses the file list while every stamp still matches.
+    dir_stamps: Arc<Mutex<Vec<DirStamp>>>,
+    /// Walks actually started. A reused listing does not increment this.
+    walks_started: u64,
 }
 
 impl FuzzyFileMatcher {
@@ -222,6 +252,9 @@ impl FuzzyFileMatcher {
             query: String::new(),
             top_entries: Vec::new(),
             dirs: false,
+            listed: None,
+            dir_stamps: Arc::new(Mutex::new(Vec::new())),
+            walks_started: 0,
         }
     }
 
@@ -322,6 +355,11 @@ impl FuzzyFileMatcher {
             self.walk_handle.is_none(),
             "restart_walk_inner requires the prior walk to be joined"
         );
+        self.walks_started = self.walks_started.saturating_add(1);
+        // A walk that fails to spawn must not count as a reusable listing.
+        self.listed = None;
+        self.dir_stamps.lock().unwrap().clear();
+        record_dir_stamp(&self.dir_stamps, &self.root);
         if let Some(nucleo) = self.nucleo.as_mut() {
             nucleo.restart(true);
         }
@@ -346,6 +384,7 @@ impl FuzzyFileMatcher {
 
         let root = self.root.clone();
         let cancel = self.cancel.clone();
+        let stamps = Arc::clone(&self.dir_stamps);
         let walk = thread::Builder::new()
             .name("fuzzy-walk".into())
             .spawn(move || {
@@ -354,11 +393,12 @@ impl FuzzyFileMatcher {
                         let injector = injector.clone();
                         let root = root.clone();
                         let cancel = cancel.clone();
+                        let stamps = Arc::clone(&stamps);
                         Box::new(move |entry| {
                             if cancel.load(Ordering::Relaxed) {
                                 return WalkState::Quit;
                             }
-                            push_match(&injector, &root, entry);
+                            push_match(&injector, &root, entry, &stamps);
                             WalkState::Continue
                         })
                     });
@@ -369,7 +409,7 @@ impl FuzzyFileMatcher {
                         if cancel.load(Ordering::Relaxed) {
                             break;
                         }
-                        push_match(&injector, &root, entry);
+                        push_match(&injector, &root, entry, &stamps);
                     }
                 }
             });
@@ -382,9 +422,75 @@ impl FuzzyFileMatcher {
         }
     }
 
+    /// `true` when `include_all` matches the listing already started and either that walk is still
+    /// running or every directory mtime from it is unchanged. A new file or folder changes its
+    /// parent directory's mtime, so the next restart walks again.
+    fn try_reuse_file_list(&mut self, include_all: bool) -> bool {
+        if self.listed != Some(include_all) {
+            return false;
+        }
+        let finished = self
+            .walk_handle
+            .as_ref()
+            .is_none_or(|handle| handle.is_finished());
+        if !finished {
+            return true;
+        }
+        if self.walk_handle.is_some() {
+            self.join_walk();
+        }
+        self.dir_stamps_match()
+    }
+
+    fn dir_stamps_match(&self) -> bool {
+        let stamps = self.dir_stamps.lock().unwrap();
+        if stamps.is_empty() {
+            return false;
+        }
+        for stamp in stamps.iter() {
+            let Ok(meta) = std::fs::symlink_metadata(&stamp.path) else {
+                return false;
+            };
+            let Ok(modified) = meta.modified() else {
+                return false;
+            };
+            if modified != stamp.modified {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn listing_started(&self) -> bool {
+        self.nucleo.is_none() || self.walk_handle.is_some()
+    }
+
+    fn restart_listing(&mut self, include_all: bool) {
+        if self.try_reuse_file_list(include_all) {
+            tracing::trace!("reusing file list");
+            return;
+        }
+        if include_all {
+            self.restart_walk_with(|walker| walker.hidden(false).ignore(false).git_ignore(false));
+        } else {
+            self.restart_walk_with(|walker| walker);
+        }
+        if self.listing_started() {
+            self.listed = Some(include_all);
+        }
+    }
+
     /// Restart the walk with default walker parameters.
+    ///
+    /// Reuses the file list already loaded for this tree when no directory in that listing has
+    /// changed. [`restart_walk_with`] always walks.
     pub fn restart_walk(&mut self) {
-        self.restart_walk_with(|w| w);
+        self.restart_listing(false);
+    }
+
+    /// Walk hidden and gitignored entries too. Reuses that unfiltered list under the same rule as [`restart_walk`].
+    pub fn restart_unfiltered_walk(&mut self) {
+        self.restart_listing(true);
     }
 
     /// Set the query to a given string and trigger reparse.
@@ -633,9 +739,7 @@ impl FuzzyFileMatcherDaemon {
                                 matcher.restart_walk();
                             } else {
                                 tracing::trace!("restarting hidden walk");
-                                matcher.restart_walk_with(|w| {
-                                    w.hidden(false).ignore(false).git_ignore(false)
-                                });
+                                matcher.restart_unfiltered_walk();
                             }
                             generation += 1;
                             *results.lock().unwrap() = FuzzyMatcherDaemonResults::default();
@@ -845,6 +949,85 @@ mod tests {
             asked.get(),
             NUM_IGNORE_THREADS + 1,
             "probe reserves the outer fuzzy-walk thread that builds the pool"
+        );
+    }
+
+    fn wait_until_listed(matcher: &mut FuzzyFileMatcher) {
+        for _ in 0..2000 {
+            let walk_done = matcher
+                .walk_handle
+                .as_ref()
+                .is_none_or(|handle| handle.is_finished());
+            if walk_done && matcher.tick(10).done {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        panic!("file list was not ready");
+    }
+
+    #[test]
+    fn file_list_is_reused_until_the_tree_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(dir.path().join("alpha.txt"), b"a").unwrap();
+        std::fs::write(sub.join("keep.txt"), b"k").unwrap();
+
+        let mut matcher = FuzzyFileMatcher::new(dir.path());
+        matcher.restart_walk();
+        matcher.set_query("alpha", false);
+        wait_until_listed(&mut matcher);
+        assert!(
+            matcher
+                .get_top_k(20)
+                .iter()
+                .any(|hit| hit.path.to_string().contains("alpha")),
+            "the first walk lists alpha"
+        );
+        let walks = matcher.walks_started;
+
+        matcher.restart_walk();
+        assert_eq!(
+            matcher.walks_started, walks,
+            "an unchanged tree reuses the file list"
+        );
+        matcher.set_query("keep", false);
+        wait_until_listed(&mut matcher);
+        assert!(
+            matcher
+                .get_top_k(20)
+                .iter()
+                .any(|hit| hit.path.to_string().contains("keep")),
+            "reuse serves the nested file from the previous listing"
+        );
+        assert_eq!(matcher.walks_started, walks);
+
+        std::fs::write(sub.join("beta.txt"), b"b").unwrap();
+        matcher.restart_walk();
+        assert_eq!(
+            matcher.walks_started,
+            walks.saturating_add(1),
+            "a new file changes its parent directory, so the list is walked again"
+        );
+        matcher.set_query("beta", false);
+        wait_until_listed(&mut matcher);
+        assert!(
+            matcher
+                .get_top_k(20)
+                .iter()
+                .any(|hit| hit.path.to_string().contains("beta")),
+            "the fresh walk lists the new file"
+        );
+
+        matcher.restart_unfiltered_walk();
+        assert_eq!(matcher.walks_started, walks.saturating_add(2));
+        wait_until_listed(&mut matcher);
+        matcher.restart_unfiltered_walk();
+        assert_eq!(
+            matcher.walks_started,
+            walks.saturating_add(2),
+            "the unfiltered list is reused until the tree changes"
         );
     }
 }

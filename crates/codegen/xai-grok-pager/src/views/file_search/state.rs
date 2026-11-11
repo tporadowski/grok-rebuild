@@ -396,7 +396,8 @@ impl FileSearchState {
             (None, Some(ctx)) => {
                 // Fresh `@` token is never a drill; drop any stale anchor
                 self.drill_prefix = None;
-                // Entering @-mode always restarts the walk.
+                // Entering @-mode asks the matcher to walk. It reuses the file list until a
+                // directory in that listing changes, so a later `@` does not rescan an unchanged tree.
                 self.start_query(
                     RestartWalk::Restart {
                         hidden: ctx.is_hidden_mode(),
