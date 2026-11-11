@@ -227,7 +227,7 @@ fn flush_telemetry_and_exit(exit_code: i32) -> ! {
     if let Some(path) = xai_grok_telemetry::span_profile::finalize() {
         eprintln!("grok: span profile written to {}", path.display());
     }
-    std::process::exit(exit_code);
+    super::exit_timeout::exit_after_restore(exit_code);
 }
 
 #[cfg(test)]

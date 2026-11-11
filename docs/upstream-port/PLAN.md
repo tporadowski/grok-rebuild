@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-220 — Windows exits after a startup failure, a screen-mode switch, or a signal
+
+`std::process::exit` flushes stdio and can block on a console lock still held after the terminal is restored, so `grok.exe` stays running. A startup failure (the exit after `app::run` returns the error), the Windows parent of a `/minimal` or `/fullscreen` relaunch, and signal teardown call `exit_after_restore`, which uses `ExitProcess` on Windows. Unix keeps `process::exit` on those paths. A screen-mode switch on Unix still `exec`s. This host is Linux, so `grok.exe` was not executed (`windows_startup_screen_switch_and_signal_end_the_process`) (`v74-x11`).
+
 ### D-219 — Quitting ends the process after the terminal is restored
 
 Once teardown has given the terminal back, a Windows quit ends `grok.exe` with `ExitProcess`. `std::process::exit` flushes stdio and can block on a console lock still held after restore, so the shell waits with no prompt. The quit watchdog uses that same immediate exit if the tail never returns. Unix keeps `_exit` for the watchdog and returns from the quit tail. This host is Linux, so `grok.exe` was not executed (`quitting_ends_the_process_once_the_terminal_is_restored`) (`v73-x01`).
@@ -1561,7 +1565,7 @@ id | status | wave | kind | flag | covered | note
 - v74-x03 | done | W14 | Bug Fixes |  |  | **`/new` tabs** show the context window you just switched to before the new session replies.
 - v74-x09 | done | W14 | Bug Fixes |  |  | **Opening links and files** from the TUI no longer leaves a zombie process behind for each click.
 - v74-x10 | done | W14 | Bug Fixes |  |  | **A failed session delete** shows the "Couldn't delete session" prefix once, so the reason is no longer cut off.
-- v74-x11 | pending | W14 | Bug Fixes |  |  | **Windows**: Grok exits fully after a startup error, a `/minimal` or `/fullscreen` switch, or a signal, instead of sometimes hanging.
+- v74-x11 | done | W14 | Bug Fixes |  |  | **Windows**: Grok exits fully after a startup error, a `/minimal` or `/fullscreen` switch, or a signal, instead of sometimes hanging.
 - v74-x16 | pending | W14 | Bug Fixes |  |  | **Command-line arguments that aren't valid UTF-8** no longer crash `grok` at startup: paths such as `--cwd` accept them, and text such as `-p` gets a usage error.
 - v74-x18 | pending | W14 | Bug Fixes |  |  | **Environment variables with non-UTF-8 bytes** no longer stop Grok from starting.
 - v74-x25 | pending | W14 | Bug Fixes |  |  | **File paths with spaces** in inline code, such as `~/Library/Application Support/...`, link to the whole path when it exists instead of stopping at the first space.

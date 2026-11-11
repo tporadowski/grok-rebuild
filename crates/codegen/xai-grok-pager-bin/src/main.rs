@@ -2264,7 +2264,9 @@ fn main() {
             xai_grok_pager::best_effort_stderr::eprint_line(&report);
         }
         drop(_sentry_guard);
-        std::process::exit(1);
+        // After a startup failure the terminal is already restored. process::exit can
+        // block on the Windows console lock and leave grok.exe running.
+        xai_grok_pager::app::exit_after_restore(1);
     }
     finalize_span_profile();
 }

@@ -237,7 +237,7 @@ pub(crate) fn exec_screen_mode_relaunch(session_id: &str, want_minimal: bool) ->
         #[allow(clippy::disallowed_methods)] // the parent waits and exits with its status
         let mut child = cmd.spawn()?;
         let status = child.wait()?;
-        std::process::exit(status.code().unwrap_or(0));
+        finish_screen_mode_parent(status.code().unwrap_or(0))
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -246,6 +246,12 @@ pub(crate) fn exec_screen_mode_relaunch(session_id: &str, want_minimal: bool) ->
             "screen-mode relaunch unsupported on this platform",
         ))
     }
+}
+
+/// The Windows parent has waited out the relaunched child. `process::exit` can block on the
+/// console lock the child inherited, so this uses [`super::exit_timeout::exit_after_restore`].
+fn finish_screen_mode_parent(exit_code: i32) -> io::Result<()> {
+    super::exit_timeout::exit_after_restore(exit_code);
 }
 
 /// Parse a [`GROK_SCREEN_MODE_ENV`] or config `[ui] screen_mode` value (pure; unit-tested directly).

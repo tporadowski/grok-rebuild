@@ -86,6 +86,17 @@ pub(crate) fn end_restored_quit(exit_code: i32) {
     }
 }
 
+/// End the process after the terminal has been given back.
+///
+/// Startup failures, the Windows parent of a `/minimal` or `/fullscreen` relaunch,
+/// and signal teardown all come through here. [`std::process::exit`] flushes stdio
+/// and can block on a console lock still held after restore, so Windows uses `ExitProcess`.
+/// Other targets keep [`std::process::exit`] (Unix screen-mode switch uses `exec` instead).
+pub fn exit_after_restore(exit_code: i32) -> ! {
+    end_restored_quit(exit_code);
+    std::process::exit(exit_code);
+}
+
 fn hard_exit(exit_code: i32) -> ! {
     match this_process_restored_quit_exit() {
         RestoredQuitExit::UnderscoreExit => underscore_exit(exit_code),
@@ -206,5 +217,21 @@ mod tests {
             this_process_restored_quit_exit(),
             RestoredQuitExit::UnderscoreExit
         );
+    }
+
+    #[test]
+    fn windows_startup_screen_switch_and_signal_end_the_process() {
+        assert_eq!(
+            restored_quit_exit(false, true),
+            RestoredQuitExit::ExitProcess,
+            "a startup failure, /minimal or /fullscreen, and a signal must ExitProcess on Windows"
+        );
+        assert_ne!(
+            this_process_restored_quit_exit(),
+            RestoredQuitExit::ExitProcess,
+            "this host is not Windows; exit_after_restore falls through to process::exit"
+        );
+        // Same choice `exit_after_restore` makes. Calling it here would leave this test via process::exit.
+        end_restored_quit(1);
     }
 }

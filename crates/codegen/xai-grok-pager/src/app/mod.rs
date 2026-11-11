@@ -102,6 +102,7 @@ pub(crate) use foreign_sessions::{
     badge_for_picker_source, foreign_tool_display_label, is_foreign_picker_source,
 };
 use ratatui::backend::CrosstermBackend;
+pub use exit_timeout::exit_after_restore;
 pub use startup_failure::StartupFailure;
 use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
