@@ -2502,6 +2502,50 @@ fn delete_remote_session_clears_modal_and_welcome_content_hits() {
 }
 
 #[test]
+fn failed_session_delete_shows_the_prefix_once() {
+    let mut app = test_app_with_agent();
+    let reason = format!(
+        "remote history stayed locked{}",
+        " by the other device".repeat(12)
+    );
+    assert!(
+        reason.chars().count() > 180,
+        "the fixture has to be long enough that the old 180-character cap would drop the tail"
+    );
+    let tail = reason.chars().skip(reason.chars().count() - 24).collect::<String>();
+
+    let _ = dispatch_task_result(
+        TaskResult::DeleteSessionFailed {
+            source: "local".into(),
+            session_id: "s1".into(),
+            error: format!("couldn't delete session: couldn't delete session: {reason}"),
+        },
+        &mut app,
+    );
+    let doubled = read_toast(&app);
+    assert_eq!(doubled, format!("Couldn't delete session: {reason}"));
+    assert!(doubled.contains(&tail), "the tail of the reason was cut: {doubled}");
+    assert_eq!(
+        doubled
+            .to_ascii_lowercase()
+            .matches("couldn't delete session")
+            .count(),
+        1,
+        "{doubled}"
+    );
+
+    let _ = dispatch_task_result(
+        TaskResult::DeleteSessionFailed {
+            source: "local".into(),
+            session_id: "s1".into(),
+            error: reason.clone(),
+        },
+        &mut app,
+    );
+    assert_eq!(read_toast(&app), format!("Couldn't delete session: {reason}"));
+}
+
+#[test]
 fn delete_session_failed_keeps_all_entries() {
     use crate::views::modal::ActiveModal;
     let mut app = test_app_with_agent();

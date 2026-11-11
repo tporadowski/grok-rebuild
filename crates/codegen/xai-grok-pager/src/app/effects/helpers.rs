@@ -468,6 +468,13 @@ pub(crate) fn sanitize_user_error(raw: &str) -> String {
 pub(crate) fn session_load_error_text(raw: &str) -> String {
     sanitize_user_error_inner(raw, false)
 }
+/// Reason text for a failed `x.ai/session/delete`.
+/// The shell puts that reason in ACP `data`. `Display` adds `Internal error:` and JSON quotes.
+/// The 200-character cap would drop the tail before the toast ever sees it.
+pub(crate) fn session_delete_error_text(err: &acp::Error) -> String {
+    let raw = error_data_detail(err).unwrap_or_else(|| err.to_string());
+    session_load_error_text(&raw)
+}
 fn sanitize_user_error_inner(raw: &str, cap: bool) -> String {
     if is_disk_full_error(raw) {
         return xai_fast_worktree::ENOSPC_OS_MESSAGE.to_string();

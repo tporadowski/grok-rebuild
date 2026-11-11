@@ -3129,6 +3129,24 @@ fn session_picker_summary_preserves_normal_text() {
     assert_eq!(display, "Fix authentication bug in login flow");
 }
 #[test]
+fn session_delete_error_keeps_the_whole_reason() {
+    let tail = "lock-id-9f3e".repeat(30);
+    let reason = format!("failed to delete remote session data: {tail}");
+    assert!(reason.chars().count() > 200);
+    let err = acp::Error::internal_error().data(reason.clone());
+    let shown = session_delete_error_text(&err);
+    assert_eq!(shown, reason);
+    assert!(
+        !shown.contains("..."),
+        "the delete reason must not be ellipsized, got {shown}"
+    );
+    assert!(
+        !shown.to_ascii_lowercase().contains("couldn't delete session"),
+        "the toast adds the prefix once, got {shown}"
+    );
+}
+
+#[test]
 fn sanitize_user_error_rewrites_shared_service_names() {
     for (pattern, replacement) in xai_grok_shell::sampling::error::SERVICE_NAME_REWRITES {
         for variant in [pattern.to_string(), pattern.to_ascii_uppercase()] {

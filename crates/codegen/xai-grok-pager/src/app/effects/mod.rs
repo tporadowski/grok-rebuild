@@ -3757,7 +3757,7 @@ pub(crate) fn execute(
                                 return TaskResult::DeleteSessionFailed {
                                     source,
                                     session_id,
-                                    error: msg,
+                                    error: session_load_error_text(&msg),
                                 };
                             }
                             TaskResult::DeleteSessionComplete {
@@ -3770,9 +3770,7 @@ pub(crate) fn execute(
                             TaskResult::DeleteSessionFailed {
                                 source,
                                 session_id,
-                                error: sanitize_user_error(
-                                    &format!("couldn't delete session: {e}"),
-                                ),
+                                error: session_delete_error_text(&e),
                             }
                         }
                     }

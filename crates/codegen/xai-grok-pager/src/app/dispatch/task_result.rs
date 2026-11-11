@@ -454,6 +454,37 @@ pub(crate) fn deliver_doctor_message(app: &mut AppView, preferred: AgentId, mess
         action: None,
     });
 }
+/// Toast for a failed session delete. The prefix is applied once.
+/// A reason that already starts with it is not wrapped again: a second copy
+/// pushed the cause past the toast width and the 200-character error cap.
+fn session_delete_failure_toast(error: &str) -> String {
+    let reason = strip_delete_session_prefix(error.trim());
+    if reason.is_empty() {
+        "Couldn't delete session".to_string()
+    } else {
+        format!("Couldn't delete session: {reason}")
+    }
+}
+
+fn strip_delete_session_prefix(error: &str) -> &str {
+    const MARKER: &str = "couldn't delete session";
+    let mut rest = error;
+    loop {
+        let lower = rest.to_ascii_lowercase();
+        if !lower.starts_with(MARKER) {
+            return rest;
+        }
+        let Some(after) = rest.get(MARKER.len()..) else {
+            return rest;
+        };
+        let after = after.trim_start_matches([':', ' ']).trim();
+        if after.len() == rest.len() {
+            return rest;
+        }
+        rest = after;
+    }
+}
+
 pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec<Effect> {
     let result = match result {
         TaskResult::WithPinnedMemoryMode {
@@ -1631,7 +1662,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
         } => {
             tracing::warn!(source, session_id = %session_id, error = %error, "session delete failed");
             if source != "unused-home" {
-                app.show_toast(&format!("Couldn't delete session: {error}"));
+                app.show_toast(&session_delete_failure_toast(&error));
             }
             vec![]
         }
