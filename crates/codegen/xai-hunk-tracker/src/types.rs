@@ -239,8 +239,8 @@ pub enum HunkAction {
     /// Accept the hunk - update baseline to include this change.
     /// After accept: baseline = current_content for the affected lines.
     Accept,
-    /// Reject the hunk - revert file content back to baseline.
-    /// After reject: file on disk is overwritten with baseline content.
+    /// Reject the hunk - undo it in the working copy.
+    /// A save the tracker missed stays on disk; only the rejected text is removed when it is still there.
     Reject,
 }
 

@@ -355,6 +355,81 @@ pub fn patch_lines(
     output
 }
 
+/// Undo `hunks` in `tracked`. When `disk` is that same snapshot, line numbers
+/// still apply. When the working copy has edits the tracker missed, undo the
+/// agent's text where it still appears and leave every other line alone.
+pub fn revert_rejected_hunks(tracked: &str, disk: &str, hunks: &[Arc<Hunk>]) -> String {
+    let mut ordered = hunks.to_vec();
+    ordered.sort_by_key(|hunk| std::cmp::Reverse(hunk.line_info.new_start));
+    if disk == tracked {
+        let mut current = tracked.to_string();
+        for hunk in &ordered {
+            current = patch_lines(
+                &current,
+                hunk.line_info.new_start,
+                hunk.line_info.new_count,
+                hunk.old_text.as_deref().unwrap_or(""),
+            );
+        }
+        return current;
+    }
+    let mut current = disk.to_string();
+    for hunk in &ordered {
+        current = revert_hunk_on_divergent_copy(tracked, &current, hunk);
+    }
+    current
+}
+
+fn revert_hunk_on_divergent_copy(tracked: &str, disk: &str, hunk: &Hunk) -> String {
+    let old_text = hunk.old_text.as_deref().unwrap_or("");
+    let new_lines: Vec<&str> = hunk.new_text.lines().collect();
+    if !new_lines.is_empty() {
+        let disk_lines: Vec<&str> = disk.lines().collect();
+        if let Some(start) = best_line_window(&disk_lines, &new_lines, hunk.line_info.new_start) {
+            return patch_lines(disk, start.saturating_add(1), new_lines.len(), old_text);
+        }
+        return disk.to_string();
+    }
+    if old_text.is_empty() {
+        return disk.to_string();
+    }
+    let old_lines: Vec<&str> = old_text.lines().collect();
+    let disk_lines: Vec<&str> = disk.lines().collect();
+    if best_line_window(&disk_lines, &old_lines, hunk.line_info.new_start).is_some() {
+        return disk.to_string();
+    }
+    let tracked_lines: Vec<&str> = tracked.lines().collect();
+    let anchor_at = hunk.line_info.new_start.saturating_sub(1);
+    if let Some(anchor) = tracked_lines.get(anchor_at).copied()
+        && let Some(pos) = disk_lines.iter().position(|line| *line == anchor)
+    {
+        return patch_lines(disk, pos.saturating_add(1), 0, old_text);
+    }
+    disk.to_string()
+}
+
+/// Index of `needle` in `lines`, preferring the window nearest `prefer_1indexed`.
+fn best_line_window(lines: &[&str], needle: &[&str], prefer_1indexed: usize) -> Option<usize> {
+    let width = needle.len();
+    if width == 0 || lines.len() < width {
+        return None;
+    }
+    let prefer = prefer_1indexed.saturating_sub(1);
+    let mut best: Option<(usize, usize)> = None;
+    for (index, window) in lines.windows(width).enumerate() {
+        if window == needle {
+            let distance = index.abs_diff(prefer);
+            let closer = best
+                .map(|(best_distance, _)| distance < best_distance)
+                .unwrap_or(true);
+            if closer {
+                best = Some((distance, index));
+            }
+        }
+    }
+    best.map(|(_, index)| index)
+}
+
 /// Compare two hunks to see if they represent the same logical change
 /// (content match, possibly at different positions).
 pub fn hunks_match_content(a: &Hunk, b: &Hunk) -> bool {
@@ -857,5 +932,28 @@ mod tests {
             "Second hunk should be at line 11"
         );
         assert_eq!(second.new_text, "HUNK_C\n", "Second hunk should be HUNK_C");
+    }
+
+    #[test]
+    fn revert_rejected_hunks_keeps_unseen_user_lines() {
+        let tracked = "alpha\nGROK\ngamma\n";
+        let hunks = compute_hunks(
+            Path::new("foo.rs"),
+            "alpha\nbeta\ngamma\n",
+            tracked,
+            agent_source(),
+        );
+        assert_eq!(hunks.len(), 1);
+        let saved = "alpha\nGROK\ngamma\nuser\n";
+        let reverted = revert_rejected_hunks(tracked, saved, &hunks.iter().cloned().map(Arc::new).collect::<Vec<_>>());
+        assert_eq!(reverted, "alpha\nbeta\ngamma\nuser\n");
+
+        let rewritten = "alpha\nMINE\ngamma\n";
+        let kept = revert_rejected_hunks(tracked, rewritten, &hunks.iter().cloned().map(Arc::new).collect::<Vec<_>>());
+        assert_eq!(kept, rewritten);
+
+        let shifted = "header\nalpha\nGROK\ngamma\n";
+        let unshifted = revert_rejected_hunks(tracked, shifted, &hunks.iter().cloned().map(Arc::new).collect::<Vec<_>>());
+        assert_eq!(unshifted, "header\nalpha\nbeta\ngamma\n");
     }
 }

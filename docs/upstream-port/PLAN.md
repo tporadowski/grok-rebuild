@@ -1574,7 +1574,7 @@ id | status | wave | kind | flag | covered | note
 - v74-x30 | done | W14 | Bug Fixes |  |  | **Custom agent files** saved with a UTF-8 byte order mark, as some Windows editors write them, load instead of being skipped.
 - v75-f05 | done | W14 | Features |  |  | **Clicking a link or file that can't open**, such as over SSH with no display, shows why, for example "Can't open links over SSH".
 - v75-x02 | done | W14 | Bug Fixes |  |  | **Stop buttons in the dock** stop a background run while its approval card is open, instead of doing nothing until you answer the card.
-- v75-x03 | pending | W14 | Bug Fixes |  |  | **Rejecting a change** keeps edits you saved to the file yourself, even when Grok missed the save, instead of overwriting them.
+- v75-x03 | done | W14 | Bug Fixes |  |  | **Rejecting a change** keeps edits you saved to the file yourself, even when Grok missed the save, instead of overwriting them.
 - v75-x07 | pending | W14 | Bug Fixes |  |  | **The rewind confirmation** no longer crashes Grok on a short terminal or when you shrink the window while it's open.
 - v75-x08 | pending | W14 | Bug Fixes |  |  | **Footer and status bars** in narrow terminals drop or shorten the items that don't fit, instead of painting them over each other or cutting buttons off.
 - v75-x12 | pending | W14 | Bug Fixes |  |  | **Emoji and keycap symbols** such as `⚠️` or `#️⃣` are measured at the width the terminal draws them, so rows no longer run past their box or lose their `…`.

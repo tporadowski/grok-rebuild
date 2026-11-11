@@ -359,6 +359,65 @@ async fn test_accept_hunk_removes_it() {
     assert!(hunks_after.is_empty(), "Accepted hunk should be removed");
 }
 
+/// The user saved after Grok's edit and the tracker never heard about it.
+/// Reject undoes Grok's lines and leaves the saved lines on disk.
+#[tokio::test]
+async fn reject_keeps_user_edits_when_the_save_was_missed() {
+    let mut harness = TestHarness::new();
+    harness.write_baseline("foo.rs", "alpha\nbeta\ngamma\n");
+    harness.agent_write("foo.rs", "alpha\nGROK\ngamma\n", 0);
+    harness.settle().await;
+
+    let path = harness.working_dir.join("foo.rs");
+    std::fs::write(&path, "alpha\nGROK\ngamma\nuser\n").expect("user save");
+
+    let hunks = harness.get_all_hunks().await;
+    assert_eq!(hunks.len(), 1, "tracker still has only Grok's change");
+    assert!(harness.reject_hunk(&only_item(&hunks).id).await);
+
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        content, "alpha\nbeta\ngamma\nuser\n",
+        "reject restores Grok's line and keeps the save the tracker missed"
+    );
+}
+
+/// The user rewrote the lines Grok changed. Reject must not put the baseline back over that save.
+#[tokio::test]
+async fn reject_does_not_overwrite_lines_the_user_rewrote() {
+    let mut harness = TestHarness::new();
+    harness.write_baseline("foo.rs", "alpha\nbeta\ngamma\n");
+    harness.agent_write("foo.rs", "alpha\nGROK\ngamma\n", 0);
+    harness.settle().await;
+
+    let path = harness.working_dir.join("foo.rs");
+    std::fs::write(&path, "alpha\nMINE\ngamma\n").expect("user rewrite");
+
+    let hunks = harness.get_all_hunks().await;
+    assert!(harness.reject_hunk(&only_item(&hunks).id).await);
+
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(content, "alpha\nMINE\ngamma\n");
+}
+
+/// Rejecting a created file deletes it only when the bytes are still Grok's.
+/// A later save the tracker missed stays on disk.
+#[tokio::test]
+async fn reject_keeps_a_created_file_the_user_saved_into() {
+    let mut harness = TestHarness::new();
+    harness.agent_write("created.rs", "agent\n", 0);
+    harness.settle().await;
+
+    let path = harness.working_dir.join("created.rs");
+    std::fs::write(&path, "agent\nuser\n").expect("user save");
+
+    let hunks = harness.get_all_hunks().await;
+    assert!(harness.reject_hunk(&only_item(&hunks).id).await);
+
+    let content = std::fs::read_to_string(&path).expect("created file must survive");
+    assert_eq!(content, "user\n");
+}
+
 #[tokio::test]
 async fn test_reject_hunk_reverts_file() {
     let mut harness = TestHarness::new();

@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::diff::patch_lines;
+use crate::diff::{patch_lines, revert_rejected_hunks};
 use crate::events::{HunkEvent, HunkRemovalReason};
 use crate::types::{Hunk, HunkAction, HunkActionError, HunkId, HunkLineInfo, HunkSource};
 
@@ -166,131 +166,10 @@ impl HunkTrackerActor {
         Ok(())
     }
 
-    /// Reject a single hunk: patch current content to revert this hunk's changes.
+    /// Reject a single hunk. Shares the batch path so a missed user save is kept there too.
     async fn reject_hunk(&mut self, path: &Path, hunk: &Arc<Hunk>) -> Result<(), HunkActionError> {
-        // First, determine what action to take and collect data
-        enum RejectAction {
-            RestoreDeleted { baseline: String },
-            DeleteCreated,
-            RevertChange { patched: String },
-            NoOp,
-        }
-
-        let action = {
-            let state = self.file_states.get(path);
-            let Some(state) = state else {
-                return Ok(());
-            };
-
-            if matches!(state.current_content, FileContentState::Missing)
-                && matches!(state.baseline, FileContentState::Full(_))
-            {
-                // File was deleted, rejecting restores it
-                if let FileContentState::Full(baseline) = &state.baseline {
-                    RejectAction::RestoreDeleted {
-                        baseline: baseline.clone(),
-                    }
-                } else {
-                    RejectAction::NoOp
-                }
-            } else if matches!(state.baseline, FileContentState::Missing)
-                && matches!(state.current_content, FileContentState::Full(_))
-            {
-                // File was created, rejecting deletes it
-                RejectAction::DeleteCreated
-            } else if let FileContentState::Full(current) = &state.current_content {
-                // Normal case: patch current content to revert this hunk's changes
-                let old_text = hunk.old_text.as_deref().unwrap_or("");
-                let patched = patch_lines(
-                    current,
-                    hunk.line_info.new_start,
-                    hunk.line_info.new_count,
-                    old_text,
-                );
-                RejectAction::RevertChange { patched }
-            } else {
-                RejectAction::NoOp
-            }
-        };
-
-        // Perform file I/O based on the action
-        match &action {
-            RejectAction::RestoreDeleted { baseline } => {
-                tokio::fs::write(path, baseline).await.map_err(|e| {
-                    HunkActionError::WriteError {
-                        path: path.to_path_buf(),
-                        source: e,
-                    }
-                })?;
-            }
-            RejectAction::DeleteCreated => {
-                tokio::fs::remove_file(path)
-                    .await
-                    .map_err(|e| HunkActionError::DeleteError {
-                        path: path.to_path_buf(),
-                        source: e,
-                    })?;
-            }
-            RejectAction::RevertChange { patched } => {
-                tokio::fs::write(path, patched)
-                    .await
-                    .map_err(|e| HunkActionError::WriteError {
-                        path: path.to_path_buf(),
-                        source: e,
-                    })?;
-            }
-            RejectAction::NoOp => return Ok(()),
-        }
-
-        // Update state and collect data for recompute
-        let (should_recompute, current, _source) = {
-            let state = self.file_states.get_mut(path);
-            let Some(state) = state else {
-                return Ok(());
-            };
-
-            match action {
-                RejectAction::RestoreDeleted { baseline } => {
-                    state.current_content = FileContentState::Full(baseline);
-                    state.hunks.retain(|h| h.id != hunk.id);
-                    (false, None, hunk.source)
-                }
-                RejectAction::DeleteCreated => {
-                    state.current_content = FileContentState::Missing;
-                    state.hunks.retain(|h| h.id != hunk.id);
-                    (false, None, hunk.source)
-                }
-                RejectAction::RevertChange { patched } => {
-                    let patched_state = FileContentState::Full(patched);
-                    state.current_content = patched_state.clone();
-                    state.hunks.retain(|h| h.id != hunk.id);
-                    (true, Some(patched_state), hunk.source)
-                }
-                RejectAction::NoOp => return Ok(()),
-            }
-        };
-
-        // Send event after mutable borrow is released
-        self.send_event(HunkEvent::HunkRemoved {
-            path: path.to_path_buf(),
-            hunk_id: hunk.id.clone(),
-            reason: HunkRemovalReason::Rejected,
-        });
-
-        // Recompute remaining hunks
-        if should_recompute {
-            // Use the source of the first remaining hunk if any, else External
-            let remaining_source = self
-                .file_states
-                .get(path)
-                .and_then(|state| state.hunks.first())
-                .map(|h| h.source)
-                .unwrap_or(HunkSource::External);
-
-            self.recompute_hunks(path, current, remaining_source);
-        }
-
-        Ok(())
+        self.reject_hunks_batch(path, std::slice::from_ref(hunk))
+            .await
     }
 
     /// Apply action (accept/reject) to all hunks for a file.
@@ -496,7 +375,8 @@ impl HunkTrackerActor {
     }
 
     /// Reject multiple hunks for a file atomically.
-    /// Patches current content incrementally, then recomputes once.
+    /// Patches the working copy, then recomputes once.
+    /// A save the tracker never saw is the base of that patch, so those edits stay.
     async fn reject_hunks_batch(
         &mut self,
         path: &Path,
@@ -506,111 +386,52 @@ impl HunkTrackerActor {
             return Ok(());
         }
 
-        let Some(state) = self.file_states.get(path) else {
-            return Ok(());
-        };
-
-        if matches!(state.current_content, FileContentState::Missing)
-            && matches!(state.baseline, FileContentState::Full(_))
-        {
-            // File was deleted - restore it
-            if let FileContentState::Full(baseline) = &state.baseline {
-                tokio::fs::write(path, baseline).await.map_err(|e| {
-                    HunkActionError::WriteError {
-                        path: path.to_path_buf(),
-                        source: e,
-                    }
-                })?;
-            }
-
-            let Some(state) = self.file_states.get_mut(path) else {
+        let (current_missing, baseline_missing, current_text, baseline_text) = {
+            let Some(state) = self.file_states.get(path) else {
                 return Ok(());
             };
-            state.current_content = state.baseline.clone();
-            let hunk_ids: Vec<HunkId> = hunks.iter().map(|h| h.id.clone()).collect();
-            state.hunks.retain(|h| !hunk_ids.contains(&h.id));
+            (
+                matches!(state.current_content, FileContentState::Missing),
+                matches!(state.baseline, FileContentState::Missing),
+                match &state.current_content {
+                    FileContentState::Full(text) => Some(text.clone()),
+                    _ => None,
+                },
+                match &state.baseline {
+                    FileContentState::Full(text) => Some(text.clone()),
+                    _ => None,
+                },
+            )
+        };
 
-            for hunk in hunks {
-                self.send_event(HunkEvent::HunkRemoved {
-                    path: path.to_path_buf(),
-                    hunk_id: hunk.id.clone(),
-                    reason: HunkRemovalReason::Rejected,
-                });
-            }
-
-            return Ok(());
-        } else if matches!(state.baseline, FileContentState::Missing)
-            && matches!(state.current_content, FileContentState::Full(_))
-        {
-            // File was created - delete it
-            tokio::fs::remove_file(path)
-                .await
-                .map_err(|e| HunkActionError::DeleteError {
-                    path: path.to_path_buf(),
-                    source: e,
-                })?;
-
-            let Some(state) = self.file_states.get_mut(path) else {
+        let outcome = if current_missing {
+            let Some(baseline) = baseline_text else {
                 return Ok(());
             };
-            state.current_content = FileContentState::Missing;
-            let hunk_ids: Vec<HunkId> = hunks.iter().map(|h| h.id.clone()).collect();
-            state.hunks.retain(|h| !hunk_ids.contains(&h.id));
-
-            for hunk in hunks {
-                self.send_event(HunkEvent::HunkRemoved {
-                    path: path.to_path_buf(),
-                    hunk_id: hunk.id.clone(),
-                    reason: HunkRemovalReason::Rejected,
-                });
-            }
-
-            return Ok(());
-        }
-
-        // Normal case: patch current content to revert all hunks.
-        // The early returns above handle (None, Some) and (Some, None).
-        // If both are non-Full, there's nothing to patch — bail out.
-        let Some(state) = self.file_states.get_mut(path) else {
-            return Ok(());
+            self.reject_deleted_file(path, baseline).await?
+        } else if baseline_missing {
+            let Some(tracked) = current_text else {
+                return Ok(());
+            };
+            self.reject_created_file(path, &tracked, hunks).await?
+        } else {
+            let Some(tracked) = current_text else {
+                return Ok(());
+            };
+            self.reject_text_hunks(path, &tracked, hunks).await?
         };
-
-        let current_content = match &state.current_content {
-            FileContentState::Full(s) => s.clone(),
-            _ => return Ok(()),
-        };
-        let mut current = current_content;
-
-        // Apply patches in reverse order (from end of file to beginning)
-        // to avoid line number shifts
-        let mut sorted_hunks = hunks.to_vec();
-        sorted_hunks.sort_by_key(|h| std::cmp::Reverse(h.line_info.new_start));
-
-        for hunk in &sorted_hunks {
-            let old_text = hunk.old_text.as_deref().unwrap_or("");
-            current = patch_lines(
-                &current,
-                hunk.line_info.new_start,
-                hunk.line_info.new_count,
-                old_text,
-            );
-        }
-
-        // Write patched content
-        tokio::fs::write(path, &current)
-            .await
-            .map_err(|e| HunkActionError::WriteError {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
 
         let Some(state) = self.file_states.get_mut(path) else {
             return Ok(());
         };
-        let current_state = FileContentState::Full(current);
-        state.current_content = current_state.clone();
-        let hunk_ids: Vec<HunkId> = hunks.iter().map(|h| h.id.clone()).collect();
-        state.hunks.retain(|h| !hunk_ids.contains(&h.id));
+        let hunk_ids: Vec<HunkId> = hunks.iter().map(|hunk| hunk.id.clone()).collect();
+        state.hunks.retain(|hunk| !hunk_ids.contains(&hunk.id));
+        let recompute = match outcome {
+            RejectWrite::Set { content, recompute } => {
+                state.current_content = content.clone();
+                recompute.then_some(content)
+            }
+        };
 
         for hunk in hunks {
             self.send_event(HunkEvent::HunkRemoved {
@@ -620,16 +441,141 @@ impl HunkTrackerActor {
             });
         }
 
-        // Recompute remaining hunks
-        let remaining_source = self
-            .file_states
-            .get(path)
-            .and_then(|state| state.hunks.first())
-            .map(|h| h.source)
-            .unwrap_or(HunkSource::External);
-
-        self.recompute_hunks(path, Some(current_state), remaining_source);
+        if let Some(content) = recompute {
+            let remaining_source = self
+                .file_states
+                .get(path)
+                .and_then(|state| state.hunks.first())
+                .map(|hunk| hunk.source)
+                .unwrap_or(HunkSource::External);
+            self.recompute_hunks(path, Some(content), remaining_source);
+        }
 
         Ok(())
     }
+
+    /// The file is gone in the tracker. Restore the baseline unless the user saved a copy we missed.
+    async fn reject_deleted_file(
+        &self,
+        path: &Path,
+        baseline: String,
+    ) -> Result<RejectWrite, HunkActionError> {
+        match super::file_utils::read_file_bounded(path).await {
+            FileContentState::Missing => {
+                tokio::fs::write(path, &baseline)
+                    .await
+                    .map_err(|source| HunkActionError::WriteError {
+                        path: path.to_path_buf(),
+                        source,
+                    })?;
+                Ok(RejectWrite::Set {
+                    content: FileContentState::Full(baseline),
+                    recompute: false,
+                })
+            }
+            FileContentState::Full(text) => Ok(RejectWrite::Set {
+                content: FileContentState::Full(text),
+                recompute: true,
+            }),
+            other => Ok(RejectWrite::Set {
+                content: other,
+                recompute: true,
+            }),
+        }
+    }
+
+    /// The file did not exist at baseline. Delete it only when disk still matches the tracked create.
+    async fn reject_created_file(
+        &self,
+        path: &Path,
+        tracked: &str,
+        hunks: &[Arc<Hunk>],
+    ) -> Result<RejectWrite, HunkActionError> {
+        match super::file_utils::read_file_bounded(path).await {
+            FileContentState::Full(text) if text == tracked => {
+                tokio::fs::remove_file(path)
+                    .await
+                    .map_err(|source| HunkActionError::DeleteError {
+                        path: path.to_path_buf(),
+                        source,
+                    })?;
+                Ok(RejectWrite::Set {
+                    content: FileContentState::Missing,
+                    recompute: false,
+                })
+            }
+            FileContentState::Full(text) => {
+                let patched = revert_rejected_hunks(tracked, &text, hunks);
+                if patched.is_empty() {
+                    match tokio::fs::remove_file(path).await {
+                        Ok(()) => {}
+                        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(source) => {
+                            return Err(HunkActionError::DeleteError {
+                                path: path.to_path_buf(),
+                                source,
+                            });
+                        }
+                    }
+                    return Ok(RejectWrite::Set {
+                        content: FileContentState::Missing,
+                        recompute: false,
+                    });
+                }
+                if patched != text {
+                    tokio::fs::write(path, &patched)
+                        .await
+                        .map_err(|source| HunkActionError::WriteError {
+                            path: path.to_path_buf(),
+                            source,
+                        })?;
+                }
+                Ok(RejectWrite::Set {
+                    content: FileContentState::Full(patched),
+                    recompute: true,
+                })
+            }
+            FileContentState::Missing => Ok(RejectWrite::Set {
+                content: FileContentState::Missing,
+                recompute: false,
+            }),
+            other => Ok(RejectWrite::Set {
+                content: other,
+                recompute: true,
+            }),
+        }
+    }
+
+    /// Undo the hunks in the working copy. Tracked text is used only when disk matches it.
+    async fn reject_text_hunks(
+        &self,
+        path: &Path,
+        tracked: &str,
+        hunks: &[Arc<Hunk>],
+    ) -> Result<RejectWrite, HunkActionError> {
+        let disk_text = match super::file_utils::read_file_bounded(path).await {
+            FileContentState::Full(text) => text,
+            _ => tracked.to_string(),
+        };
+        let patched = revert_rejected_hunks(tracked, &disk_text, hunks);
+        if patched != disk_text {
+            tokio::fs::write(path, &patched)
+                .await
+                .map_err(|source| HunkActionError::WriteError {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
+        }
+        Ok(RejectWrite::Set {
+            content: FileContentState::Full(patched),
+            recompute: true,
+        })
+    }
+}
+
+enum RejectWrite {
+    Set {
+        content: FileContentState,
+        recompute: bool,
+    },
 }
