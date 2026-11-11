@@ -13,6 +13,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 use xai_ratatui_inline::LinkSpan;
 
+use crate::render::SafeBuf;
 use crate::theme::Theme;
 
 mod sanitize;
@@ -183,15 +184,61 @@ pub fn render_status_line(
         ..area
     };
 
+    if let StatusLineDisplay::Segments(segs) = display {
+        let line = fit_status_segments(segs, width as usize, theme);
+        buf.set_line_safe(area.x, area.y, &line, width);
+        return Vec::new();
+    }
+
     let (lines, links) = styled_lines(display, theme);
     let mut kept = Vec::with_capacity(lines.len());
     for (offset, line) in lines.iter().take(area.height as usize).enumerate() {
         // `set_line` clips silently, turning `100% ctx` into `10`, so mark the cut.
         let (line, columns) = elide(line, width as usize);
         kept.push(columns);
-        buf.set_line(area.x, area.y + offset as u16, &line, width);
+        buf.set_line_safe(area.x, area.y.saturating_add(offset as u16), &line, width);
     }
     project_links(area, links, &kept)
+}
+
+/// Keep whole builtin segments. Shorten the first one that does not fit, and do not leave a separator in front of a segment that was dropped.
+fn fit_status_segments(segs: &[StatusSegment], width: usize, theme: &Theme) -> Line<'static> {
+    let sep_columns = painted_width(SEGMENT_SEPARATOR);
+    let sep_style = theme.dim();
+    let mut used = 0usize;
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (idx, seg) in segs.iter().enumerate() {
+        let sep = if idx > 0 { sep_columns } else { 0 };
+        let text_columns = painted_width(&seg.text);
+        let room = width.saturating_sub(used);
+        let style = match seg.tone {
+            SegmentTone::Dim => theme.muted(),
+            SegmentTone::Warn => theme.fg(theme.warning),
+        };
+        if sep.saturating_add(text_columns) <= room {
+            if sep > 0 {
+                spans.push(Span::styled(SEGMENT_SEPARATOR, sep_style));
+                used = used.saturating_add(sep);
+            }
+            spans.push(Span::styled(seg.text.clone(), style));
+            used = used.saturating_add(text_columns);
+            continue;
+        }
+        let body_room = room.saturating_sub(sep);
+        if body_room < 2 {
+            break;
+        }
+        let short = fit_columns(&seg.text, body_room);
+        if short.is_empty() {
+            break;
+        }
+        if sep > 0 {
+            spans.push(Span::styled(SEGMENT_SEPARATOR, sep_style));
+        }
+        spans.push(Span::styled(short.into_owned(), style));
+        break;
+    }
+    Line::from(spans)
 }
 
 /// The row a `command` script is told it has, in `COLUMNS` and `LINES`.

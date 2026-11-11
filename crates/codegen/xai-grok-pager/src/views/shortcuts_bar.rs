@@ -206,7 +206,7 @@ impl Widget for ShortcutsBar<'_> {
             .fg(theme.gray)
             .remove_modifier(Modifier::all());
         // Clear both content and style: set_style only patches style and would leave old text from previous renders
-        for x in area.x..area.x + area.width {
+        for x in area.x..area.right() {
             if let Some(cell) = buf.cell_mut((x, area.y)) {
                 cell.reset();
                 cell.set_style(bg_style);
@@ -229,22 +229,15 @@ impl Widget for ShortcutsBar<'_> {
         if let Some(pending) = &self.pending_confirmation {
             let key_text = pending.shortcut.display();
             let label = format!("press again to {}", pending.label);
-
-            let mut x = area.x;
-
-            let key_span = Span::styled(&key_text, key_style);
-            let key_width = key_text.width() as u16;
-            buf.set_span(x, area.y, &key_span, key_width);
-            x += key_width;
-
-            let colon = Span::styled(":", action_style);
-            buf.set_span(x, area.y, &colon, 1);
-            x += 1;
-
-            let action_span = Span::styled(&label, action_style);
-            let action_width = label.width() as u16;
-            buf.set_span(x, area.y, &action_span, action_width);
-            let _ = x + action_width; // suppress unused
+            paint_fitted_hint(
+                buf,
+                area,
+                area.x,
+                &key_text,
+                &label,
+                key_style,
+                action_style,
+            );
             return;
         }
 
@@ -259,52 +252,114 @@ impl Widget for ShortcutsBar<'_> {
         let effective = compute_effective_hints(self.hints, self.compact.as_ref());
 
         for (i, hint) in effective.iter().enumerate() {
-            if i > 0 {
+            let sep_width = if i > 0 { HINT_GAP_WIDTH } else { 0 };
+            let room = area.right().saturating_sub(x);
+            if room <= sep_width {
+                break;
+            }
+            let body_room = room - sep_width;
+            let key_text = hint.bar_key_display();
+            let key_width = key_text.width() as u16;
+            let label_width = hint.label.width() as u16;
+            let full = key_width.saturating_add(1).saturating_add(label_width);
+            if full > body_room && key_width.saturating_add(2) > body_room {
+                // Not enough for the key, the colon, and an ellipsis. Drop the hint whole.
+                break;
+            }
+            if sep_width > 0 {
                 let sep = Span::styled("  │  ", sep_style);
-                let sep_width = 5u16;
-                if x + sep_width > area.x + area.width {
-                    break;
-                }
                 buf.set_span(x, area.y, &sep, sep_width);
-                x += sep_width;
+                x = x.saturating_add(sep_width);
             }
-
-            let key_width = hint.bar_key_display().width() as u16;
-            if x + key_width > area.x + area.width {
+            if full <= body_room {
+                x = paint_hint_keys(buf, x, area.y, hint, key_style, action_style);
+                let colon = Span::styled(":", action_style);
+                buf.set_span(x, area.y, &colon, 1);
+                x = x.saturating_add(1);
+                let action_span = Span::styled(hint.label.as_ref(), action_style);
+                buf.set_span(x, area.y, &action_span, label_width);
+                x = x.saturating_add(label_width);
+            } else {
+                x = paint_fitted_hint(
+                    buf,
+                    area,
+                    x,
+                    &key_text,
+                    hint.label.as_ref(),
+                    key_style,
+                    action_style,
+                );
                 break;
             }
-            x = paint_hint_keys(buf, x, area.y, hint, key_style, action_style);
-
-            let colon = Span::styled(":", action_style);
-            if x + 1 > area.x + area.width {
-                break;
-            }
-            buf.set_span(x, area.y, &colon, 1);
-            x += 1;
-
-            let action_span = Span::styled(hint.label.as_ref(), action_style);
-            let action_width = hint.label.width() as u16;
-            if x + action_width > area.x + area.width {
-                break;
-            }
-            buf.set_span(x, area.y, &action_span, action_width);
-            x += action_width;
         }
 
-        // Right-aligned text (team name etc.)
+        // Right-aligned text (team name etc.). Shorten it into the gap that is left; never paint over a hint.
         if let Some(text) = self.right_text {
             let right_style = theme.muted().bg(theme.bg_base);
-            let display = format!("{text} ");
-            let rw = display.width() as u16;
-            if rw > 0 && rw < area.width {
-                let rx = area.x + area.width.saturating_sub(rw);
-                if rx > x + 1 {
-                    let right_span = Span::styled(display, right_style);
-                    buf.set_span(rx, area.y, &right_span, rw);
+            let gap_start = x.saturating_add(2);
+            if gap_start < area.right() {
+                let gap = area.right().saturating_sub(gap_start) as usize;
+                let display = format!("{text} ");
+                let shown = crate::util::truncate_to_width(&display, gap);
+                let rw = shown.width() as u16;
+                if rw > 0 {
+                    let rx = area.right().saturating_sub(rw);
+                    if rx >= gap_start {
+                        let right_span = Span::styled(shown.as_ref(), right_style);
+                        buf.set_span(rx, area.y, &right_span, rw);
+                    }
                 }
             }
         }
     }
+}
+
+const HINT_GAP_WIDTH: u16 = 5;
+
+/// Paint `key:label`, shortening the label (then the key) so the write stays inside `area`.
+fn paint_fitted_hint(
+    buf: &mut Buffer,
+    area: Rect,
+    x: u16,
+    key_text: &str,
+    label: &str,
+    key_style: Style,
+    action_style: Style,
+) -> u16 {
+    let room = area.right().saturating_sub(x) as usize;
+    if room == 0 {
+        return x;
+    }
+    let key_width = key_text.width();
+    let label_width = label.width();
+    if key_width.saturating_add(1).saturating_add(label_width) <= room {
+        let mut cursor = x;
+        cursor = paint_key_run(buf, cursor, area.y, key_text, key_style);
+        let colon = Span::styled(":", action_style);
+        buf.set_span(cursor, area.y, &colon, 1);
+        cursor = cursor.saturating_add(1);
+        let action_span = Span::styled(label, action_style);
+        buf.set_span(cursor, area.y, &action_span, label_width as u16);
+        return cursor.saturating_add(label_width as u16);
+    }
+    if key_width.saturating_add(2) <= room {
+        let mut cursor = x;
+        cursor = paint_key_run(buf, cursor, area.y, key_text, key_style);
+        let colon = Span::styled(":", action_style);
+        buf.set_span(cursor, area.y, &colon, 1);
+        cursor = cursor.saturating_add(1);
+        let budget = area.right().saturating_sub(cursor) as usize;
+        let short = crate::util::truncate_to_width(label, budget);
+        let short_width = short.width() as u16;
+        let action_span = Span::styled(short.as_ref(), action_style);
+        buf.set_span(cursor, area.y, &action_span, short_width);
+        return cursor.saturating_add(short_width);
+    }
+    let short = crate::util::truncate_to_width(key_text, room);
+    let short_width = short.width() as u16;
+    let key_span = Span::styled(short.as_ref(), key_style);
+    buf.set_span(x, area.y, &key_span, short_width);
+    x.saturating_add(short_width)
 }
 
 fn paint_key_run(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style) -> u16 {
@@ -738,5 +793,75 @@ mod tests {
         assert_eq!(f.symbol(), "F");
         assert_eq!(f.style().fg, Some(key_fg));
         assert!(f.style().add_modifier.contains(Modifier::BOLD));
+    }
+
+    fn row_text(buf: &Buffer, width: u16) -> String {
+        row_text_from(buf, 0, width)
+    }
+
+    fn row_text_from(buf: &Buffer, start: u16, end: u16) -> String {
+        (start..end)
+            .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol()))
+            .collect()
+    }
+
+    #[test]
+    fn narrow_footer_shortens_the_label_and_keeps_the_key() {
+        let hints = [h("send", key!('x', CONTROL))];
+        let area = Rect::new(0, 0, 10, 1);
+        let mut buf = Buffer::empty(area);
+        ShortcutsBar::new(&hints).render(area, &mut buf);
+        let text = row_text(&buf, area.width);
+        assert!(
+            text.starts_with("Ctrl+x:"),
+            "the key stays whole: {text:?}"
+        );
+        assert!(text.contains('\u{2026}'), "the label is shortened: {text:?}");
+        assert!(
+            !text.contains("send"),
+            "the full label must not run past the row: {text:?}"
+        );
+    }
+
+    #[test]
+    fn narrow_footer_drops_a_hint_that_does_not_fit() {
+        let hints = [h("aa", key!('a')), h("bbbbbbbb", key!('b'))];
+        let area = Rect::new(0, 0, 8, 1);
+        let mut buf = Buffer::empty(area);
+        ShortcutsBar::new(&hints).render(area, &mut buf);
+        let text = row_text(&buf, area.width);
+        assert!(text.contains("a:aa"), "the hint that fits stays: {text:?}");
+        assert!(
+            !text.contains('b'),
+            "the next hint is dropped whole: {text:?}"
+        );
+        assert!(
+            !text.contains('│'),
+            "a dropped hint leaves no separator: {text:?}"
+        );
+    }
+
+    #[test]
+    fn narrow_footer_does_not_paint_the_team_name_over_a_hint() {
+        let hints = [h("send", key!('x', CONTROL))];
+        let area = Rect::new(0, 0, 16, 1);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 24, 1));
+        ShortcutsBar::new(&hints)
+            .with_right_text(Some("TEAMNAME"))
+            .render(area, &mut buf);
+        let text = row_text(&buf, area.width);
+        assert!(
+            text.starts_with("Ctrl+x:send"),
+            "the hint is not overwritten: {text:?}"
+        );
+        assert!(
+            text.contains('\u{2026}'),
+            "the team name shortens into the leftover gap: {text:?}"
+        );
+        let past = row_text_from(&buf, area.width, buf.area.width);
+        assert!(
+            past.trim().is_empty(),
+            "nothing spills past the footer: {past:?}"
+        );
     }
 }

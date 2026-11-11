@@ -18,6 +18,8 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::render::SafeBuf;
+
 use super::context_bar::SEPARATOR;
 use super::turn_status::SPINNER_DIVISOR;
 use crate::app::agent::{GoalDisplayPhase, GoalDisplayState, GoalDisplayStatus};
@@ -78,16 +80,45 @@ impl<'a> AgentStatusBar<'a> {
 
     /// Columns the group occupies: items plus the separators between them.
     fn width(&self) -> u16 {
-        let items: u16 = self.items.iter().map(|e| e.width).sum();
-        let seps = (self.items.len() as u16).saturating_sub(1);
-        items + seps * SEPARATOR_WIDTH
+        let mut total = 0u16;
+        for (i, entry) in self.items.iter().enumerate() {
+            if i > 0 {
+                total = total.saturating_add(SEPARATOR_WIDTH);
+            }
+            total = total.saturating_add(entry.width);
+        }
+        total
     }
 
     /// Render all items right-aligned into the given area. Layout: `··· item0 │ item1 │ item2`;
     /// separators appear only between items, never before the first or after the last. Returns a map
     /// from item ID to screen `Rect` for hit-testing.
-    pub fn render(self, buf: &mut Buffer, area: Rect) -> HashMap<&'static str, Rect> {
+    pub fn render(mut self, buf: &mut Buffer, area: Rect) -> HashMap<&'static str, Rect> {
         if area.height == 0 || area.width == 0 || self.items.is_empty() {
+            return HashMap::new();
+        }
+
+        // Drop chips from the left until the rest fit, then shorten the last one.
+        // A narrow row used to start at column 0 and clip the right-hand button.
+        let budget = area.width.saturating_sub(self.right_pad);
+        if budget == 0 {
+            return HashMap::new();
+        }
+        while self.items.len() > 1 && self.width() > budget {
+            self.items.remove(0);
+        }
+        if self.width() > budget
+            && let Some(entry) = self.items.last_mut()
+        {
+            let line = crate::render::line_utils::truncate_line(
+                std::mem::replace(&mut entry.line, Line::from("")),
+                budget as usize,
+            );
+            entry.width = line.width() as u16;
+            entry.line = line;
+        }
+        self.items.retain(|entry| entry.width > 0);
+        if self.items.is_empty() {
             return HashMap::new();
         }
 
@@ -99,7 +130,7 @@ impl<'a> AgentStatusBar<'a> {
         // Right-align: compute starting x
         let start_x = area
             .x
-            .saturating_add(area.width.saturating_sub(self.right_pad + self.width()));
+            .saturating_add(area.width.saturating_sub(self.right_pad.saturating_add(self.width())));
 
         let mut x = start_x;
         let mut areas = HashMap::new();
@@ -107,22 +138,28 @@ impl<'a> AgentStatusBar<'a> {
         for (i, entry) in self.items.iter().enumerate() {
             // Separator before every item except the first.
             if i > 0 {
-                buf.set_span(x, area.y, &sep, sep_w);
-                x += sep_w;
+                if x.saturating_add(sep_w) > area.right() {
+                    break;
+                }
+                buf.set_span_safe(x, area.y, &sep, sep_w);
+                x = x.saturating_add(sep_w);
             }
 
-            // Render item
-            buf.set_line(x, area.y, &entry.line, entry.width);
+            let width = entry.width.min(area.right().saturating_sub(x));
+            if width == 0 {
+                break;
+            }
+            buf.set_line_safe(x, area.y, &entry.line, width);
             areas.insert(
                 entry.id,
                 Rect {
                     x,
                     y: area.y,
-                    width: entry.width,
+                    width,
                     height: 1,
                 },
             );
-            x += entry.width;
+            x = x.saturating_add(width);
         }
 
         areas
@@ -909,5 +946,57 @@ mod tests {
             .collect();
         assert_eq!(row.trim(), "XX");
         assert!(!row.contains(SEPARATOR));
+    }
+
+    fn row_text(buf: &Buffer, width: u16) -> String {
+        (0..width)
+            .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol()))
+            .collect()
+    }
+
+    #[test]
+    fn narrow_status_bar_drops_the_left_chip_and_keeps_the_button_whole() {
+        let theme = Theme::current();
+        let mut bar = AgentStatusBar::new(&theme);
+        bar.push("left", Line::from("LEFTCHIP"));
+        bar.push("dashboard", Line::from("[Dashboard]"));
+        let area = Rect::new(0, 0, 14, 1);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 24, 1));
+        let areas = bar.render(&mut buf, area);
+
+        assert!(areas.get("left").is_none(), "the chip that does not fit is dropped");
+        let button = areas.get("dashboard").copied().expect("button stays");
+        assert!(
+            button.x + button.width <= area.right(),
+            "button {button:?} must stay inside the row"
+        );
+        assert_eq!(button.width, "[Dashboard]".len() as u16);
+        let row = row_text(&buf, area.width);
+        assert!(row.contains("[Dashboard]"), "{row}");
+        assert!(!row.contains("LEFT"), "dropped chip must not be painted: {row}");
+        let past = row_text(&buf, buf.area.width);
+        assert!(
+            !past[area.width as usize..].contains('['),
+            "the button must not spill past the row: {past:?}"
+        );
+    }
+
+    #[test]
+    fn narrow_status_bar_shortens_a_chip_that_is_wider_than_the_row() {
+        let theme = Theme::current();
+        let mut bar = AgentStatusBar::new(&theme);
+        bar.push("context", Line::from("1234567890 tokens"));
+        let area = Rect::new(0, 0, 8, 1);
+        let mut buf = Buffer::empty(area);
+        let areas = bar.render(&mut buf, area);
+        let row = row_text(&buf, area.width);
+        assert!(row.contains('\u{2026}'), "a shortened chip marks the cut: {row}");
+        assert!(
+            !row.contains("tokens"),
+            "the chip is shortened instead of running off the row: {row}"
+        );
+        let chip = areas.get("context").copied().expect("chip stays");
+        assert!(chip.x + chip.width <= area.right());
+        assert!(chip.width <= area.width);
     }
 }

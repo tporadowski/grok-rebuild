@@ -13,6 +13,12 @@ fn buffer_line(buf: &Buffer, y: u16) -> String {
         .collect()
 }
 
+fn cells_between(buf: &Buffer, start: u16, end: u16) -> String {
+    (start..end)
+        .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol()))
+        .collect()
+}
+
 #[test]
 fn a_builtin_row_separates_its_segments_and_colours_the_warning() {
     let mut buf = Buffer::empty(Rect::new(0, 0, 40, 1));
@@ -41,6 +47,43 @@ fn a_builtin_row_separates_its_segments_and_colours_the_warning() {
         buf.cell((warn_at as u16, 0)).map(|c| c.fg),
         Some(theme.warning),
         "a segment near the compaction threshold has to stand out"
+    );
+}
+
+#[test]
+fn narrow_builtin_row_shortens_one_segment_and_drops_the_next() {
+    let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
+    let area = Rect::new(0, 0, 10, 1);
+    let theme = Theme::tokyonight();
+    let display = StatusLineDisplay::Segments(vec![
+        StatusSegment {
+            text: "grok-rebuild".into(),
+            tone: SegmentTone::Dim,
+        },
+        StatusSegment {
+            text: "90% ctx".into(),
+            tone: SegmentTone::Warn,
+        },
+    ]);
+    let _ = render_status_line(&mut buf, area, &display, 0, &theme);
+    let painted = cells_between(&buf, 0, area.width);
+    let painted = painted.trim_end();
+    assert!(
+        painted.contains('\u{2026}'),
+        "the segment that does not fit is shortened: {painted:?}"
+    );
+    assert!(
+        !painted.contains("90%"),
+        "the next segment is dropped rather than cut into the first: {painted:?}"
+    );
+    assert!(
+        !painted.contains('│'),
+        "a dropped segment leaves no separator: {painted:?}"
+    );
+    let past = cells_between(&buf, area.width, buf.area.width);
+    assert!(
+        past.trim().is_empty(),
+        "the row does not paint past its rect: {past:?}"
     );
 }
 
