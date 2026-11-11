@@ -939,15 +939,21 @@ impl TasksPane {
         );
         (count as u16).min(max).max(1) + bar
     }
+    /// Advance the spinner clock. The glyph changes every [`SPINNER_DIVISOR`]
+    /// ticks, and a closed pane is not on screen, so the frames in between
+    /// do not ask for a redraw.
     pub fn tick(&mut self) -> bool {
-        self.tick += 1;
-        self.entries.iter().any(|e| e.is_running())
+        self.tick = self.tick.wrapping_add(1);
+        self.overlay.visible
+            && self.tick % SPINNER_DIVISOR == 0
+            && self.entries.iter().any(|e| e.is_running())
     }
     pub fn tick_count(&self) -> u64 {
         self.tick
     }
+    /// A closed list does not keep the frame loop awake.
     pub fn needs_tick(&self) -> bool {
-        self.entries.iter().any(|e| e.is_running())
+        self.overlay.visible && self.entries.iter().any(|e| e.is_running())
     }
     pub fn handle_key(&mut self, key: &KeyEvent) -> bool {
         if crate::key!('h').matches(key) && self.list_state.input_mode().is_none() {
@@ -1664,6 +1670,30 @@ mod tests {
             restored_from_replay: false,
         }
     }
+    /// The tasks spinner steps every fourth tick. A closed pane is not on
+    /// screen, so it neither redraws nor keeps the frame loop awake.
+    #[test]
+    fn running_task_row_redraws_on_spinner_frames() {
+        let mut pane = TasksPane::new();
+        let mut subs = HashMap::new();
+        subs.insert("sa-1".into(), make_info());
+        pane.sync(&BTreeMap::new(), &subs, &HashMap::new(), &[]);
+        assert!(pane.is_visible(), "a new running subagent opens the pane");
+        assert!(pane.needs_tick());
+        let mut redraws = 0u32;
+        let frames = SPINNER_DIVISOR * 3;
+        for _ in 0..frames {
+            if pane.tick() {
+                redraws += 1;
+            }
+        }
+        assert_eq!(redraws, 3, "spinner frames only, not all {frames} ticks");
+        assert_eq!(pane.tick_count(), u64::from(frames));
+        pane.overlay.hide();
+        assert!(!pane.needs_tick(), "a closed pane must not demand wakes");
+        assert!(!pane.tick(), "a closed pane must not request a redraw");
+    }
+
     #[test]
     fn line_badge_empty_for_zero() {
         assert_eq!(format_line_count_badge(0, false), "");

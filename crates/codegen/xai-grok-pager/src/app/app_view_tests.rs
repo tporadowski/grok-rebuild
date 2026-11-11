@@ -860,6 +860,91 @@ fn refresh_content_tick_keeps_the_match_while_output_streams() {
         "tick() must count streamed output without leaving the current match; count={last_count} entry={last_entry:?} kept={second:?}"
     );
 }
+/// A background subagent's running row is in *its* viewport, not the one on
+/// screen. The parent turn spinner still repaints on its existing cadence
+/// (`SPINNER_DIVISOR`), not on every 30fps wake.
+#[test]
+fn hidden_subagent_repaint_follows_the_spinner_not_the_frame() {
+    use crate::app::agent_view::test_fixtures::make_agent;
+    use crate::scrollback::block::RenderBlock;
+    use crate::views::turn_status::SPINNER_DIVISOR;
+
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.session.state = AgentState::TurnRunning;
+        let mut child = make_agent();
+        child
+            .scrollback
+            .push_block(RenderBlock::agent_message("still working"));
+        child.scrollback.set_last_running(true);
+        assert!(
+            child.scrollback.needs_animation(),
+            "no layout yet — the hidden child would otherwise redraw every tick"
+        );
+        agent.insert_test_child("child-1".into(), Box::new(child));
+        assert!(agent.active_subagent.is_none());
+    }
+    assert_eq!(app.tick_demand(), TickDemand::Fast);
+    // First tick settles the status line and starts the animation clock at 1.
+    let _ = app.tick();
+    let mut redraws = 0u32;
+    let frames = SPINNER_DIVISOR * 3;
+    for _ in 0..frames {
+        if app.tick() {
+            redraws += 1;
+        }
+    }
+    assert_eq!(
+        redraws, 3,
+        "no visible running row: redraw on spinner frames only, not all {frames} wakes"
+    );
+    let child_tick = app
+        .agents
+        .get(&id)
+        .unwrap()
+        .subagent_view("child-1")
+        .unwrap()
+        .scrollback
+        .animation_tick();
+    assert_eq!(
+        child_tick,
+        u64::from(frames) + 1,
+        "the hidden child still advances so its flash and viewport stay current"
+    );
+}
+
+/// Opening that subagent puts its running row on screen, so the wave repaints
+/// on every wake again.
+#[test]
+fn open_subagent_running_row_repaints_every_tick() {
+    use crate::app::agent_view::test_fixtures::make_agent;
+    use crate::scrollback::block::RenderBlock;
+
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.session.state = AgentState::TurnRunning;
+        let mut child = make_agent();
+        child
+            .scrollback
+            .push_block(RenderBlock::agent_message("still working"));
+        child.scrollback.set_last_running(true);
+        agent.insert_test_child("child-1".into(), Box::new(child));
+        agent.active_subagent = Some("child-1".into());
+    }
+    let _ = app.tick();
+    let mut redraws = 0u32;
+    for _ in 0..8 {
+        if app.tick() {
+            redraws += 1;
+        }
+    }
+    assert_eq!(redraws, 8, "a visible running row repaints every wake");
+}
+
 #[test]
 fn tick_demand_fast_while_wake_turn_streams() {
     let mut app = test_app_with_agent();

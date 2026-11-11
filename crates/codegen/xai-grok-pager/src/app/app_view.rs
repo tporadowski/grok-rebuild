@@ -5520,22 +5520,36 @@ impl AppView {
         if let ActiveView::Agent(id) = self.active_view
             && let Some(agent) = self.agents.get_mut(&id)
         {
-            needs_redraw |= agent.scrollback.tick();
+            // A hidden subagent follows its own bottom, so its running row is
+            // "in viewport" for a transcript the user is not looking at. Advance
+            // that state every tick, but repaint only the surface on screen.
+            // With no running row there, the turn spinner already asks for a
+            // frame every `SPINNER_DIVISOR` ticks (~7.5Hz at the 30fps wake).
+            let visible_child = agent.active_subagent.clone();
+            let parent_on_screen = visible_child.is_none();
+            let parent_scrollback_redraw = agent.scrollback.tick();
             needs_redraw |= agent.todo.list_state.tick();
-            needs_redraw |= agent.tasks.tick();
+            let tasks_redraw = agent.tasks.tick();
             needs_redraw |= agent.resize_preview_needs_tick();
-            for child_view in agent.subagent_views.values_mut() {
-                needs_redraw |= child_view.scrollback.tick();
-                needs_redraw |= child_view.tick_toast();
-                needs_redraw |= child_view.tick_ephemeral_tip();
-                needs_redraw |= child_view.tick_mode_banner();
-                needs_redraw |= child_view.tick_selection_highlight();
-                needs_redraw |= child_view.tick_drag_autoscroll();
-                needs_redraw |= child_view.poll_link_modifier();
-                needs_redraw |= child_view.poll_scrollback_search();
-                needs_redraw |= child_view.mermaid_tick();
-                needs_redraw |= Self::tick_agent_image_load(child_view);
-                needs_redraw |= Self::tick_agent_block_viewer(child_view);
+            if parent_on_screen {
+                needs_redraw |= parent_scrollback_redraw;
+                needs_redraw |= tasks_redraw;
+            }
+            for (sid, child_view) in agent.subagent_views.iter_mut() {
+                let mut child_redraw = child_view.scrollback.tick();
+                child_redraw |= child_view.tick_toast();
+                child_redraw |= child_view.tick_ephemeral_tip();
+                child_redraw |= child_view.tick_mode_banner();
+                child_redraw |= child_view.tick_selection_highlight();
+                child_redraw |= child_view.tick_drag_autoscroll();
+                child_redraw |= child_view.poll_link_modifier();
+                child_redraw |= child_view.poll_scrollback_search();
+                child_redraw |= child_view.mermaid_tick();
+                child_redraw |= Self::tick_agent_image_load(child_view);
+                child_redraw |= Self::tick_agent_block_viewer(child_view);
+                if visible_child.as_deref() == Some(sid.as_str()) {
+                    needs_redraw |= child_redraw;
+                }
             }
             let spinner_frame_tick =
                 agent.scrollback.animation_tick() % crate::views::turn_status::SPINNER_DIVISOR == 0;
