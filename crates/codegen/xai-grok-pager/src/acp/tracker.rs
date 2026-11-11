@@ -2472,7 +2472,7 @@ fn tool_call_to_block(
         _ if canonical_tool_name(tc)
             == Some(xai_grok_tools::implementations::grok_build::SEND_FEEDBACK_TOOL_NAME) =>
         {
-            let mut block = OtherToolCallBlock::new("Feedback drafted", String::new());
+            let mut block = OtherToolCallBlock::new(feedback_draft_row_name(tc), String::new());
             if !success {
                 let error = content_text(tc);
                 block.error = Some(if error.is_empty() {
@@ -2586,6 +2586,39 @@ fn tool_call_to_block(
         }
     }
 }
+/// Row title for `send_feedback`: drafted, declined, cancelled, or failed.
+/// A non-failed call stays drafted. Cancelled is checked before declined because a
+/// cancel notice can also say the tool was not executed.
+fn feedback_draft_row_name(tc: &acp::ToolCall) -> &'static str {
+    if !matches!(tc.status, acp::ToolCallStatus::Failed) {
+        return "Feedback drafted";
+    }
+    let detail = feedback_failure_detail(tc).to_ascii_lowercase();
+    if detail.contains("cancel") {
+        "Feedback cancelled"
+    } else if detail.contains("declin")
+        || detail.contains("reject")
+        || detail.contains("not executed")
+    {
+        "Feedback declined"
+    } else {
+        "Feedback failed"
+    }
+}
+
+/// Error code, raw message, and content text that classify a failed feedback draft.
+fn feedback_failure_detail(tc: &acp::ToolCall) -> String {
+    let mut parts = Vec::new();
+    if let Some(raw) = &tc.raw_output {
+        parts.push(raw.to_string());
+    }
+    let text = content_text(tc);
+    if !text.is_empty() {
+        parts.push(text);
+    }
+    parts.join("\n")
+}
+
 fn canonical_tool_name(tc: &acp::ToolCall) -> Option<&str> {
     tc.meta
         .as_ref()?

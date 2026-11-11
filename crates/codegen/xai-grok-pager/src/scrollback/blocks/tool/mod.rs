@@ -756,7 +756,14 @@ impl ToolCallBlock {
             ToolCallBlock::IntegrationSearch(b) => b.set_error(Some(LABEL.to_string())),
             ToolCallBlock::UseTool(b) => b.set_error(Some(LABEL.to_string())),
             ToolCallBlock::MemorySearch(b) => b.set_error(Some(LABEL.to_string())),
-            ToolCallBlock::Skill(b) | ToolCallBlock::Other(b) => {
+            ToolCallBlock::Skill(b) => {
+                b.set_error(Some(LABEL.to_string()));
+            }
+            ToolCallBlock::Other(b) => {
+                // An open feedback draft is cancelled with the turn. The row name is that state.
+                if b.name == "Feedback drafted" {
+                    b.name = "Feedback cancelled".to_string();
+                }
                 b.set_error(Some(LABEL.to_string()));
             }
         };

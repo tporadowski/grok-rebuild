@@ -5318,6 +5318,176 @@ fn send_feedback_update_renders_feedback_drafted() {
             .contains("Dynamic tool call")
     );
 }
+
+fn send_feedback_call(id: &str, status: acp::ToolCallStatus) -> acp::ToolCall {
+    let tool_meta = serde_json::json!({
+        "version": 1,
+        "name": "send_feedback",
+        "kind": "feedback",
+        "namespace": "grok_build",
+        "label": "Feedback",
+        "read_only": false,
+    });
+    acp::ToolCall::new(
+        acp::ToolCallId::new(Arc::from(id)),
+        "send_feedback".to_owned(),
+    )
+    .kind(acp::ToolKind::Other)
+    .status(status)
+    .meta(
+        serde_json::json!({ xai_grok_tools::tool_taxonomy::TOOL_META_KEY: tool_meta })
+            .as_object()
+            .cloned(),
+    )
+}
+
+fn feedback_text(text: &str) -> Vec<acp::ToolCallContent> {
+    vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
+        acp::TextContent::new(text.to_owned()),
+    ))]
+}
+
+fn feedback_row_name(tc: &acp::ToolCall) -> String {
+    let block = tool_call_to_block(tc, None, &SubagentLabelRegistry::default());
+    let RenderBlock::ToolCall(ToolCallBlock::Other(other)) = block else {
+        panic!("expected Other block, got {block:?}");
+    };
+    other.name
+}
+
+#[test]
+fn send_feedback_rows_show_drafted_declined_cancelled_or_failed() {
+    let drafted = send_feedback_call("fb-draft", acp::ToolCallStatus::Completed);
+    assert_eq!(feedback_row_name(&drafted), "Feedback drafted");
+    let pending = send_feedback_call("fb-pending", acp::ToolCallStatus::Pending);
+    assert_eq!(feedback_row_name(&pending), "Feedback drafted");
+    let running = send_feedback_call("fb-run", acp::ToolCallStatus::InProgress);
+    assert_eq!(feedback_row_name(&running), "Feedback drafted");
+
+    let mut cancelled_code = send_feedback_call("fb-code", acp::ToolCallStatus::Failed);
+    cancelled_code.raw_output = Some(serde_json::json!({
+        "error": "tool_cancelled",
+        "message": "stopped",
+    }));
+    assert_eq!(feedback_row_name(&cancelled_code), "Feedback cancelled");
+
+    let mut cancelled_text = send_feedback_call("fb-cancel-text", acp::ToolCallStatus::Failed);
+    cancelled_text.content = feedback_text("User cancelled the execution for tool `send_feedback`");
+    assert_eq!(feedback_row_name(&cancelled_text), "Feedback cancelled");
+
+    // Cancel wins when the notice also says the tool was not executed.
+    let mut cancelled_and_skipped =
+        send_feedback_call("fb-cancel-skip", acp::ToolCallStatus::Failed);
+    cancelled_and_skipped.content = feedback_text(
+        "Tool execution was cancelled by the user (tool `send_feedback` was not executed).",
+    );
+    assert_eq!(
+        feedback_row_name(&cancelled_and_skipped),
+        "Feedback cancelled"
+    );
+
+    let mut rejected = send_feedback_call("fb-reject", acp::ToolCallStatus::Failed);
+    rejected.content = feedback_text("User rejected the execution for tool `send_feedback`");
+    assert_eq!(feedback_row_name(&rejected), "Feedback declined");
+
+    let mut policy = send_feedback_call("fb-policy", acp::ToolCallStatus::Failed);
+    policy.content = feedback_text("Tool `send_feedback` was not executed: blocked by policy");
+    assert_eq!(feedback_row_name(&policy), "Feedback declined");
+
+    let mut followup = send_feedback_call("fb-follow", acp::ToolCallStatus::Failed);
+    followup.content = feedback_text(
+        "The user elected to avoid running the send_feedback tool. The tool was not executed.",
+    );
+    assert_eq!(feedback_row_name(&followup), "Feedback declined");
+
+    let mut failed = send_feedback_call("fb-fail", acp::ToolCallStatus::Failed);
+    failed.content = feedback_text("Tool `send_feedback` failed: boom");
+    failed.raw_output = Some(serde_json::json!({
+        "error": "tool_execution_failed",
+        "message": "boom",
+    }));
+    assert_eq!(feedback_row_name(&failed), "Feedback failed");
+
+    let empty = send_feedback_call("fb-empty", acp::ToolCallStatus::Failed);
+    assert_eq!(feedback_row_name(&empty), "Feedback failed");
+}
+
+#[test]
+fn send_feedback_failure_update_renames_the_draft_row() {
+    let tool_call_id = acp::ToolCallId::new(Arc::from("feedback-declined"));
+    let pending = send_feedback_call("feedback-declined", acp::ToolCallStatus::Pending);
+    let declined = acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+        tool_call_id,
+        acp::ToolCallUpdateFields::new()
+            .title(Some("Dynamic tool call".to_owned()))
+            .status(Some(acp::ToolCallStatus::Failed))
+            .content(Some(feedback_text(
+                "User rejected the execution for tool `send_feedback`",
+            ))),
+    ));
+    let mut tracker = AcpUpdateTracker::new();
+    let mut scrollback = ScrollbackState::new();
+    tracker.handle_update(
+        acp::SessionUpdate::ToolCall(pending),
+        &meta(),
+        &mut scrollback,
+    );
+    let before = &scrollback.get(0).expect("feedback block").block;
+    let RenderBlock::ToolCall(ToolCallBlock::Other(other)) = before else {
+        panic!("expected Other block, got {before:?}");
+    };
+    assert_eq!(other.name, "Feedback drafted");
+    tracker.handle_update(declined, &meta(), &mut scrollback);
+    let after = &scrollback.get(0).expect("feedback block").block;
+    let RenderBlock::ToolCall(ToolCallBlock::Other(other)) = after else {
+        panic!("expected Other block, got {after:?}");
+    };
+    assert_eq!(other.name, "Feedback declined");
+    assert_eq!(
+        other.error.as_deref(),
+        Some("User rejected the execution for tool `send_feedback`")
+    );
+    assert!(
+        !after
+            .searchable_text()
+            .unwrap()
+            .contains("Dynamic tool call")
+    );
+}
+
+#[test]
+fn send_feedback_open_row_is_cancelled_with_the_turn() {
+    let mut tracker = AcpUpdateTracker::new();
+    let mut scrollback = ScrollbackState::new();
+    tracker.handle_update(
+        acp::SessionUpdate::ToolCall(send_feedback_call(
+            "feedback-open",
+            acp::ToolCallStatus::Pending,
+        )),
+        &meta(),
+        &mut scrollback,
+    );
+    tracker.handle_update(
+        tool_call("note-open", acp::ToolKind::Other, "Remember this"),
+        &meta(),
+        &mut scrollback,
+    );
+    tracker.finish_cancelled_turn(&mut scrollback);
+
+    let feedback = &scrollback.get(0).expect("feedback block").block;
+    let RenderBlock::ToolCall(ToolCallBlock::Other(other)) = feedback else {
+        panic!("expected Other block, got {feedback:?}");
+    };
+    assert_eq!(other.name, "Feedback cancelled");
+    assert_eq!(other.error.as_deref(), Some("Cancelled"));
+
+    let note = &scrollback.get(1).expect("other tool").block;
+    let RenderBlock::ToolCall(ToolCallBlock::Other(other)) = note else {
+        panic!("expected Other block, got {note:?}");
+    };
+    assert_eq!(other.name, "Remember this");
+    assert_eq!(other.error.as_deref(), Some("Cancelled"));
+}
 #[test]
 fn call_mcp_tool_no_raw_input_does_not_panic() {
     let tc = acp::ToolCall::new(
