@@ -644,6 +644,10 @@ fn default_phase_index(run: &WorkflowRunSnapshot) -> usize {
         })
 }
 
+fn decimal_digits(n: usize) -> usize {
+    n.max(1).ilog10() as usize + 1
+}
+
 fn span_at(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style, max_x: u16) {
     if max_x <= x {
         return;
@@ -1024,6 +1028,7 @@ fn render_detail(
         .unwrap_or_default();
     let all_agents_phase = run.phases.is_empty() && run.current_phase.is_none();
     state.ensure_phase_visible(usize::from(rail_inner.height), rail.len());
+    let number_digits = decimal_digits(rail.len());
     for (idx, (title, phase_state)) in rail.iter().enumerate().skip(state.phase_viewport) {
         let y = rail_inner.y + (idx - state.phase_viewport) as u16;
         if y >= rail_inner.bottom() {
@@ -1084,19 +1089,19 @@ fn render_detail(
         let count_x = rail_inner.right().saturating_sub(count_w);
 
         span_at(buf, rail_inner.x, y, marker, num_style, rail_inner.right());
+        // Pad to the widest index so phase 10 does not overwrite its title.
+        let number = format!("{:>number_digits$} ", idx + 1);
+        let number_x = rail_inner.x.saturating_add(2);
+        let title_x = number_x.saturating_add(number.len() as u16);
+        span_at(buf, number_x, y, &number, num_style, rail_inner.right());
         span_at(
             buf,
-            rail_inner.x + 2,
+            title_x,
             y,
-            &format!("{} ", idx + 1),
-            num_style,
-            rail_inner.right(),
-        );
-        span_at(
-            buf,
-            rail_inner.x + 4,
-            y,
-            &truncate_to_width(title, count_x.saturating_sub(rail_inner.x + 5) as usize),
+            &truncate_to_width(
+                title,
+                usize::from(count_x.saturating_sub(title_x.saturating_add(1))),
+            ),
             title_style,
             count_x,
         );
@@ -1384,6 +1389,89 @@ mod tests {
         assert!(text.contains("grok-4.5"), "{text}");
         assert!(text.contains("1/2 agents"), "{text}");
         assert!(text.contains("s save"), "{text}");
+    }
+
+    #[test]
+    fn phase_numbers_share_a_column_once_the_list_reaches_ten() {
+        fn titled(count: usize) -> WorkflowRunSnapshot {
+            let mut run = make_run("wf_1", "align", "active");
+            run.current_phase = None;
+            run.agents.clear();
+            run.phases = (1..=count)
+                .map(|i| (format!("Aa{i:02}"), "pending".to_string()))
+                .collect();
+            run
+        }
+        // The roster header repeats the selected phase title. A phase row is
+        // the occurrence that sits after its index (`1 Aa01`, `10 Aa10`).
+        fn title_column(text: &str, title: &str) -> usize {
+            for line in text.lines() {
+                let mut rest = line;
+                let mut base = 0usize;
+                while let Some(at) = rest.find(title) {
+                    let abs = base + at;
+                    let preceded_by_index = abs >= 2
+                        && line.as_bytes()[abs - 1] == b' '
+                        && line[..abs - 1]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|c| c.is_ascii_digit());
+                    if preceded_by_index {
+                        return unicode_width::UnicodeWidthStr::width(&line[..abs]);
+                    }
+                    let next = at + title.len();
+                    base += next;
+                    rest = &rest[next..];
+                }
+            }
+            panic!("missing phase title {title}\n{text}");
+        }
+
+        fn render_tall(runs: &[&WorkflowRunSnapshot], state: &WorkflowsViewState) -> String {
+            // The 30-row helper clips the rail before phase 10.
+            let area = Rect::new(0, 0, 100, 48);
+            let mut buf = Buffer::empty(area);
+            let mut state = state.clone();
+            render_workflows(
+                &mut buf,
+                area,
+                runs,
+                &mut state,
+                0,
+                &WorkflowAgentLiveMap::default(),
+            );
+            buf_text(&buf, area)
+        }
+
+        let short_run = titled(3);
+        let short_runs = [&short_run];
+        let mut short_state = WorkflowsViewState::default();
+        short_state.normalize(&short_runs);
+        let short = render_tall(&short_runs, &short_state);
+        let short_col = title_column(&short, "Aa01");
+        assert_eq!(title_column(&short, "Aa03"), short_col, "{short}");
+
+        let long_run = titled(12);
+        let long_runs = [&long_run];
+        let mut long_state = WorkflowsViewState::default();
+        long_state.normalize(&long_runs);
+        let long = render_tall(&long_runs, &long_state);
+        let long_col = title_column(&long, "Aa01");
+        assert_eq!(title_column(&long, "Aa09"), long_col, "{long}");
+        assert_eq!(title_column(&long, "Aa10"), long_col, "{long}");
+        assert_eq!(title_column(&long, "Aa12"), long_col, "{long}");
+        assert_eq!(
+            long_col,
+            short_col + 1,
+            "two digits shift every title by one column, including 1–9:\n{long}"
+        );
+        let ten = long
+            .lines()
+            .find(|line| line.contains("Aa10"))
+            .expect("phase 10");
+        let at = ten.find("Aa10").expect("title");
+        assert_eq!(&ten[at - 1..at], " ", "a space stays between 10 and the title: {ten}");
+        assert!(ten.contains("10"), "{ten}");
     }
 
     #[test]

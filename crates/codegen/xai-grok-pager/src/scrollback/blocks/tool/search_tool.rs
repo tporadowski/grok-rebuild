@@ -38,6 +38,16 @@ pub struct SearchToolCallBlock {
     pub elapsed_ms: Option<i64>,
 }
 
+fn decimal_digits(n: usize) -> usize {
+    n.max(1).ilog10() as usize + 1
+}
+
+/// `  1. ` for a one-digit list, `   1. ` / `  10. ` once the list reaches 10.
+fn result_index_label(index: usize, total: usize) -> String {
+    let digits = decimal_digits(total);
+    format!("  {:>digits$}. ", index + 1)
+}
+
 pub fn discovered_tool_action(tool: &DiscoveredTool) -> &str {
     tool.name
         .strip_prefix(&tool.server)
@@ -101,13 +111,16 @@ impl SearchToolCallBlock {
         let s = if self.result_count == 1 { "" } else { "s" };
         out.push_str(&format!("{} result{s}\n", self.result_count));
 
+        let digits = decimal_digits(self.results.len());
         for (i, tool) in self.results.iter().enumerate() {
             out.push('\n');
             let action = mcp_titleize_segment(discovered_tool_action(tool));
             let server = mcp_titleize_segment(&tool.server);
-            out.push_str(&format!("{}. {}  {}\n", i + 1, action, server));
+            let marker = format!("{:>digits$}. ", i + 1);
+            out.push_str(&format!("{marker}{action}  {server}\n"));
             if !tool.description.is_empty() {
-                out.push_str(&format!("   {}\n", tool.description));
+                let indent = " ".repeat(marker.len());
+                out.push_str(&format!("{indent}{}\n", tool.description));
             }
         }
         out
@@ -214,7 +227,10 @@ impl BlockContent for SearchToolCallBlock {
                     lines.push(BlockLine::separator(Line::from("")));
 
                     for (i, tool) in self.results.iter().enumerate() {
-                        let idx_span = Span::styled(format!("  {}. ", i + 1), theme.muted());
+                        let idx_span = Span::styled(
+                            result_index_label(i, self.results.len()),
+                            theme.muted(),
+                        );
 
                         // Strip the trusted server prefix from tool_name and title-case both halves
                         // Show the action bold and the server name dimmed on the right
@@ -346,5 +362,76 @@ mod tests {
             score: 1.0,
         };
         assert_eq!(discovered_tool_action(&tool), "search");
+    }
+
+    fn discovered(i: usize) -> DiscoveredTool {
+        DiscoveredTool {
+            name: format!("srv__item{i:02}"),
+            server: "srv".into(),
+            description: format!("about {i:02}"),
+            score: 1.0,
+        }
+    }
+
+    fn block_with(count: usize) -> SearchToolCallBlock {
+        let mut block = SearchToolCallBlock::new("widgets");
+        block.results = (1..=count).map(discovered).collect();
+        block.result_count = count;
+        block
+    }
+
+    fn expanded_lines(block: &SearchToolCallBlock) -> Vec<String> {
+        use crate::scrollback::types::line_plain_text;
+        let ctx = crate::scrollback::types::BlockContext {
+            width: 80,
+            mode: DisplayMode::Expanded,
+            is_running: false,
+            raw: false,
+            max_lines: None,
+            appearance: Default::default(),
+            is_selected: false,
+            cwd: None,
+        };
+        block
+            .output(&ctx)
+            .lines
+            .iter()
+            .map(|line| line_plain_text(&line.content))
+            .collect()
+    }
+
+    fn name_column(line: &str) -> usize {
+        line.find("Item").expect("action name")
+    }
+
+    #[test]
+    fn result_numbers_share_a_column_once_the_list_reaches_ten() {
+        let short = expanded_lines(&block_with(3));
+        let short_rows: Vec<&String> = short.iter().filter(|line| line.contains("Item")).collect();
+        assert_eq!(short_rows.len(), 3);
+        assert!(short_rows[0].contains("  1. "), "{}", short_rows[0]);
+        assert_eq!(name_column(short_rows[0]), name_column(short_rows[2]));
+
+        let long = expanded_lines(&block_with(10));
+        let rows: Vec<&String> = long.iter().filter(|line| line.contains("Item")).collect();
+        assert_eq!(rows.len(), 10);
+        let col = name_column(rows[0]);
+        assert!(rows.iter().all(|line| name_column(line) == col), "{rows:?}");
+        assert!(rows[0].contains("   1. "), "{}", rows[0]);
+        assert!(rows[9].contains("  10. "), "{}", rows[9]);
+        assert_eq!(col, name_column(short_rows[0]) + 1);
+
+        let copied = block_with(10).copy_text();
+        let names: Vec<&str> = copied.lines().filter(|line| line.contains("Item")).collect();
+        let abouts: Vec<&str> = copied.lines().filter(|line| line.contains("about")).collect();
+        assert_eq!(names.len(), 10);
+        assert_eq!(abouts.len(), 10);
+        let copied_col = names[0].find("Item").expect("name");
+        assert!(names.iter().all(|line| line.find("Item") == Some(copied_col)));
+        assert!(
+            abouts.iter().all(|line| line.find("about") == Some(copied_col)),
+            "descriptions line up under the action, not the number: {copied}"
+        );
+        assert!(names[9].starts_with("10. "), "{copied}");
     }
 }
