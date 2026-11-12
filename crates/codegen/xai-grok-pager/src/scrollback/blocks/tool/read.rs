@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use ratatui::style::{Modifier, Style};
+use unicode_width::UnicodeWidthStr;
 use ratatui::text::{Line, Span, Text};
 
 use super::{LineRange, TOOL_HEADER_RANGE};
@@ -20,6 +21,33 @@ const READ_BODY_RANGE: u16 = 1;
 
 use crate::appearance::AppearanceConfig;
 use xai_grok_tools::implementations::skills::types::skill_name_from_path;
+
+/// Keep `text` inside the columns still free on a header row.
+/// Display columns, not bytes: a CJK name is two columns wide and three bytes.
+fn fit_header_piece(text: &str, width: Option<usize>, used: &mut usize) -> String {
+    let Some(max) = width else {
+        return text.to_string();
+    };
+    let room = max.saturating_sub(*used);
+    let shown = if text.is_empty() || room == 0 {
+        String::new()
+    } else if text.width() <= room {
+        text.to_string()
+    } else {
+        crate::render::line_utils::truncate_str(text, room)
+    };
+    *used += shown.width();
+    shown
+}
+
+/// Clip a finished header to the row. A prefix wider than the row is the only
+/// case the piece fitter cannot see.
+fn fit_header_line(line: Line<'static>, width: Option<usize>) -> Line<'static> {
+    match width {
+        Some(max) => crate::render::line_utils::truncate_line(line, max),
+        None => line,
+    }
+}
 
 /// What kind of non-text media this read produced.
 #[derive(Debug, Clone)]
@@ -188,19 +216,30 @@ impl ReadToolCallBlock {
             crate::render::tool_paths::ToolPathSurface::Collapsed
         );
 
+        // The name keeps the columns it needs. A suffix uses whatever is left,
+        // measured in display columns so a CJK name is not crowded out by a
+        // byte-length count on a narrow row.
+
         // SKILL.md reads render as "Skill {skill_name}" (+ collapsed error).
         if let Some(skill) = self.skill_name() {
+            let prefix = "Skill ";
+            let mut used_cols = prefix.width();
+            let name = fit_header_piece(skill, width, &mut used_cols);
             let mut spans = vec![
-                Span::styled("Skill ", bold_style),
-                Span::styled(skill.to_owned(), path_style),
+                Span::styled(prefix, bold_style),
+                Span::styled(name, path_style),
             ];
             if collapsed && let Some(err) = &self.error {
-                spans.push(Span::styled(
-                    super::collapsed_error_suffix(err, 48),
-                    error_style,
-                ));
+                let suffix = fit_header_piece(
+                    &super::collapsed_error_suffix(err, 48),
+                    width,
+                    &mut used_cols,
+                );
+                if !suffix.is_empty() {
+                    spans.push(Span::styled(suffix, error_style));
+                }
             }
-            return Line::from(spans);
+            return fit_header_line(Line::from(spans), width);
         }
 
         let prefix = "Read ";
@@ -239,14 +278,24 @@ impl ReadToolCallBlock {
         } else {
             String::new()
         };
-        let total_suffix_len = range_suffix.len() + extra_suffix.len() + error_suffix.len();
-        let path = crate::render::tool_paths::path_for_tool_surface(
+        let prefix_cols = prefix.width();
+        let mut path = crate::render::tool_paths::path_for_tool_surface(
             &self.path,
             surface,
             cwd,
             width,
-            prefix.len() + total_suffix_len,
+            prefix_cols,
         );
+        if let Some(max) = width {
+            let budget = max.saturating_sub(prefix_cols);
+            if path.width() > budget {
+                path = crate::render::line_utils::truncate_str(&path, budget);
+            }
+        }
+        let mut used_cols = prefix_cols + path.width();
+        let range_suffix = fit_header_piece(&range_suffix, width, &mut used_cols);
+        let extra_suffix = fit_header_piece(&extra_suffix, width, &mut used_cols);
+        let error_suffix = fit_header_piece(&error_suffix, width, &mut used_cols);
 
         let mut spans = vec![
             Span::styled(prefix, bold_style),
@@ -265,7 +314,7 @@ impl ReadToolCallBlock {
             spans.push(Span::styled(error_suffix, error_style));
         }
 
-        Line::from(spans)
+        fit_header_line(Line::from(spans), width)
     }
 
     /// Header line with only the path (or skill name) span selectable.
@@ -427,7 +476,7 @@ impl BlockContent for ReadToolCallBlock {
                     tool_cfg.dim_details,
                     crate::render::tool_paths::ToolPathSurface::Expanded,
                     cwd,
-                    None,
+                    Some(ctx.content_width()),
                 );
                 let mut lines: Vec<BlockLine> = vec![self.header_block_line(header, cwd)];
                 if self.has_content() {
@@ -868,6 +917,74 @@ The file is there, but this process cannot read it.";
             "failed read should show reason, got '{text}'"
         );
         assert_eq!(text, "Read gone.rs — does not exist", "got '{text}'");
+    }
+
+    fn line_text(line: &crate::scrollback::types::BlockLine) -> String {
+        line.content
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    fn narrow_ctx(width: u16, mode: DisplayMode) -> BlockContext {
+        let mut ctx = make_ctx();
+        ctx.width = width;
+        ctx.mode = mode;
+        ctx.appearance.scrollback.blocks.tool.bullet = crate::appearance::ToolBullet::None;
+        ctx
+    }
+
+    #[test]
+    fn narrow_read_header_keeps_a_cjk_name_inside_the_row() {
+        let block = ReadToolCallBlock::new("/tmp/ディレクトリ/画面キャプチャ.png");
+        let collapsed = block.output(&narrow_ctx(16, DisplayMode::Collapsed));
+        let text = line_text(first_line(&collapsed));
+        assert!(
+            text.width() <= 16,
+            "collapsed header overflowed: {text:?} width {}",
+            text.width()
+        );
+        assert!(text.starts_with("Read "), "{text:?}");
+        assert!(
+            text.contains("画") && text.contains('\u{2026}'),
+            "the CJK file name is cut on a column boundary, got {text:?}"
+        );
+
+        let expanded = block.output(&narrow_ctx(18, DisplayMode::Expanded));
+        let header = line_text(first_line(&expanded));
+        assert!(
+            header.width() <= 18,
+            "expanded header overflowed: {header:?} width {}",
+            header.width()
+        );
+        assert!(header.starts_with("Read "), "{header:?}");
+        assert!(
+            header.contains("/tmp/") && header.contains('\u{2026}'),
+            "the expanded path is cut on a column boundary, got {header:?}"
+        );
+    }
+
+    #[test]
+    fn narrow_failed_read_header_keeps_the_name() {
+        let block = ReadToolCallBlock::new("/tmp/画面.png").with_error(
+            "Error: permission denied while reading the file that the tool asked for",
+        );
+        let output = block.output(&narrow_ctx(22, DisplayMode::Collapsed));
+        let text = line_text(first_line(&output));
+        assert!(
+            text.width() <= 22,
+            "failure header overflowed: {text:?} width {}",
+            text.width()
+        );
+        assert!(
+            text.contains("画面.png"),
+            "the file name stays ahead of the reason, got {text:?}"
+        );
+        assert!(
+            text.contains('\u{2026}') || text.contains("permission"),
+            "a short reason still fits beside the name, got {text:?}"
+        );
     }
 
     #[test]
