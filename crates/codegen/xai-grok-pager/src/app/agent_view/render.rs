@@ -801,6 +801,9 @@ impl AgentView {
             Some(theme.accent_plan)
         } else if self.effective_session_mode() == xai_grok_tools::types::SessionMode::Ask {
             Some(theme.accent_success)
+        } else if self.session.permission_label() == crate::app::actions::PermissionLabel::Auto {
+            // Same blue the auto-review chip uses. Always-approve stays untinted.
+            Some(theme.accent_system)
         } else {
             None
         };
@@ -5403,5 +5406,121 @@ mod status_line_draw_tests {
             agent.last_status_line_size, painted,
             "a frame with no row must not export a width the script would read as the 80-column fallback"
         );
+    }
+}
+
+#[cfg(test)]
+mod auto_review_prompt_tint {
+    use super::super::test_fixtures::make_agent;
+    use crate::actions::ActionRegistry;
+    use crate::scrollback::render::ScratchBuffer;
+    use crate::theme::Theme;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::style::Color;
+    use xai_grok_tools::types::SessionMode;
+
+    fn draw(agent: &mut super::AgentView) -> (Buffer, Rect) {
+        let area = Rect::new(0, 0, 100, 40);
+        let mut buf = Buffer::empty(area);
+        let mut scratch = ScratchBuffer::new();
+        let _ = agent.draw(
+            area,
+            &mut buf,
+            &ActionRegistry::defaults(),
+            &mut scratch,
+            None,
+            false,
+            crate::app::agent_view::BannerSlotParams::none(),
+            false,
+            &mut Vec::new(),
+            super::AppRenderParams::default(),
+        );
+        (buf, agent.pane_areas.prompt)
+    }
+
+    fn tinted(theme: &Theme, accent: Color) -> Color {
+        crate::render::color::blend_color(theme.bg_base, accent, 0.4).unwrap_or(accent)
+    }
+
+    /// Top rule, left side, and bottom corner of the composer box.
+    fn border_colors(buf: &Buffer, prompt: Rect) -> (Color, Color, Color) {
+        let top = buf.cell((prompt.x + 1, prompt.y)).expect("top rule");
+        assert_eq!(top.symbol(), "─", "top rule at {prompt:?}");
+        let side = buf.cell((prompt.x, prompt.y + 1)).expect("side rule");
+        assert_eq!(side.symbol(), "│", "side rule at {prompt:?}");
+        let bottom = buf
+            .cell((prompt.x, prompt.y + prompt.height - 1))
+            .expect("bottom corner");
+        assert_eq!(bottom.symbol(), "╰", "bottom corner at {prompt:?}");
+        (top.fg, side.fg, bottom.fg)
+    }
+
+    fn prefix_fg(buf: &Buffer, prompt: Rect) -> Color {
+        let arrow = crate::glyphs::prompt_arrow()
+            .chars()
+            .next()
+            .unwrap()
+            .to_string();
+        for y in prompt.y..prompt.y + prompt.height {
+            for x in prompt.x..prompt.x + prompt.width {
+                let cell = buf.cell((x, y)).unwrap();
+                if cell.symbol() == arrow {
+                    return cell.fg;
+                }
+            }
+        }
+        panic!("prompt arrow not painted in {prompt:?}");
+    }
+
+    #[test]
+    fn auto_review_tints_the_prompt_bar_blue() {
+        let _guard = crate::theme::cache::pin_theme();
+        crate::theme::cache::set(crate::theme::ThemeKind::GrokNight);
+        let theme = Theme::current();
+        let untinted = theme.prompt_border_active;
+        let blue = tinted(&theme, theme.accent_system);
+
+        let mut idle = make_agent();
+        let (buf, prompt) = draw(&mut idle);
+        let (top, side, bottom) = border_colors(&buf, prompt);
+        assert_eq!((top, side, bottom), (untinted, untinted, untinted));
+        assert_eq!(prefix_fg(&buf, prompt), theme.accent_user);
+
+        let mut auto = make_agent();
+        auto.session.set_auto_mode_for_test(true);
+        let (buf, prompt) = draw(&mut auto);
+        let (top, side, bottom) = border_colors(&buf, prompt);
+        assert_eq!((top, side, bottom), (blue, blue, blue));
+        assert_ne!(blue, untinted);
+        assert_eq!(prefix_fg(&buf, prompt), theme.accent_system);
+        let inside = buf.cell((prompt.x + 2, prompt.y + 1)).unwrap();
+        assert_eq!(inside.bg, theme.bg_base);
+
+        // Yolo wins over a stale auto flag, so the bar stays the default border.
+        let mut yolo = make_agent();
+        yolo.session.set_yolo_mode_for_test(true);
+        yolo.session.set_auto_mode_for_test(true);
+        let (buf, prompt) = draw(&mut yolo);
+        assert_eq!(border_colors(&buf, prompt).0, untinted);
+
+        // Plan and ask keep their own accents when auto-review is also on.
+        let mut plan = make_agent();
+        plan.plan_mode_active = true;
+        plan.session.set_auto_mode_for_test(true);
+        let (buf, prompt) = draw(&mut plan);
+        let plan_border = tinted(&theme, theme.accent_plan);
+        assert_eq!(border_colors(&buf, prompt).0, plan_border);
+        assert_eq!(prefix_fg(&buf, prompt), theme.accent_plan);
+        assert_ne!(plan_border, blue);
+
+        let mut ask = make_agent();
+        ask.session_mode = SessionMode::Ask;
+        ask.session.set_auto_mode_for_test(true);
+        let (buf, prompt) = draw(&mut ask);
+        let ask_border = tinted(&theme, theme.accent_success);
+        assert_eq!(border_colors(&buf, prompt).0, ask_border);
+        assert_eq!(prefix_fg(&buf, prompt), theme.accent_success);
+        assert_ne!(ask_border, blue);
     }
 }
