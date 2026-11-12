@@ -83,7 +83,7 @@ impl TodoListEntry {
 
     fn icon(&self) -> &'static str {
         match self.item.status {
-            TodoStatus::Pending => "□",
+            TodoStatus::Pending => crate::glyphs::pending_mark(),
             TodoStatus::InProgress => crate::glyphs::play_mark(),
             TodoStatus::Completed => crate::glyphs::check_mark(),
             TodoStatus::Cancelled => crate::glyphs::ballot_x(),
@@ -416,6 +416,25 @@ mod tests {
             cancelled,
             ..TodoCounts::default()
         }
+    }
+
+    #[test]
+    fn pending_todo_prefix_uses_the_pending_mark() {
+        use xai_grok_shell::tools::TodoPriority;
+
+        let entry = TodoListEntry::new(
+            0,
+            TodoItem {
+                content: "later".into(),
+                priority: TodoPriority::default(),
+                status: TodoStatus::Pending,
+                meta: None,
+            },
+            &TodoPaneStyle::default(),
+        );
+        let prefix = entry.prefix().expect("status icon");
+        let text: String = prefix.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, format!("{} ", crate::glyphs::pending_mark()));
     }
 
     #[test]

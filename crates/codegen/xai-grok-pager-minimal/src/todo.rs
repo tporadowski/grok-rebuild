@@ -92,7 +92,10 @@ pub(super) fn todo_panel_lines(
         .take(shown)
         .map(|t| {
             let (glyph, style) = match t.status {
-                TodoStatus::Pending => ("\u{25a1}", Style::default().fg(theme.text_primary)),
+                TodoStatus::Pending => (
+                    xai_grok_pager::glyphs::pending_mark(),
+                    Style::default().fg(theme.text_primary),
+                ),
                 TodoStatus::InProgress => (
                     "\u{25b6}",
                     Style::default()

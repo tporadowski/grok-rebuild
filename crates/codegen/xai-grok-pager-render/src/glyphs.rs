@@ -79,6 +79,11 @@ pub fn play_mark() -> &'static str {
     console_mark(is_legacy_windows_console(), "\u{25B6}", ">")
 }
 
+/// Empty box (`□`) for a pending todo. Legacy ConHost has no U+25A1, so it draws `-`.
+pub fn pending_mark() -> &'static str {
+    console_mark(is_legacy_windows_console(), "\u{25A1}", "-")
+}
+
 /// Selection arrow. Legacy ConHost draws `>` instead of `❯`.
 pub fn selection_arrow() -> &'static str {
     console_mark(is_legacy_windows_console(), "\u{276F}", ">")
@@ -485,6 +490,7 @@ mod tests {
         for (fancy, fallback) in [
             ("\u{2717}", "x"),        // ballot_x
             ("\u{2713}", "\u{221A}"), // check_mark
+            ("\u{25A1}", "-"),        // pending_mark
             ("\u{2197}", "o"),        // enlarge
             ("\u{29C9}", "c"),        // copy_icon
             ("\u{21E3}", "\u{2193}"), // token_arrow
@@ -557,6 +563,7 @@ mod tests {
     #[test]
     fn glyph_helpers_return_fancy_on_non_legacy() {
         assert!(!is_legacy_windows_console());
+        assert_eq!(pending_mark(), "\u{25A1}");
         assert_eq!(diamond_filled(), "\u{25C6}");
         assert_eq!(diamond_hollow(), "\u{25C7}");
         assert_eq!(diamond_dotted(), "\u{25C8}");
@@ -635,8 +642,10 @@ mod tests {
         assert_eq!(console_mark(true, "\u{25CC}", "o"), "o");
         assert_eq!(console_mark(true, "\u{25CF}", "\u{2022}"), "\u{2022}");
         assert_eq!(console_mark(true, "\u{276F}", ">"), ">");
+        assert_eq!(console_mark(true, "\u{25A1}", "-"), "-");
         assert_eq!(console_mark(false, "\u{25B6}", ">"), "\u{25B6}");
-        for mark in [">", "=", "o", "\u{2022}"] {
+        assert_eq!(console_mark(false, "\u{25A1}", "-"), "\u{25A1}");
+        for mark in [">", "=", "o", "\u{2022}", "-"] {
             assert_eq!(UnicodeWidthStr::width(mark), 1, "{mark}");
         }
     }

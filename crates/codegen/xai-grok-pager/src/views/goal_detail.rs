@@ -675,7 +675,7 @@ pub fn render_goal_detail(
                 break;
             }
             let (icon, icon_color) = match item.status {
-                TodoStatus::Pending => ("\u{25a1}", theme.gray),
+                TodoStatus::Pending => (crate::glyphs::pending_mark(), theme.gray),
                 TodoStatus::InProgress => ("\u{25b6}", theme.warning),
                 TodoStatus::Completed => (crate::glyphs::check_mark(), theme.accent_success),
                 TodoStatus::Cancelled => (crate::glyphs::ballot_x(), theme.accent_error),
