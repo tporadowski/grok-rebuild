@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-223 — Package version is the ported release
+
+The catalog through alpha 1.0.78 is terminal. The lockstepped packages `xai-grok-version`, `xai-grok-shell`, `xai-grok-pager`, and `xai-grok-pager-bin` are `1.0.78`, the release this plan covered. `crates/codegen/xai-grok-shell/CHANGELOG.md` stays the 1.0.45 history, so `/release-notes` still prepends CDN notes whose headings are absent from that file, including 1.0.46 through 1.0.78. D-001 recorded the hold while the port was open (`package_version_is_the_ported_release`).
+
 ### D-222 — Linux file watching already skips ignored trees
 
 Linux defaults to `WatchStrategy::PerDir` (`watch_strategy`). `select_per_dir_watch_dirs` walks with `pruning_walker`, which honors gitignore and does not descend into ignored directories, `.git`, `.sl`, or another workspace. Nested `node_modules` and `target` add no watches (`select_per_dir_prunes_nested_gitignored_dirs`). Starting the watcher confirms the same layout: twenty nested `web/node_modules` packages and `.git/objects` contribute nothing, and the count stays at the six source and ref directories (`test_per_dir_watch_count_excludes_ignored_and_git_internals`). `.git` itself is a few non-recursive watches, not one per object directory (`per_dir_git_watches`). A recursive fan-out watch cannot skip those trees, and that layout is what kept a core busy for about a minute after startup. It is not the Linux default. The post-ready arm loop only installs the already-pruned backlog, a chunk at a time. No second cache (`v74-p05`).

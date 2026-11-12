@@ -1,5 +1,906 @@
 # Changelog
 
+# 1.0.78 — 2026-11-06
+
+## Features
+
+- **@ file chips** can now be edited in place; typed @~/ paths resolve to the home folder.
+- **Dragging in the transcript** now selects and copies colored text across message blocks instead of whole blocks.
+- **@ mentions** now support :N line suffixes and @!hidden files.
+
+## Bug Fixes
+
+- **Always-approve help text** now correctly says the setting is saved to config.
+- **Dropped-image notice** no longer appears inside the user's own message in transcripts or history.
+- **grok update --channel** now gives a clear error and steps when bin/grok was installed by npm.
+- `grok update` and channel switches now work correctly for Homebrew cask installs and show the right commands.
+
+## Performance
+
+- **grok export** of sessions containing large shell output is now faster and uses less memory.
+
+
+# 1.0.77 — 2026-11-05
+
+## Features
+
+- **New [ui] kitty_keyboard = "query"** setting lets Shift+Enter insert newlines in unidentified terminals.
+
+## Bug Fixes
+
+- **Quote copy** now preserves & in links and double-clicks no longer fold thoughts when missing text.
+- MCP server connections no longer restart unnecessarily on session reloads or updates.
+- **Ctrl+L** now works on more screens and copy hints match what actually copies to the clipboard.
+- Context usage shown in the footer no longer drops to zero or shows stale values after a rewind.
+- Rows in the `/resume` list now expand and collapse the same way they do inside a session.
+
+
+# 1.0.76 — 2026-11-04
+
+## Features
+
+- **Ctrl+L** redraws the screen after a terminal clear without flashing.
+
+## Bug Fixes
+
+- **Shell commands** correctly handle startup functions containing special characters.
+
+
+# 1.0.75 — 2026-11-04
+
+## Features
+
+- **Permission rules that don't load**, such as a rule that doesn't parse or a `.claude/settings.json` that isn't valid JSON, show a warning when a session opens instead of being skipped silently.
+- **`Cmd+Up`/`Cmd+Down` and `Ctrl+Home`/`Ctrl+End`** move the cursor to the start or end of the whole prompt, and with `Shift` they select to there.
+- **Send now** shows as `Enter Enter` in the footer where `Ctrl+Enter` arrives as plain `Enter`, such as inside tmux with its default settings.
+- **`Esc` on a `/btw` side question that hasn't been answered yet** cancels it, instead of letting it run on and reopening the panel when the answer arrives.
+- **Clicking a link or file that can't open**, such as over SSH with no display, shows why, for example "Can't open links over SSH".
+- **`Left` on an empty prompt** opens the dashboard from any session or the welcome screen, not only from a session you opened from the dashboard.
+- **The `/btw` question in the panel's title** can be selected with the mouse and is copied to the clipboard when you release, like the answer text.
+- **Workflow status lines** say how many agents are still running instead of how many exist.
+- **`Ctrl+L`** in the scrollback adds the selected message or highlighted text to the prompt as a quote; open Extensions with `/plugins` instead.
+
+## Bug Fixes
+
+- **Notes above a queued prompt**, such as a model switch result or a ready worktree, stay on screen when the prompt starts instead of scrolling out of view.
+- **Stop buttons in the dock** stop a background run while its approval card is open, instead of doing nothing until you answer the card.
+- **Rejecting a change** keeps edits you saved to the file yourself, even when Grok missed the save, instead of overwriting them.
+- **`grok --resume <id>`** opens the session in the folder it was recorded in, wherever you launch Grok from, instead of refusing.
+- **Windows**: on older consoles such as plain `cmd.exe` and Windows PowerShell windows, the `▶`, `⏸` and `◌` marks in todo, workflow and list rows show as characters the console can draw instead of empty boxes.
+- **Generated image and video paths** with wide characters such as Chinese, Japanese or emoji fit their row and keep the file name, and Windows paths keep it too.
+- **The rewind confirmation** no longer crashes Grok on a short terminal or when you shrink the window while it's open.
+- **Footer and status bars** in narrow terminals drop or shorten the items that don't fit, instead of painting them over each other or cutting buttons off.
+- **Cut-off Fetch, Web Search and MCP tool output** ends with the same `… +N lines · <key> to view all` row as code cells, naming your viewer key, and one hidden line reads `+1 line`.
+- **16-color terminals** show the paste label and tool accents in the muted gray other secondary text uses, and the paste label's brackets no longer vanish on the light theme.
+- **A question card's `Enter:submit` button**, the dashboard session popup's `[✗]` and collapsed workflow rows highlight under the mouse pointer like other clickable controls.
+- **Emoji and keycap symbols** such as `⚠️` or `#️⃣` are measured at the width the terminal draws them, so rows no longer run past their box or lose their `…`.
+- **`/export` to a named pipe** that nothing is reading fails right away instead of freezing Grok until it is killed.
+- **Typing a digit or symbol** while the scrollback has focus, with vim keys off, moves focus to the prompt and types it there, as letters already do; `?` still opens the command palette.
+- **`grok sessions delete`** no longer fails with "Directory not empty" when another process is still writing into the session's folder.
+- **Dashboard rows** stay in Working while a session's background subagents or workflow runs are going, and stopping the row ends them.
+- **Code blocks inside quotes** render every line under the quote's bars, quote copies turn reference links into inline links, and lines after multi-line math are numbered correctly.
+- **Disabling a project's hook** in `/hooks` applies only to that repository, instead of also skipping hooks with the same name in other repositories.
+- **Turning a skill on or off** in the Skills tab saves only `[skills].disabled` to `config.toml`, so an organization's managed skill folders and ignore list keep applying.
+- **`/btw`** starts a side question only when it begins the message; a `/btw` later in the text goes to the main conversation as typed.
+
+
+# 1.0.74 — 2026-11-02
+
+## Features
+
+- **Messages between subagents** appear as left-aligned rows under the bullet that name the sender and recipient, replacing the centered rows.
+- **Shift+Enter** inserts a newline in VS Code and other xterm.js-based terminals that use the Kitty keyboard protocol.
+- **`/mcps`**: when a browser can't open an MCP server's sign-in URL, the URL shows in a panel you can copy with `c` or the `[copy the url]` button.
+- **`[Copy]` button** in a finished `/btw` panel and its folded transcript row copies the whole answer, even when only part of it is visible.
+- **Shell approval cards** say when Auto-review blocked a command or couldn't review it, and `Ctrl+F` shows the reviewer's explanation.
+- **`!` mode Tab completion** offers commands installed as symlinks, such as Homebrew, npm, rustup and Debian alternatives binaries.
+- **Quotes in replies** get a `[Copy]` button that copies the whole quote as Markdown without its `>` markers.
+- **Named subagent links** open on a plain click, so they work over SSH from macOS where a modified click can't reach Grok.
+- **`@` paths outside the workspace**: an `@` path that starts with `/`, `~/` or `../` lists files from that folder; set `[ui] at_picker_outside_workspace = false` to turn it off.
+- **Picked `@` files in the prompt** can be edited in place: `Backspace` at the end of one reopens the picker on its path, and `Left` or `Right` puts the cursor inside it to change the path.
+
+## Bug Fixes
+
+- **Built-in skills, agents and workflows** are refreshed when their local cache's manifest is missing or corrupt, instead of staying outdated or failing every sync.
+- **Ctrl+Y** on a question card no longer closes it without an answer; while you type an answer, it pastes back text cut with `Ctrl+K`.
+- **`/new` tabs** show the context window you just switched to before the new session replies.
+- **Resumed sessions** show a background command's completion in the turn that ran it, with its real run time instead of about 0.0s.
+- **`grok update`** runs when `GROK_SANDBOX`, `--sandbox` or config sets a sandbox profile, unless Grok is already running confined.
+- **`/btw` on a very short terminal** no longer swallows arrow keys, Page Up/Down or clicks while its panel is too small to draw.
+- **A code block's `[Copy]`** in the transcript copies while a queued prompt is open for editing, instead of copying nothing or closing the edit.
+- **`grok logout`** stays signed out when another running Grok refreshes its sign-in, instead of signing you back in on the next launch.
+- **Opening links and files** from the TUI no longer leaves a zombie process behind for each click.
+- **A failed session delete** shows the "Couldn't delete session" prefix once, so the reason is no longer cut off.
+- **Windows**: Grok exits fully after a startup error, a `/minimal` or `/fullscreen` switch, or a signal, instead of sometimes hanging.
+- **Grok running confined in a sandbox** never starts an update on its own and tells you to run `grok update` instead.
+- **Quitting to install an update** with `Ctrl+U` on the welcome screen exits within the usual exit deadline instead of sometimes hanging after "Update installed".
+- **`grok update --force-reinstall`**, or `grok update --version` with the installed version, keeps your working `grok` on Linux and macOS when the download fails its checks, instead of deleting it.
+- **Windows installers** check that the downloaded build runs before replacing `grok.exe` and `agent.exe`, and keep the existing install when it doesn't, such as when a proxy serves a blocked-download page.
+- **Command-line arguments that aren't valid UTF-8** no longer crash `grok` at startup: paths such as `--cwd` accept them, and text such as `-p` gets a usage error.
+- **Installers** keep the installed `grok` when a proxy or cache returns an empty download, instead of replacing it with an empty file and reporting success.
+- **Environment variables with non-UTF-8 bytes** no longer stop Grok from starting.
+- **Workflow run lines** in the transcript end with what the run returned instead of a bare colon, `/tasks` shows the time it was taken, and polling an unknown task id leaves a row with its error.
+- **Headless runs stopped by Ctrl-C or SIGTERM** end their `json`, `streaming-json` or `streaming-messages-json` output with a closing record that keeps the run's outcome, instead of cutting off the stream.
+- **macOS**: the TUI no longer freezes when it runs inside a sandbox that blocks the window server.
+- **`grok -p --resume`** shows why a session couldn't load instead of always "Session does not exist", and with `--output-format json` a resume, continue or fork that fails before the session opens prints one JSON error.
+- **Sessions with an unrecognized reasoning effort or unreadable bytes in their history** resume instead of failing: the session runs at the model's default effort and says so once, and the unreadable lines are left out of the transcript.
+- **Windows**: on older consoles such as plain `cmd.exe` and Windows PowerShell windows, status marks and selection arrows in workflow views, the dashboard, and the feedback and extensions dialogs show as `>`, `•`, `√` or `x` instead of empty boxes.
+- **File paths with spaces** in inline code, such as `~/Library/Application Support/...`, link to the whole path when it exists instead of stopping at the first space.
+- **Feedback that can't be sent** leads with the outcome, such as "Couldn't send feedback. Saved to Drafts.", then gives the reason and says to retry from `/feedback`.
+- **Dialog tab labels, shortcuts and settings rows** that don't fit end in `…` instead of being cut off.
+- **Prompt history search** highlights matched letters in the same color as other fuzzy lists, and the counts on the `/` and `@` menu borders are dimmed like other border captions.
+- **Dashboard**: the peek header reads `Responding` while a reply streams, and the `Esc` footer hint reads `new agent` like the other lowercase hints.
+- **Custom agent files** saved with a UTF-8 byte order mark, as some Windows editors write them, load instead of being skipped.
+- **Running markers** in workflow views and MCP servers that are still starting use the theme's running color, like other progress indicators.
+- **Minimal mode**: "Sign-in failed" shows in the error color instead of the warning color.
+- **Context window**: a larger window picked with `/context-window` or set with `context_window` in a `[model."<id>"]` table stays in effect, so compaction no longer starts early after the session sits idle, after a failed request such as a rate limit, or until you restart.
+
+## Performance
+
+- **Long sessions** use less memory: finished Markdown blocks far off screen release their rendered layout, and search still finds their text.
+- **Typing** no longer lags when ffmpeg isn't installed and `PATH` holds slow directories, such as Windows drives under WSL.
+- **Long pastes that arrive as keystrokes**, such as pastes on native Windows or in terminals without bracketed paste, no longer freeze the prompt for seconds while the plan-mode tip is on.
+- **Pasting long single-line text** such as logs, JSON or base64 into the prompt no longer freezes the TUI for seconds.
+- **File watching on Linux** no longer keeps a CPU core busy for about a minute after startup in large repositories.
+- **Lower CPU use while subagents run**: the TUI repaints only for animations on screen, about 7 times a second instead of 30 when no running row is visible.
+- **`grok --resume <id>`** opens much faster on large session stores, reading only the resumed session instead of every session.
+
+
+# 1.0.73 — 2026-10-28
+
+## Features
+
+- **`Page Up`/`Page Down`, `Home` and `End`** move the selection in `/skills` and other pickers.
+- **Messages between two subagents** appear in the main session's transcript as centered rows once delivered, such as `find callers → scan src/`.
+- **Drag-selecting text in a `/btw` answer** scrolls the answer while you hold the pointer on or past the panel's edge.
+- **Automatic updates** stop retrying a new version that fails to start on this machine until a newer version is out, and each launch says to run `grok update` to see why.
+- **Gruvbox dark theme** (`gruvbox-dark-hard`), selectable with `/theme`.
+- **Start in multiline** in `/settings` (`[ui] multiline_default`) starts new sessions and the dashboard in multiline mode, where `Enter` inserts a newline.
+
+## Bug Fixes
+
+- **Windows**: quitting Grok ends `grok.exe` once the terminal is restored, so the shell no longer sometimes waits with no prompt.
+- **Mouse wheel** in a `/btw` answer reaches the last lines on short terminals.
+- **Several Send nows in a row** no longer label the turns they stop "Turn cancelled by user" or jump the transcript view.
+- **`--restore-code`**: when the code restore fails, your uncommitted and untracked files stay in the working tree instead of in a stash.
+- **Windows**: shortcuts typed with `Shift`-held symbols or AZERTY digit keys work.
+- **Queued images** show as green chips in the queue pane, as in the prompt.
+- **Typing while the transcript has focus** moves any character, including non-ASCII text, to the prompt, and leaves a pending card or plan approval as it is.
+- **Worktree creation notes** stay on screen when a queued prompt starts.
+- **Session load errors** show the whole reason instead of cutting out the middle of a long message.
+- **Lines with `|` that are not a Markdown table** wrap like other text instead of being cut off at the terminal edge.
+- **Transcript selection** stays on the same row when a row above it is removed.
+- **Kitty graphics protocol**: images Grok hides are freed in the terminal, so they no longer use its memory.
+- **`--restore-code`** restores its own stash even when another worktree changes the stash list meanwhile, and keeps your changes stashed when a post-checkout hook fails after the checkout.
+
+## Performance
+
+- **Startup** no longer waits about 100 ms for a sign-in file when you use an API key or have not signed in yet.
+
+
+# 1.0.72 — 2026-10-27
+
+## Features
+
+- **Relative file paths** in the agent's output, such as `src/app/main.rs`, open on click when the file exists under the session's folder, as absolute paths already do.
+- **Subagent and background task ids** mentioned in the transcript open that subagent's view or the task's output on click.
+- **Pull-request numbers** such as `#123` in the agent's replies open that pull request on the session repository's forge.
+- **Subagents named in a reply** show as the subagent's label instead of its raw id once the reply finishes, as a link that opens its transcript.
+- **`/workflow runs`** detail view: `→` or a click focuses a phase's agent list, `↑`/`↓` pick an agent, `Enter` opens it, and `←` returns to the phases.
+- **Feedback draft rows** show on their own instead of inside a group of tool rows, and opening one shows the `/feedback` Drafts tab with that draft selected.
+
+## Bug Fixes
+
+- **Warp**: clicking a URL that wraps across rows opens the whole URL instead of only its first row.
+- **`/delete`** confirmation starts on Cancel, so pressing `Enter` no longer deletes the session; press `1` to delete.
+- **Max thoughts width** (`/settings`, `[ui].max_thoughts_width`) sets how wide thinking blocks wrap; it previously had no effect.
+- **Dashboard** shows the new folder on the dispatch box's top border right after a `Ctrl+L` or `/cd` pick.
+- **Custom models on the Responses API** with a non-xAI `base_url` no longer fail every turn with an HTTP 400 schema error for `use_tool`.
+- **`/feedback` Drafts tab** keeps the selected draft when the list reloads, such as after leaving Drafts and coming back.
+- **MCP tools built with FastMCP or the official MCP SDK** send their result to the model once instead of twice, so each call uses about half the context.
+- **Plan review notes** accept every key, so a note that starts with `a` no longer approves the plan.
+- **MCP servers over stdio** no longer lose part of a long reply line, such as a large tool list, when a read is interrupted.
+
+
+# 1.0.71 — 2026-10-26
+
+## Features
+
+- **`ui.single_ctrl_c_quit = true`** lets a single `Ctrl+C` quit when no draft or unfinished work would be lost. It is also under Editor in `/settings`; the default still asks for a second press.
+- **Image chips in the prompt** use the same green as sent images in the transcript.
+- **Hovering an image chip** in the transcript shows the image that was sent, or why it was not attached.
+- **Hooks** accept `"failClosed": true`: when such a `PreToolUse` or `UserPromptSubmit` hook times out or crashes, the tool call is denied or the prompt is blocked instead of going ahead.
+- **Vim editing in the prompt** (experimental): set `[keys] vim = "all"` in `config.toml` for Insert and Normal modes with vim motions, operators, counts and undo. The prompt's info line shows `NORMAL` or `INSERT`.
+- **Inline images** display in Noctty on Windows.
+- **Answers to the agent's questions** show one row per question and answer, and end in `…` only when the text is cut.
+- **Messages from other agents** appear as compact centered rows, and consecutive messages fold into one row.
+- **Messages the agent sends to subagents** appear as the same centered rows (`you → <subagent>`) and fold together with the messages it receives.
+- **Prompt vim cursor** is a block in Normal mode and a bar in Insert mode; `ui.cursor_blink` sets whether they blink.
+- **Minimal mode** starts its info row with the prompt's vim mode (`NORMAL` or `INSERT`), and `NORMAL` is shown in bold.
+
+## Bug Fixes
+
+- **Image chips** in your messages stay whole on one row when the message wraps.
+- **Images the server rejects** are removed from the conversation, so the notice that images were left out no longer repeats, and grows, on every later turn.
+- **Feedback draft rows** show the draft's state: drafted, declined, cancelled or failed.
+- **A slash menu closed with `Esc`** no longer reopens by itself when the command list refreshes, such as right after startup.
+- **Turn failed rows** no longer repeat a generic "Request failed:" before the error.
+
+
+# 1.0.70 — 2026-10-23
+
+## Features
+
+- **Answered questions** now have a blank line between them, except in compact mode (`/compact-mode`).
+- **`GROK_DISABLE_EXPERIMENTS`** turns off every `[[experiments]]` entry in your configuration; `[experiments] enabled = false` in any configuration file does the same.
+
+## Bug Fixes
+
+- **`/plugins`** now counts only the plugin skills that load, and says how many were skipped because they link outside the plugin folder.
+
+
+# 1.0.69 — 2026-10-23
+
+## Features
+
+- **Dashboard directory grouping** now shows a header with the folder path and agent count above each folder's agents.
+- **Dashboard location** (branch and folder) now sits on the dispatch box's top border instead of its own header row.
+- **`/resume` on the dashboard** now lists sessions from every folder, with the current folder and its checkouts first.
+- **Welcome menu** now lists Resume session (`Ctrl+R`) above New worktree (`Ctrl+W`).
+
+## Bug Fixes
+
+- **`[ui] simple_mode`** is retired and no longer has any effect; sessions always open with the prompt focused.
+- **`grok doctor`** and `/doctor` now point out a leftover `[ui] vim_mode` key (now `[keys] vim`) or the retired `[ui] simple_mode` key in your config.
+
+## Performance
+
+- **Quitting Grok** returns you to your shell sooner because it no longer waits out fixed intervals.
+
+
+# 1.0.68 — 2026-10-22
+
+## Features
+
+- **Worktree create and fork** now list files that could not be copied and any mode changes that were lost.
+- **Vim navigation** is now one setting, `[keys] vim` (`off` or `nav`), also set with `/vim-mode`; the older `[ui] vim_mode` still works.
+- **Terminal theme** now draws a subtle band behind your prompts using the colors your terminal reports.
+- **Mode-switch toast** now shows the mode name (Agent, Plan, Ask) in the mode's own color.
+- **Change-directory picker** (`Ctrl+L` on the dashboard) opens with the path field unfocused, like the `/resume` search.
+- **Image placeholders** in the transcript now show whether the actual image was sent or only the text was typed.
+
+## Bug Fixes
+
+- **Worktree create** now fails cleanly instead of falling back when it cannot copy tracked files or runs out of disk space.
+- **Running Grok sessions** are no longer broken when an update deletes their binary.
+- **Dashboard model picks** now keep their selected context window when spawning the next session.
+- **Send Now prompts** and rewound turns now correctly restore and mark any images that were originally sent.
+- **Resumed sessions** now show the correct sent or struck-through state for image placeholders.
+
+
+# 1.0.67 — 2026-10-21
+
+## Features
+
+- **Worktrees** also use their main checkout's saved "always allow" answers, so you are not asked again for a tool you already allowed there. Set `[features] worktree_inherits_main_approvals = false` to turn this off; the main checkout's "never allow" answers apply either way.
+- **Prompt suggestions** follow vim mode: with `[ui].vim_mode` on, `Tab` moves focus to the scrollback instead of accepting the suggestion. `→` or `Ctrl+→` accepts a suggestion, and `Esc` dismisses it.
+
+## Bug Fixes
+
+- **Headless `grok -p` runs** exit when their work is done instead of hanging when a background task or subagent finishes and its output is read in the same turn.
+- **The theme picker in Settings** restores your previous theme when you leave it any way other than `Enter`, as `/theme` already does.
+- **Quitting a session with hooks configured** is faster: the session-end `Stop` hook runs at the same time as the `SessionEnd` hooks and gets at most 1.5 seconds.
+
+
+# 1.0.66 — 2026-10-20
+
+## Bug Fixes
+
+- **`/theme`** restores your previous theme when you leave the picker any way other than `Enter`, such as `Esc`, `Ctrl+U`, `Tab` then `Esc`, or opening Settings or the dashboard.
+- **Selected and highlighted rows** stay readable on every theme because reverse-video text is never dimmed. This fixes faint descriptions in selected menu rows on the `terminal` theme in terminals such as Kitty.
+
+## Performance
+
+- **`@` file completion** shows results about 5 ms after you type instead of about 40 ms.
+
+
+# 1.0.65 — 2026-10-20
+
+## Features
+
+- **`/resume` search** finds sessions from other folders, tolerates typos, and also matches the commands, file paths, and replies in a session.
+- **`--permission-mode plan`** starts the session in plan mode, as documented, instead of the default mode.
+- **The dashboard's `Ctrl+L` folder picker** lists up to 50 recent folders instead of 10.
+- **`grok --help`** gives each command and option a one-line summary, and `grok help -h` and `grok help --help` print the help command's own help instead of an error.
+
+## Bug Fixes
+
+- **`/resume` search** keeps a single typed character literal and matches each typed word at the start of a word, so `log fix` no longer matches "Blog prefix cleanup".
+- **`DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING`** turn telemetry and crash reports off for any non-empty value, including `0` and `false`. A `GROK_TELEMETRY_ENABLED` or `GROK_ERROR_REPORTING` value Grok can't read also counts as off.
+
+
+# 1.0.64 — 2026-10-19
+
+## Breaking Changes
+
+- **Untrusted folders** run only your organization's managed hooks. User, project, plugin, and agent hooks wait until you trust the folder. Headless sessions treat user hooks as trusted.
+
+## Features
+
+- **Worktree names** typed with `Ctrl+W` keep Unicode letters such as `café`, and a name or ref that starts with `-` is refused.
+- **Auto mode** runs a shell command without review only when every command in it matches an allowlist entry; anything else asks first. Permission rules read each word the way bash passes it to the program.
+- **`/resume`** loads older sessions when you reach the last row, and shows how many sessions are loaded.
+- **Auto mode** runs `make --version`, `cmake --version`, and `just --version` without asking.
+- **HTTP connections**, including remote MCP servers, accept gzip, brotli, zstd, and deflate compressed responses.
+- **Plugin install suggestions** above the prompt are off when `disable_plugins = true` is set.
+
+## Bug Fixes
+
+- **New worktrees** keep tracked files that match `.gitignore`, and leave out files excluded only by `.git/info/exclude` or `core.excludesFile`.
+- **A new session that fails to start** puts what you typed back in the prompt you return to, instead of losing it.
+- **Web search** works from a session's first turn, and in subagents, when the search model signs in through an external auth provider.
+- **`grok -w`, `grok worktree create`, worktree forks, and subagent worktrees** refuse up front with the sandbox's message when the sandbox profile does not allow creating worktrees.
+- **Worktree options** are hidden in `/fork`, `/new`, and the Welcome screen when the sandbox profile does not allow creating worktrees.
+- **A worktree name you type** that is already taken is refused instead of getting a numbered suffix, and a name whose folder you deleted by hand can be used again.
+- **External OpenTelemetry export** keeps sending logs and metrics when `OTEL_EXPORTER_OTLP_COMPRESSION` is set to `gzip` or `zstd`.
+- **`[model.*]` tables** without a context window take the window and API of another table that sends the same model, instead of the 200,000-token fallback.
+- **Grok on macOS without a GUI session**, such as over SSH, no longer hangs on its first modifier-key check.
+- **Custom models on the Responses API** keep the turn going when a web search call starts without an action.
+- **Shell commands** run correctly on zsh when your startup files alias `grep` or replace `run-help`.
+- **Voice dictation preview** grows the prompt as you speak and keeps the newest words in view.
+
+
+# 1.0.63 — 2026-10-17
+
+## Breaking Changes
+
+- **Memory** always uses the concise `MEMORY.md` index of topic titles and paths, and `/memory` lists topics by how often Grok reads them. The `[memory_v2] compact_index_enabled` setting no longer has an effect.
+
+## Features
+
+- **Rex terminal support** reports each open session and each running subagent as its own record, so Rex shows what each one is doing. Set `children = false` under `[ui.notifications.program_status]` to report only the main status.
+- **`grok worktree list` and `grok worktree show`** mark a worktree whose folder is missing or whose source repository moved, with a hint on how to repair it.
+- **Command hooks** accept an `args` list: Grok runs `command` as one program with those arguments and no shell, and fills hook variables such as `$GROK_SESSION_ID` in each argument.
+
+## Bug Fixes
+
+- **Plan reviews** that open while you are typing keep your text in the review's notes, so a typed letter no longer triggers a plan shortcut such as approve.
+- **Plan reviews** at the end of a turn wait until you close an open `/feedback` dialog, question, tool prompt, or queued prompt edit.
+- **`grok -w` and `Ctrl+W`** explain that no worktree was made when you run them outside a git repository.
+- **`/fork`** keeps the parent session's model and effort when Grok was started with `-m` or `--effort`.
+- **Custom models on Chat Completions endpoints outside xAI** no longer fail turns with a tool schema error when MCP servers are connected.
+- **Workflow run views** hide each agent's live status text on narrower terminals, so agent names are no longer cut off.
+
+
+# 1.0.62 — 2026-10-16
+
+## Bug Fixes
+
+- **Headless mode** (`grok -p`) waits for the follow-up turn that a finished background task starts before exiting, and a `--background-wait-timeout` that stops pending work exits with an error instead of success.
+- **Cold `/resume` from the dashboard overlay** keeps the overlay attached, so you can still back out with Left or `Ctrl+\`.
+- **Enter on a highlighted slash command** with optional arguments runs the command instead of leaving a trailing space in the composer.
+- **CLI commands** such as `grok models`, `grok sessions` and `grok export` no longer crash when their output pipe closes early, such as when piped to `head`, or when the output device is full.
+- **`grok update`** and **`grok login`** no longer crash when stdout or stderr is closed or unwritable.
+
+
+# 1.0.61 — 2026-10-16
+
+## Features
+
+- **Resume picker** finds sessions whose titles contain every word you type, in any order.
+- **`/resume <id or name>`** opens the session directly when the ID or title matches exactly one session, instead of always opening the picker.
+
+## Bug Fixes
+
+- **Dashboard peek** text can be selected by dragging over it with the mouse, and the selection is copied to the clipboard when you release.
+- **Workflow run views** scroll toward newer agents when you wheel down the agent roster, instead of snapping back.
+- **Hook spawn failures** on Windows name the program that failed to start, such as PowerShell or Git Bash, instead of blaming the hook's script.
+
+
+# 1.0.60 — 2026-10-15
+
+## Features
+
+- **`grok --resume <title>`** lists matching sessions newest first with when each was last updated, and suggests similar titles when nothing matches.
+- **Shift+Y** in the fullscreen markdown viewer copies the code block under the cursor.
+
+## Bug Fixes
+
+- **`grok --resume <title>`** with a title that matches no local session reports the miss right away instead of trying a remote restore and asking you to sign in.
+- **Esc** on the first question in a session opened from the dashboard moves focus to the scrollback, as it does in a standalone session, instead of returning to the dashboard.
+
+
+# 1.0.59 — 2026-10-14
+
+## Features
+
+- **Dashboard `/loop`** without a prompt shows its usage instead of starting a new session.
+- **`grok --resume <title>`** matches a title whatever separates its words, so `fix-login-bug` finds "Fix login bug".
+- **`[Copy]` buttons** appear under code blocks in finished replies, labeled with the code's language or file name.
+
+## Bug Fixes
+
+- **Dashboard peek replies** waiting on a clipboard paste are canceled with a toast when you move the peek to another row or press Esc, instead of being sent later.
+- **`grok worktree rm`** no longer suggests `-f` for a worktree that `-f` would also refuse to remove.
+- **Advanced PowerShell inline hooks** that read `$input` run with a warning instead of failing.
+- **Hooks** that return `continue: false` from PreToolUse, PostToolUse, or UserPromptSubmit stop the turn instead of being ignored.
+- **Grok** no longer crashes at startup when the `SENTRY_DSN` environment variable holds an invalid value.
+- **Copy rows** under code blocks, tables, and diagrams display correctly after switching between minimal and fullscreen modes.
+- **Copying** a code block or a whole reply keeps its original tabs instead of turning them into spaces.
+
+
+# 1.0.58 — 2026-10-14
+
+## Bug Fixes
+
+- Minor bug fixes.
+
+
+# 1.0.57 — 2026-10-14
+
+## Bug Fixes
+
+- Minor bug fixes.
+
+
+# 1.0.56 — 2026-10-13
+
+## Bug Fixes
+
+- Minor bug fixes.
+
+
+# 1.0.55 — 2026-10-13
+
+## Bug Fixes
+
+- Minor bug fixes.
+
+
+# 1.0.54 — 2026-10-12
+
+## Features
+
+- **`/resume`** takes an optional session id or title and opens the picker filtered to matching sessions.
+
+## Bug Fixes
+
+- **Pasted Windows line endings** reach the model as newlines, markdown images no longer show a stray "!", and dollar amounts that are not math stay plain text.
+- **Write approval cards** show a binary or unreadable file as unreadable instead of garbled text.
+- **Prompts you send while a session is resuming at startup** are queued and sent once it loads instead of staying in the composer.
+- **A corrupt active-sessions registry** no longer stops new sessions from registering: grok keeps a backup, salvages the session rows it can read, and warns you.
+- **Wrapped URLs** in shell command descriptions link to the full address on every row.
+- **Worktree forks** (`grok -w -r` or `/fork` into a worktree) run in and show the worktree's path, so a shell command no longer edits the original checkout.
+- **Links** are clickable in herdr panes.
+- **Memory search** shows the matching part of a long line instead of cutting it off before the match.
+- **`/memory`** skips a symlinked note instead of failing the whole listing.
+- **Startup** is faster when `TMUX` names a tmux server that has stopped.
+- **Failed MCP tool rows** wrap the error to the screen width and keep its line breaks.
+- **`[skills].ignore`** matches a symlinked SKILL.md by the folder that holds it.
+- **Failed file reads** expand to show why they failed.
+- **Send now (Ctrl+Enter)** on a slash command runs or queues it as a command instead of sending it as a prompt.
+
+## Performance
+
+- **The idle welcome screen** uses less CPU.
+- **Prompt undo history** is capped by size, so large pastes you delete no longer stay in memory.
+- **Typing in a prompt that holds large pastes** is faster.
+- **Long sessions** use less memory: long replies scrolled off screen release their render caches.
+
+
+# 1.0.53 — 2026-10-12
+
+## Features
+
+- **Wrapped shell commands** in tool and background-task rows copy back as one line.
+- **`/hooks`** lists load errors from the main agent's inline hooks and from plugins.
+- **`--tools` and `--disallowed-tools`** also apply in the interactive TUI.
+- **`/goal`** pauses after three continuations in a row with no tool call; run `/goal resume` to continue.
+- **Quitting** warns when it would stop a running workflow and asks you to confirm with a second quit.
+- **Multi-file edits** show how many other files the edit changed.
+
+## Bug Fixes
+
+- **Worktrees created from a repository subfolder** report the repository root as their source in `grok worktree list` and `grok worktree show`.
+- **`/feedback`** stays open while you type when a permission request, question, or MCP prompt arrives.
+- **Persistent shell** runs your command even when restoring its saved state fails.
+- **`/fork`** is refused while an approval request is open, so the approval keys keep answering that request.
+- **`grok --help`** and **`grok --version`** no longer create a `.grok` folder.
+- **Wrapped URLs** in tool headers link to the full address on every row.
+- **search_replace** refuses an `old_string` that matches again at an overlapping position, so it no longer edits the wrong match.
+- **read_file** reports the correct line count for files that end with a newline and no longer returns an empty line past the end.
+- **`/workflow stop`** and **`/workflow pause`** no longer pick a run from a loose fuzzy match, and headless `-p` runs print each refused approval request to stderr.
+- **Workflow run views** list agents outside a declared phase and count only finished agents as done.
+- **Parallel MCP tool calls** that ask for input each show their own prompt.
+- **`/feedback` Drafts** load the valid drafts when one saved draft is invalid.
+- **`grok sessions list`** and `/resume` keep working when one session directory is unreadable.
+- **`grok plugin install`** interrupted mid-clone on Linux no longer leaves a partial folder that blocks the retry.
+- **Hooks you disabled** stay disabled when the disabled-hooks file cannot be read.
+- **Edit diffs** mark removed and added lines with `-` and `+` when color is off.
+- **Session usage** keeps every turn when two windows write to the same session.
+- **Failed directory listings** expand to show why they failed.
+- **Stdio MCP servers** expand a leading `~` in their command and arguments to your home directory.
+- **Editing a queued command** such as `/compact` is refused with a message, so your new text is kept.
+- **`/docs`** opens the exact guide or picker you type.
+- **`grok inspect`** warns when a known `[features]` key in config.toml has a non-boolean value.
+- **Send now (Ctrl+Enter)** no longer answers the stop-subagents panel or an MCP prompt card.
+
+## Performance
+
+- **@-mentions** reuse the file list until the folder tree changes, so suggestions appear faster.
+
+
+# 1.0.52 — 2026-10-11
+
+## Features
+
+- **Rex terminal support**: Grok now reports its status (working, waiting for you, done, or failed) to Rex through OSC 7501, so Rex tabs show what each session is doing.
+- **Tool call density improvements**: expanded tool call groups now stay expanded as new calls join them, and Ctrl+E expands or collapses thinking faster in long transcripts.
+- Project hooks placed in a repository subfolder are now loaded when you launch inside that folder.
+- HTTP hooks to localhost now work, and bad hook URLs are reported at load time.
+- Command status-line scripts now see the current turn's prompt ID and start time while the turn is active.
+
+## Bug Fixes
+
+- **Grep searches** that time out or fail now show an error instead of appearing as empty results.
+- **`/model` switches** that fail no longer change the footer or saved default model.
+- **Export and copy** commands no longer overwrite an existing file; they refuse with a clear message.
+- **Shell commands** no longer keep running after you quit grok or it receives a signal.
+- Approval cards for background subagents no longer disappear when the parent turn ends.
+- `grok worktree rm` and `gc` no longer delete a worktree that an open session is using.
+- **grok inspect** no longer warns about valid pins that only requirements.toml accepts.
+- **Pasted images** that exceed the 50 MB send limit are now rejected with a clear message instead of silently dropped.
+- `grok -p --effort` now prints a warning when the model ignores the flag and refuses invalid effort levels.
+- Permission prompts now show which session needs approval.
+- **grok worktree rm** now refuses to delete git repositories, .git folders, or any directory grok did not create.
+- **Grep** and **list_dir** now report a clear error when the search root or directory cannot be read instead of silently returning no results.
+- **Cancelled terminal commands** now show the actual command that was stopped.
+- **Wrapped URLs** in prompts and quotes now link to the complete address instead of being cut at the wrap.
+- **@mentions and image placeholders** now respect Read deny rules and are omitted from the prompt.
+- **Restarting** after a model switch no longer reverts to the previous model.
+- Long tool turns that include PostToolUse hook output now compact correctly instead of hitting the prompt length limit.
+- Headless prompts that start with a byte-order mark no longer send the mark to the model or break JSON prompt files.
+- When a permission rule blocks a tool call, any context returned by a PreToolUse hook still reaches the model.
+- An invalid shell_environment_policy table in config.toml now causes grok to exit with a clear error instead of silently using the full environment.
+- MCP tool replies containing invalid characters no longer cause the call to time out.
+- **Context overflow errors** now trigger automatic compaction instead of failing the turn.
+- Inline tags in agent replies no longer break line layout, and /workflow stop now picks the correct live run.
+- **Auto-compaction** now stops after three context refills in a row instead of looping forever.
+- **Minimal mode** now shows the permission prompt instead of a hidden plan or cancel panel when both are present.
+- **Project rules files** that resolve outside the git root or workspace folder are now skipped.
+- **[permission] rules** now load alongside compact deny/allow/ask lists in config.toml.
+- **Unrecognized permission keys** or [permissions] sections now appear as skipped entries in grok inspect.
+- **Approval cards** now close the block viewer so the card is visible.
+- Shell redirects to wildcard or variable paths now correctly respect deny rules in Auto mode.
+- The in-session resume picker now matches the ungrouped layout shown on the welcome screen when configured.
+- HTTP MCP tools that return a JSON-RPC error are now executed only once.
+- StopFailure hook matchers containing commas or spaces are now treated as regex patterns.
+
+## Performance
+
+- Multiple Notification hook chains now start in parallel instead of waiting for the previous chain to finish.
+
+
+# 1.0.51 — 2026-10-09
+
+## Breaking Changes
+
+- Cancel and edit-resend on long sessions no longer unexpectedly revert workspace files.
+- **Memory settings** simplified: rollout and file_writes_enabled options removed; memory is on or off.
+- **Removed the `/share` command** and related session sharing features from the CLI and SDK.
+
+## Features
+
+- **Inline viewports** can now be restored at a previously saved screen area without extra cursor queries.
+- Headless `grok -p` now waits for background goals to finish and reports their outcome.
+- **`/imagine`** and similar commands now run the matching bundled skill when the required tools are unavailable.
+- **New `/density` command** and Tool call density setting let you choose how much detail tool calls show in the transcript.
+- **Web fetch approval cards** now include "always allow" and "never allow" domain options that persist for the folder.
+- **Slash command completion** now updates live when skills are added or changed during a session.
+- **Request form** now securely collects and fills sensitive details like passwords or card numbers without sending values to the model.
+- **Chrome profiles** can now be persisted across restarts using durable state directories.
+- Workspace server sessions now share one Chrome instance for cookies and storage.
+- **`/feedback` Drafts tab** now supports `G` / `Home` and `End` to jump to the first or last draft.
+- **Pinned sessions** on the dashboard now stay in the order you pinned or reordered them.
+- **Shift+Enter, Ctrl+., Ctrl+/ and Ctrl+[ / ]** now work inside tmux when extended-keys are enabled.
+- **grok -p --output-format json** now reports the exact worktree folder used (useful after -w name collisions).
+- Bare hook commands such as `my-guard` now run from PATH when not found next to the hook file.
+- Headless JSON error output now includes the worktree folder when a session was started.
+- **grok sessions list** and /resume now show worktree sessions started from the same subfolder.
+- **/exit** (and aliases) in a dashboard details view now closes only that session instead of quitting Grok.
+- **Editors offering file access** now receive a one-time transcript notice that the agent reads and writes disk files.
+- **--background-wait-timeout** now also stops an active headless goal after the timeout and exits with an error.
+- **Interactive sessions** now include the Grok Build user guide location so the agent can answer usage questions.
+- **New `/workflow` commands** let you list, stop, and resume background workflow runs without sending them to the model.
+- **Background workflow runs** now appear in the tasks pane with a stop button.
+- Hooks that ask about web searches or file deletes now show the hook name on the approval card.
+- config.toml now accepts an [update] section without breaking other commands.
+- Hook load errors listed in /hooks can now be expanded to see the full message.
+- `grok worktree` commands now work correctly inside Jujutsu repositories.
+- Images pasted with skill commands like /pr-workflow are now sent to the model.
+- Pressing Ctrl+C on a goal now pauses the goal instead of letting it continue.
+- grok -p now runs auth_provider_command when no login is stored.
+- Reopening a chat with an active goal now continues the goal automatically.
+- Browser tabs can now be restored on demand instead of all at once when a session resumes.
+- `grok agent stdio` now supports listing sessions via ACP and returns consistent reply envelopes.
+- Answering an approval with a message now tells the model it is a follow-up.
+- **--allowed-tools** is now accepted as an alias for --allow in headless mode.
+
+## Bug Fixes
+
+- Slash command suggestions no longer make the text after the cursor disappear while typing.
+- Running workflows in the dock now show the same pulsing indicator as in the main scrollback.
+- Mode switch tool calls now appear in the transcript with the target mode name.
+- Always-approve mode now automatically approves web requests without extra prompts.
+- **The follow indicator no longer appears** when only blank padding sits below the viewport.
+- **Search failures now keep the original pattern** instead of showing an empty Search "".
+- **Sessions that open without a model list now use the public Auto id** and succeed on every account.
+- Background wake turns that request plan changes or mode switches are now handled correctly.
+- Model-call retries now show progress status instead of a generic waiting message.
+- Foreground subagent activity now appears correctly after resume.
+- Very large pasted prompts are now offloaded to a file instead of being sent inline.
+- Sign-in failures now show a clear plain-English message with the next step instead of raw errors.
+- Logging out now stops any running turns on local sessions instead of leaving them active.
+- The send-now shortcut no longer accidentally enables always-approve mode while a permission card is open.
+- `/find` now keeps match counts and navigation accurate while replies or command output stream in.
+- Images from tools are now validated so bad files no longer break the current turn or future replays.
+- Screenshots and other image artifacts saved by the browser tool are now stored as real image files.
+- Rate-limit errors now show the expected message; very small images are rejected early.
+- Send-now (Ctrl+Enter) no longer accidentally answers an open question card.
+- Opening the queue with Up now scrolls so the selected follow-up is visible.
+- Command output that contains clear-screen codes is no longer discarded.
+- **Dashboard cursor and overlay counter** now correctly track the active grouping view.
+- **Headless JSON output** now reports the correct stop reason when the turn limit is reached and removes duplicate error prefixes.
+- **Session picker footer** no longer lists the same shortcut twice.
+- **Dragging images** from a file manager onto terminals like GNOME Terminal or xfce4-terminal now attaches them correctly.
+- **Plan comments** added while a revision runs are now preserved and sent when the plan is approved.
+- **Permission prompts** that fail now show a clearer message without blaming the interface.
+- **--disallowed-tools** now accepts the exact names shown to the model (run_terminal_command, spawn_subagent, etc.).
+- Long pastes without bracketed-paste markers are now read completely instead of stalling after ~1 KB.
+- A feedback send now shows "Sending feedback…" immediately; failed sends no longer repeat the lead phrase.
+- Typing, arrows or Enter while an approval card appears no longer accidentally approve the action or enable always-approve mode.
+- **Error hints** for legacy session import now appear in full instead of being cut off by the pager.
+- **Skills** in the folder where grok started now correctly show as (local).
+- **Worktree creation** no longer hangs when the repo contains named pipes or sockets.
+- **--no-subagents** flag now works correctly in headless / -p sessions.
+- **Resumed sessions** now correctly show aborted subagent tasks as cancelled instead of failed.
+- **Large parallel shell batches** no longer drop calls with "hook state lost" errors.
+- **Write approval cards** now show the existing file contents that will be replaced.
+- **Slash command completion** now shows the correct name for files under commands/ instead of always showing /commands.
+- **PreToolUse hooks** now validate rewrites against the tool schema and deny invalid ones before running the tool.
+- **Ctrl+C during a turn** now cancels the turn even when a modal such as /mcps or the block viewer is open.
+- **grok -w** now opens the session at the worktree root (with a note) when the original launch folder does not exist in the new worktree.
+- **`/cd`** and the location picker now accept quoted or escaped folder paths.
+- Web search hooks now fire under the correct `web_search` name and carry `query`.
+- Large file writes or many screenshots no longer end the session.
+- Glob tool hooks now match under `list_dir` and carry the correct directory.
+- **`/find`** now scrolls to the exact wrapped row containing the current match.
+- Downloads via FetchMcpResource are now refused in plan mode and resolve paths consistently.
+- Pinned dashboard sessions now survive restarts and layout changes instead of disappearing from the saved list.
+- Slash commands like /imagine now work regardless of capitalization and correctly substitute skills when tools are missing.
+- Turning off bypass mode without naming a session now correctly restores prompts in all open sessions.
+- /delete with extra text now shows an error instead of deleting the current session.
+- **Failed /feedback** status messages now wrap inside the dialog instead of clipping at the border.
+- **Number-key picks in the dashboard peek** no longer leak to the wrong agent after Up/Down navigation.
+- **Worktrees created with -w** are now correctly tracked and resumable even when GROK_HOME is reached through a symlink.
+- `grok worktree rm` and `gc` now clean up names after manually deleting a worktree folder so `-w NAME` works again.
+- Hook scripts that read stdin with `read` now receive a complete line.
+- A policy that disables non-managed hooks now applies to the next session instead of only after restart.
+- `/resume` and `grok sessions list` no longer show worktree sessions from a sibling submodule or separate-git-dir repo.
+- A hook listed under two different matchers now runs only once per tool call.
+- Typing a hidden command such as `/cd` in a session and pressing Enter now runs it instead of accepting a near-match skill.
+- **@-file completion** no longer accepts a match from an earlier query when you type quickly.
+- **Tool hooks** now run one at a time per session and stop promptly on cancel or exit.
+- **PostToolUse hooks** now receive a correct whole-millisecond duration.
+- **PreToolUse hooks** for shell commands now see the model's block_until_ms value.
+- **MCP tool calls** now show hook permission prompts and cards name the hook that asked.
+- **Typing while a permission or ask card is visible** no longer selects or answers the card.
+- **grok worktree list** now shows unfinished copies left by an interrupted create.
+- **Auto mode** now asks before deleting files that the classifier has not already allowed.
+- **Fixed intermittent** List/Read/Open failures during concurrent v2 hardening migrations.
+- **grok -p -s** with a reused session id now shows the plain refusal message instead of JSON-RPC noise.
+- **Settings saves** no longer re-insert the built-in default fork model into config.toml.
+- **Fixed several** pager rows that showed wrong paths, truncated names, or hid failure/cancel states.
+- **--system-prompt** now correctly appends rules from --append-system-prompt instead of dropping them.
+- **/new** now inherits always-approve mode from the tab it was run from instead of another tab.
+- **Multi-select questions** now let you toggle several answers with number keys before submitting.
+- **Slash-command notices** typed while a reply streams no longer hide the streaming reply.
+- **@ file search** no longer accepts keys or moves the highlight while results are still updating.
+- **Worktree db rebuild** now restores names so `rm` and `show` by name work again.
+- A prompt blocked by a hook no longer titles the session.
+- **Background subagents** now respect saved approvals and --always-approve after the parent turn finishes.
+- **Per-session system prompt overrides** now correctly use only the session's own rules.
+- **Connection stalled** errors now show a clearer message with network advice.
+- **Invalid model provider tables** now produce a clear startup error instead of silent fallback.
+- **Narrow feedback dialog** now shows full draft titles and readable confirm prompts.
+- **/workflow stop|resume <name>** now correctly targets the live run instead of an ended first run.
+- Dialogs like /feedback no longer disappear on very short terminal windows.
+- Delete operations now respect the same permission rules as shell rm commands.
+- Hooks can no longer rewrite a web-search call to restrict domains.
+- Workspace server now starts with per-session private Chrome by default.
+- Notification hooks for permission prompts and task completion now run reliably before a headless session exits.
+- Headless goal runs no longer print a spurious "Goal paused" message after completion.
+- Legacy UI density settings now combine correctly across config tiers and produce expected folding.
+- Approval answers sent after a turn ends no longer affect the turn.
+- Background shell commands now fail immediately when the working directory does not exist.
+- `grok worktree rm` without `-f` now safely keeps worktrees when the unsaved-work check fails or times out.
+- The dashboard slash menu now shows skills from the home session even when opened early.
+- `grok worktree rm` and `gc` now correctly remove worktrees whose only untracked content is empty folders.
+- Editing a queued prompt now prevents accidental removal with a stale client view.
+- The model is now told when memory is turned off or on for the session.
+- Hook results in the UI now correctly distinguish between notes and tool outcomes.
+- Permission cards for MCP tools can no longer be tricked into showing fake option rows.
+- The agent stdio mode now returns clearer errors for malformed client requests and consistent recap replies.
+- Scroll logging and acceleration calculations no longer produce backwards timestamps under load.
+- Hooks and tool commands started from the TUI can no longer read or write the interactive terminal.
+- Delete operations now correctly match `Bash(rm …)` ask/deny rules even when the path contains `..` or the cwd is a symlink.
+- **Web search and image approval cards** now only offer always-approve mode to clients that support it.
+- Closing a session in the dashboard no longer leaves it listed under Inactive.
+- Running /compact on an empty session no longer resets the reported context window.
+- With goals disabled, a headless `/goal` line is now treated as a normal prompt instead of failing.
+- **Background shell commands** no longer flip back to running when late output arrives.
+- Only slash commands at the start of a message trigger skills.
+- **Browser tabs** restore and close more reliably with fewer races.
+- Fast model names in the footer no longer show double parentheses.
+- SubagentStart and Notification hook activity is no longer reported to the UI.
+- **Voice error messages** now display with correct punctuation.
+- **disable_zdr_incompatible_tools** changes now apply to new turns without restarting the worker.
+- **Project skills** are now labeled correctly for nested projects.
+
+## Performance
+
+- Opening the resume picker is now much faster on machines with many worktrees.
+- **grok worktree commands start faster** by skipping unnecessary model catalog work at boot.
+
+
+# 1.0.50 — 2026-10-06
+
+## Breaking Changes
+
+- **grok worktree rm** without -f now refuses to delete worktrees that are in use or contain unsaved changes and exits with an error.
+
+## Features
+
+- **Compact mode** now collapses recaps and keeps inner spacing on tall terminals.
+- **Clicking the git branch** in the header now copies the full branch name.
+- **Long branch names** now abbreviate on narrow terminals while remaining copyable.
+- **Targeted cancels** now stop only the specific response when requested by clients.
+- **Compact mode** now hides the dock (or tasks pane) the same way Ctrl+G does.
+- New **timestamps** setting offers off, minimal, and on modes in Settings and `/timestamps`.
+- **Shell command output** now shows "Running …" while executing and "Ran …" when finished.
+- **Live preview pins** now include whether an app was observed behind the URL.
+- **Command palette (Ctrl+P)** and model picker now open at the same width as the settings modal.
+- Tables rendered by grok now show copy buttons underneath that export clean TSV, CSV or Markdown suitable for spreadsheets.
+- Dashboard now shows which worktree each session belongs to, displays the `-m` model in the new-agent box, and lets you toggle worktree mode in the folder picker.
+
+## Bug Fixes
+
+- **Shell permission decisions** now correctly prompt or approve commands matching the permission manager.
+- **Cancelled turns** now correctly mark unanswered tool calls as cancelled instead of succeeded.
+- **Long error messages** in the /usage and /session-info modals now wrap instead of being truncated.
+- **Em-dashes** no longer appear in status messages and subagent rows.
+- **Stalled model calls** during turns now retry before failing the turn.
+- **Queue pane** and Ctrl+; now appear and work when the dock is hidden with Ctrl+G.
+- **Long sessions** no longer disconnect when the conversation exceeds 4 MiB.
+- **Permission rules** now accept native tool names such as `run_terminal_command` and `Shell`.
+- **/rewind** now places the cursor at the end of the restored prompt.
+- **Failed file writes** now leave the previous contents instead of an empty file.
+- **Fixed /loop and scheduler_create** so non-ASCII intervals like 5分 no longer crash the session.
+- **Fixed --disallowed-tools** when only one scheduler tool is named; the other two no longer cause startup failure.
+- **Fixed closing a busy tab** so queued prompts are no longer sent to the model.
+- **Fixed relative --cwd** so `grok --cwd a` no longer ends up running inside `a/a`.
+- The terminal title now shows "Action Required" for any background session waiting on approval.
+- `grok` now accepts a prompt via piped stdin in headless mode instead of trying to open the UI.
+- An admin-set `[features] title_refresh = false` in requirements.toml now correctly disables title refresh even when GROK_TITLE_REFRESH is set.
+- Custom notification commands defined under [[ui.notifications.hooks]] now execute on matching events.
+- An admin pin of `[cli] use_leader = false` now correctly prevents `--leader` from starting a leader process.
+- When multiple MCP servers expose a tool with the same name, `search_tool` now returns all of them.
+- Concurrent Grok windows editing settings no longer lose or corrupt config.toml entries such as MCP servers or permission rules.
+- **web_fetch** no longer downloads huge files into memory before rejecting them.
+- **memory_get** no longer returns huge files that exceed the read limit.
+- **Continue to run** no longer kills commands running inside background subagents.
+- **memory_search** now finds Japanese, Chinese, and Korean words inside longer notes.
+- Drafts saved by the model now appear under their actual titles in /feedback.
+- Imagine replies that are not valid images are now rejected instead of being saved as .jpg files.
+- A workflow file that fails to parse now reports the exact file and parse error instead of 'unknown workflow'.
+- **Re-encoded images** are now oriented correctly using their EXIF tags instead of appearing sideways.
+- **Image and log paths** reported after `/fork --worktree` now point to real files instead of missing locations.
+- **Tab characters** in terminal command output are now preserved when shown to the model.
+- **Transparent images** are now kept as PNG when re-encoded instead of turning black.
+- **The bundled ripgrep** is now available to terminal commands even on images that do not install it.
+- **Request bodies** now stay under a small configured `max_request_bytes` limit instead of growing past it.
+- **Effort level** now stays the same after a bare `/model` switch instead of jumping to the new model's default.
+- **Ctrl+\** and other modified digits no longer accidentally select options on permission or cancel cards.
+- **Feedback submissions** now show accurate success or failure messages without premature thanks or duplicated prefixes.
+- **grok doctor** now reports the exact config file or setting that prevents Grok from starting instead of saying zero issues.
+- **Recap summaries** now appear on screen automatically instead of requiring manual scrolling.
+- **grok doctor fix** now opens its confirmation card on Cancel to prevent accidental edits to shell or tmux config.
+- **Slash commands** now run regardless of case (e.g. /COMPACT or /Compact).
+- **/context** no longer shows an invented auto-compact threshold when the agent does not report one.
+- **Agent text** no longer keeps the pager redrawing when a tool call interrupts the sentence.
+- **CLI tool calls** no longer fail or overflow when the workspace directory is deleted or output is huge.
+- **Logs written to files or when NO_COLOR is set** are now plain text instead of containing color codes.
+- **Prompts now fail immediately** with a clear message if the session's working directory no longer exists instead of failing later or recreating it.
+- **grok -w** now works correctly with separate-git-dir repositories and shows clear errors when run outside a git repo or on an empty repo.
+- **Shell tool descriptions** now correctly state the actual output truncation limit, and grep respects globs relative to the current session directory.
+- **Compaction messages** now scroll into view instead of appearing below the bottom of the screen after a turn finishes.
+- **Git-mode worktrees created with -w** now preserve uncommitted changes instead of dropping them.
+- **Worktrees created with --worktree-ref** no longer contain wrong submodule contents or LFS pointer text.
+- Worktree creation now shows the same clear error messages on every code path.
+- Failed worktree creates now show a clear error on the home screen instead of being hidden.
+- Merge and rebase conflicts now appear in the changes list instead of being hidden.
+- Fixed a crash when starting a new session with durable rewind checkpoints enabled.
+- Managed permission files with one bad key no longer lose all their valid rules.
+- Simultaneous worktree creates with the same label now succeed instead of one failing with "already exists".
+- `grok worktree rm` without `-f` no longer deletes arbitrary folders that happen to share a name with a removed worktree.
+- Discard now affects only the exact files you select instead of also deleting or reverting similarly-named files.
+- **Permission rules** with one bad entry no longer lose the other rules in the same section.
+- **Chat Completions streams** that end without a finish reason are now retried instead of returning partial output.
+- **grok worktree rm** by label now refuses when the label exists in multiple repos.
+- **Grep** now respects Read deny rules that use a leading `./`.
+
+## Performance
+
+- Command hooks no longer cause large memory spikes when they print a lot of output.
+- **Retry waits** now vary between processes instead of being identical.
+
+
+# 1.0.49 — 2026-10-02
+
+## Bug Fixes
+
+- Hook permission prompts now appear regardless of approval mode.
+- **Web searches, fetches, and image generation** now correctly respect the prompt_policy setting and rule decisions before prompting.
+- **Allow once** in permission cards now applies only to the next shell command instead of the whole session.
+- **pkill -f** and **pgrep -f** commands are now rejected earlier when the pattern would kill their own shell wrapper.
+
+
+# 1.0.48 — 2026-10-02
+
+## Bug Fixes
+
+- **`/rewind`** now only lists prompts you typed yourself and skips automatic runtime turns.
+- Custom model tables in config.toml now preserve the original model's notice banner.
+- `read_file`, `search_replace`, and `grep` now handle large files, special files, and binary content more reliably and surface better errors.
+- **Ask rules for WebSearch and WebFetch** now correctly show a prompt instead of auto-running.
+- **Cancelling one tool call** no longer kills commands started by other parallel calls.
+- **Authentication recovery** no longer automatically retries refused prompts after login; the sign-in block now requires manual resend.
+
+
+# 1.0.47 — 2026-10-01
+
+## Features
+
+- **Model switch responses** from the agent now update the displayed model list and context window.
+
+## Bug Fixes
+
+- Error messages on the home and login screens now wrap properly in narrow terminals.
+- **Clicking the Goal chip** now opens the goal panel even when workflow runs are present.
+
+## Performance
+
+- **Sessions** in repositories with an .envrc file now start faster.
+
+
+# 1.0.46 — 2026-09-30
+
+## Bug Fixes
+
+- **MCP server sources** are now correctly reported by `grok inspect` and the MCP doctor.
+- **Tool search** activity now correctly folds as "Ran N tool searches" instead of claiming MCP tool results.
+- **Client rules** supplied at session start are now preserved when the system prompt is rebuilt later.
+- **Permission rules** with relative paths now correctly apply even when the cwd contains symlinks.
+- **Context compacted** line now shows the correct token count immediately after compaction instead of at the end of a long turn.
+- **Enter on video cards** no longer attempts playback in terminals that cannot show it or lack ffmpeg.
+- **Video cards** now open the file in the default player on Enter in terminals without inline playback support, and no longer get stuck trying to extract posters without ffmpeg.
+
+## Performance
+
+- list_dir on network or virtual filesystems now skips slow subtree counts and prints a notice instead.
+- **Session startup** is faster when loading skills from large directories and shows what it is doing instead of a generic spinner.
+
+
 # 1.0.45 — 2026-09-29
 
 ## Features

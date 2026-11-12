@@ -87,6 +87,12 @@ mod tests {
     }
 
     #[test]
+    fn package_version_is_the_ported_release() {
+        assert_eq!(env!("CARGO_PKG_VERSION"), "1.0.78");
+        assert_eq!(VERSION, "1.0.78");
+    }
+
+    #[test]
     fn full_version_falls_back_then_first_set_wins() {
         assert_eq!(full_version(), VERSION);
         set_full_version("first (aaaaaaa)");
