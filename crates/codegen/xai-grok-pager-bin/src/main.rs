@@ -2145,7 +2145,7 @@ fn dispatch_help_if_requested(args: &PagerArgs) -> bool {
     let Some(Command::Help { command }) = &args.command else {
         return false;
     };
-    match xai_grok_pager::app::cli::render_subcommand_help(command) {
+    match PagerArgs::render_subcommand_help(command) {
         Ok(text) => print!("{text}"),
         Err(text) => {
             eprint!("{text}");
@@ -2602,7 +2602,7 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                 flag_dashboard_at_startup_if_requested(&mut args)?;
             }
             Command::Help { command } => {
-                match xai_grok_pager::app::cli::render_subcommand_help(&command) {
+                match PagerArgs::render_subcommand_help(&command) {
                     Ok(text) => print!("{text}"),
                     Err(text) => {
                         eprint!("{text}");

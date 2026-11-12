@@ -75,6 +75,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static SANDBOX: OnceLock<GlobalSandboxState> = OnceLock::new();
 static CONFIGURED_PROFILE: OnceLock<String> = OnceLock::new();
 static CONFINEMENT_ROOT: OnceLock<std::path::PathBuf> = OnceLock::new();
+static EXTRA_WRITE_ROOTS: OnceLock<Vec<std::path::PathBuf>> = OnceLock::new();
 static AUTO_ALLOW_BASH: AtomicBool = AtomicBool::new(false);
 const BWRAP_ENV_VAR: &str = "__GROK_INSIDE_BWRAP";
 pub fn is_inside_bwrap() -> bool {
@@ -130,6 +131,33 @@ pub fn set_confinement_root(workspace: &Path) {
 pub fn confinement_root() -> Option<&'static Path> {
     requested_confinement_profile()?;
     CONFINEMENT_ROOT.get().map(std::path::PathBuf::as_path)
+}
+/// Directories named with `--add-dir`. Register these before the sandbox is applied.
+///
+/// Profiles that can write the workspace treat them as further write roots. The read-only profile does not.
+/// A second call is ignored; startup registers the list once.
+pub fn set_extra_write_roots(dirs: Vec<std::path::PathBuf>) {
+    let _ = EXTRA_WRITE_ROOTS.set(absolutize_extra_write_roots(dirs));
+}
+/// Extra write roots from [`set_extra_write_roots`], or an empty slice when none were registered.
+pub fn extra_write_roots() -> &'static [std::path::PathBuf] {
+    EXTRA_WRITE_ROOTS.get().map(Vec::as_slice).unwrap_or(&[])
+}
+pub(crate) fn absolutize_extra_write_roots(
+    dirs: Vec<std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    dirs.into_iter().map(absolutize_one_write_root).collect()
+}
+fn absolutize_one_write_root(dir: std::path::PathBuf) -> std::path::PathBuf {
+    let absolute = if dir.is_absolute() {
+        dir
+    } else {
+        match std::env::current_dir() {
+            Ok(cwd) => cwd.join(&dir),
+            Err(_) => return dir,
+        }
+    };
+    dunce::canonicalize(&absolute).unwrap_or(absolute)
 }
 fn profile_confines(name: &str) -> bool {
     name.parse::<ProfileName>()
@@ -1167,5 +1195,29 @@ mod tests {
                 .is_none()
         );
         let _ = std::fs::remove_dir_all(&workspace);
+    }
+}
+
+#[cfg(test)]
+mod extra_write_root_tests {
+    use super::absolutize_extra_write_roots;
+
+    struct RmDir(std::path::PathBuf);
+    impl Drop for RmDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir(&self.0);
+        }
+    }
+
+    #[test]
+    fn relative_extra_write_root_becomes_the_canonical_directory() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let name = format!(".grok-extra-write-root-{}", std::process::id());
+        let dir = cwd.join(&name);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let _cleanup = RmDir(dir.clone());
+        let got = absolutize_extra_write_roots(vec![std::path::PathBuf::from(&name)]);
+        let expect = dunce::canonicalize(&dir).expect("canonical");
+        assert_eq!(got, vec![expect]);
     }
 }

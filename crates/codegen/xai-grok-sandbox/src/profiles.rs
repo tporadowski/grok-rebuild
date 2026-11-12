@@ -429,7 +429,39 @@ impl ProfileName {
         Ok((profile, runtime_socket_denies))
     }
 
+    /// `--add-dir` folders join profiles that can write the workspace. Read-only stays read-only.
+    /// Strict has no default read, so the same folders are readable there too.
+    fn include_extra_workspace_dirs(profile: &mut SandboxProfile, extra: &[PathBuf]) {
+        if extra.is_empty() || profile.name == "read-only" {
+            return;
+        }
+        for root in extra {
+            if !profile.read_write.iter().any(|path| path == root) {
+                profile.read_write.push(root.clone());
+            }
+        }
+        if !profile.default_read {
+            for root in extra {
+                if !profile.read_only.iter().any(|path| path == root) {
+                    profile.read_only.push(root.clone());
+                }
+            }
+        }
+    }
+
     fn resolve(&self, workspace: &Path, config: &SandboxConfig) -> anyhow::Result<SandboxProfile> {
+        let mut profile = self.resolve_unextended(workspace, config)?;
+        if !matches!(self, Self::Custom(_)) {
+            Self::include_extra_workspace_dirs(&mut profile, crate::extra_write_roots());
+        }
+        Ok(profile)
+    }
+
+    fn resolve_unextended(
+        &self,
+        workspace: &Path,
+        config: &SandboxConfig,
+    ) -> anyhow::Result<SandboxProfile> {
         match self {
             // Selected `off` is handled before resolve (empty CapabilitySet / early return in apply)
             // Reaching here is almost always a custom profile with `extends = "off"` / `"none"`; return Err, never panic
@@ -649,6 +681,65 @@ mod tests {
     fn display_custom() {
         let p = ProfileName::Custom("my-custom".to_string());
         assert_eq!(p.to_string(), "my-custom");
+    }
+
+    #[test]
+    fn extra_dirs_join_writable_profiles_and_stay_off_read_only() {
+        let extra = PathBuf::from("/tmp/grok-add-dir-example");
+        let mut workspace = SandboxProfile {
+            name: "workspace".to_string(),
+            read_only: vec![],
+            read_write: vec![PathBuf::from("/work")],
+            deny: vec![],
+            write_deny: vec![],
+            default_read: true,
+            restrict_network: false,
+        };
+        ProfileName::include_extra_workspace_dirs(&mut workspace, std::slice::from_ref(&extra));
+        assert_eq!(
+            workspace
+                .read_write
+                .iter()
+                .filter(|path| *path == &extra)
+                .count(),
+            1
+        );
+        ProfileName::include_extra_workspace_dirs(&mut workspace, std::slice::from_ref(&extra));
+        assert_eq!(
+            workspace
+                .read_write
+                .iter()
+                .filter(|path| *path == &extra)
+                .count(),
+            1
+        );
+        assert!(workspace.read_only.is_empty());
+
+        let mut strict = SandboxProfile {
+            name: "strict".to_string(),
+            read_only: vec![],
+            read_write: vec![],
+            deny: vec![],
+            write_deny: vec![],
+            default_read: false,
+            restrict_network: true,
+        };
+        ProfileName::include_extra_workspace_dirs(&mut strict, std::slice::from_ref(&extra));
+        assert!(strict.read_write.iter().any(|path| path == &extra));
+        assert!(strict.read_only.iter().any(|path| path == &extra));
+
+        let mut readonly = SandboxProfile {
+            name: "read-only".to_string(),
+            read_only: vec![],
+            read_write: vec![],
+            deny: vec![],
+            write_deny: vec![],
+            default_read: true,
+            restrict_network: true,
+        };
+        ProfileName::include_extra_workspace_dirs(&mut readonly, std::slice::from_ref(&extra));
+        assert!(readonly.read_write.is_empty());
+        assert!(readonly.read_only.is_empty());
     }
 
     #[test]
