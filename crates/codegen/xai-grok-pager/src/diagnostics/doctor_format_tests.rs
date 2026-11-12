@@ -39,6 +39,7 @@ fn unavailable_tmux() -> TmuxProbeFacts {
     TmuxProbeFacts {
         version: TmuxProbeResult::Unavailable,
         extended_keys: TmuxProbeResult::Unavailable,
+        escape_time: TmuxProbeResult::Unavailable,
         set_clipboard: TmuxProbeResult::Unavailable,
         allow_passthrough_support: TmuxProbeResult::Unavailable,
         allow_passthrough: TmuxProbeResult::Unavailable,
@@ -168,6 +169,7 @@ fn tmux_config_and_reload_notes_output_is_stable() {
         TmuxProbeFacts {
             version: TmuxProbeResult::Unavailable,
             extended_keys: TmuxProbeResult::Available("off".to_owned()),
+            escape_time: TmuxProbeResult::Unavailable,
             set_clipboard: TmuxProbeResult::Available("off".to_owned()),
             allow_passthrough_support: TmuxProbeResult::Available(()),
             allow_passthrough: TmuxProbeResult::Available("off".to_owned()),
@@ -391,6 +393,7 @@ fn unavailable_and_error_probes_do_not_create_false_issues() {
         TmuxProbeFacts {
             version: TmuxProbeResult::Unavailable,
             extended_keys: TmuxProbeResult::Unavailable,
+            escape_time: TmuxProbeResult::Unavailable,
             set_clipboard: TmuxProbeResult::Error("tmux server unreachable".to_owned()),
             allow_passthrough_support: TmuxProbeResult::Unavailable,
             allow_passthrough: TmuxProbeResult::Error("query failed".to_owned()),
@@ -487,6 +490,7 @@ fn runtime_merge_does_not_duplicate_view_findings() {
             TmuxProbeFacts {
                 version: TmuxProbeResult::Available("tmux 3.4".to_owned()),
                 extended_keys: TmuxProbeResult::Available("off".to_owned()),
+                escape_time: TmuxProbeResult::Unavailable,
                 set_clipboard: TmuxProbeResult::Available("off".to_owned()),
                 allow_passthrough_support: TmuxProbeResult::Available(()),
                 allow_passthrough: TmuxProbeResult::Available("off".to_owned()),

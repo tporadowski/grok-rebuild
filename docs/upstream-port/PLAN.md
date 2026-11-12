@@ -968,7 +968,7 @@ Refresh these numbers at the end of a session.
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 1 | 0 | 7 | 0 | 0 |
-| W3 | Permissions, sandbox, and config | 2 | 0 | 11 | 12 | 7 |
+| W3 | Permissions, sandbox, and config | 1 | 0 | 12 | 12 | 7 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 1 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 4 | 0 | 23 | 6 | 0 |
@@ -984,9 +984,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 69. Skipped: 9. Done: 475. Already: 109. Deferred: 22.
+Catalog rows: 684. Pending: 68. Skipped: 9. Done: 476. Already: 109. Deferred: 22.
 
-**Next:** `v79-f05`
+**Next:** `v79-f03`
 
 ## Waves
 
@@ -1000,7 +1000,7 @@ Pending: 1. Done: 7. Look first: Clap structs in `crates/codegen/xai-grok-pager-
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 2. Done: 11. Already: 12. Deferred: 7 (D-026, D-224). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode.
+Pending: 1. Done: 12. Already: 12. Deferred: 7 (D-026, D-224). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode.
 
 ### W6 — Memory
 
@@ -1099,7 +1099,7 @@ id | status | wave | kind | flag | covered | note
 - v75-f01 | done | W3 | Features |  |  | **Permission rules that don't load**, such as a rule that doesn't parse or a `.claude/settings.json` that isn't valid JSON, show a warning when a session opens instead of being skipped silently.
 - v75-x19 | done | W3 | Bug Fixes |  |  | **Turning a skill on or off** in the Skills tab saves only `[skills].disabled` to `config.toml`, so an organization's managed skill folders and ignore list keep applying.
 - v78-x01 | done | W3 | Bug Fixes |  |  | **Always-approve help text** now correctly says the setting is saved to config.
-- v79-f05 | pending | W3 | Features |  |  | **`/doctor`** now warns when tmux holds Esc for more than 50 ms.
+- v79-f05 | done | W3 | Features |  |  | **`/doctor`** now warns when tmux holds Esc for more than 50 ms.
 - v82-f04 | deferred | W3 | Features |  |  | **New `minimal` sandbox profile** and `workspace_write` option let custom profiles control launch-folder writes.
 - v82-x03 | already | W3 | Bug Fixes |  |  | **Folder trust prompt** no longer accepts keystrokes typed before the question appears on screen.
 - v82-x09 | already | W3 | Bug Fixes |  |  | **Windows** Git helpers now use the bundled MinGit binary.

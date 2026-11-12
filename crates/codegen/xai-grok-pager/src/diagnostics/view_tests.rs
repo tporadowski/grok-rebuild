@@ -128,6 +128,7 @@ fn warning_category_ids_are_stable() {
         WarningCategory::ByobuScreen,
         WarningCategory::UnsupportedTerminal,
         WarningCategory::TmuxExtendedKeysOff,
+        WarningCategory::TmuxEscapeTime,
         WarningCategory::WaylandNoDataControl,
         WarningCategory::WezTermKittyKeyboardOff,
         WarningCategory::LimitedColorSupport,
@@ -148,6 +149,7 @@ fn warning_category_ids_are_stable() {
             "terminal.byobu-screen",
             "terminal.unsupported-emulator",
             "terminal.tmux-extended-keys",
+            "terminal.tmux-escape-time",
             "terminal.wayland-data-control",
             "terminal.wezterm-kitty",
             "terminal.limited-color",
@@ -173,6 +175,7 @@ fn findings_have_stable_semantic_ids_and_dispositions() {
         TmuxProbeFacts {
             version: TmuxProbeResult::Unavailable,
             extended_keys: TmuxProbeResult::Unavailable,
+            escape_time: TmuxProbeResult::Unavailable,
             set_clipboard: TmuxProbeResult::Available("off".to_owned()),
             allow_passthrough_support: TmuxProbeResult::Available(()),
             allow_passthrough: TmuxProbeResult::Available("on".to_owned()),
@@ -248,6 +251,7 @@ fn all_tmux_finding_metadata_uses_stable_automatic_fix_ids_without_schema_change
         TmuxProbeFacts {
             version: TmuxProbeResult::Available("tmux 3.4".to_owned()),
             extended_keys: TmuxProbeResult::Available("off".to_owned()),
+            escape_time: TmuxProbeResult::Unavailable,
             set_clipboard: TmuxProbeResult::Available("off".to_owned()),
             allow_passthrough_support: TmuxProbeResult::Available(()),
             allow_passthrough: TmuxProbeResult::Available("off".to_owned()),
@@ -287,6 +291,7 @@ fn all_tmux_finding_metadata_uses_stable_automatic_fix_ids_without_schema_change
         TmuxProbeFacts {
             version: TmuxProbeResult::Available("tmux 3.4".to_owned()),
             extended_keys: TmuxProbeResult::Available("on".to_owned()),
+            escape_time: TmuxProbeResult::Unavailable,
             set_clipboard: TmuxProbeResult::Available("external".to_owned()),
             allow_passthrough_support: TmuxProbeResult::Available(()),
             allow_passthrough: TmuxProbeResult::Available("all".to_owned()),
@@ -318,6 +323,7 @@ fn unavailable_runtime_evidence_is_honest_and_fail_open() {
         TmuxProbeFacts {
             version: TmuxProbeResult::Unavailable,
             extended_keys: TmuxProbeResult::Unavailable,
+            escape_time: TmuxProbeResult::Unavailable,
             set_clipboard: TmuxProbeResult::Available("on".to_owned()),
             allow_passthrough_support: TmuxProbeResult::Available(()),
             allow_passthrough: TmuxProbeResult::Available("on".to_owned()),
@@ -370,6 +376,7 @@ fn unavailable_and_error_probe_evidence_is_retained_without_findings() {
         TmuxProbeFacts {
             version: TmuxProbeResult::Unavailable,
             extended_keys: TmuxProbeResult::Unavailable,
+            escape_time: TmuxProbeResult::Unavailable,
             set_clipboard: TmuxProbeResult::Error("server unreachable".to_owned()),
             allow_passthrough_support: TmuxProbeResult::Unsupported,
             allow_passthrough: TmuxProbeResult::Unavailable,
@@ -393,6 +400,7 @@ fn unavailable_and_error_probe_evidence_is_retained_without_findings() {
     let [
         version,
         extended,
+        escape,
         err,
         unsupported,
         control,
@@ -400,10 +408,12 @@ fn unavailable_and_error_probe_evidence_is_retained_without_findings() {
         wayland,
     ] = report.probe_notes.as_slice()
     else {
-        panic!("expected 7 probe notes: {:?}", report.probe_notes);
+        panic!("expected 8 probe notes: {:?}", report.probe_notes);
     };
     assert_eq!(version.probe, "tmux.version");
     assert_eq!(extended.probe, "tmux.extended-keys");
+    assert_eq!(escape.probe, "tmux.escape-time");
+    assert_eq!(escape.status, ProbeStatus::Unavailable);
     assert_eq!(err.status, ProbeStatus::Error);
     assert_eq!(err.message.as_deref(), Some("server unreachable"));
     assert_eq!(unsupported.status, ProbeStatus::Unsupported);
@@ -416,6 +426,7 @@ fn plain_tmux() -> TmuxProbeFacts {
     TmuxProbeFacts {
         version: TmuxProbeResult::Unavailable,
         extended_keys: TmuxProbeResult::Unavailable,
+        escape_time: TmuxProbeResult::Unavailable,
         set_clipboard: TmuxProbeResult::Available("on".to_owned()),
         allow_passthrough_support: TmuxProbeResult::Available(()),
         allow_passthrough: TmuxProbeResult::Available("on".to_owned()),

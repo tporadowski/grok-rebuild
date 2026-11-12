@@ -78,6 +78,8 @@ pub enum ColorPassthroughProbe {
 pub struct TmuxProbeFacts {
     pub version: TmuxProbeResult<String>,
     pub extended_keys: TmuxProbeResult<String>,
+    /// Server option `escape-time`, in milliseconds. tmux waits this long after Esc before sending it.
+    pub escape_time: TmuxProbeResult<String>,
     pub set_clipboard: TmuxProbeResult<String>,
     pub allow_passthrough_support: TmuxProbeResult<()>,
     pub allow_passthrough: TmuxProbeResult<String>,
@@ -208,6 +210,7 @@ fn collect_tmux_fix(
     TmuxProbeFacts {
         version: TmuxProbeResult::Unavailable,
         extended_keys,
+        escape_time: TmuxProbeResult::Unavailable,
         set_clipboard,
         allow_passthrough_support,
         allow_passthrough,
@@ -287,6 +290,7 @@ fn unavailable_tmux() -> TmuxProbeFacts {
     TmuxProbeFacts {
         version: TmuxProbeResult::Unavailable,
         extended_keys: TmuxProbeResult::Unavailable,
+        escape_time: TmuxProbeResult::Unavailable,
         set_clipboard: TmuxProbeResult::Unavailable,
         allow_passthrough_support: TmuxProbeResult::Unavailable,
         allow_passthrough: TmuxProbeResult::Unavailable,
@@ -372,6 +376,7 @@ fn collect_tmux(
             .clone()
             .map(TmuxProbeResult::Available)
             .unwrap_or_else(|| tmux.show_option("extended-keys")),
+        escape_time: tmux.show_option("escape-time"),
         set_clipboard: tmux.show_option("set-clipboard"),
         allow_passthrough_support,
         allow_passthrough,
@@ -489,6 +494,7 @@ mod tests {
             [
                 "support:allow-passthrough",
                 "extended-keys",
+                "escape-time",
                 "set-clipboard"
             ]
         );
@@ -520,6 +526,7 @@ mod tests {
             [
                 "support:allow-passthrough",
                 "extended-keys",
+                "escape-time",
                 "set-clipboard",
                 "control-mode",
                 "client-features",

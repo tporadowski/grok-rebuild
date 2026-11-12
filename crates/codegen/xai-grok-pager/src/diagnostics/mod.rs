@@ -32,10 +32,9 @@ pub(crate) use fix::{
 pub(crate) use model::probe_requires_live_tui;
 pub(crate) use model::{
     CLIPBOARD_DELIVERY_UNAVAILABLE_ID, CLIPBOARD_DELIVERY_UNVERIFIED_ID, CONFIG_LEGACY_UI_ID,
-    CONFIG_STARTUP_ID,
-    FOCUS_TRACKING_UNAVAILABLE_ID, ITERM2_CLIPBOARD_PERMISSION_ID, NEWLINE_FALLBACK_ID,
-    NOTIFICATION_PROTOCOL_FALLBACK_ID, SANDBOX_PROFILE_CONFLICT_ID, VOICE_NO_INPUT_DEVICE_ID,
-    VSCODE_SSH_NON_ASCII_ID,
+    CONFIG_STARTUP_ID, FOCUS_TRACKING_UNAVAILABLE_ID, ITERM2_CLIPBOARD_PERMISSION_ID,
+    NEWLINE_FALLBACK_ID, NOTIFICATION_PROTOCOL_FALLBACK_ID, SANDBOX_PROFILE_CONFLICT_ID,
+    VOICE_NO_INPUT_DEVICE_ID, VSCODE_SSH_NON_ASCII_ID,
 };
 pub use model::{
     ClipboardFacts, ColorFacts, DataControlFact, DiagnosticFacts, DiagnosticFinding, DiagnosticId,
@@ -104,6 +103,8 @@ pub enum WarningCategory {
     UnsupportedTerminal,
     /// tmux 3.3+ has `extended-keys` set to `off`, so kitty CSI-u responses would be stripped before they reach the pager.
     TmuxExtendedKeysOff,
+    /// tmux `escape-time` is above 50 ms, so Esc is held before a chord or a bare Esc is delivered.
+    TmuxEscapeTime,
     /// The terminal is unrecognised and the notification protocol fell back to BEL (audible bell only).
     NotificationProtocolFallback,
     /// The terminal does not reliably support CSI focus-tracking events, so `condition = "unfocused"` will never fire.
@@ -299,7 +300,40 @@ pub(crate) fn collect_startup_warnings_from(
         warnings.push(warning);
     }
 
+    if ctx.is_tmux_backed()
+        && let probes::TmuxProbeResult::Available(value) = &tmux.escape_time
+        && let Some(warning) = tmux_escape_time_warning(value, &config_path)
+    {
+        warnings.push(warning);
+    }
+
     warnings
+}
+
+/// Warn when tmux waits longer than 50 ms after Esc. A shorter `escape-time` still distinguishes Esc from an Alt chord.
+fn tmux_escape_time_warning(value: &str, config_path: &str) -> Option<TerminalWarning> {
+    let ms = escape_time_ms(value)?;
+    if ms <= 50 {
+        return None;
+    }
+    let mut warning = TerminalWarning::new(
+        WarningCategory::TmuxEscapeTime,
+        &format!("`escape-time` is {ms} ms, so tmux holds Esc for more than 50 ms"),
+        Some("set -s escape-time 10"),
+        Some(config_path),
+    );
+    warning.note = Some(tmux_reload_note(config_path));
+    Some(warning)
+}
+
+/// Milliseconds from a tmux `escape-time` value. `500` and `500ms` both parse. Anything else is not a hold time.
+fn escape_time_ms(value: &str) -> Option<u32> {
+    let trimmed = value.trim();
+    let digits = trimmed.strip_suffix("ms").unwrap_or(trimmed).trim();
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 /// Warn when WezTerm is running without the Kitty keyboard protocol. WezTerm ships `enable_kitty_keyboard = false`
@@ -1052,6 +1086,7 @@ mod tests {
             tmux: probes::TmuxProbeFacts {
                 version: probes::TmuxProbeResult::Unavailable,
                 extended_keys: probes::TmuxProbeResult::Unavailable,
+                escape_time: probes::TmuxProbeResult::Unavailable,
                 set_clipboard: query.show_option("set-clipboard"),
                 allow_passthrough_support: query.option_support("allow-passthrough"),
                 allow_passthrough: query.show_option("allow-passthrough"),
@@ -2213,6 +2248,78 @@ mod tests {
         assert_no_extended_keys_warning(Some("always"));
     }
 
+    fn escape_time_facts(value: probes::TmuxProbeResult<String>) -> probes::TmuxProbeFacts {
+        probes::TmuxProbeFacts {
+            version: probes::TmuxProbeResult::Unavailable,
+            extended_keys: probes::TmuxProbeResult::Unavailable,
+            escape_time: value,
+            set_clipboard: probes::TmuxProbeResult::Available("on".to_owned()),
+            allow_passthrough_support: probes::TmuxProbeResult::Available(()),
+            allow_passthrough: probes::TmuxProbeResult::Available("on".to_owned()),
+            control_mode: probes::TmuxProbeResult::Available(false),
+            client_features: probes::TmuxProbeResult::Unavailable,
+        }
+    }
+
+    fn escape_time_warnings(value: probes::TmuxProbeResult<String>) -> Vec<TerminalWarning> {
+        collect_startup_warnings_from(&plain_tmux_ctx(), &escape_time_facts(value), Some(false))
+            .into_iter()
+            .filter(|warning| warning.category == WarningCategory::TmuxEscapeTime)
+            .collect()
+    }
+
+    #[test]
+    fn tmux_escape_time_above_50ms_warns() {
+        let warnings = escape_time_warnings(probes::TmuxProbeResult::Available("500".to_owned()));
+        let warning = warnings.first().expect("warning must fire");
+        assert_eq!(
+            warning.message,
+            "`escape-time` is 500 ms, so tmux holds Esc for more than 50 ms"
+        );
+        assert_eq!(warning.fix.as_deref(), Some("set -s escape-time 10"));
+        assert_eq!(warning.config_path.as_deref(), Some("~/.tmux.conf"));
+        let note = warning.note.as_deref().expect("note must be present");
+        assert!(note.contains("~/.tmux.conf"));
+    }
+
+    #[test]
+    fn tmux_escape_time_parses_an_ms_suffix_and_the_boundary() {
+        assert_eq!(
+            escape_time_warnings(probes::TmuxProbeResult::Available("51ms".to_owned())).len(),
+            1
+        );
+        assert!(
+            escape_time_warnings(probes::TmuxProbeResult::Available("50".to_owned())).is_empty()
+        );
+        assert!(
+            escape_time_warnings(probes::TmuxProbeResult::Available("10".to_owned())).is_empty()
+        );
+        assert!(
+            escape_time_warnings(probes::TmuxProbeResult::Available("0".to_owned())).is_empty()
+        );
+        assert!(
+            escape_time_warnings(probes::TmuxProbeResult::Available("fast".to_owned())).is_empty()
+        );
+        assert!(escape_time_warnings(probes::TmuxProbeResult::Unavailable).is_empty());
+    }
+
+    #[test]
+    fn tmux_escape_time_uses_the_byobu_config_path() {
+        let warnings = collect_startup_warnings_from(
+            &byobu_tmux_ctx(),
+            &escape_time_facts(probes::TmuxProbeResult::Available("500".to_owned())),
+            Some(false),
+        );
+        let warning = warnings
+            .iter()
+            .find(|warning| warning.category == WarningCategory::TmuxEscapeTime)
+            .expect("warning must fire");
+        assert_eq!(warning.config_path.as_deref(), Some("~/.byobu/.tmux.conf"));
+        let note = warning.note.as_deref().expect("note must be present");
+        assert!(note.contains("~/.byobu/.tmux.conf"));
+        assert!(!note.contains("~/.tmux.conf"));
+    }
+
     #[test]
     fn summarize_warnings_surfaces_extended_keys_off() {
         let ctx = extended_keys_ctx(plain_tmux_ctx(), Some("off"));
@@ -2366,6 +2473,7 @@ mod tests {
         let tmux = probes::TmuxProbeFacts {
             version: probes::TmuxProbeResult::Available("tmux 3.4".to_owned()),
             extended_keys: probes::TmuxProbeResult::Available("off".to_owned()),
+            escape_time: probes::TmuxProbeResult::Unavailable,
             set_clipboard: probes::TmuxProbeResult::Available("off".to_owned()),
             allow_passthrough_support: probes::TmuxProbeResult::Available(()),
             allow_passthrough: probes::TmuxProbeResult::Available("off".to_owned()),

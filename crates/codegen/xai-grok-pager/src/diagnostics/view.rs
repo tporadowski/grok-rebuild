@@ -530,6 +530,7 @@ pub(crate) const fn id_for(category: WarningCategory) -> Option<DiagnosticId> {
         WarningCategory::ByobuScreen => "byobu-screen",
         WarningCategory::UnsupportedTerminal => "unsupported-emulator",
         WarningCategory::TmuxExtendedKeysOff => "tmux-extended-keys",
+        WarningCategory::TmuxEscapeTime => "tmux-escape-time",
         WarningCategory::WaylandNoDataControl => "wayland-data-control",
         WarningCategory::WezTermKittyKeyboardOff => "wezterm-kitty",
         WarningCategory::LimitedColorSupport => "limited-color",
@@ -556,6 +557,11 @@ fn probe_notes(snapshot: &DiagnosticSnapshot<'_>) -> Vec<ProbeNote> {
             &mut notes,
             "tmux.extended-keys",
             &snapshot.common.tmux.extended_keys,
+        );
+        probe_note(
+            &mut notes,
+            "tmux.escape-time",
+            &snapshot.common.tmux.escape_time,
         );
         probe_note(
             &mut notes,

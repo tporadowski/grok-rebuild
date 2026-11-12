@@ -72,6 +72,7 @@ fn tmux_facts(
     TmuxProbeFacts {
         version: TmuxProbeResult::Unavailable,
         extended_keys: TmuxProbeResult::Unavailable,
+        escape_time: TmuxProbeResult::Unavailable,
         set_clipboard,
         allow_passthrough_support: TmuxProbeResult::Available(()),
         allow_passthrough: TmuxProbeResult::Available("on".to_owned()),
@@ -84,6 +85,7 @@ fn unavailable_tmux_facts() -> TmuxProbeFacts {
     TmuxProbeFacts {
         version: TmuxProbeResult::Unavailable,
         extended_keys: TmuxProbeResult::Unavailable,
+        escape_time: TmuxProbeResult::Unavailable,
         set_clipboard: TmuxProbeResult::Unavailable,
         allow_passthrough_support: TmuxProbeResult::Unavailable,
         allow_passthrough: TmuxProbeResult::Unavailable,
@@ -415,6 +417,7 @@ fn standalone_runtime_and_tmux_are_unavailable_without_false_wezterm_finding() {
         [
             "tmux.version",
             "tmux.extended-keys",
+            "tmux.escape-time",
             "tmux.set-clipboard",
             "tmux.allow-passthrough-support",
             "tmux.control-mode",
@@ -1102,7 +1105,9 @@ fn a_refused_shell_policy_names_the_setting_and_the_file() {
     let message = super::startup::typed_startup_message(&raw, &[(path.clone(), raw.clone())])
         .expect("a mistyped shell policy blocks startup");
     let mut report = healthy_report();
-    report.findings.push(super::startup::startup_finding(message));
+    report
+        .findings
+        .push(super::startup::startup_finding(message));
     let output = human::format(&report);
 
     assert!(output.contains("[shell_environment_policy]"), "{output}");
