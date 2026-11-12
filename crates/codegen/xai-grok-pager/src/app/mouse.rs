@@ -1921,4 +1921,84 @@ mod tests {
             "a transcript click off the button still ends a clean edit"
         );
     }
+
+    fn draw_agent(agent: &mut AgentView) {
+        let area = Rect::new(0, 0, 100, 40);
+        let mut buf = Buffer::empty(area);
+        let mut scratch = crate::scrollback::render::ScratchBuffer::new();
+        agent.draw(
+            area,
+            &mut buf,
+            &crate::actions::ActionRegistry::defaults(),
+            &mut scratch,
+            None,
+            false,
+            crate::app::agent_view::BannerSlotParams::none(),
+            false,
+            &mut Vec::new(),
+            crate::app::agent_view::AppRenderParams::default(),
+        );
+    }
+
+    #[test]
+    fn code_copy_stays_clickable_while_a_slash_menu_is_open() {
+        let _capture = CopyCapture::arm();
+        let mut agent = crate::app::agent_view::test_fixtures::make_agent();
+        agent.scrollback.push_block(crate::scrollback::block::RenderBlock::agent_message(
+            "```rust\nfn answer() {}\n```\n",
+        ));
+        agent.scrollback.goto_top();
+        agent.prompt.set_text("/");
+        agent.prompt.refresh_slash(&agent.session.models);
+        assert!(agent.prompt.slash_open(), "slash menu should be open");
+        draw_agent(&mut agent);
+
+        let menu = agent
+            .slash_dropdown_items_area
+            .expect("slash menu should paint an items rect");
+        let (button, _) = agent
+            .inline_media_hits
+            .code_buttons
+            .iter()
+            .find(|(rect, _)| !rect.intersects(menu))
+            .copied()
+            .unwrap_or_else(|| {
+                panic!(
+                    "a code [Copy] outside the menu must stay registered, menu={menu:?} buttons={:?}",
+                    agent.inline_media_hits.code_buttons
+                )
+            });
+        let column = button.x.saturating_add(1);
+        let row = button.y;
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            agent.handle_mouse(&MouseEvent {
+                kind,
+                column,
+                row,
+                modifiers: KeyModifiers::empty(),
+            });
+        }
+        let copied = crate::clipboard::take_captured_copy().unwrap_or_default();
+        assert!(
+            copied.contains("fn answer()"),
+            "clicking [Copy] while the menu is open should copy the fence, got {copied:?}"
+        );
+
+        let menu_column = menu.x.saturating_add(1);
+        let menu_row = menu.y;
+        agent.handle_mouse(&MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: menu_column,
+            row: menu_row,
+            modifiers: KeyModifiers::empty(),
+        });
+        assert_eq!(
+            crate::clipboard::take_captured_copy(),
+            None,
+            "a click on the menu must not copy the code block"
+        );
+    }
 }

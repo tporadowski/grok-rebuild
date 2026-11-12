@@ -975,7 +975,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 3 | 0 | 41 | 11 | 0 |
 | W9 | Prompt, mentions, and keyboard | 3 | 0 | 39 | 6 | 0 |
-| W10 | Transcript, density, and copy | 4 | 0 | 43 | 4 | 0 |
+| W10 | Transcript, density, and copy | 3 | 0 | 44 | 4 | 0 |
 | W11 | Headless mode and tools | 3 | 0 | 35 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 8 | 0 | 39 | 13 | 8 |
 | W13 | Update, install, and sign-in | 5 | 0 | 22 | 10 | 0 |
@@ -984,9 +984,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 62. Skipped: 9. Done: 482. Already: 109. Deferred: 22.
+Catalog rows: 684. Pending: 61. Skipped: 9. Done: 483. Already: 109. Deferred: 22.
 
-**Next:** `v79-x01`
+**Next:** `v79-f02`
 
 ## Waves
 
@@ -1028,7 +1028,7 @@ Pending: 3. Done: 39 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 4. Done: 43 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
+Pending: 3. Done: 44 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158).
 
 ### W11 — Headless mode and tools
 
@@ -1370,7 +1370,7 @@ id | status | wave | kind | flag | covered | note
 - v75-x20 | done | W10 | Bug Fixes |  |  | **`/btw`** starts a side question only when it begins the message; a `/btw` later in the text goes to the main conversation as typed.
 - v77-x01 | done | W10 | Bug Fixes |  |  | **Quote copy** now preserves & in links and double-clicks no longer fold thoughts when missing text.
 - v78-f02 | done | W10 | Features |  |  | **Dragging in the transcript** now selects and copies colored text across message blocks instead of whole blocks.
-- v79-x01 | pending | W10 | Bug Fixes |  |  | **Copy buttons** under code blocks remain clickable while slash or other menus are open.
+- v79-x01 | done | W10 | Bug Fixes |  |  | **Copy buttons** under code blocks remain clickable while slash or other menus are open.
 - v79-x13 | already | W10 | Bug Fixes |  |  | **Markdown links** containing LaTeX now render correctly without entering math mode.
 - v80-x12 | pending | W10 | Bug Fixes |  |  | **Shift+drag selection** beside the scrollbar no longer copies an extra block character at the end of each row.
 - v82-f02 | pending | W10 | Features |  |  | **Enter** (or `Ctrl+F`) expands or collapses long user messages directly in the transcript.

@@ -4360,8 +4360,10 @@ impl AgentView {
         if !dropdown_active {
             self.paint_diagram_affordances(buf, scrollback_diagram_affordances, &theme);
             self.register_table_copy_hits(scrollback_table_copies);
-            self.register_code_copy_hits(scrollback_code_copies);
         }
+        // Slash, @, completion, and history menus consume clicks inside their own rect.
+        // A code-block [Copy] outside that rect stays clickable.
+        self.register_code_copy_hits(scrollback_code_copies);
         if !self.inline_media_active
             && prompt_post_flush.is_none()
             && let Some(clear) = crate::terminal::overlay::clear()
