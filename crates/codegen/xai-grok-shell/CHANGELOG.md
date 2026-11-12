@@ -1,5 +1,37 @@
 # Changelog
 
+# 1.0.79 — 2026-11-08
+
+## Features
+
+- **`/rewind`** now works in place for paged sessions without reloading every turn.
+- **Link cards** now appear by default for links that cannot be opened.
+- **`/vim-mode all`** enables full Vim editing inside the agent prompt.
+- **Auto-review mode** now tints the entire prompt bar blue, matching plan and ask modes.
+- **`/doctor`** now warns when tmux holds Esc for more than 50 ms.
+- **Vim Normal mode** now appears as a section in the keyboard shortcuts cheatsheet when enabled.
+- **End-of-turn marker** now shows how many background commands are still running.
+
+## Bug Fixes
+
+- **Copy buttons** under code blocks remain clickable while slash or other menus are open.
+- **Deleted sessions** no longer appear in resume lists or title searches.
+- **Delete error messages** now show their full text instead of being cut off.
+- **Text** remains visible when running through an 8-colour tmux session.
+- **Authentication error messages** during sign-in no longer repeat the underlying cause.
+- **Ctrl+E** in minimal mode now moves the cursor to the end of line when editing a draft.
+- **macOS** documentation now recommends `Ctrl+V` to paste screenshots.
+- **Mermaid diagrams** now correctly break lines on `\n` and `<br>` instead of printing the literal characters.
+- **MCP sign-in URL copy** feedback now correctly indicates verification status.
+- **Double-clicking** a view close no longer accidentally stops a background task or subagent.
+- **Tab completion** now works immediately after startup even before skills load.
+- **Saved feedback drafts** now open correctly from the full session view.
+- **Markdown links** containing LaTeX now render correctly without entering math mode.
+- **Ctrl+Y** now toggles the prompt queue when running in WSL inside Windows Terminal.
+- **Editing a queued prompt** now shows an "editing" label and dims the row.
+- **Cancel-turn prompt** no longer crashes the TUI on very short terminals.
+
+
 # 1.0.78 — 2026-11-06
 
 ## Features
