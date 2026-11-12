@@ -310,7 +310,7 @@ Actions that affect the agent session, available from the agent screen.
 |---|---|---|---|
 | Drag image from file manager into the prompt | Finder ✓ | Files / Dolphin ✓ | Explorer ✓ |
 | Copy a file in the file manager, then paste | `Cmd+V` | `Ctrl+V` | `Ctrl+V` |
-| Screenshot or "Copy Image" in clipboard, then paste | `Cmd+V` | `Ctrl+V` | **`Alt+V`** |
+| Screenshot or "Copy Image" in clipboard, then paste | `Ctrl+V` | `Ctrl+V` | **`Alt+V`** |
 
 Non-image files insert their absolute path as text instead of a chip.
 

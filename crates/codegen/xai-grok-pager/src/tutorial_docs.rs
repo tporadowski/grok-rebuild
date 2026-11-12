@@ -127,6 +127,23 @@ mod tests {
     }
 
     #[test]
+    fn macos_screenshot_paste_recommends_ctrl_v() {
+        let topic = TUTORIAL_TOPICS
+            .iter()
+            .find(|topic| topic.title == "Attach Files, Images & Paste")
+            .expect("attach topic");
+        assert!(
+            topic.content.contains("`Ctrl+V` on macOS"),
+            "macOS screenshot paste should recommend Ctrl+V: {}",
+            topic.content
+        );
+        assert!(
+            !topic.content.contains("Cmd+V"),
+            "the paste tutorial must not recommend Cmd+V for screenshots"
+        );
+    }
+
+    #[test]
     fn topics_stay_bite_size() {
         // The tutorial promises quick reads; keep each page short
         // Bump this limit only after re-checking a page still reads in under a minute

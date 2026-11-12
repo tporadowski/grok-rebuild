@@ -350,6 +350,27 @@ mod tests {
     }
 
     #[test]
+    fn macos_screenshot_paste_recommends_ctrl_v() {
+        let guide = USER_GUIDE
+            .iter()
+            .find(|doc| doc.filename == "03-keyboard-shortcuts.md")
+            .expect("keyboard shortcuts guide");
+        let row = guide
+            .content
+            .lines()
+            .find(|line| line.contains("Screenshot or \"Copy Image\""))
+            .expect("screenshot paste row");
+        assert!(
+            row.contains("| `Ctrl+V` | `Ctrl+V` | **`Alt+V`** |"),
+            "macOS screenshot paste should recommend Ctrl+V, got {row}"
+        );
+        assert!(
+            !row.contains("Cmd+V"),
+            "the screenshot row must not recommend Cmd+V, got {row}"
+        );
+    }
+
+    #[test]
     fn extract_writes_docs_and_cleans_stale() {
         let tmp = tempfile::tempdir().unwrap();
         let docs_dir = tmp.path().join("docs").join("user-guide");
