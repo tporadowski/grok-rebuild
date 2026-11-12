@@ -1566,3 +1566,66 @@ fn cancel_turn_confirm_is_not_awaiting_a_user_answer() {
     open_cancel_turn(&mut agent);
     assert!(!agent.is_awaiting_user_answer());
 }
+
+#[test]
+fn cancel_turn_draw_survives_a_short_terminal() {
+    use crate::scrollback::render::ScratchBuffer;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    let mut agent = make_agent();
+    open_cancel_turn(&mut agent);
+
+    let draw_text = |agent: &mut AgentView, area: Rect| -> String {
+        let mut buf = Buffer::empty(area);
+        let mut scratch = ScratchBuffer::new();
+        agent.draw(
+            area,
+            &mut buf,
+            &ActionRegistry::defaults(),
+            &mut scratch,
+            None,
+            false,
+            super::super::BannerSlotParams::none(),
+            false,
+            &mut Vec::new(),
+            super::super::render::AppRenderParams::default(),
+        );
+        let mut rows = Vec::new();
+        for y in 0..area.height {
+            let mut row = String::new();
+            for x in 0..area.width {
+                if let Some(cell) = buf.cell((x, y)) {
+                    row.push_str(cell.symbol());
+                }
+            }
+            rows.push(row);
+        }
+        rows.join("\n")
+    };
+
+    let tall = Rect::new(0, 0, 80, 24);
+    let text = draw_text(&mut agent, tall);
+    assert!(
+        text.contains("Subagents are still running"),
+        "a normal terminal shows the cancel question:\n{text}"
+    );
+    assert!(
+        text.contains("Always continue"),
+        "a normal terminal shows every choice:\n{text}"
+    );
+    assert!(
+        agent.cancel_turn_view.is_some(),
+        "drawing does not dismiss the cancel prompt"
+    );
+
+    for height in [12u16, 8, 6, 4, 2, 1] {
+        let short = Rect::new(0, 0, 80, height);
+        let _painted = draw_text(&mut agent, short);
+        let prompt = agent.pane_areas.prompt;
+        assert!(
+            prompt.bottom() <= height,
+            "height {height}: prompt {prompt:?} leaves the screen"
+        );
+    }
+}

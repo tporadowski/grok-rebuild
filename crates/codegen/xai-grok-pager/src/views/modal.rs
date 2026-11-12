@@ -5,6 +5,7 @@
 //!
 //! `ModalConfirmation<R>` is a small dialog that blocks all input until the user presses one of the listed keys.
 use crate::docs::{DocEntry, default_howto_entries};
+use crate::render::SafeBuf;
 use crate::theme::Theme;
 use crate::views::modal_window::ModalWindowState;
 use ratatui::buffer::Buffer;
@@ -878,45 +879,54 @@ pub fn render_cancel_turn_panel(
     button_rects: &mut Vec<Rect>,
 ) {
     button_rects.clear();
+    // Nothing to draw. A later `y + 1` would land outside this rect.
+    if area.height == 0 {
+        return;
+    }
     let theme = Theme::current();
     buf.set_style(area, Style::default().bg(theme.bg_light));
     let accent_style = Style::default().fg(theme.warning);
-    for row in area.y..area.y + area.height {
+    // `bottom()` saturates. A shrink can hand us a rect whose y + height would overflow.
+    for row in area.y..area.bottom() {
         if let Some(cell) = buf.cell_mut((area.x, row)) {
             cell.set_symbol(crate::glyphs::accent_bar());
             cell.set_style(accent_style);
         }
     }
-    let content_x = area.x + 3;
-    let content_w = area.width.saturating_sub(5) as usize;
-    let mut y = area.y + 1;
+    let content_x = area.x.saturating_add(3);
+    let content_w = area.width.saturating_sub(5);
+    let mut y = area.y.saturating_add(1);
     let title_style = Style::default()
         .fg(theme.accent_user)
         .add_modifier(Modifier::BOLD);
-    buf.set_line(
+    paint_cancel_line(
+        buf,
+        area,
         content_x,
         y,
         &Line::from(Span::styled(
             "Subagents are still running. Stop them?",
             title_style,
         )),
-        content_w as u16,
+        content_w,
     );
-    y += 1;
+    y = y.saturating_add(1);
     let count_text = if state.running_count == 1 {
         "1 subagent running".to_string()
     } else {
         format!("{} subagents running", state.running_count)
     };
-    buf.set_line(
+    paint_cancel_line(
+        buf,
+        area,
         content_x,
         y,
         &Line::from(Span::styled(count_text, Style::default().fg(theme.gray))),
-        content_w as u16,
+        content_w,
     );
-    y += 2;
+    y = y.saturating_add(2);
     for (i, choice) in CancelTurnChoice::ALL.iter().enumerate() {
-        if y >= area.y + area.height {
+        if y >= area.bottom() {
             break;
         }
         let is_cursor = i == state.active_idx;
@@ -924,7 +934,7 @@ pub fn render_cancel_turn_panel(
         let row_rect = Rect {
             x: content_x.saturating_sub(1),
             y,
-            width: content_w as u16 + 2,
+            width: content_w.saturating_add(2),
             height: 1,
         };
         buf.set_style(row_rect, Style::default().bg(row_bg));
@@ -954,14 +964,22 @@ pub fn render_cancel_turn_panel(
             Span::styled(format!("({marker}) "), marker_style),
             Span::styled(choice.label(), label_style),
         ]);
-        buf.set_line(content_x, y, &line, content_w as u16);
+        paint_cancel_line(buf, area, content_x, y, &line, content_w);
         if is_cursor && focused {
             buf.set_style(row_rect, theme.selection_overlay());
         }
-        y += 1;
+        y = y.saturating_add(1);
     }
     if !focused {
         crate::render::color::recede_area(buf, area, theme.bg_light, 0.66);
+    }
+}
+
+/// `Buffer::set_line` panics outside the buffer. A short terminal, or a shrink
+/// while the panel is open, can leave `y` past `area` or past the buffer.
+fn paint_cancel_line(buf: &mut Buffer, area: Rect, x: u16, y: u16, line: &Line<'_>, width: u16) {
+    if y >= area.y && y < area.bottom() {
+        buf.set_line_safe(x, y, line, width);
     }
 }
 /// Apply scroll-key dispatch for a DocViewer modal.
@@ -1572,5 +1590,136 @@ mod doc_picker_tip_tests {
             all.contains("docs/user-guide") || all.contains("docs\\user-guide"),
             "missing docs path:\n{all}"
         );
+    }
+}
+
+#[cfg(test)]
+mod cancel_turn_short_terminal_tests {
+    use super::{CancelTurnViewState, render_cancel_turn_panel};
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::style::Style;
+
+    fn state() -> CancelTurnViewState {
+        CancelTurnViewState {
+            active_idx: 0,
+            running_count: 2,
+        }
+    }
+
+    fn buffer_text(buf: &Buffer) -> String {
+        let mut rows = Vec::new();
+        for y in 0..buf.area.height {
+            rows.push(row_text(buf, y));
+        }
+        rows.join("\n")
+    }
+
+    fn row_text(buf: &Buffer, y: u16) -> String {
+        let mut row = String::new();
+        for x in 0..buf.area.width {
+            if let Some(cell) = buf.cell((x, y)) {
+                row.push_str(cell.symbol());
+            }
+        }
+        row
+    }
+
+    #[test]
+    fn panel_shows_the_question_and_every_choice_when_it_fits() {
+        let area = Rect::new(0, 0, 60, 9);
+        let mut buf = Buffer::empty(area);
+        let mut buttons = Vec::new();
+        render_cancel_turn_panel(&mut buf, area, &state(), true, &mut buttons);
+        let text = buffer_text(&buf);
+        assert!(text.contains("Subagents are still running"), "{text}");
+        assert!(text.contains("2 subagents running"), "{text}");
+        assert!(text.contains("Stop running"), "{text}");
+        assert!(text.contains("Continue to run"), "{text}");
+        assert!(text.contains("Always stop"), "{text}");
+        assert!(text.contains("Always continue"), "{text}");
+        assert_eq!(buttons.len(), 4);
+    }
+
+    #[test]
+    fn short_panel_on_the_last_rows_does_not_paint_past_its_rect() {
+        // Title and count start at y+1 and y+2. A 2-row panel on the last
+        // rows of a 5-row screen used to call set_line past the buffer.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 40, 5));
+        let panel = Rect::new(0, 3, 40, 2);
+        let mut buttons = Vec::new();
+        render_cancel_turn_panel(&mut buf, panel, &state(), true, &mut buttons);
+        let above = row_text(&buf, 0);
+        assert!(
+            above.trim().is_empty(),
+            "rows above the panel stay blank: {above:?}"
+        );
+        assert!(
+            row_text(&buf, 4).contains("Subagents") || row_text(&buf, 4).contains("running"),
+            "the title row that fits is still drawn: {:?}",
+            row_text(&buf, 4)
+        );
+        assert!(
+            buttons.is_empty(),
+            "choices that fall below the panel are not clickable"
+        );
+    }
+
+    #[test]
+    fn short_panel_clips_rows_below_it() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 50, 10));
+        buf.set_string(0, 5, "SHORTCUTS", Style::default());
+        let panel = Rect::new(0, 2, 50, 3);
+        let mut buttons = Vec::new();
+        render_cancel_turn_panel(&mut buf, panel, &state(), true, &mut buttons);
+        let below = row_text(&buf, 5);
+        assert!(
+            below.contains("SHORTCUTS"),
+            "the row under the panel is not overwritten: {below:?}"
+        );
+        let text = buffer_text(&buf);
+        assert!(
+            text.contains("Subagents are still running"),
+            "the rows that fit are still drawn:\n{text}"
+        );
+    }
+
+    #[test]
+    fn shrink_past_the_buffer_does_not_panic() {
+        let state = state();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 30, 4));
+        let mut buttons = Vec::new();
+        // The previous frame's rect, still taller and wider than the buffer.
+        render_cancel_turn_panel(&mut buf, Rect::new(0, 1, 80, 16), &state, false, &mut buttons);
+        render_cancel_turn_panel(&mut buf, Rect::new(0, 0, 8, 4), &state, true, &mut buttons);
+        let mut narrow = Buffer::empty(Rect::new(0, 0, 6, 2));
+        let narrow_area = narrow.area;
+        render_cancel_turn_panel(&mut narrow, narrow_area, &state, true, &mut buttons);
+        for height in 1..20 {
+            let area = Rect::new(0, 0, 80, height);
+            let prompt_h = super::cancel_turn_panel_height(height);
+            let layout = crate::views::agent::AgentViewLayout::compute(
+                crate::views::agent::AgentViewLayoutParams {
+                    area,
+                    prompt_height: prompt_h,
+                    shortcuts_height: 1,
+                    status_line_height: 1,
+                    ..Default::default()
+                },
+            );
+            let mut screen = Buffer::empty(area);
+            render_cancel_turn_panel(
+                &mut screen,
+                layout.prompt,
+                &state,
+                true,
+                &mut buttons,
+            );
+            assert!(
+                layout.prompt.bottom() <= area.bottom(),
+                "height {height}: prompt {:?} leaves the screen",
+                layout.prompt
+            );
+        }
     }
 }
