@@ -2660,6 +2660,48 @@ fn welcome_ctrl_u_update_keeps_priority_over_foreign_resume() {
     ));
 }
 #[test]
+fn minimal_ctrl_e_moves_to_end_of_line_while_editing_a_draft() {
+    let mut app = test_app_with_agent();
+    app.screen_mode = ScreenMode::Minimal;
+    app.registry = ActionRegistry::defaults_for(ScreenMode::Minimal);
+    let id = super::super::agent::AgentId(0);
+    let expandable = {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.prompt.set_screen_mode(ScreenMode::Minimal);
+        let entry = agent
+            .scrollback
+            .push_block(crate::scrollback::block::RenderBlock::agent_message(
+                "folded".to_string(),
+            ));
+        agent.scrollback.record_committed_for_expand(entry);
+        agent.prompt.set_text("ab\ncd");
+        agent.prompt.set_cursor(0);
+        entry
+    };
+    let key = key_event(KeyCode::Char('e'), KeyModifiers::CONTROL);
+    let _ = app.handle_input(&key);
+    {
+        let agent = app.agents.get(&id).unwrap();
+        assert_eq!(
+            agent.prompt.cursor(),
+            2,
+            "Ctrl+E moves to the end of the current line, not the end of the draft"
+        );
+        assert_eq!(agent.prompt.text(), "ab\ncd");
+    }
+    assert!(
+        crate::minimal_api::minimal_pending_expand(&app).is_empty(),
+        "editing a draft must not expand the transcript"
+    );
+    app.agents.get_mut(&id).unwrap().prompt.set_text("");
+    let _ = app.handle_input(&key);
+    assert_eq!(
+        crate::minimal_api::minimal_pending_expand(&app),
+        &[expandable],
+        "an empty composer still expands the last folded block"
+    );
+}
+#[test]
 fn minimal_ctrl_g_edits_prompt_while_full_tui_keeps_tasks() {
     let event = key_event(KeyCode::Char('g'), KeyModifiers::CONTROL);
     let mut minimal = test_app_with_agent();

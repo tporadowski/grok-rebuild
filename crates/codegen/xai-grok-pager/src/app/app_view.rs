@@ -4414,6 +4414,15 @@ impl AppView {
         {
             return Some(InputOutcome::Action(crate::app::actions::Action::ShowQueue));
         } else if key!('e', CONTROL).matches(key) {
+            // A draft keeps readline Ctrl+E (end of line). An empty composer still expands the last folded block.
+            if let ActiveView::Agent(id) = &self.active_view {
+                let id = *id;
+                if let Some(agent) = self.agents.get_mut(&id)
+                    && !agent.prompt.text().is_empty()
+                {
+                    return Some(agent.handle_prompt_key(key, &self.registry, false));
+                }
+            }
             self.minimal_expand_last();
         } else if key!('o', CONTROL).matches(key) {
             if crate::minimal_api::minimal_ctrl_o_opens_transcript(self) {
