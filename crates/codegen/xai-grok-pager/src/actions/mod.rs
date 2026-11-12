@@ -371,6 +371,24 @@ impl ActionRegistry {
         Self::vscode_family_for_mode_for_test(crate::app::ScreenMode::Fullscreen)
     }
 
+    /// Registry with Ctrl+Y forced on or off as a ToggleQueue alt.
+    /// Host-independent stand-in for WSL inside Windows Terminal (`enabled`)
+    /// versus every other terminal, where Ctrl+Y stays yank.
+    #[cfg(test)]
+    pub fn queue_ctrl_y_binding_for_test(enabled: bool) -> Self {
+        use crate::key;
+        let mut actions = defaults::default_actions(crate::app::ScreenMode::Fullscreen, false);
+        for def in actions.iter_mut() {
+            if def.id == ActionId::ToggleQueue {
+                def.alt_keys.retain(|k| *k != key!('y', CONTROL));
+                if enabled {
+                    def.alt_keys.push(key!('y', CONTROL));
+                }
+            }
+        }
+        Self::new(actions)
+    }
+
     /// Mode-correct registry pinned to VS Code family bindings.
     #[cfg(test)]
     pub(crate) fn vscode_family_for_mode_for_test(screen_mode: crate::app::ScreenMode) -> Self {

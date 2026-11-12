@@ -1006,6 +1006,7 @@ impl AgentView {
         {
             return self.handle_agent_action_with_registry(ActionId::SendToBackground, registry);
         }
+        // Word-select accept stays ahead of the WSL Windows Terminal queue chord, which also uses Ctrl+Y.
         if let Event::Key(key) = ev
             && key.kind != KeyEventKind::Release
             && key!('y', CONTROL).matches(key)

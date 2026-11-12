@@ -13,6 +13,13 @@ pub fn ctrl_dot_unreliable() -> bool {
     terminal_context().ctrl_dot_unreliable() || cfg!(target_os = "windows") || crate::host::is_wsl()
 }
 
+/// Ctrl+; and Ctrl+' do not arrive through Windows Terminal's ConPTY when the session is WSL.
+/// Ctrl+Y toggles the queue only in that pairing. Everywhere else Ctrl+Y stays editor yank,
+/// and Ctrl+Shift+Y stays the markdown-source copy.
+pub(super) fn wsl_windows_terminal_queue_uses_ctrl_y(is_wsl: bool, brand: TerminalName) -> bool {
+    is_wsl && brand == TerminalName::WindowsTerminal
+}
+
 /// Choose the one agent-screen action that owns Ctrl+G for this mode.
 fn mode_ctrl_g_action(screen_mode: crate::app::ScreenMode) -> ActionDef {
     if screen_mode.is_minimal() {
@@ -65,6 +72,8 @@ pub(super) fn default_actions(
     let in_apple_terminal = ctx.brand == TerminalName::AppleTerminal;
     // Shared by ToggleQueue (Ctrl+4 primary) and OpenDashboard (omit Ctrl+4 alt).
     let local_mac_vscode = in_vscode_family && !ctx.is_ssh && cfg!(target_os = "macos");
+    // WSL inside Windows Terminal drops Ctrl+; and Ctrl+'. Ctrl+Y is the queue alt only there.
+    let queue_ctrl_y = wsl_windows_terminal_queue_uses_ctrl_y(crate::host::is_wsl(), ctx.brand);
     let ctrl_dot_unreliable = ctrl_dot_unreliable();
     let send_to_background_help = if screen_mode.is_minimal() {
         "Detaches the running foreground Execute so it keeps working in the background while you read, queue prompts, or start something else.\nTrack background work with /tasks.\nOnly meaningful while a foreground Execute is actually running."
@@ -605,10 +614,17 @@ pub(super) fn default_actions(
             },
             // Apostrophe alt for consoles that drop Ctrl on `;`
             // Local Mac VS also keeps ; / ' as alts alongside primary Ctrl+4
-            alt_keys: if local_mac_vscode {
-                vec![key!(';', CONTROL), key!('\'', CONTROL)]
-            } else {
-                vec![key!('\'', CONTROL)]
+            // WSL inside Windows Terminal adds Ctrl+Y. Everywhere else that chord stays yank.
+            alt_keys: {
+                let mut alts = if local_mac_vscode {
+                    vec![key!(';', CONTROL), key!('\'', CONTROL)]
+                } else {
+                    vec![key!('\'', CONTROL)]
+                };
+                if queue_ctrl_y {
+                    alts.push(key!('y', CONTROL));
+                }
+                alts
             },
             category: Category::Panels,
             context: When::AgentScreen,
@@ -616,7 +632,7 @@ pub(super) fn default_actions(
             hint_key_display: None,
             requires_confirmation: false,
             long_help: Some(
-                "Shows or hides the prompt queue.\nThe queue lets you line up follow-up prompts while a turn is running; each is sent automatically when the agent finishes.\nLocal macOS VS Code family: Ctrl+4 primary (Ctrl+; / Ctrl+' alts). Otherwise Ctrl+; with Ctrl+' alt.",
+                "Shows or hides the prompt queue.\nThe queue lets you line up follow-up prompts while a turn is running; each is sent automatically when the agent finishes.\nLocal macOS VS Code family: Ctrl+4 primary (Ctrl+; / Ctrl+' alts). Otherwise Ctrl+; with Ctrl+' alt.\nInside WSL on Windows Terminal, Ctrl+Y toggles the queue as well. Everywhere else Ctrl+Y stays yank.",
             ),
         },
         ActionDef {
@@ -1247,4 +1263,48 @@ pub(super) fn default_actions(
     }
 
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::key;
+
+    #[test]
+    fn queue_ctrl_y_only_for_wsl_inside_windows_terminal() {
+        assert!(wsl_windows_terminal_queue_uses_ctrl_y(
+            true,
+            TerminalName::WindowsTerminal
+        ));
+        assert!(!wsl_windows_terminal_queue_uses_ctrl_y(
+            false,
+            TerminalName::WindowsTerminal
+        ));
+        assert!(!wsl_windows_terminal_queue_uses_ctrl_y(
+            true,
+            TerminalName::VsCode
+        ));
+        assert!(!wsl_windows_terminal_queue_uses_ctrl_y(
+            true,
+            TerminalName::Unknown
+        ));
+        assert!(!wsl_windows_terminal_queue_uses_ctrl_y(
+            false,
+            TerminalName::Unknown
+        ));
+    }
+
+    #[test]
+    fn host_queue_binding_follows_the_wsl_windows_terminal_predicate() {
+        let actions = default_actions(crate::app::ScreenMode::Fullscreen, false);
+        let queue = actions
+            .iter()
+            .find(|def| def.id == ActionId::ToggleQueue)
+            .expect("ToggleQueue");
+        let bound = queue.alt_keys.contains(&key!('y', CONTROL));
+        let expect =
+            wsl_windows_terminal_queue_uses_ctrl_y(crate::host::is_wsl(), terminal_context().brand);
+        assert_eq!(bound, expect);
+        assert_ne!(queue.default_key, key!('y', CONTROL));
+    }
 }

@@ -677,6 +677,16 @@ impl AgentView {
             let cancel_with_draft =
                 matches!(action_id, ActionId::CancelTurn) && !self.prompt.text().is_empty();
             if !cancel_with_draft {
+                // Ctrl+Y is readline yank. Inside WSL on Windows Terminal it is also the
+                // queue chord, because Ctrl+; and Ctrl+' do not arrive. Leave it for the
+                // agent-screen toggle only when that toggle will run. An empty queue still yanks.
+                if action_id == ActionId::ToggleQueue
+                    && key!('y', CONTROL).matches(key)
+                    && (self.queue.is_visible() || !self.visible_queue_is_empty())
+                    && (!self.dock_shows_queue() || self.dock_shown)
+                {
+                    return InputOutcome::Unchanged;
+                }
                 let outcome = self.handle_agent_action_with_registry(action_id, registry);
                 // Only consume the key if the agent action actually did something
                 // When idle, runtime-guarded actions like CancelTurn return Unchanged so the key can fall through to the prompt widget
@@ -2395,5 +2405,113 @@ mod queue_recall_tests {
 
         assert_eq!(agent.active_pane, AgentPane::Prompt);
         assert_eq!(agent.prompt.text(), "an older prompt");
+    }
+}
+
+#[cfg(test)]
+mod wsl_queue_ctrl_y_tests {
+    use super::*;
+    use crossterm::event::Event;
+
+    fn ctrl(ch: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL)
+    }
+
+    fn ctrl_shift_y() -> KeyEvent {
+        KeyEvent::new(
+            KeyCode::Char('y'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        )
+    }
+
+    /// Kill "hello", then put KEEP back. A later Ctrl+Y yank would insert "hello" at the cursor.
+    fn arm_yank(agent: &mut AgentView, registry: &ActionRegistry) {
+        agent.active_pane = AgentPane::Prompt;
+        agent.prompt.set_text("hello");
+        agent.prompt.set_cursor(0);
+        let _ = agent.handle_input(&Event::Key(ctrl('k')), registry);
+        assert_eq!(
+            agent.prompt.text(),
+            "",
+            "Ctrl+K kills the line into the yank buffer"
+        );
+        agent.prompt.set_text("KEEP");
+        agent.prompt.set_cursor(0);
+    }
+
+    fn show_queue(agent: &mut AgentView) {
+        agent.session.enqueue_prompt("follow-up".to_string());
+        agent.sync_queue_pane();
+        assert!(
+            agent.queue.is_visible(),
+            "a queued follow-up shows the queue pane"
+        );
+    }
+
+    #[test]
+    fn wsl_windows_terminal_ctrl_y_toggles_the_queue_instead_of_yank() {
+        let registry = ActionRegistry::queue_ctrl_y_binding_for_test(true);
+        let mut agent = test_fixtures::make_agent();
+        show_queue(&mut agent);
+        arm_yank(&mut agent, &registry);
+
+        // The queue shortcut is a three-state toggle: hidden → shown, shown → focused, focused → hidden.
+        assert!(!agent.queue.overlay.focused);
+        let focused = agent.handle_input(&Event::Key(ctrl('y')), &registry);
+        assert!(matches!(focused, InputOutcome::Changed));
+        assert!(agent.queue.is_visible());
+        assert!(agent.queue.overlay.focused);
+        assert_eq!(agent.active_pane, AgentPane::Queue);
+        assert_eq!(agent.prompt.text(), "KEEP", "the queue chord must not yank");
+
+        let hidden = agent.handle_input(&Event::Key(ctrl('y')), &registry);
+        assert!(matches!(hidden, InputOutcome::Changed));
+        assert!(
+            !agent.queue.is_visible(),
+            "a second Ctrl+Y hides the focused queue"
+        );
+        assert_eq!(agent.prompt.text(), "KEEP");
+    }
+
+    #[test]
+    fn ctrl_y_still_yanks_when_the_queue_chord_is_off_or_the_queue_is_empty() {
+        let off = ActionRegistry::queue_ctrl_y_binding_for_test(false);
+        let mut agent = test_fixtures::make_agent();
+        show_queue(&mut agent);
+        arm_yank(&mut agent, &off);
+        let _ = agent.handle_input(&Event::Key(ctrl('y')), &off);
+        assert!(
+            agent.queue.is_visible(),
+            "without the WSL chord, Ctrl+Y must not toggle the queue"
+        );
+        assert_eq!(agent.prompt.text(), "helloKEEP");
+
+        let on = ActionRegistry::queue_ctrl_y_binding_for_test(true);
+        let mut empty = test_fixtures::make_agent();
+        arm_yank(&mut empty, &on);
+        assert!(!empty.queue.is_visible());
+        let _ = empty.handle_input(&Event::Key(ctrl('y')), &on);
+        assert_eq!(
+            empty.prompt.text(),
+            "helloKEEP",
+            "an empty queue still yanks on Ctrl+Y"
+        );
+        assert!(!empty.queue.is_visible());
+    }
+
+    #[test]
+    fn ctrl_shift_y_stays_markdown_copy_when_ctrl_y_toggles_the_queue() {
+        let registry = ActionRegistry::queue_ctrl_y_binding_for_test(true);
+        let mut agent = test_fixtures::make_agent();
+        show_queue(&mut agent);
+        agent.prompt.set_text("KEEP");
+        agent.active_pane = AgentPane::Prompt;
+        let outcome = agent.handle_input(&Event::Key(ctrl_shift_y()), &registry);
+        assert!(
+            matches!(outcome, InputOutcome::Action(Action::CopyMarkdownSource)),
+            "Ctrl+Shift+Y must stay markdown-source copy, got {outcome:?}"
+        );
+        assert!(agent.queue.is_visible());
+        assert_eq!(agent.prompt.text(), "KEEP");
     }
 }

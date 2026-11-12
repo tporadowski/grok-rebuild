@@ -275,7 +275,7 @@ Actions that affect the agent session, available from the agent screen.
 | `Ctrl+C` | Agent screen | Cancel the current turn (or clear non-empty draft first; see Escape table). With `/mcps` or the block viewer open, it cancels a running turn and closes that screen. |
 | `Ctrl+O` | Agent screen | Toggle always-approve (YOLO) mode |
 | `Ctrl+R` | Agent screen | Open the session picker (resume a previous session, same as `/resume`) |
-| `Ctrl+;` (alt: `Ctrl+'`) | Agent screen | Toggle the prompt queue pane (when non-empty). **Local macOS** VS Code family only: primary **`Ctrl+4`** (`;` / `'` still alts). SSH and non-Mac keep **`Ctrl+;`** / **`Ctrl+'`**. |
+| `Ctrl+;` (alt: `Ctrl+'`) | Agent screen | Toggle the prompt queue pane (when non-empty). **Local macOS** VS Code family only: primary **`Ctrl+4`** (`;` / `'` still alts). SSH and non-Mac keep **`Ctrl+;`** / **`Ctrl+'`**. Inside WSL on Windows Terminal, **`Ctrl+Y`** is an additional alt. |
 | `Shift+Tab` | Prompt focused | Cycle mode (Normal → Plan → Auto-review (when enabled) → Always-approve) |
 | `Ctrl+B` | Agent screen | Send the running foreground command to the background |
 | `Ctrl+T` | Agent screen | Toggle the todos pane |
@@ -298,7 +298,7 @@ Actions that affect the agent session, available from the agent screen.
 
 **Note:** External editing works in every render mode: minimal mode binds `Ctrl+G`, and the full TUI uses `/edit-prompt` or the command palette. Grok resolves `$VISUAL`, then `$EDITOR`, then `vi`. Values may include quoted arguments. Saving replaces only the draft (the final newline editors append on save is stripped); an empty file clears it. Drafts with pasted/file/image chips must be edited in the composer so attachments are not flattened.
 
-**Note:** `Ctrl+'` is a Windows alt for `Ctrl+;` — some Windows consoles drop the `Ctrl` modifier on punctuation keys.
+**Note:** `Ctrl+'` is a Windows alt for `Ctrl+;` — some Windows consoles drop the `Ctrl` modifier on punctuation keys. Inside WSL on Windows Terminal those punctuation chords do not arrive, so `Ctrl+Y` toggles the queue there. Elsewhere `Ctrl+Y` still yanks in the prompt, and `Ctrl+Shift+Y` still copies markdown source.
 
 **Note:** `Ctrl+.` needs the Kitty keyboard protocol (or tmux `extended-keys on` so that protocol can pass through). On VS Code / Cursor / Windsurf / Zed integrated terminals, VTE, Apple Terminal, Windows Terminal, JetBrains, tmux with `extended-keys off`, screen, and similar no-KKP setups, Grok advertises **`Ctrl+X`** as the primary shortcuts-cheatsheet key instead. **`Ctrl+X` always works** as a classic control character even when `Ctrl+.` does not. Run `/doctor` if modified keys misbehave in tmux.
 

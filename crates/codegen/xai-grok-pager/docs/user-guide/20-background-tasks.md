@@ -178,7 +178,7 @@ In the interactive TUI, press `Ctrl+G` to toggle the tasks pane. This pane lists
 - Monitor and `/loop` tasks, each with a live line-count badge
 - The task ID for each entry
 
-To toggle the prompt queue instead, press `Ctrl+;`.
+To toggle the prompt queue instead, press `Ctrl+;` (`Ctrl+Y` inside WSL on Windows Terminal).
 
 ---
 

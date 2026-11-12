@@ -3109,6 +3109,33 @@ fn minimal_toggle_queue_chord_shows_queue_block() {
         "full TUI must keep the queue-pane toggle, got {out:?}"
     );
 }
+/// Minimal uses the same queue chord as the full TUI. Ctrl+Y is that chord only for WSL inside Windows Terminal.
+#[test]
+fn minimal_ctrl_y_shows_the_queue_only_when_that_chord_is_bound() {
+    let ctrl_y = key_event(KeyCode::Char('y'), KeyModifiers::CONTROL);
+    let mut bound = test_app_with_agent();
+    bound.screen_mode = ScreenMode::Minimal;
+    bound.registry = ActionRegistry::queue_ctrl_y_binding_for_test(true);
+    let id = super::super::agent::AgentId(0);
+    bound.agents.get_mut(&id).unwrap().prompt.set_text("KEEP");
+    let out = bound.handle_input(&ctrl_y);
+    assert!(
+        matches!(out, InputOutcome::Action(Action::ShowQueue)),
+        "bound Ctrl+Y in minimal mode shows the queue, got {out:?}"
+    );
+    assert_eq!(bound.agents.get(&id).unwrap().prompt.text(), "KEEP");
+
+    let mut unbound = test_app_with_agent();
+    unbound.screen_mode = ScreenMode::Minimal;
+    unbound.registry = ActionRegistry::queue_ctrl_y_binding_for_test(false);
+    unbound.agents.get_mut(&id).unwrap().prompt.set_text("hello");
+    let out = unbound.handle_input(&ctrl_y);
+    assert!(
+        !matches!(out, InputOutcome::Action(Action::ShowQueue)),
+        "unbound Ctrl+Y must not open the queue, got {out:?}"
+    );
+    assert_eq!(unbound.agents.get(&id).unwrap().prompt.text(), "hello");
+}
 fn welcome_session_entry(id: &str) -> SessionPickerEntry {
     SessionPickerEntry {
         id: id.into(),
