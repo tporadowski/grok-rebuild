@@ -501,8 +501,23 @@ fn clean_label(raw: &str) -> String {
         unquoted.to_string()
     };
     // Decode after tag-stripping so `<b>` is removed as markup while `&lt;b&gt;` survives as a literal `<b>`
-    // One decode at the single return covers both paths
-    decode_html_entities(&text)
+    // One decode at the single return covers both paths. `\n` then becomes a break, same as `<br>`.
+    expand_literal_newlines(&decode_html_entities(&text))
+}
+
+/// Mermaid writes a line break as the two characters `\` and `n`. `\\n` keeps the backslash.
+fn expand_literal_newlines(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek() == Some(&'n') {
+            chars.next();
+            out.push('\n');
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 const ENTITY_LOOKAHEAD: usize = 10;
@@ -600,7 +615,8 @@ fn strip_html_tags(s: &str) -> String {
         {
             let lower = name.to_ascii_lowercase();
             if lower == "br" {
-                out.push(' ');
+                // `<br>`, `<br/>`, and `<br />` start a new line. Other tags are dropped.
+                out.push('\n');
                 i = end;
                 continue;
             }
@@ -2962,6 +2978,45 @@ fn relax_rank(nodes: &[usize], neigh: &[Vec<usize>], pos: &mut [f64], size: &[us
 
 fn wrap_label(label: &str, width: usize, max_lines: usize) -> Vec<String> {
     let width = width.max(1);
+    let mut lines: Vec<String> = Vec::new();
+    let segments: Vec<&str> = label.split('\n').collect();
+    let last = segments.len().saturating_sub(1);
+    for (i, segment) in segments.iter().enumerate() {
+        if segment.is_empty() {
+            // A final `\n` does not add a blank row. A break in the middle does.
+            if i == last && i > 0 {
+                continue;
+            }
+            lines.push(String::new());
+            continue;
+        }
+        lines.extend(wrap_label_words(segment, width));
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    if lines.len() > max_lines {
+        lines.truncate(max_lines);
+        if let Some(last) = lines.last_mut() {
+            let target = width.saturating_sub(1).max(1);
+            let mut s = String::new();
+            let mut sw = 0usize;
+            for ch in last.chars() {
+                let cw = char_width(ch).max(1);
+                if sw + cw > target {
+                    break;
+                }
+                s.push(ch);
+                sw += cw;
+            }
+            s.push('…');
+            *last = s;
+        }
+    }
+    lines
+}
+
+fn wrap_label_words(label: &str, width: usize) -> Vec<String> {
     let char_w = |c: char| char_width(c).max(1);
     let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
@@ -3010,34 +3065,19 @@ fn wrap_label(label: &str, width: usize, max_lines: usize) -> Vec<String> {
     if lines.is_empty() {
         lines.push(String::new());
     }
-    if lines.len() > max_lines {
-        lines.truncate(max_lines);
-        if let Some(last) = lines.last_mut() {
-            let target = width.saturating_sub(1).max(1);
-            let mut s = String::new();
-            let mut sw = 0usize;
-            for ch in last.chars() {
-                let cw = char_w(ch);
-                if sw + cw > target {
-                    break;
-                }
-                s.push(ch);
-                sw += cw;
-            }
-            s.push('…');
-            *last = s;
-        }
-    }
     lines
 }
 
 fn fit_label(label: &str, inner: usize) -> String {
-    if label.width() <= inner {
-        return label.to_string();
+    // Edge labels, subgraph titles, and sequence headers have one row.
+    // Node boxes split the same break in `wrap_label`.
+    let flat = label.replace('\n', " ");
+    if flat.width() <= inner {
+        return flat;
     }
     let mut out = String::new();
     let mut used = 0usize;
-    for c in label.chars() {
+    for c in flat.chars() {
         let cw = char_width(c);
         if used + cw + 1 > inner {
             break;
@@ -4122,9 +4162,42 @@ mod tests {
     }
 
     #[test]
-    fn br_tag_becomes_a_space() {
-        let g = parse_graph("flowchart TD\n  A[\"Line1<br/>Line2<br>Line3\"]").unwrap();
-        assert_eq!(node(&g, 0).label, "Line1 Line2 Line3");
+    fn br_tag_breaks_the_line() {
+        let g = parse_graph("flowchart TD\n  A[\"Line1<br/>Line2<br>Line3<br />Line4\"]").unwrap();
+        assert_eq!(node(&g, 0).label, "Line1\nLine2\nLine3\nLine4");
+    }
+
+    #[test]
+    fn escaped_br_stays_literal() {
+        let g = parse_graph("flowchart TD\n  A[\"keep &lt;br&gt; literal\"]").unwrap();
+        assert_eq!(node(&g, 0).label, "keep <br> literal");
+    }
+
+    #[test]
+    fn newline_escape_and_br_break_the_box() {
+        let cases = [
+            "flowchart TD\n  A[\"Line1\\nLine2\"]",
+            "flowchart TD\n  A[\"Line1<br>Line2\"]",
+            "flowchart TD\n  A[\"Line1<br/>Line2\"]",
+            "flowchart TD\n  A[\"Line1<br />Line2\"]",
+        ];
+        for src in cases {
+            let g = parse_graph(src).unwrap();
+            assert_eq!(node(&g, 0).label, "Line1\nLine2", "{src}");
+            let art = plain(src);
+            assert!(!art.contains('\\') && !art.contains("<br"), "{src}\n{art}");
+            let rows: Vec<&str> = art.lines().filter(|line| line.contains("Line")).collect();
+            assert!(
+                rows.iter()
+                    .any(|line| line.contains("Line1") && !line.contains("Line2")),
+                "{src}\n{art}"
+            );
+            assert!(
+                rows.iter()
+                    .any(|line| line.contains("Line2") && !line.contains("Line1")),
+                "{src}\n{art}"
+            );
+        }
     }
 
     #[test]
@@ -4178,7 +4251,7 @@ mod tests {
     #[test]
     fn generic_types_are_not_stripped_as_html() {
         // `<String>` / `<i32>` / `<id>` look like tags but are not HTML formatting tags, so they must survive
-        // Only b/i/code/span/… etc. and <br> are stripped.
+        // Only b/i/code/span/… etc. are stripped. <br> becomes a line break.
         let g = parse_graph(
             "flowchart TD\n  A[\"Returns Vec<String>\"] --> B[\"Option<i32> for <id>\"]",
         )
@@ -4275,7 +4348,10 @@ mod tests {
         .unwrap();
         assert_eq!(g.nodes.len(), 1, "inner brackets must not split the node");
         assert_eq!(g.edges.len(), 0, "no phantom edges from <br/> + brackets");
-        assert_eq!(node(&g, 0).label, "Token IDs [ 464, 3797 ] indices");
+        assert_eq!(
+            node(&g, 0).label,
+            "Token IDs\n[ 464, 3797 ]\nindices"
+        );
     }
 
     #[test]
@@ -4404,6 +4480,19 @@ mod tests {
         let long = "alpha ".repeat(40);
         let out = plain(&format!("graph TD\n A[{}] --> B[x]", long.trim()));
         assert!(out.contains('…'), "should truncate past max lines:\n{out}");
+    }
+
+    #[test]
+    fn wrap_label_keeps_an_explicit_break() {
+        assert_eq!(
+            wrap_label("Line1\nLine2", WRAP_WIDTH, MAX_LINES),
+            vec!["Line1".to_string(), "Line2".to_string()]
+        );
+    }
+
+    #[test]
+    fn fit_label_flattens_a_break_onto_one_line() {
+        assert_eq!(fit_label("Line1\nLine2", 40), "Line1 Line2");
     }
 
     #[test]
