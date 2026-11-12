@@ -6,7 +6,8 @@ description: >
   user asks), fetch each missing version's changelog, extend
   docs/upstream-port/PLAN.md with a feasibility call on every bullet,
   commit that plan, implement each new row in its own commit, and after
-  each version stamp the lockstep packages and CHANGELOG.md. Use when
+  each version stamp the lockstep packages and CHANGELOG.md and tag that
+  commit `v<version>`. Use when
   the user runs /port-grok-release, says "port the latest grok release",
   "update from release notes", "catch up to stable", "catch up to
   alpha", or asks to continue the upstream port plan from the official
@@ -271,6 +272,19 @@ port: stamp package version V
 Body: say the embedded changelog gained `V`'s own section. No item
 implementation in this commit.
 
+Tag that commit `vV` (so `1.0.80` is `v1.0.80`). Annotated, message `vV`,
+same shape as the existing `v1.0.78` tag:
+
+```bash
+git tag -a "v$V" -m "v$V"
+```
+
+Run it on the stamp commit just created. Do not move a tag that already
+exists. If `vV` already points at this commit, leave it. If it points
+somewhere else, stop before the next version and report both commits.
+A branch push does not send the tag. Push the tag only when the user
+asks to push, together with the branch.
+
 Then start section 5 on the next version. Do not stamp `V+1` before its
 rows are terminal.
 
@@ -286,7 +300,8 @@ stamp until that build.
 3. **Plan:** commit, new row counts by status. Or "no newer release".
 4. **Items:** each id → `done` / `already` / `skipped` / `deferred`,
    with the commit. Name anything left `pending`.
-5. **Stamps:** version-bump commits, or "not reached".
+5. **Stamps:** version-bump commits and their `vV` tags, or "not reached".
+   A tag that already pointed elsewhere is named here.
 6. **Fork:** any protected behavior a note touched, and whether it
    stayed.
 7. **Unpushed:** `git status -sb`. Push only if the user asks.
