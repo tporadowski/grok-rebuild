@@ -720,6 +720,69 @@ fn tab_content(
     }
 }
 
+/// The wide modal keeps a 30-cell bar. A narrow one shortens the bar so the
+/// percentage still fits on the row.
+fn credit_bar_line(bal: &CreditBalance, theme: &Theme, width: u16) -> Line<'static> {
+    use unicode_width::UnicodeWidthStr;
+    const BAR_WIDTH: usize = 30;
+    let avail = usize::from(width);
+    let pct = bal.usage_pct.clamp(0.0, 100.0);
+    let pct_label = format!("  {}%", bal.usage_pct.floor() as i64);
+    let pct_w = pct_label.width();
+    let bar_w = BAR_WIDTH.min(avail.saturating_sub(pct_w));
+    let filled = if bar_w == 0 {
+        0
+    } else {
+        (((pct / 100.0) * bar_w as f64).round() as usize).min(bar_w)
+    };
+    let mut spans = Vec::new();
+    if filled > 0 {
+        spans.push(Span::styled(
+            "\u{2588}".repeat(filled),
+            Style::default().fg(theme.gray_bright),
+        ));
+    }
+    let empty = bar_w - filled;
+    if empty > 0 {
+        spans.push(Span::styled(
+            "\u{2591}".repeat(empty),
+            Style::default().fg(theme.gray_dim),
+        ));
+    }
+    let label_room = avail.saturating_sub(bar_w);
+    let label = if pct_w <= label_room {
+        pct_label
+    } else {
+        take_columns(&pct_label, label_room)
+    };
+    if !label.is_empty() {
+        spans.push(Span::styled(
+            label,
+            Style::default().fg(theme.text_primary),
+        ));
+    }
+    if spans.is_empty() {
+        Line::default()
+    } else {
+        Line::from(spans)
+    }
+}
+
+fn take_columns(text: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + cw > width {
+            break;
+        }
+        out.push(ch);
+        used += cw;
+    }
+    out
+}
+
 fn header_style(theme: &Theme) -> Style {
     Style::default()
         .fg(theme.text_primary)
@@ -814,9 +877,14 @@ fn usage_limit_lines(
     } else if !state.ctx.usage_visible {
         lines.push(muted_line(theme, "Usage limits are managed by your team."));
     } else if let Some(url) = &state.ctx.billing_redirect_url {
-        lines.push(plain(theme, format!("Please check your usage on {url}")));
+        let text = format!("Please check your usage on {url}");
+        lines.extend(
+            wrap_to_columns(&text, width.max(1) as usize)
+                .into_iter()
+                .map(|line| plain(theme, line)),
+        );
     } else if let Some(bal) = balance {
-        lines.extend(allowance_lines(state, bal, theme));
+        lines.extend(allowance_lines(state, bal, theme, width));
     } else if let Some(error) = &state.billing_error {
         lines.extend(wrap_error_lines(
             theme,
@@ -853,6 +921,7 @@ fn allowance_lines(
     state: &UsageInfoModalState,
     bal: &CreditBalance,
     theme: &Theme,
+    width: u16,
 ) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
@@ -864,24 +933,7 @@ fn allowance_lines(
     lines.push(Line::styled(header, header_style(theme)));
     lines.push(Line::default());
 
-    const BAR_WIDTH: usize = 30;
-    let pct = bal.usage_pct.clamp(0.0, 100.0);
-    let filled = (((pct / 100.0) * BAR_WIDTH as f64).round() as usize).min(BAR_WIDTH);
-    lines.push(Line::from(vec![
-        Span::styled(
-            "\u{2588}".repeat(filled),
-            Style::default().fg(theme.gray_bright),
-        ),
-        Span::styled(
-            "\u{2591}".repeat(BAR_WIDTH - filled),
-            Style::default().fg(theme.gray_dim),
-        ),
-        // Floored to match the backend's truncation.
-        Span::styled(
-            format!("  {}%", bal.usage_pct.floor() as i64),
-            Style::default().fg(theme.text_primary),
-        ),
-    ]));
+    lines.push(credit_bar_line(bal, theme, width));
 
     if let Some(reset) = &bal.period_end_display {
         lines.push(muted_line(theme, format!("Resets: {reset}")));
@@ -1129,6 +1181,60 @@ mod tests {
             lines
                 .first()
                 .is_some_and(|l| l.to_string().contains("Loading session usage"))
+        );
+    }
+
+    #[test]
+    fn credit_bar_and_billing_url_fit_a_narrow_modal() {
+        use unicode_width::UnicodeWidthStr;
+        let theme = Theme::current();
+        let state = state_with_session();
+        let bal = CreditBalance {
+            usage_pct: 100.0,
+            effective_usage_pct: 100.0,
+            period_end_display: None,
+            pay_as_you_go: false,
+            on_demand_cap_cents: None,
+            on_demand_used_cents: None,
+            prepaid_balance_cents: None,
+            period_type: Some("USAGE_PERIOD_TYPE_WEEKLY".to_string()),
+            is_unified_billing_user: None,
+        };
+        let wide = usage_limit_lines(&state, Some(&bal), &theme, 80);
+        let wide_bar = wide.get(2).expect("bar").to_string();
+        let wide_blocks = wide_bar.chars().filter(|c| matches!(c, '█' | '░')).count();
+        assert_eq!(wide_blocks, 30, "{wide_bar}");
+        assert!(wide_bar.ends_with("100%"), "{wide_bar}");
+        assert!(wide_bar.width() <= 80, "{wide_bar}");
+
+        let narrow = usage_limit_lines(&state, Some(&bal), &theme, 16);
+        let bar = narrow.get(2).expect("bar").to_string();
+        let blocks = bar.chars().filter(|c| matches!(c, '█' | '░')).count();
+        assert!(bar.width() <= 16, "{bar} is {} cols", bar.width());
+        assert!(bar.contains("100%"), "{bar}");
+        assert!(blocks < 30 && blocks > 0, "{bar}");
+
+        let mut redirect = state_with_session();
+        let url = "https://accounts.example.com/billing/usage?team=very-long-workspace-id";
+        redirect.ctx.billing_redirect_url = Some(url.to_string());
+        let lines = usage_limit_lines(&redirect, None, &theme, 24);
+        let url_lines: Vec<String> = lines
+            .iter()
+            .map(|line| line.to_string())
+            .take_while(|line| !line.is_empty())
+            .collect();
+        assert!(url_lines.len() > 1, "the url wraps: {url_lines:?}");
+        for line in &url_lines {
+            assert!(line.width() <= 24, "clipped: {line:?}");
+        }
+        let flat: String = url_lines
+            .iter()
+            .flat_map(|line| line.chars())
+            .filter(|ch| !ch.is_whitespace())
+            .collect();
+        assert!(
+            flat.contains("https://accounts.example.com/billing/usage?team=very-long-workspace-id"),
+            "{url_lines:?}"
         );
     }
 
