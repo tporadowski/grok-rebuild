@@ -290,7 +290,7 @@ Actions that affect the agent session, available from the agent screen.
 
 **Note:** While a **subagent fullscreen view** is open, the composer is hidden. Root-only chords (`Ctrl+P`, `Ctrl+M`, `Ctrl+R`, `Ctrl+O`, `Ctrl+B`, settings, extensions, Shift+Tab) do nothing. `Ctrl+C` cancels the **child's** turn. `q` / `Esc` closes the view. `Ctrl+Q` still quits (`Ctrl+D` on VS Code family). See [Viewing Subagents in the TUI](16-subagents.md#fullscreen-framed-view-the-child-transcript).
 
-**Note:** `e` on a queued prompt edits that row. A queued command such as `/compact` cannot be edited: the attempt shows a message and the text you typed stays in the prompt.
+**Note:** `e` on a queued prompt edits that row. While it is open in the composer, that row is dimmed and ends with `· editing`. A queued command such as `/compact` cannot be edited: the attempt shows a message and the text you typed stays in the prompt.
 
 **Note:** `Ctrl+M` is context-dependent. When the prompt is focused, it toggles multiline input mode. Otherwise, it opens the model picker.
 

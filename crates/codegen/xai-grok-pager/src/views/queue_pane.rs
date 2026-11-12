@@ -4,7 +4,7 @@
 //! Shows `#1`, `#2`, … prefixes (positional, 1-based) with the first line of each prompt's text.
 //! Multiline prompts show a `(+N lines)` indicator.
 
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
@@ -73,6 +73,8 @@ pub struct QueuedPromptEntry {
     version: u64,
     /// Mutation/send capabilities under the pane's `QueueMutation`.
     capabilities: ServerRowCapabilities,
+    /// This row is the one loaded in the composer (`PromptMode::EditingQueued`).
+    editing: bool,
     /// Cached styled content (rebuilt with width in `rebuild_styled_for_width`).
     styled: Line<'static>,
 }
@@ -89,6 +91,9 @@ fn synth_server_id(prompt_id: &str) -> u64 {
 
 /// Suffix on a row the pane cannot edit, delete, reorder, or send.
 const PROTECTED_MARKER: &str = " · protected";
+
+/// Suffix on the row currently open in the composer. Stays full gray; the rest of that row is dimmed.
+const EDITING_MARKER: &str = " · editing";
 
 /// `[Image #N]` in a queued line. The path form is found by `extract_placeholders`.
 fn chip_image_placeholder_regex() -> &'static regex::Regex {
@@ -129,9 +134,12 @@ fn spans_with_image_chips(text: String, base: Style) -> Vec<Span<'static>> {
         return vec![Span::styled(text, base)];
     }
     let theme = Theme::current();
-    let chip = Style::default()
+    let mut chip = Style::default()
         .fg(theme.accent_success)
         .bg(theme.paste_bg);
+    if base.add_modifier.contains(Modifier::DIM) {
+        chip = chip.add_modifier(Modifier::DIM);
+    }
     let mut spans = Vec::new();
     let mut cursor = 0usize;
     for range in ranges {
@@ -183,7 +191,14 @@ impl QueuedPromptEntry {
         let capabilities = ServerRowCapabilities::for_local(mutation);
 
         // Build initial styled line (will be rebuilt with proper width later).
-        let styled = Self::build_styled(&first_line, line_count, prompt.kind, None, capabilities);
+        let styled = Self::build_styled(
+            &first_line,
+            line_count,
+            prompt.kind,
+            None,
+            capabilities,
+            false,
+        );
 
         Self {
             id: prompt.id,
@@ -196,6 +211,7 @@ impl QueuedPromptEntry {
             server_id: None,
             version: 0,
             capabilities,
+            editing: false,
             styled,
         }
     }
@@ -217,7 +233,7 @@ impl QueuedPromptEntry {
         let line_count = wire.text.lines().count();
         let kind = kind_from_wire(&wire.kind);
         let capabilities = ServerRowCapabilities::for_pane(&wire.kind, mutation);
-        let styled = Self::build_styled(&first_line, line_count, kind, None, capabilities);
+        let styled = Self::build_styled(&first_line, line_count, kind, None, capabilities, false);
         Self {
             id: synth_server_id(&wire.id),
             position,
@@ -229,6 +245,7 @@ impl QueuedPromptEntry {
             server_id: Some(wire.id.clone()),
             version: wire.version,
             capabilities,
+            editing: false,
             styled,
         }
     }
@@ -243,20 +260,23 @@ impl QueuedPromptEntry {
             self.kind,
             Some(available_width as usize),
             self.capabilities,
+            self.editing,
         );
     }
 
     /// Build the styled `Line` for display.
     ///
     /// If `max_width` is provided, the first line is truncated so the gray suffix fits: `(+N lines)` for a
-    /// multiline entry, then the protected marker, which is dropped when the text, after the `(+N lines)`
-    /// suffix is reserved, would keep less than the marker's own width.
+    /// multiline entry, then the protected marker, then the editing marker. Each marker is dropped when the
+    /// text, after the suffix already reserved, would keep less than that marker's own width. An editing
+    /// row dims the body and keeps the editing marker at full gray.
     fn build_styled(
         first_line: &str,
         line_count: usize,
         kind: QueueEntryKind,
         max_width: Option<usize>,
         capabilities: ServerRowCapabilities,
+        editing: bool,
     ) -> Line<'static> {
         let theme = Theme::current();
         let extra_lines = line_count.saturating_sub(1);
@@ -271,14 +291,27 @@ impl QueuedPromptEntry {
         } else {
             String::new()
         };
-        let marker_width = PROTECTED_MARKER.width();
-        if capabilities.is_protected()
-            && max_width
-                .is_none_or(|w| w.saturating_sub(suffix.width() + marker_width) >= marker_width)
-        {
-            suffix.push_str(PROTECTED_MARKER);
+        for (include, marker) in [
+            (capabilities.is_protected(), PROTECTED_MARKER),
+            (editing, EDITING_MARKER),
+        ] {
+            let marker_width = marker.width();
+            if include
+                && max_width.is_none_or(|w| {
+                    w.saturating_sub(suffix.width() + marker_width) >= marker_width
+                })
+            {
+                suffix.push_str(marker);
+            }
         }
         let suffix_width = suffix.width();
+        let body = |style: Style| -> Style {
+            if editing {
+                style.add_modifier(Modifier::DIM)
+            } else {
+                style
+            }
+        };
 
         let content_max_width = max_width.map(|w| w.saturating_sub(suffix_width));
 
@@ -292,7 +325,7 @@ impl QueuedPromptEntry {
 
                 let mut spans = spans_with_image_chips(
                     display_text,
-                    Style::default().fg(theme.accent_user),
+                    body(Style::default().fg(theme.accent_user)),
                 );
 
                 if !suffix.is_empty() {
@@ -316,17 +349,17 @@ impl QueuedPromptEntry {
                     let (cmd, args) = truncated.split_at(space_idx);
                     let mut spans = spans_with_image_chips(
                         cmd.to_string(),
-                        Style::default().fg(theme.accent_assistant),
+                        body(Style::default().fg(theme.accent_assistant)),
                     );
                     spans.extend(spans_with_image_chips(
                         args.to_string(),
-                        Style::default().fg(theme.gray_bright),
+                        body(Style::default().fg(theme.gray_bright)),
                     ));
                     spans
                 } else {
                     spans_with_image_chips(
                         truncated,
-                        Style::default().fg(theme.accent_assistant),
+                        body(Style::default().fg(theme.accent_assistant)),
                     )
                 };
 
@@ -345,10 +378,10 @@ impl QueuedPromptEntry {
                     first_line.to_string()
                 };
 
-                let mut spans = vec![Span::styled("! ", Style::default().fg(theme.command))];
+                let mut spans = vec![Span::styled("! ", body(Style::default().fg(theme.command)))];
                 spans.extend(spans_with_image_chips(
                     display_text,
-                    Style::default().fg(theme.command),
+                    body(Style::default().fg(theme.command)),
                 ));
 
                 if !suffix.is_empty() {
@@ -368,11 +401,12 @@ impl ListItem for QueuedPromptEntry {
 
     fn prefix(&self) -> Option<Line<'_>> {
         let theme = Theme::current();
+        let mut number = Style::default().fg(theme.gray);
+        if self.editing {
+            number = number.add_modifier(Modifier::DIM);
+        }
         Some(Line::from(vec![
-            Span::styled(
-                format!("#{}", self.position),
-                Style::default().fg(theme.gray),
-            ),
+            Span::styled(format!("#{}", self.position), number),
             Span::raw(" "),
         ]))
     }
@@ -519,6 +553,8 @@ pub struct QueuePane {
     hovered_row_id: Option<u64>,
     /// Content area from the last `render`, used to hit-test which row the mouse is over (for `hovered_row_id`).
     last_inner: Option<Rect>,
+    /// Selection id of the row loaded in the composer, painted dim with an "editing" label.
+    editing_row: Option<u64>,
 }
 
 impl Default for QueuePane {
@@ -555,7 +591,13 @@ impl QueuePane {
             edit_button: RowActionButton::default(),
             hovered_row_id: None,
             last_inner: None,
+            editing_row: None,
         }
+    }
+
+    /// The row open in the composer. `None` clears the label. Read on the next `render`.
+    pub(crate) fn set_editing_row(&mut self, id: Option<u64>) {
+        self.editing_row = id;
     }
 
     /// Takes effect at the next `sync_from_merged`, which every queue change triggers.
@@ -943,7 +985,9 @@ impl QueuePane {
         let max_pos = self.entries.len();
         let prefix_width = 2 + digit_count(max_pos); // "#" + digits + " "
         let content_width = (inner.width as usize).saturating_sub(prefix_width);
+        let editing_id = self.editing_row;
         for entry in &mut self.entries {
+            entry.editing = editing_id == Some(entry.id);
             entry.rebuild_styled_for_width(content_width as u16);
         }
 
@@ -1327,6 +1371,164 @@ mod tests {
         );
         editable.rebuild_styled_for_width(80);
         assert_eq!(vec![String::from("status update")], span_texts(&editable));
+    }
+
+    /// " · editing" is 10 columns. It stays only while the text keeps at least that width, same rule as the protected marker.
+    #[test]
+    fn editing_marker_yields_to_the_text_at_the_width_boundary() {
+        let mut editing = QueuedPromptEntry::new(
+            &local_prompt(1, "status update"),
+            1,
+            QueueMutation::PerRowKind,
+        );
+        editing.editing = true;
+        // 13 text columns plus the 10-column marker need 23, and 23 still leaves the text a full marker wide.
+        editing.rebuild_styled_for_width(23);
+        assert_eq!(
+            vec![
+                String::from("status update"),
+                String::from(EDITING_MARKER)
+            ],
+            span_texts(&editing)
+        );
+        assert!(
+            editing.styled.spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::DIM),
+            "the body is dimmed"
+        );
+        assert!(
+            !editing.styled.spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::DIM),
+            "the editing label stays full gray"
+        );
+        // At 20 the text yields down to the marker's width and the label still fits.
+        editing.rebuild_styled_for_width(20);
+        assert_eq!(
+            vec![String::from("status up…"), String::from(EDITING_MARKER)],
+            span_texts(&editing)
+        );
+        editing.rebuild_styled_for_width(19);
+        assert_eq!(vec![String::from("status update")], span_texts(&editing));
+        assert!(
+            editing.styled.spans[0]
+                .style
+                .add_modifier
+                .contains(Modifier::DIM)
+        );
+    }
+
+    fn row_cells(buf: &Buffer, y: u16, width: u16) -> Vec<(String, bool)> {
+        (0..width)
+            .filter_map(|x| {
+                buf.cell((x, y)).map(|cell| {
+                    (
+                        cell.symbol().to_owned(),
+                        cell.modifier.contains(Modifier::DIM),
+                    )
+                })
+            })
+            .collect()
+    }
+
+    fn joined(cells: &[(String, bool)]) -> String {
+        cells.iter().map(|(symbol, _)| symbol.as_str()).collect()
+    }
+
+    /// Dim flags of the cells that paint `needle` (byte-accurate, so `·` stays one cell).
+    fn dims_covering(cells: &[(String, bool)], needle: &str) -> Vec<bool> {
+        let mut acc = String::new();
+        let mut ranges = Vec::new();
+        for (symbol, dim) in cells {
+            let start = acc.len();
+            acc.push_str(symbol);
+            ranges.push((start, acc.len(), *dim));
+        }
+        let start = acc
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle} missing in {acc:?}"));
+        let end = start + needle.len();
+        ranges
+            .into_iter()
+            .filter(|(span_start, span_end, _)| *span_start < end && start < *span_end)
+            .map(|(_, _, dim)| dim)
+            .collect()
+    }
+
+    #[test]
+    fn editing_row_is_labeled_and_dimmed() {
+        let mut pane = QueuePane::new();
+        let mut local = std::collections::VecDeque::new();
+        local.push_back(local_prompt(1, "keep this"));
+        local.push_back(local_prompt(2, "edit this"));
+        pane.sync_from_merged(&local, &[], None, None, &Default::default());
+        let editing_id = *pane.entry_ids().get(1).expect("second row");
+        pane.set_editing_row(Some(editing_id));
+
+        let area = Rect::new(0, 0, 80, 2);
+        let mut buf = Buffer::empty(area);
+        pane.render(
+            area,
+            &mut buf,
+            false,
+            &LayoutConfig::default(),
+            None,
+            true,
+        );
+        let rows: Vec<_> = (area.y..area.y + area.height)
+            .map(|y| row_cells(&buf, y, area.width))
+            .collect();
+        let editing = rows
+            .iter()
+            .find(|row| joined(row).contains("edit this"))
+            .expect("editing row");
+        let other = rows
+            .iter()
+            .find(|row| joined(row).contains("keep this"))
+            .expect("other row");
+        assert!(
+            joined(editing).contains("· editing"),
+            "{}",
+            joined(editing)
+        );
+        assert!(!joined(other).contains("· editing"), "{}", joined(other));
+        assert!(
+            dims_covering(editing, "edit this").iter().all(|dim| *dim),
+            "body dim: {editing:?}"
+        );
+        assert!(
+            dims_covering(editing, "· editing")
+                .iter()
+                .all(|dim| !*dim),
+            "label undimmed: {editing:?}"
+        );
+        assert!(
+            dims_covering(editing, "#2").iter().all(|dim| *dim),
+            "prefix dim: {editing:?}"
+        );
+        assert!(
+            other.iter().all(|(symbol, dim)| symbol == " " || !*dim),
+            "other row stays bright: {other:?}"
+        );
+
+        pane.set_editing_row(None);
+        let mut cleared = Buffer::empty(area);
+        pane.render(
+            area,
+            &mut cleared,
+            false,
+            &LayoutConfig::default(),
+            None,
+            true,
+        );
+        let cleared_text = buffer_text(&cleared, area);
+        assert!(
+            !cleared_text.contains("· editing"),
+            "clearing the id drops the label: {cleared_text:?}"
+        );
     }
 
     #[test]
@@ -1768,6 +1970,7 @@ mod tests {
             QueueEntryKind::Prompt,
             None,
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text, "hello world");
@@ -1782,6 +1985,7 @@ mod tests {
             QueueEntryKind::Prompt,
             None,
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("first line"));
@@ -1863,6 +2067,7 @@ mod tests {
             QueueEntryKind::Prompt,
             None,
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("(+1 line)"));
@@ -1878,6 +2083,7 @@ mod tests {
             QueueEntryKind::Prompt,
             Some(25),
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("first line"));
@@ -1890,6 +2096,7 @@ mod tests {
             QueueEntryKind::Prompt,
             Some(20),
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("(+4 lines)"));
@@ -1905,6 +2112,7 @@ mod tests {
             QueueEntryKind::Prompt,
             Some(15), // " (+9 lines)" is 11 chars, leaving 4 for content
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("(+9 lines)"));
@@ -1918,6 +2126,7 @@ mod tests {
             QueueEntryKind::Command,
             None,
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("/help"));
@@ -1932,6 +2141,7 @@ mod tests {
             QueueEntryKind::BashCommand,
             None,
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(
@@ -1949,6 +2159,7 @@ mod tests {
             QueueEntryKind::BashCommand,
             None,
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.starts_with("! "));
@@ -1963,6 +2174,7 @@ mod tests {
             QueueEntryKind::BashCommand,
             Some(15),
             editable(),
+            false,
         );
         let text: String = styled.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.starts_with("! "));

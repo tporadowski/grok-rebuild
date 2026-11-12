@@ -2011,6 +2011,11 @@ impl AgentView {
         } else {
             self.hit_todo_close.clear();
         }
+        let editing_row = match &self.prompt_mode {
+            PromptMode::EditingQueued { id, .. } => Some(*id),
+            PromptMode::Normal => None,
+        };
+        self.queue.set_editing_row(editing_row);
         if queue_height > 0 {
             let queue_focused = self.active_pane == ActivePane::Queue && !overlay_focused;
             self.queue.render(
