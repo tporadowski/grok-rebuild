@@ -1434,6 +1434,240 @@ fn build_shortcut_button<'a>(
     ]
 }
 
+const FOOTER_SEP: &str = "  |  ";
+const FOOTER_SEP_W: u16 = 5;
+
+#[derive(Clone, Copy)]
+enum ReviewButtonKind {
+    Approve,
+    Revise,
+    Comment,
+    Copy,
+    Quit,
+}
+
+struct ReviewButton {
+    kind: ReviewButtonKind,
+    spans: Vec<Span<'static>>,
+    /// Clickable columns. The comment-count badge is `tail`, not part of the hit target.
+    width: u16,
+    tail: String,
+}
+
+fn spans_width(spans: &[Span<'_>]) -> u16 {
+    spans.iter().map(|span| span.width() as u16).sum()
+}
+
+fn button_occupied(button: &ReviewButton) -> u16 {
+    button
+        .width
+        .saturating_add(unicode_width::UnicodeWidthStr::width(button.tail.as_str()) as u16)
+}
+
+fn review_buttons(
+    viewer: &LineViewerState,
+    theme: &Theme,
+    comment_count: usize,
+) -> Vec<ReviewButton> {
+    let plan = viewer.plan_ref();
+    let abandon_hovered = plan.is_some_and(|p| p.abandon_hovered);
+    let comment_hovered = plan.is_some_and(|p| p.comment_hovered);
+    let approve_hovered = plan.is_some_and(|p| p.approve_hovered);
+    let copy_hovered = plan.is_some_and(|p| p.copy_hovered);
+    let send_hovered = plan.is_some_and(|p| p.send_hovered);
+    let is_approval = viewer.feedback_active();
+    let mut buttons = Vec::new();
+
+    if is_approval {
+        let label = if comment_count > 0 {
+            "approve w/ comments"
+        } else {
+            "approve"
+        };
+        let spans = build_shortcut_button('a', label, approve_hovered, theme);
+        buttons.push(ReviewButton {
+            kind: ReviewButtonKind::Approve,
+            width: spans_width(&spans),
+            spans,
+            tail: String::new(),
+        });
+        let spans = build_shortcut_button('s', "request changes", send_hovered, theme);
+        buttons.push(ReviewButton {
+            kind: ReviewButtonKind::Revise,
+            width: spans_width(&spans),
+            spans,
+            tail: String::new(),
+        });
+    } else if comment_count > 0 {
+        let spans = build_shortcut_button('s', "send", approve_hovered, theme);
+        buttons.push(ReviewButton {
+            kind: ReviewButtonKind::Approve,
+            width: spans_width(&spans),
+            spans,
+            tail: String::new(),
+        });
+    }
+
+    let spans = build_shortcut_button('c', "comment", comment_hovered, theme);
+    let tail = if comment_count > 0 {
+        format!(" {comment_count} {}", crate::glyphs::filled_dot())
+    } else {
+        String::new()
+    };
+    buttons.push(ReviewButton {
+        kind: ReviewButtonKind::Comment,
+        width: spans_width(&spans),
+        spans,
+        tail,
+    });
+
+    let spans = build_shortcut_button('y', "copy plan", copy_hovered, theme);
+    buttons.push(ReviewButton {
+        kind: ReviewButtonKind::Copy,
+        width: spans_width(&spans),
+        spans,
+        tail: String::new(),
+    });
+
+    if is_approval {
+        let spans = build_shortcut_button('q', "quit plan", abandon_hovered, theme);
+        buttons.push(ReviewButton {
+            kind: ReviewButtonKind::Quit,
+            width: spans_width(&spans),
+            spans,
+            tail: String::new(),
+        });
+    }
+    buttons
+}
+
+/// Greedy wrap. A button wider than the row sits alone and is clipped when painted.
+fn pack_review_rows(buttons: Vec<ReviewButton>, width: u16) -> Vec<Vec<ReviewButton>> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut rows: Vec<Vec<ReviewButton>> = Vec::new();
+    let mut row: Vec<ReviewButton> = Vec::new();
+    let mut used = 0u16;
+    for button in buttons {
+        let occupied = button_occupied(&button).max(1);
+        if !row.is_empty() && used.saturating_add(FOOTER_SEP_W).saturating_add(occupied) > width {
+            rows.push(std::mem::take(&mut row));
+            used = 0;
+        }
+        let sep = if row.is_empty() { 0 } else { FOOTER_SEP_W };
+        used = used.saturating_add(sep).saturating_add(occupied.min(width));
+        row.push(button);
+    }
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    rows
+}
+
+fn store_review_button(plan: &mut PlanViewerExtras, kind: ReviewButtonKind, rect: Rect) {
+    let slot = match kind {
+        ReviewButtonKind::Approve => &mut plan.approve_button_area,
+        ReviewButtonKind::Revise => &mut plan.send_button_area,
+        ReviewButtonKind::Comment => &mut plan.comment_button_area,
+        ReviewButtonKind::Copy => &mut plan.copy_button_area,
+        ReviewButtonKind::Quit => &mut plan.abandon_button_area,
+    };
+    *slot = Some(rect);
+}
+
+fn paint_review_footer(
+    buf: &mut Buffer,
+    inner: Rect,
+    viewer: &mut LineViewerState,
+    theme: &Theme,
+    rows: &[Vec<ReviewButton>],
+    button_rows: u16,
+) {
+    if button_rows == 0 || inner.height < 2 {
+        return;
+    }
+    let div_y = inner
+        .y
+        .saturating_add(inner.height)
+        .saturating_sub(button_rows)
+        .saturating_sub(1);
+    if div_y >= inner.bottom() {
+        return;
+    }
+    let div_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
+    let line: String = std::iter::repeat_n('\u{2500}', inner.width as usize).collect();
+    buf.set_string(inner.x, div_y, &line, div_style);
+
+    let sep_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
+    let tail_style = Style::default().fg(theme.accent_plan).bg(theme.bg_base);
+    let right = inner.right();
+    let first_y = div_y.saturating_add(1);
+
+    for (i, row) in rows.iter().take(button_rows as usize).enumerate() {
+        let y = first_y.saturating_add(i as u16);
+        if y >= inner.bottom() {
+            break;
+        }
+        let row_w = row.iter().enumerate().fold(0u16, |used, (n, button)| {
+            let sep = if n == 0 { 0 } else { FOOTER_SEP_W };
+            used.saturating_add(sep)
+                .saturating_add(button_occupied(button))
+        });
+        let mut x = if row_w <= inner.width {
+            inner.x + (inner.width - row_w) / 2
+        } else {
+            inner.x
+        };
+        for (n, button) in row.iter().enumerate() {
+            if n > 0 {
+                if x < right {
+                    let room = right.saturating_sub(x);
+                    buf.set_span(
+                        x,
+                        y,
+                        &Span::styled(FOOTER_SEP, sep_style),
+                        FOOTER_SEP_W.min(room),
+                    );
+                }
+                x = x.saturating_add(FOOTER_SEP_W);
+            }
+            if x >= right {
+                break;
+            }
+            let visible = button.width.min(right.saturating_sub(x));
+            let mut cursor = x;
+            for span in &button.spans {
+                if cursor >= right {
+                    break;
+                }
+                let room = right.saturating_sub(cursor);
+                let span_w = span.width() as u16;
+                buf.set_span(cursor, y, span, span_w.min(room));
+                cursor = cursor.saturating_add(span_w.min(room));
+            }
+            if visible > 0 {
+                store_review_button(
+                    viewer.plan_mut(),
+                    button.kind,
+                    Rect::new(x, y, visible, 1),
+                );
+            }
+            let after_label = x.saturating_add(button.width);
+            if !button.tail.is_empty() && after_label < right {
+                let room = right.saturating_sub(after_label);
+                buf.set_span(
+                    after_label,
+                    y,
+                    &Span::styled(button.tail.as_str(), tail_style),
+                    room,
+                );
+            }
+            x = x.saturating_add(button_occupied(button));
+        }
+    }
+}
+
 /// Render the line viewer popup. In normal mode, draws a 75% centered panel with dimmed background
 /// (modifiers reset). In fullscreen mode (`viewer.fullscreen`), fills the entire overlay area
 /// without dimming. Renders the ListPane inside the panel with syntax-highlighted lines.
@@ -1495,9 +1729,19 @@ pub fn render_line_viewer(
     let inner = border.inner(popup_area);
     border.render(popup_area, buf);
 
-    // Plan modes reserve 2 rows at the bottom of `inner` for the divider and action-button row
-    // (rendered in step 8 below).
-    let footer_rows: u16 = if viewer.show_footer() { 2 } else { 0 };
+    // A narrow popup wraps the review buttons onto extra rows instead of dropping them.
+    // The divider sits above those rows.
+    let review_rows = if viewer.show_footer() {
+        pack_review_rows(review_buttons(viewer, theme, comment_count), inner.width)
+    } else {
+        Vec::new()
+    };
+    let button_rows = (review_rows.len() as u16).min(inner.height.saturating_sub(1));
+    let footer_rows = if button_rows > 0 {
+        button_rows.saturating_add(1)
+    } else {
+        0
+    };
     let content_area = Rect {
         x: inner.x,
         y: inner.y,
@@ -1617,6 +1861,8 @@ pub fn render_line_viewer(
     if let Some(plan) = viewer.plan.as_mut() {
         plan.send_button_area = None;
         plan.approve_button_area = None;
+        plan.comment_button_area = None;
+        plan.copy_button_area = None;
         plan.abandon_button_area = None;
     }
 
@@ -1668,185 +1914,8 @@ pub fn render_line_viewer(
         }
     }
 
-    // Action buttons inside the modal footer (centered), for both plan-approval and casual
-    // plan-preview modes.
-    if viewer.show_footer() && inner.height >= 2 {
-        let div_y = inner.y + inner.height - 2;
-        let div_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
-        let line: String = std::iter::repeat_n('\u{2500}', inner.width as usize).collect();
-        buf.set_string(inner.x, div_y, &line, div_style);
-
-        let bottom_y = inner.y + inner.height - 1;
-
-        let abandon_hovered = viewer.plan_ref().is_some_and(|p| p.abandon_hovered);
-        let comment_hovered = viewer.plan_ref().is_some_and(|p| p.comment_hovered);
-        let approve_hovered = viewer.plan_ref().is_some_and(|p| p.approve_hovered);
-        let copy_hovered = viewer.plan_ref().is_some_and(|p| p.copy_hovered);
-        let is_approval = viewer.feedback_active();
-
-        let comment_spans = build_shortcut_button('c', "comment", comment_hovered, theme);
-        let comment_w: u16 = comment_spans.iter().map(|s| s.width() as u16).sum();
-
-        let copy_spans = build_shortcut_button('y', "copy plan", copy_hovered, theme);
-        let copy_w: u16 = copy_spans.iter().map(|s| s.width() as u16).sum();
-
-        // In approval mode, show `a approve` (or `a approve w/ comments` when inline comments are pending)
-        // In casual mode, show `s send` only when comments exist
-        let (_action_label, action_w, action_spans): (&str, u16, Option<Vec<Span>>) = if is_approval
-        {
-            let label = if comment_count > 0 {
-                "approve w/ comments"
-            } else {
-                "approve"
-            };
-            let spans = build_shortcut_button('a', label, approve_hovered, theme);
-            let w: u16 = spans.iter().map(|s| s.width() as u16).sum();
-            (label, w, Some(spans))
-        } else if comment_count > 0 {
-            let spans = build_shortcut_button('s', "send", approve_hovered, theme);
-            let w: u16 = spans.iter().map(|s| s.width() as u16).sum();
-            ("send", w, Some(spans))
-        } else {
-            ("", 0, None)
-        };
-
-        // `s revise` button, always visible in approval mode so the user can request changes (switches to prompt for revision notes)
-        let (revise_w, revise_spans): (u16, Option<Vec<Span>>) = if is_approval {
-            let send_hovered = viewer.plan_ref().is_some_and(|p| p.send_hovered);
-            let spans = build_shortcut_button('s', "request changes", send_hovered, theme);
-            let w: u16 = spans.iter().map(|s| s.width() as u16).sum();
-            (w, Some(spans))
-        } else {
-            (0, None)
-        };
-
-        // Quit button only renders in approval mode (casual closes via X).
-        let quit_spans = if is_approval {
-            let s = build_shortcut_button('q', "quit plan", abandon_hovered, theme);
-            let w: u16 = s.iter().map(|s| s.width() as u16).sum();
-            Some((s, w))
-        } else {
-            None
-        };
-
-        // Pending-comment badge rendered after the `c comment` button as ` N ●` in `accent_plan`
-        // Shown whenever comments exist
-        use unicode_width::UnicodeWidthStr;
-        let badge_text: String = if comment_count > 0 {
-            format!(" {comment_count} {}", crate::glyphs::filled_dot())
-        } else {
-            String::new()
-        };
-        let badge_w: u16 = badge_text.width() as u16;
-        let badge_style = Style::default().fg(theme.accent_plan).bg(theme.bg_base);
-
-        let separator = "  |  ";
-        let sep_w: u16 = 5; // separator is fixed-width ASCII; matches modal_window.rs:565
-        let sep_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
-
-        let mut base_w: u16 = 0;
-        if action_w > 0 {
-            base_w = base_w.saturating_add(action_w).saturating_add(sep_w);
-        }
-        if revise_w > 0 {
-            base_w = base_w.saturating_add(revise_w).saturating_add(sep_w);
-        }
-        base_w = base_w.saturating_add(comment_w).saturating_add(badge_w);
-        if let Some((_, w)) = &quit_spans {
-            base_w = base_w.saturating_add(sep_w).saturating_add(*w);
-        }
-        let with_copy_w = base_w.saturating_add(sep_w).saturating_add(copy_w);
-        let show_copy = with_copy_w <= inner.width;
-        let total_w = if show_copy { with_copy_w } else { base_w };
-
-        if total_w <= inner.width {
-            let mut x = inner.x + (inner.width - total_w) / 2;
-
-            // Action button (approve / send), left-most
-            if let Some(spans) = &action_spans {
-                let approve_x = x;
-                for span in spans {
-                    let w = span.width() as u16;
-                    buf.set_span(x, bottom_y, span, w);
-                    x += w;
-                }
-                viewer.plan_mut().approve_button_area =
-                    Some(Rect::new(approve_x, bottom_y, action_w, 1));
-
-                buf.set_string(x, bottom_y, separator, sep_style);
-                x += sep_w;
-            } else {
-                viewer.plan_mut().approve_button_area = None;
-            }
-
-            // Revise button, approval mode with comments
-            if let Some(spans) = &revise_spans {
-                let revise_x = x;
-                for span in spans {
-                    let w = span.width() as u16;
-                    buf.set_span(x, bottom_y, span, w);
-                    x += w;
-                }
-                viewer.plan_mut().send_button_area =
-                    Some(Rect::new(revise_x, bottom_y, revise_w, 1));
-
-                buf.set_string(x, bottom_y, separator, sep_style);
-                x += sep_w;
-            } else {
-                viewer.plan_mut().send_button_area = None;
-            }
-
-            // Comment button, always present in both modes
-            let comment_x = x;
-            for span in &comment_spans {
-                let w = span.width() as u16;
-                buf.set_span(x, bottom_y, span, w);
-                x += w;
-            }
-            viewer.plan_mut().comment_button_area =
-                Some(Rect::new(comment_x, bottom_y, comment_w, 1));
-
-            if badge_w > 0 {
-                buf.set_string(x, bottom_y, &badge_text, badge_style);
-                x += badge_w;
-            }
-
-            if show_copy {
-                buf.set_string(x, bottom_y, separator, sep_style);
-                x += sep_w;
-                let copy_x = x;
-                for span in &copy_spans {
-                    let w = span.width() as u16;
-                    buf.set_span(x, bottom_y, span, w);
-                    x += w;
-                }
-                viewer.plan_mut().copy_button_area = Some(Rect::new(copy_x, bottom_y, copy_w, 1));
-            } else {
-                viewer.plan_mut().copy_button_area = None;
-            }
-
-            // Quit button, approval mode only
-            if let Some((spans, w)) = quit_spans {
-                buf.set_string(x, bottom_y, separator, sep_style);
-                x += sep_w;
-                let quit_x = x;
-                for span in &spans {
-                    let sw = span.width() as u16;
-                    buf.set_span(x, bottom_y, span, sw);
-                    x += sw;
-                }
-                viewer.plan_mut().abandon_button_area = Some(Rect::new(quit_x, bottom_y, w, 1));
-            } else {
-                viewer.plan_mut().abandon_button_area = None;
-            }
-        } else {
-            // Footer too narrow: disable hit-tests so stale rects from a previous render don't fire
-            let plan = viewer.plan_mut();
-            plan.approve_button_area = None;
-            plan.comment_button_area = None;
-            plan.copy_button_area = None;
-            plan.abandon_button_area = None;
-        }
+    if button_rows > 0 {
+        paint_review_footer(buf, inner, viewer, theme, &review_rows, button_rows);
     }
 }
 
@@ -1950,6 +2019,130 @@ mod tests {
             assert!(!span.style.add_modifier.contains(Modifier::REVERSED));
             assert_eq!(span.style.bg, Some(theme.bg_highlight));
         }
+    }
+
+    fn approval_viewer() -> LineViewerState {
+        let mut viewer = LineViewerState::open_markdown_content(
+            "plan.md",
+            "# Plan\n\nDo the thing\n".to_owned(),
+            None,
+        )
+        .expect("plan");
+        viewer.kind = LineViewerKind::PlanPreview;
+        viewer.title_override = Some("plan.md".into());
+        viewer.plan = Some(PlanViewerExtras {
+            feedback_active: true,
+            show_action_buttons: true,
+            ..PlanViewerExtras::default()
+        });
+        viewer
+    }
+
+    fn render_approval(width: u16, height: u16, fullscreen: bool) -> (Buffer, LineViewerState) {
+        let mut viewer = approval_viewer();
+        viewer.fullscreen = fullscreen;
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        render_line_viewer(
+            &mut buf,
+            area,
+            &mut viewer,
+            Path::new("."),
+            &Theme::groknight(),
+            0,
+        );
+        (buf, viewer)
+    }
+
+    fn screen_text(buf: &Buffer) -> String {
+        let area = *buf.area();
+        (area.y..area.bottom())
+            .map(|y| row_text(buf, y))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn assert_hit_inside(modal: Rect, hit: Rect) {
+        assert!(hit.width > 0, "{hit:?}");
+        assert!(
+            hit.x >= modal.x && hit.right() <= modal.right(),
+            "{hit:?} outside {modal:?}"
+        );
+        assert!(
+            hit.y >= modal.y && hit.bottom() <= modal.bottom(),
+            "{hit:?} outside {modal:?}"
+        );
+    }
+
+    #[test]
+    fn plan_review_buttons_stay_visible_on_a_narrow_terminal() {
+        // 80 columns: the 75% popup is narrower than one footer row, which used to hide every button.
+        let (buf, viewer) = render_approval(80, 24, false);
+        let plan = viewer.plan_ref().expect("plan");
+        let approve = plan.approve_button_area.expect("approve");
+        let revise = plan.send_button_area.expect("request changes");
+        let comment = plan.comment_button_area.expect("comment");
+        let copy = plan.copy_button_area.expect("copy");
+        let quit = plan.abandon_button_area.expect("quit");
+        let modal = viewer.last_modal_area.expect("modal");
+        let content = viewer.last_popup_area.expect("content");
+        for hit in [approve, revise, comment, copy, quit] {
+            assert_hit_inside(modal, hit);
+            assert!(hit.y >= content.bottom(), "button covers the plan: {hit:?}");
+        }
+        let hits = [approve, revise, comment, copy, quit];
+        for (i, a) in hits.iter().enumerate() {
+            for b in hits.iter().skip(i + 1) {
+                assert!(!a.intersects(*b), "overlapping hits {a:?} {b:?}");
+            }
+        }
+        assert!(
+            quit.y > approve.y,
+            "the row should wrap instead of dropping buttons"
+        );
+        let text = screen_text(&buf);
+        assert!(text.contains("approve"), "{text}");
+        assert!(text.contains("request changes"), "{text}");
+        assert!(text.contains("comment"), "{text}");
+        assert!(text.contains("copy plan"), "{text}");
+        assert!(text.contains("quit plan"), "{text}");
+        assert!(row_text(&buf, approve.y).contains("approve"), "{}", row_text(&buf, approve.y));
+        assert!(
+            row_text(&buf, revise.y).contains("request changes"),
+            "{}",
+            row_text(&buf, revise.y)
+        );
+
+        let (wide, wide_viewer) = render_approval(160, 30, false);
+        let wide_plan = wide_viewer.plan_ref().expect("plan");
+        let y = wide_plan.approve_button_area.expect("approve").y;
+        assert_eq!(wide_plan.send_button_area.expect("revise").y, y);
+        assert_eq!(wide_plan.comment_button_area.expect("comment").y, y);
+        assert_eq!(wide_plan.copy_button_area.expect("copy").y, y);
+        assert_eq!(wide_plan.abandon_button_area.expect("quit").y, y);
+        let wide_row = row_text(&wide, y);
+        assert!(wide_row.contains("approve"), "{wide_row}");
+        assert!(wide_row.contains("request changes"), "{wide_row}");
+        assert!(wide_row.contains("quit plan"), "{wide_row}");
+    }
+
+    #[test]
+    fn plan_review_button_stays_clickable_when_its_label_is_clipped() {
+        let (buf, viewer) = render_approval(18, 20, true);
+        let plan = viewer.plan_ref().expect("plan");
+        let revise = plan.send_button_area.expect("request changes hit");
+        let modal = viewer.last_modal_area.expect("modal");
+        assert_hit_inside(modal, revise);
+        assert!(revise.width < 18, "the label is wider than this popup: {revise:?}");
+        let row = row_text(&buf, revise.y);
+        assert!(row.contains("request"), "{row}");
+        assert!(
+            plan.approve_button_area.is_some()
+                && plan.comment_button_area.is_some()
+                && plan.copy_button_area.is_some()
+                && plan.abandon_button_area.is_some(),
+            "the other review buttons stay clickable"
+        );
     }
 
     #[test]
