@@ -974,7 +974,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 4 | 0 | 23 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 3 | 0 | 41 | 11 | 0 |
-| W9 | Prompt, mentions, and keyboard | 7 | 0 | 35 | 6 | 0 |
+| W9 | Prompt, mentions, and keyboard | 6 | 0 | 36 | 6 | 0 |
 | W10 | Transcript, density, and copy | 4 | 0 | 43 | 4 | 0 |
 | W11 | Headless mode and tools | 3 | 0 | 35 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 8 | 0 | 39 | 13 | 8 |
@@ -984,9 +984,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 66. Skipped: 9. Done: 478. Already: 109. Deferred: 22.
+Catalog rows: 684. Pending: 65. Skipped: 9. Done: 479. Already: 109. Deferred: 22.
 
-**Next:** `v79-f06`
+**Next:** `v79-x06`
 
 ## Waves
 
@@ -1024,7 +1024,7 @@ Pending: 3. Done: 41 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 7. Done: 35 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153; `v77-f01`, D-154; `v77-x03`, D-155; `v78-f01`, D-156; `v78-f03`, D-157; `v79-f03`; `v79-f04`). Already: 6 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
+Pending: 6. Done: 36 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153; `v77-f01`, D-154; `v77-x03`, D-155; `v78-f01`, D-156; `v78-f03`, D-157; `v79-f03`; `v79-f04`; `v79-f06`). Already: 6 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`.
 
 ### W10 — Transcript, density, and copy
 
@@ -1315,7 +1315,7 @@ id | status | wave | kind | flag | covered | note
 - v78-f03 | done | W9 | Features |  |  | **@ mentions** now support :N line suffixes and @!hidden files.
 - v79-f03 | done | W9 | Features |  |  | **`/vim-mode all`** enables full Vim editing inside the agent prompt.
 - v79-f04 | done | W9 | Features |  |  | **Auto-review mode** now tints the entire prompt bar blue, matching plan and ask modes.
-- v79-f06 | pending | W9 | Features |  |  | **Vim Normal mode** now appears as a section in the keyboard shortcuts cheatsheet when enabled.
+- v79-f06 | done | W9 | Features |  |  | **Vim Normal mode** now appears as a section in the keyboard shortcuts cheatsheet when enabled.
 - v79-x06 | pending | W9 | Bug Fixes |  |  | **Ctrl+E** in minimal mode now moves the cursor to the end of line when editing a draft.
 - v79-x11 | already | W9 | Bug Fixes |  |  | **Tab completion** now works immediately after startup even before skills load.
 - v79-x14 | pending | W9 | Bug Fixes |  |  | **Ctrl+Y** now toggles the prompt queue when running in WSL inside Windows Terminal.

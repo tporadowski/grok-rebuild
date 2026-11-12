@@ -71,7 +71,8 @@ const CATEGORY_ORDER: &[(Category, &str)] = &[
 ];
 
 pub fn default_collapsed() -> std::collections::HashSet<usize> {
-    (1..CATEGORY_ORDER.len()).collect()
+    // `CATEGORY_ORDER.len()` is the Vim Normal section appended when prompt vim is on.
+    (1..=CATEGORY_ORDER.len()).collect()
 }
 
 // Man-page body for the paste pseudo-row (Enter detail)
@@ -331,7 +332,76 @@ pub fn build_entries(
             *entry_count = count;
         }
     }
+    append_vim_normal_section(&mut entries, active_contexts);
     entries
+}
+
+/// Prompt Vim Normal bindings. Shown only while `[keys] vim` is `all`.
+/// Navigation-only vim already lives under Conversation Navigation.
+fn append_vim_normal_section(entries: &mut Vec<ShortcutsHelpEntry>, active_contexts: &[When]) {
+    if crate::appearance::cache::load_vim_keys() != crate::appearance::VimKeys::All {
+        return;
+    }
+    let dimmed = !active_contexts.contains(&When::PromptFocused);
+    let header_idx = entries.len();
+    entries.push(ShortcutsHelpEntry::SectionHeader {
+        label: "Vim Normal mode",
+        category_idx: CATEGORY_ORDER.len(),
+        entry_count: 0,
+    });
+    for item in vim_normal_rows() {
+        entries.push(ShortcutsHelpEntry::Hint {
+            item,
+            dimmed,
+            action_id: None,
+            long_help: Some(VIM_NORMAL_LONG_HELP),
+        });
+    }
+    let count = entries.len() - header_idx - 1;
+    if let Some(ShortcutsHelpEntry::SectionHeader { entry_count, .. }) = entries.get_mut(header_idx)
+    {
+        *entry_count = count;
+    }
+}
+
+const VIM_NORMAL_LONG_HELP: &str = "\
+Vim editing in the prompt, on only when /vim-mode all is set.\n\
+Esc enters Normal. A leading digit repeats the next command; 0 alone \
+moves to the start of the line.\n\
+h j k l move by character or line. w b e move by word. $ moves to the \
+end of the line.\n\
+x deletes the character under the cursor. d plus a motion deletes \
+through it (dw, d$). dd deletes the line.\n\
+u undoes. Ctrl+R redoes. i, a, I, and A return to Insert.";
+
+fn vim_normal_rows() -> Vec<HintItem> {
+    let row = |display: &'static str, label: &'static str, description: &'static str| HintItem {
+        keys: vec![crate::key!(Null)],
+        label: Cow::Borrowed(label),
+        custom_display: Some(display),
+        description: Some(Cow::Borrowed(description)),
+        pinned: false,
+    };
+    vec![
+        row("Esc", "vim-normal", "Enter Vim Normal mode"),
+        row("h / j / k / l", "vim-move", "Move by character or line"),
+        row("w / b / e", "vim-word", "Move by word"),
+        row(
+            "0 / $",
+            "vim-line",
+            "Move to the start or end of the line",
+        ),
+        row("1-9", "vim-count", "Repeat the next Normal command"),
+        row("x", "vim-delete-char", "Delete the character under the cursor"),
+        row(
+            "d / dd",
+            "vim-delete",
+            "Delete through a motion, or the whole line with dd",
+        ),
+        row("u", "vim-undo", "Undo the last prompt edit"),
+        row("Ctrl+R", "vim-redo", "Redo the last undone prompt edit"),
+        row("i / a / I / A", "vim-insert", "Return to Insert mode"),
+    ]
 }
 
 /// Build the initial `PickerState` for the modal.

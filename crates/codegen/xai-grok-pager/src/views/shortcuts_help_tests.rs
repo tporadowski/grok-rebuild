@@ -2346,3 +2346,95 @@ fn inline_expand_with_no_help_renders_no_description_line() {
         "empty help must render no description line even when expanded"
     );
 }
+
+struct VimKeysGuard(crate::appearance::VimKeys);
+
+impl VimKeysGuard {
+    fn set(value: crate::appearance::VimKeys) -> Self {
+        let previous = crate::appearance::cache::load_vim_keys();
+        crate::appearance::cache::set_vim_keys(value);
+        Self(previous)
+    }
+}
+
+impl Drop for VimKeysGuard {
+    fn drop(&mut self) {
+        crate::appearance::cache::set_vim_keys(self.0);
+    }
+}
+
+fn vim_normal_rows(entries: &[ShortcutsHelpEntry]) -> Option<Vec<(String, String, bool)>> {
+    let header = entries.iter().position(|e| {
+        matches!(
+            e,
+            ShortcutsHelpEntry::SectionHeader { label, .. } if *label == "Vim Normal mode"
+        )
+    })?;
+    let mut rows = Vec::new();
+    for (idx, entry) in entries.iter().enumerate().skip(header + 1) {
+        match entry {
+            ShortcutsHelpEntry::SectionHeader { .. } => break,
+            ShortcutsHelpEntry::Hint { dimmed, .. } => {
+                let (description, keys) = entry_display(entries, idx);
+                rows.push((description, keys, *dimmed));
+            }
+        }
+    }
+    Some(rows)
+}
+
+#[test]
+fn vim_normal_section_appears_only_when_prompt_vim_is_enabled() {
+    let registry = ActionRegistry::defaults();
+    let _guard = VimKeysGuard::set(crate::appearance::VimKeys::Off);
+    assert!(
+        vim_normal_rows(&build_entries(&all_contexts(), &registry, false)).is_none(),
+        "vim off has no Normal section"
+    );
+    crate::appearance::cache::set_vim_keys(crate::appearance::VimKeys::Nav);
+    assert!(
+        vim_normal_rows(&build_entries(&all_contexts(), &registry, true)).is_none(),
+        "navigation-only vim keeps scrollback keys and does not add a Normal section"
+    );
+
+    crate::appearance::cache::set_vim_keys(crate::appearance::VimKeys::All);
+    let prompt = build_entries(&[When::PromptFocused], &registry, true);
+    let rows = vim_normal_rows(&prompt).expect("prompt vim adds the section");
+    let texts: Vec<&str> = rows.iter().map(|(text, _, _)| text.as_str()).collect();
+    let keys: Vec<&str> = rows.iter().map(|(_, key, _)| key.as_str()).collect();
+    assert_eq!(
+        texts,
+        vec![
+            "Enter Vim Normal mode",
+            "Move by character or line",
+            "Move by word",
+            "Move to the start or end of the line",
+            "Repeat the next Normal command",
+            "Delete the character under the cursor",
+            "Delete through a motion, or the whole line with dd",
+            "Undo the last prompt edit",
+            "Redo the last undone prompt edit",
+            "Return to Insert mode",
+        ]
+    );
+    assert_eq!(
+        keys,
+        vec![
+            "Esc",
+            "h / j / k / l",
+            "w / b / e",
+            "0 / $",
+            "1-9",
+            "x",
+            "d / dd",
+            "u",
+            "Ctrl+R",
+            "i / a / I / A",
+        ]
+    );
+    assert!(rows.iter().all(|(_, _, dimmed)| !dimmed));
+
+    let away = build_entries(&[When::ScrollbackFocused], &registry, true);
+    let rows = vim_normal_rows(&away).expect("section still listed");
+    assert!(rows.iter().all(|(_, _, dimmed)| *dimmed));
+}

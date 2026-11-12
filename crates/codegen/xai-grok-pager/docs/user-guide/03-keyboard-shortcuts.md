@@ -471,6 +471,19 @@ View:             r (raw markdown)  Ctrl+E (thinking)
 Focus prompt:     i, Tab, or Space
 ```
 
+### Prompt Vim Normal mode
+
+The keyboard shortcuts cheatsheet adds a **Vim Normal mode** section while
+`/vim-mode all` is on (`[keys] vim = "all"`). Esc enters Normal. A leading
+digit repeats the next command; `0` alone moves to the start of the line.
+
+```
+Move:             h/j/k/l (character or line)  w/b/e (word)  0/$ (line ends)
+Delete:           x (character)  d + motion (dw, d$)  dd (line)
+Undo / redo:      u  Ctrl+R
+Insert:           i / a / I / A
+```
+
 ### When prompt is focused
 
 ```
