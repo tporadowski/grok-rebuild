@@ -1301,14 +1301,15 @@ pub(crate) async fn persist_setting(
                 .await
                 .map_err(|e| e.to_string())
         }
-        "vim_mode" => {
-            let SettingValue::Bool(b) = value else {
-                return Err(kind_mismatch("vim_mode", "Bool", &value));
-            };
-            xai_grok_shell::util::config::set_vim_mode(b)
+        "vim_mode" => match value {
+            SettingValue::Bool(b) => xai_grok_shell::util::config::set_vim_mode(b)
                 .await
-                .map_err(|e| e.to_string())
-        }
+                .map_err(|e| e.to_string()),
+            SettingValue::Enum(s) => xai_grok_shell::util::config::set_vim_keys(s)
+                .await
+                .map_err(|e| e.to_string()),
+            other => Err(kind_mismatch("vim_mode", "Bool or Enum", &other)),
+        },
         "remember_tool_approvals" => {
             let SettingValue::Bool(b) = value else {
                 return Err(kind_mismatch("remember_tool_approvals", "Bool", &value));

@@ -517,10 +517,10 @@ fn toggle_off_while_short_keeps_render_compact_and_persists_user_value() {
 /// A short terminal drops that padding. A pinned recap stays open. A plain session line does not collapse.
 #[test]
 fn compact_mode_collapses_recaps_and_keeps_inner_spacing_on_a_tall_terminal() {
-    use crossterm::event::Event;
     use crate::scrollback::block::{BlockContent, RenderBlock};
     use crate::scrollback::blocks::SessionEvent;
     use crate::scrollback::types::DisplayMode;
+    use crossterm::event::Event;
 
     let mut app = test_app_with_agent();
     let id = AgentId(0);
@@ -532,21 +532,23 @@ fn compact_mode_collapses_recaps_and_keeps_inner_spacing_on_a_tall_terminal() {
     let prompt_id = test_agent_mut(&mut app, id)
         .scrollback
         .push_block(RenderBlock::user_prompt("hello"));
-    let pinned_id = test_agent_mut(&mut app, id).scrollback.push_block(
-        RenderBlock::session_event(SessionEvent::Recap {
+    let pinned_id = test_agent_mut(&mut app, id)
+        .scrollback
+        .push_block(RenderBlock::session_event(SessionEvent::Recap {
             summary: "pinned recap".into(),
             auto: false,
-        }),
-    );
-    let recap_id = test_agent_mut(&mut app, id).scrollback.push_block(
-        RenderBlock::session_event(SessionEvent::Recap {
+        }));
+    let recap_id = test_agent_mut(&mut app, id)
+        .scrollback
+        .push_block(RenderBlock::session_event(SessionEvent::Recap {
             summary: "open recap".into(),
             auto: true,
-        }),
-    );
-    let marker_id = test_agent_mut(&mut app, id).scrollback.push_block(
-        RenderBlock::session_event(SessionEvent::TurnCompleted { elapsed: None }),
-    );
+        }));
+    let marker_id = test_agent_mut(&mut app, id)
+        .scrollback
+        .push_block(RenderBlock::session_event(SessionEvent::TurnCompleted {
+            elapsed: None,
+        }));
     {
         let agent = test_agent_mut(&mut app, id);
         let pinned = agent.scrollback.get_by_id_mut(pinned_id).unwrap();
@@ -607,12 +609,12 @@ fn compact_mode_collapses_recaps_and_keeps_inner_spacing_on_a_tall_terminal() {
         "a turn marker is not a recap"
     );
 
-    let fresh_id = test_agent_mut(&mut app, id).scrollback.push_block(
-        RenderBlock::session_event(SessionEvent::Recap {
+    let fresh_id = test_agent_mut(&mut app, id)
+        .scrollback
+        .push_block(RenderBlock::session_event(SessionEvent::Recap {
             summary: "arrived while compact".into(),
             auto: false,
-        }),
-    );
+        }));
     assert_eq!(
         test_agent(&app, id)
             .scrollback
@@ -686,14 +688,8 @@ fn compact_mode_collapses_recaps_and_keeps_inner_spacing_on_a_tall_terminal() {
             .block
             .has_vpad_for(&appearance)
     );
-    assert_eq!(
-        crate::views::agent::prompt_inner_gap(40, 0, true),
-        1
-    );
-    assert_eq!(
-        crate::views::agent::prompt_inner_gap(14, 0, true),
-        0
-    );
+    assert_eq!(crate::views::agent::prompt_inner_gap(40, 0, true), 1);
+    assert_eq!(crate::views::agent::prompt_inner_gap(14, 0, true), 0);
 
     let _ = dispatch(Action::SetCompactMode(false), &mut app);
     assert!(!app.appearance.prompt.compact);
@@ -863,8 +859,12 @@ fn set_simple_mode_emits_persist_setting_with_correct_payload() {
 #[test]
 fn settings_theme_picker_click_outside_restores_the_previous_theme() {
     use crate::app::app_view::InputOutcome;
-    use crate::views::settings_modal::{SettingsKeyOutcome, SettingsModalMode, handle_settings_key};
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crate::views::settings_modal::{
+        SettingsKeyOutcome, SettingsModalMode, handle_settings_key,
+    };
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
     use ratatui::layout::Rect;
 
     let _guard = crate::theme::cache::test_lock()
@@ -882,28 +882,26 @@ fn settings_theme_picker_click_outside_restores_the_previous_theme() {
     );
     let original = {
         let agent = app.agents.get_mut(&id).expect("agent");
-        let Some(crate::views::modal::ActiveModal::Settings { state }) = agent.active_modal.as_mut()
+        let Some(crate::views::modal::ActiveModal::Settings { state }) =
+            agent.active_modal.as_mut()
         else {
             panic!("settings should be open");
         };
-        let SettingsModalMode::PickingEnum {
-            original_value, ..
-        } = state.mode()
-        else {
+        let SettingsModalMode::PickingEnum { original_value, .. } = state.mode() else {
             panic!("theme focus should open the picker, got {:?}", state.mode());
         };
         let crate::settings::SettingValue::Enum(original) = original_value else {
             panic!("theme original must be an enum");
         };
         state.window.popup_area = Some(Rect::new(5, 5, 40, 20));
-        let moved = handle_settings_key(
-            state,
-            &KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
-        );
+        let moved = handle_settings_key(state, &KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         (original, moved)
     };
     let SettingsKeyOutcome::Action(Action::PreviewTheme(preview)) = original.1 else {
-        panic!("down in the theme picker must preview, got {:?}", original.1);
+        panic!(
+            "down in the theme picker must preview, got {:?}",
+            original.1
+        );
     };
     assert_ne!(preview, original.0);
     let _ = dispatch(Action::PreviewTheme(preview), &mut app);
@@ -1736,8 +1734,8 @@ fn bare_model_switch_keeps_the_current_effort() {
     });
     let with_meta = |slug: &str, name: &str, meta: &serde_json::Value| {
         let id = acp::ModelId::new(Arc::from(slug));
-        let info = acp::ModelInfo::new(id.clone(), name.to_string())
-            .meta(meta.as_object().cloned());
+        let info =
+            acp::ModelInfo::new(id.clone(), name.to_string()).meta(meta.as_object().cloned());
         (id, info)
     };
 
@@ -1828,7 +1826,13 @@ fn set_default_model_resolves_known_name() {
     assert!(
         matches!(effects.first(), Some(Effect::SwitchModel { choice, .. }) if choice.model_id == id)
     );
-    assert!(expect_agent(&app, agent_id).session.models.current.is_none());
+    assert!(
+        expect_agent(&app, agent_id)
+            .session
+            .models
+            .current
+            .is_none()
+    );
 }
 
 #[test]
@@ -1853,9 +1857,10 @@ fn failed_model_switch_leaves_the_footer_and_saved_default() {
     }
     let effects = dispatch(Action::SetDefaultModel(next.clone()), &mut app);
     assert!(
-        !effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::PersistSetting { .. } | Effect::PersistPreferredModel { .. })),
+        !effects.iter().any(|effect| matches!(
+            effect,
+            Effect::PersistSetting { .. } | Effect::PersistPreferredModel { .. }
+        )),
         "the saved default waits for a successful switch, got {effects:?}"
     );
     let failed = dispatch(
@@ -2014,8 +2019,8 @@ fn max_thoughts_width_wraps_thinking_blocks() {
     use unicode_width::UnicodeWidthStr;
 
     use crate::appearance::cache::set_show_thinking_blocks;
-    use crate::scrollback::types::{DisplayMode, line_plain_text};
     use crate::scrollback::ScrollbackEntry;
+    use crate::scrollback::types::{DisplayMode, line_plain_text};
 
     fn alpha_line_widths(
         entry: &mut ScrollbackEntry,
@@ -3060,6 +3065,90 @@ fn set_vim_mode_rollback_restores_state() {
         "rollback must restore agent field",
     );
 }
+
+/// `/vim-mode all` turns on scrollback vim keys and caches `all`, which is what the prompt editor checks.
+#[test]
+fn vim_mode_all_enables_prompt_editing_and_persists_the_string() {
+    crate::appearance::cache::set_vim_mode(false);
+    let mut app = test_app_with_agent();
+    let effects = dispatch(
+        Action::SetVimKeys(crate::appearance::VimKeys::All),
+        &mut app,
+    );
+    assert_eq!(
+        crate::appearance::cache::load_vim_keys(),
+        crate::appearance::VimKeys::All
+    );
+    assert!(
+        expect_agent(&app, AgentId(0)).vim_mode,
+        "all still navigates the scrollback"
+    );
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::PersistSetting {
+                key: "vim_mode",
+                value: crate::settings::SettingValue::Enum("all"),
+                rollback_value: crate::settings::SettingValue::Bool(false),
+            }]
+        ),
+        "unexpected effects: {effects:?}"
+    );
+    let _ = dispatch(
+        Action::SetVimKeys(crate::appearance::VimKeys::All),
+        &mut app,
+    );
+    let again = dispatch(
+        Action::SetVimKeys(crate::appearance::VimKeys::All),
+        &mut app,
+    );
+    assert!(again.is_empty(), "setting all twice must not persist again");
+}
+
+/// `/vim-mode nav` leaves `all`. The bool setter means nav, not "already navigating".
+#[test]
+fn vim_mode_nav_replaces_all() {
+    crate::appearance::cache::set_vim_keys(crate::appearance::VimKeys::All);
+    let mut app = test_app_with_agent();
+    let effects = dispatch(Action::SetVimMode(true), &mut app);
+    assert_eq!(
+        crate::appearance::cache::load_vim_keys(),
+        crate::appearance::VimKeys::Nav
+    );
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::PersistSetting {
+                key: "vim_mode",
+                value: crate::settings::SettingValue::Bool(true),
+                rollback_value: crate::settings::SettingValue::Enum("all"),
+            }]
+        ),
+        "unexpected effects: {effects:?}"
+    );
+}
+
+/// A failed `all` write restores the previous keys, including `all` itself.
+#[test]
+fn vim_mode_all_rollback_restores_the_previous_keys() {
+    crate::appearance::cache::set_vim_keys(crate::appearance::VimKeys::All);
+    let mut app = test_app_with_agent();
+    let _ = dispatch(Action::SetVimMode(false), &mut app);
+    assert_eq!(
+        crate::appearance::cache::load_vim_keys(),
+        crate::appearance::VimKeys::Off
+    );
+    let _ = apply_setting_rollback(
+        &mut app,
+        "vim_mode",
+        &crate::settings::SettingValue::Enum("all"),
+    );
+    assert_eq!(
+        crate::appearance::cache::load_vim_keys(),
+        crate::appearance::VimKeys::All
+    );
+    assert!(expect_agent(&app, AgentId(0)).vim_mode);
+}
 #[test]
 fn set_show_thinking_blocks_applies_persists_and_rolls_back() {
     crate::appearance::cache::set_show_thinking_blocks(true);
@@ -3338,7 +3427,9 @@ fn set_collapsed_edit_blocks_refolds_live_edit_rows() {
     use crate::scrollback::block::RenderBlock;
     use crate::scrollback::blocks::tool::{EditToolCallBlock, ToolCallBlock};
     use crate::scrollback::types::DisplayMode;
-    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactShells);
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactShells,
+    );
     crate::appearance::cache::set_collapsed_edit_blocks(false);
     let mut app = test_app_with_agent();
     let id = {
@@ -3377,7 +3468,9 @@ fn set_collapsed_edit_blocks_refolds_live_edit_rows() {
         "toggle off must restore the expanded default"
     );
     crate::appearance::cache::set_collapsed_edit_blocks(false);
-    crate::appearance::cache::set_tool_call_density(crate::appearance::ToolCallDensity::CompactGrouped);
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactGrouped,
+    );
 }
 #[test]
 fn set_show_thinking_blocks_hides_and_restores_existing_thinking_height() {

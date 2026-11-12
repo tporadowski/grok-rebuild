@@ -333,7 +333,7 @@ pub(in crate::app::dispatch) fn set_voice_stt_language(
     }]
 }
 
-/// State-only mutation for `vim_mode`.
+/// State-only mutation for the scrollback bool. `true` caches `nav`, so a caller that wants `all` sets the keys again afterwards.
 /// Propagates to every in-process agent so background subagents and side panes pick up the change without restart.
 /// The cache mirror lets new agents created later read the same value via `cache::load_vim_mode()` in `AgentView::new`.
 pub(super) fn set_vim_mode_inner(app: &mut AppView, new: bool) {
@@ -344,12 +344,30 @@ pub(super) fn set_vim_mode_inner(app: &mut AppView, new: bool) {
     crate::appearance::cache::set_vim_mode(new);
 }
 
+/// Rollback payload for a vim write. `all` cannot ride the bool, which only stores `nav` or `off`.
+pub(super) fn vim_persist_rollback(
+    prev: crate::appearance::VimKeys,
+) -> crate::settings::SettingValue {
+    match prev {
+        crate::appearance::VimKeys::All => {
+            crate::settings::SettingValue::Enum(crate::appearance::VimKeys::All.as_str())
+        }
+        crate::appearance::VimKeys::Nav => crate::settings::SettingValue::Bool(true),
+        crate::appearance::VimKeys::Off => crate::settings::SettingValue::Bool(false),
+    }
+}
+
 /// Set vim-mode scrollback keybindings (registry-driven path).
 /// SHELL-OWNED: persisted as `[keys] vim` (`nav` or `off`) and the legacy `[ui].vim_mode` bool.
-/// Propagates to every in-process agent.
+/// `true` replaces `all` with `nav`. Propagates to every in-process agent.
 pub(in crate::app::dispatch) fn set_vim_mode(app: &mut AppView, new: bool) -> Vec<Effect> {
-    let prev = crate::appearance::cache::load_vim_mode();
-    if prev == new && app.agents.values().all(|a| a.vim_mode == new) {
+    let target = if new {
+        crate::appearance::VimKeys::Nav
+    } else {
+        crate::appearance::VimKeys::Off
+    };
+    let prev = crate::appearance::cache::load_vim_keys();
+    if prev == target && app.agents.values().all(|a| a.vim_mode == new) {
         return vec![];
     }
     set_vim_mode_inner(app, new);
@@ -364,7 +382,39 @@ pub(in crate::app::dispatch) fn set_vim_mode(app: &mut AppView, new: bool) -> Ve
     vec![Effect::PersistSetting {
         key: "vim_mode",
         value: crate::settings::SettingValue::Bool(new),
-        rollback_value: crate::settings::SettingValue::Bool(prev),
+        rollback_value: vim_persist_rollback(prev),
+    }]
+}
+
+/// Set `[keys] vim` to `all` (or any other parsed value). Navigation follows `navigates()`.
+/// SHELL-OWNED: writes the string and the legacy bool so older readers still see vim on.
+pub(in crate::app::dispatch) fn set_vim_keys_mode(
+    app: &mut AppView,
+    value: crate::appearance::VimKeys,
+) -> Vec<Effect> {
+    let prev = crate::appearance::cache::load_vim_keys();
+    if prev == value && app.agents.values().all(|a| a.vim_mode == value.navigates()) {
+        return vec![];
+    }
+    set_vim_mode_inner(app, value.navigates());
+    crate::appearance::cache::set_vim_keys(value);
+    refresh_open_settings_modals(app);
+    tracing::info!(
+        target: "settings",
+        key = "vim_mode",
+        value = value.as_str(),
+        "setting changed",
+    );
+    let toast = match value {
+        crate::appearance::VimKeys::All => "\u{2713} Vim mode: all".to_owned(),
+        crate::appearance::VimKeys::Nav => save_success_toast("Vim scrollback", true),
+        crate::appearance::VimKeys::Off => save_success_toast("Vim scrollback", false),
+    };
+    app.show_toast(&toast);
+    vec![Effect::PersistSetting {
+        key: "vim_mode",
+        value: crate::settings::SettingValue::Enum(value.as_str()),
+        rollback_value: vim_persist_rollback(prev),
     }]
 }
 
@@ -720,7 +770,10 @@ pub(super) fn set_single_ctrl_c_quit_inner(app: &mut AppView, new: bool) {
 
 /// One Ctrl+C quits when the composer is empty and nothing is still running.
 /// SHELL-OWNED: cache mirror and `[ui].single_ctrl_c_quit` via `Effect::PersistSetting`.
-pub(in crate::app::dispatch) fn set_single_ctrl_c_quit(app: &mut AppView, new: bool) -> Vec<Effect> {
+pub(in crate::app::dispatch) fn set_single_ctrl_c_quit(
+    app: &mut AppView,
+    new: bool,
+) -> Vec<Effect> {
     let prev = crate::appearance::cache::load_single_ctrl_c_quit();
     if prev == new {
         return vec![];

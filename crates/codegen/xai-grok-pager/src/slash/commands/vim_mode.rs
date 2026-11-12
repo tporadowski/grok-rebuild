@@ -1,6 +1,7 @@
-//! `/vim-mode`: set `[keys] vim` to `off` or `nav`.
+//! `/vim-mode`: set `[keys] vim` to `off`, `nav`, or `all`.
 //!
-//! With no argument it toggles. `nav` (and `on`) turns scrollback vim keys on. `off` turns them off.
+//! With no argument it toggles between off and nav. `nav` (and `on`) turns scrollback vim keys on.
+//! `all` also enables full Vim editing in the prompt. `off` turns both off.
 //! `[ui] vim_mode = true` still means `nav` when `[keys] vim` is absent.
 //!
 //! When off (the default), bare-letter and Shift+letter keys in the scrollback jump focus to the prompt so the letter is typed into the textarea.
@@ -16,8 +17,8 @@ pub struct VimModeCommand;
 impl SlashCommand for VimModeCommand {
     slash_meta! {
         name: "vim-mode",
-        description: "Vim scrollback keys: off or nav. No argument toggles.",
-        usage: "/vim-mode [off|nav]",
+        description: "Vim keys: off, nav, or all. No argument toggles.",
+        usage: "/vim-mode [off|nav|all]",
         takes_args: true,
     }
 
@@ -39,6 +40,12 @@ impl SlashCommand for VimModeCommand {
                 insert_text: "nav".into(),
                 description: "j/k, h/l, g/G, and the other scrollback motions".into(),
             },
+            ArgItem {
+                display: "all".into(),
+                match_text: "all".into(),
+                insert_text: "all".into(),
+                description: "Scrollback motions plus full Vim editing in the prompt".into(),
+            },
         ])
     }
 
@@ -55,10 +62,8 @@ pub(crate) fn vim_mode_command(args: &str) -> CommandResult {
     match VimKeys::parse(arg) {
         Some(VimKeys::Off) => CommandResult::Action(Action::SetVimMode(false)),
         Some(VimKeys::Nav) => CommandResult::Action(Action::SetVimMode(true)),
-        Some(VimKeys::All) => CommandResult::Error(
-            "vim = \"all\" is set in config.toml. /vim-mode sets off or nav.".into(),
-        ),
-        None => CommandResult::Error("Usage: /vim-mode [off|nav]".into()),
+        Some(VimKeys::All) => CommandResult::Action(Action::SetVimKeys(VimKeys::All)),
+        None => CommandResult::Error("Usage: /vim-mode [off|nav|all]".into()),
     }
 }
 
@@ -88,6 +93,13 @@ mod tests {
             vim_mode_command("sideways"),
             CommandResult::Error(_)
         ));
-        assert!(matches!(vim_mode_command("all"), CommandResult::Error(_)));
+        assert!(matches!(
+            vim_mode_command("all"),
+            CommandResult::Action(Action::SetVimKeys(VimKeys::All))
+        ));
+        assert!(matches!(
+            vim_mode_command("ALL"),
+            CommandResult::Action(Action::SetVimKeys(VimKeys::All))
+        ));
     }
 }

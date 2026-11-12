@@ -87,13 +87,12 @@ use super::settings::setters::{
     set_display_refresh_auto_cadence, set_follow_up_behavior, set_fork_secondary_model,
     set_group_tool_verbs, set_hunk_tracker_mode, set_invert_scroll, set_keep_text_selection,
     set_max_thoughts_width, set_multiline_default, set_multiline_mode, set_page_flip_on_send,
-    set_single_ctrl_c_quit,
     set_prompt_suggestions, set_remember_tool_approvals, set_render_mermaid,
     set_respect_manual_folds, set_screen_mode, set_scroll_lines, set_scroll_mode, set_scroll_speed,
-    set_show_thinking_blocks, set_show_tips, set_simple_mode, set_subagent_model_inheritance,
-    set_theme, set_timeline, set_timestamps, set_tool_call_density, set_vim_mode,
-    set_voice_capture_mode,
-    set_voice_keybind_enabled, set_voice_stt_language,
+    set_show_thinking_blocks, set_show_tips, set_simple_mode, set_single_ctrl_c_quit,
+    set_subagent_model_inheritance, set_theme, set_timeline, set_timestamps, set_tool_call_density,
+    set_vim_keys_mode, set_vim_mode, set_voice_capture_mode, set_voice_keybind_enabled,
+    set_voice_stt_language,
 };
 use super::settings::ui::{
     dispatch_confirm_reset_setting, dispatch_open_command_palette, dispatch_open_howto_guides,
@@ -1157,6 +1156,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::ToggleCompactMode => dispatch_toggle_compact_mode(app),
         Action::ToggleVimMode => dispatch_toggle_vim_mode(app),
         Action::SetVimMode(v) => set_vim_mode(app, v),
+        Action::SetVimKeys(v) => set_vim_keys_mode(app, v),
         Action::SetRememberToolApprovals(v) => set_remember_tool_approvals(app, v),
         Action::SetAskUserQuestionTimeoutEnabled(v) => {
             set_ask_user_question_timeout_enabled(app, v)

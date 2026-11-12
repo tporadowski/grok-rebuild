@@ -467,9 +467,29 @@ pub async fn set_vim_mode(value: bool) -> Result<()> {
     update_config(|cfg| write_vim_mode(cfg, value)).await
 }
 
+/// Persist `[keys] vim` from `/vim-mode`, including `all`.
+/// The legacy bool stays on for `nav` and `all`, and off for `off`.
+pub async fn set_vim_keys(value: &str) -> Result<()> {
+    let parsed = xai_grok_shared::keys_config::VimKeys::parse(value)
+        .with_context(|| format!("unknown [keys].vim value {value:?}"))?;
+    update_config(|cfg| write_vim_keys(cfg, parsed)).await
+}
+
+pub(crate) fn write_vim_keys(
+    cfg: &mut super::mcp::Config,
+    value: xai_grok_shared::keys_config::VimKeys,
+) {
+    cfg.keys.vim = Some(value.as_str().to_owned());
+    cfg.ui.vim_mode = Some(value.navigates());
+}
+
 pub(crate) fn write_vim_mode(cfg: &mut super::mcp::Config, enabled: bool) {
-    cfg.keys.vim = Some(xai_grok_shared::keys_config::vim_keys_for_bool(enabled).to_owned());
-    cfg.ui.vim_mode = Some(enabled);
+    let value = if enabled {
+        xai_grok_shared::keys_config::VimKeys::Nav
+    } else {
+        xai_grok_shared::keys_config::VimKeys::Off
+    };
+    write_vim_keys(cfg, value);
 }
 
 /// Persist `[ui].remember_tool_approvals` via `update_config`.
@@ -614,5 +634,14 @@ mod vim_keys_write_tests {
         write_vim_mode(&mut cfg, false);
         assert_eq!(cfg.keys.vim.as_deref(), Some("off"));
         assert_eq!(cfg.ui.vim_mode, Some(false));
+    }
+
+    #[test]
+    fn write_vim_keys_all_keeps_navigation_and_the_legacy_bool() {
+        use xai_grok_shared::keys_config::VimKeys;
+        let mut cfg = super::super::mcp::Config::default();
+        super::write_vim_keys(&mut cfg, VimKeys::All);
+        assert_eq!(cfg.keys.vim.as_deref(), Some("all"));
+        assert_eq!(cfg.ui.vim_mode, Some(true));
     }
 }

@@ -473,8 +473,11 @@ pub enum Action {
     /// Delegates to `set_vim_mode` so the new value is persisted to `[ui].vim_mode` in config.toml, the same path as the settings modal.
     ToggleVimMode,
     /// Set vim-style scrollback keybindings. SHELL-owned: persisted to `[ui].vim_mode` in config.toml via `Effect::PersistSetting`.
-    /// Used by the settings modal; the `ToggleVimMode` variant covers the `/vim-mode` slash-command path.
+    /// `true` is `[keys] vim = "nav"`. Used by the settings modal; the `ToggleVimMode` variant covers the bare `/vim-mode` path.
     SetVimMode(bool),
+    /// Set `[keys] vim`, including `all` (scrollback motions plus Vim editing in the prompt).
+    /// SHELL-owned: persisted via `Effect::PersistSetting`. `off` and `nav` still use [`SetVimMode`].
+    SetVimKeys(crate::appearance::VimKeys),
     /// Toggle the per-tool "Always allow …" prompt options. SHELL-owned; persisted to `[ui].remember_tool_approvals`. Applies to new sessions.
     SetRememberToolApprovals(bool),
     /// Toggle the ask_user_question timeout. SHELL-owned; persisted to `[toolset.ask_user_question].timeout_enabled`. Applies to new sessions.

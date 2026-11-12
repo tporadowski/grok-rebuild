@@ -10,14 +10,13 @@ use super::setters::{
     set_fork_secondary_model_inner, set_group_tool_verbs_inner, set_hunk_tracker_mode_inner,
     set_invert_scroll_inner, set_keep_text_selection_inner, set_max_thoughts_width_inner,
     set_multiline_default_inner, set_multiline_mode, set_page_flip_on_send_inner,
-    set_single_ctrl_c_quit_inner,
     set_prompt_suggestions_inner, set_remember_tool_approvals_inner, set_render_mermaid_inner,
     set_respect_manual_folds_inner, set_screen_mode_inner, set_scroll_lines_inner,
     set_scroll_mode_inner, set_scroll_speed_inner, set_show_thinking_blocks_inner,
-    set_show_tips_inner, set_simple_mode_inner, set_theme_inner, set_timeline_inner,
-    set_timestamps, set_timestamps_inner, set_tool_call_density_inner, set_vim_mode_inner,
-    set_voice_capture_mode_inner,
-    set_voice_keybind_enabled_inner, set_voice_stt_language_inner,
+    set_show_tips_inner, set_simple_mode_inner, set_single_ctrl_c_quit_inner, set_theme_inner,
+    set_timeline_inner, set_timestamps, set_timestamps_inner, set_tool_call_density_inner,
+    set_vim_mode_inner, set_voice_capture_mode_inner, set_voice_keybind_enabled_inner,
+    set_voice_stt_language_inner, vim_persist_rollback,
 };
 use crate::app::actions::{Action, Effect, ModelChoice};
 use crate::app::app_view::{ActiveView, AppView};
@@ -440,9 +439,10 @@ pub(in crate::app::dispatch) fn dispatch_toggle_compact_mode(app: &mut AppView) 
 /// Off is the default: bare-letter and Shift+letter scrollback bindings (j/k/h/l/g/G/y/Y/o/O/r/x/e/E/L/H and the `i` FocusPrompt alt) are suppressed.
 /// Delegates to the registry-driven `set_vim_mode` so the cache, modal snapshot, toast, and `Effect::PersistSetting` all flow through one path.
 pub(in crate::app::dispatch) fn dispatch_toggle_vim_mode(app: &mut AppView) -> Vec<Effect> {
-    // Toggle the effective value (the pager cache) so `/vim-mode` works from any view, including the session-less dashboard
-    let prev = crate::appearance::cache::load_vim_mode();
-    let enabled = !prev;
+    // Toggle the effective value (the pager cache) so `/vim-mode` works from any view, including the session-less dashboard.
+    // `all` navigates, so a bare toggle turns it off. Turning it back on lands on `nav`, not `all`.
+    let prev = crate::appearance::cache::load_vim_keys();
+    let enabled = !prev.navigates();
     // Propagate to every agent and nested subagent view and mirror the pager cache
     // Background and open subagent views pick up the change without a restart; `set_vim_mode_inner` is shared with the `SetVimMode` settings path
     set_vim_mode_inner(app, enabled);
@@ -478,7 +478,7 @@ pub(in crate::app::dispatch) fn dispatch_toggle_vim_mode(app: &mut AppView) -> V
     vec![Effect::PersistSetting {
         key: "vim_mode",
         value: crate::settings::SettingValue::Bool(enabled),
-        rollback_value: crate::settings::SettingValue::Bool(prev),
+        rollback_value: vim_persist_rollback(prev),
     }]
 }
 
@@ -1046,8 +1046,14 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
             }
         }
         ("scroll_lines", SettingValue::Int(i)) => set_scroll_lines_inner(app, *i as u8),
-        // vim_mode: direct inner call.
+        // vim_mode: the bool is `nav` or `off`. `all` is the enum, and the bool setter would collapse it.
         ("vim_mode", SettingValue::Bool(b)) => set_vim_mode_inner(app, *b),
+        ("vim_mode", SettingValue::Enum(s)) => {
+            if let Some(value) = crate::appearance::VimKeys::parse(s) {
+                set_vim_mode_inner(app, value.navigates());
+                crate::appearance::cache::set_vim_keys(value);
+            }
+        }
         ("remember_tool_approvals", SettingValue::Bool(b)) => {
             set_remember_tool_approvals_inner(app, *b)
         }
