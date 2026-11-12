@@ -2364,20 +2364,24 @@ fn tool_call_to_block(
                 .or_else(|| tc.title.strip_prefix("Fetch: ").map(str::to_owned))
                 .unwrap_or_else(|| tc.title.clone());
             let mut block = WebFetchToolCallBlock::new(url);
-            if let Some(ref raw) = tc.raw_output
-                && let Ok(ToolOutput::WebFetch(WebFetchOutput::Content(content))) =
-                    serde_json::from_value::<ToolOutput>(raw.clone())
-            {
+            let parsed = tc
+                .raw_output
+                .as_ref()
+                .and_then(|raw| serde_json::from_value::<ToolOutput>(raw.clone()).ok());
+            if let Some(ToolOutput::WebFetch(WebFetchOutput::Content(content))) = &parsed {
                 block.status_code = Some(content.status_code);
-                block.content_type = Some(content.content_type);
+                block.content_type = Some(content.content_type.clone());
                 block.bytes = Some(content.bytes);
             }
-            let text = content_text(tc);
-            if !text.is_empty() {
-                block.output = Some(text);
-            }
             if !success {
-                block = block.with_error("Fetch failed");
+                // The reason lives on the error, not also in the page body,
+                // so expanding the row shows it once.
+                block = block.with_error(web_fetch_failure_reason(tc, parsed.as_ref()));
+            } else {
+                let text = content_text(tc);
+                if !text.is_empty() {
+                    block.output = Some(text);
+                }
             }
             RenderBlock::ToolCall(ToolCallBlock::WebFetch(block))
         }
@@ -2714,6 +2718,24 @@ fn failure_reason(tc: &acp::ToolCall, default: &str) -> String {
     } else {
         reason
     }
+}
+/// Typed web-fetch failures already carry the sentence the model saw.
+/// Content text covers a failure that arrived without `raw_output`.
+fn web_fetch_failure_reason(tc: &acp::ToolCall, parsed: Option<&ToolOutput>) -> String {
+    if let Some(ToolOutput::WebFetch(output)) = parsed {
+        match output {
+            WebFetchOutput::DomainNotAllowed(_)
+            | WebFetchOutput::CrossHostRedirect { .. }
+            | WebFetchOutput::Error { .. } => {
+                let text = output.to_prompt_format();
+                if !text.is_empty() {
+                    return text;
+                }
+            }
+            WebFetchOutput::Content(_) => {}
+        }
+    }
+    failure_reason(tc, "Fetch failed")
 }
 /// True when at least one content block is text, even empty text (an empty file read)
 fn has_text_content(tc: &acp::ToolCall) -> bool {

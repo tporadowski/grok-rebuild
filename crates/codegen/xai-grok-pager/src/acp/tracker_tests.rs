@@ -5625,6 +5625,129 @@ fn list_dir_failure_surfaces_typed_error_not_generic() {
     assert!(block.output.is_empty());
 }
 #[test]
+fn failed_web_fetch_uses_the_typed_reason() {
+    use xai_grok_tools::types::output::WebFetchOutput;
+    let outputs = [
+        ToolOutput::WebFetch(WebFetchOutput::DomainNotAllowed("evil.com".into())),
+        ToolOutput::WebFetch(WebFetchOutput::CrossHostRedirect {
+            original_host: "example.com".into(),
+            redirect_url: "https://other.example/path".into(),
+        }),
+        ToolOutput::WebFetch(WebFetchOutput::Error {
+            url: Some("https://example.com/missing".into()),
+            message: "connection reset".into(),
+        }),
+        ToolOutput::WebFetch(WebFetchOutput::Error {
+            url: None,
+            message: "timed out".into(),
+        }),
+    ];
+    for output in outputs {
+        let ToolOutput::WebFetch(fetch) = &output else {
+            unreachable!();
+        };
+        let expected = fetch.to_prompt_format();
+        let tc = acp::ToolCall::new(
+            acp::ToolCallId::new(Arc::from("fetch-fail")),
+            "Fetch: https://example.com/missing",
+        )
+        .kind(acp::ToolKind::Fetch)
+        .status(acp::ToolCallStatus::Failed)
+        .content(vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
+            acp::TextContent::new("Fetch failed".to_string()),
+        ))])
+        .raw_input(Some(serde_json::json!({
+            "url": "https://example.com/missing"
+        })))
+        .raw_output(serde_json::to_value(&output).ok())
+        .locations(vec![]);
+        let RenderBlock::ToolCall(ToolCallBlock::WebFetch(block)) =
+            tool_call_to_block(&tc, None, &SubagentLabelRegistry::default())
+        else {
+            panic!("expected a web fetch block");
+        };
+        assert_eq!(block.url, "https://example.com/missing");
+        assert_eq!(block.error.as_deref(), Some(expected.as_str()));
+        assert!(
+            block.output.is_none(),
+            "the reason stays on the error, not duplicated as page text: {expected}"
+        );
+        assert!(block.status_code.is_none());
+    }
+}
+#[test]
+fn failed_web_fetch_without_typed_output_uses_content_text() {
+    let reason = "tls handshake failed";
+    let tc = acp::ToolCall::new(
+        acp::ToolCallId::new(Arc::from("fetch-text")),
+        "Fetch: https://example.com",
+    )
+    .kind(acp::ToolKind::Fetch)
+    .status(acp::ToolCallStatus::Failed)
+    .content(vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
+        acp::TextContent::new(reason.to_string()),
+    ))])
+    .raw_input(Some(serde_json::json!({ "url": "https://example.com" })))
+    .locations(vec![]);
+    let RenderBlock::ToolCall(ToolCallBlock::WebFetch(block)) =
+        tool_call_to_block(&tc, None, &SubagentLabelRegistry::default())
+    else {
+        panic!("expected a web fetch block");
+    };
+    assert_eq!(block.error.as_deref(), Some(reason));
+    assert!(block.output.is_none());
+}
+#[test]
+fn failed_web_fetch_with_no_reason_says_fetch_failed() {
+    let tc = acp::ToolCall::new(acp::ToolCallId::new(Arc::from("fetch-empty")), "Fetch")
+        .kind(acp::ToolKind::Fetch)
+        .status(acp::ToolCallStatus::Failed)
+        .locations(vec![]);
+    let RenderBlock::ToolCall(ToolCallBlock::WebFetch(block)) =
+        tool_call_to_block(&tc, None, &SubagentLabelRegistry::default())
+    else {
+        panic!("expected a web fetch block");
+    };
+    assert_eq!(block.error.as_deref(), Some("Fetch failed"));
+    assert!(block.output.is_none());
+}
+#[test]
+fn successful_web_fetch_keeps_page_text() {
+    use xai_grok_tools::types::output::{WebFetchContent, WebFetchOutput};
+    let output = ToolOutput::WebFetch(WebFetchOutput::Content(WebFetchContent {
+        url: "https://example.com".into(),
+        content: "# hi".into(),
+        content_type: "markdown".into(),
+        status_code: 200,
+        bytes: 4,
+        source_artifact: None,
+        inline_fallback: None,
+        output_location: None,
+    }));
+    let tc = acp::ToolCall::new(
+        acp::ToolCallId::new(Arc::from("fetch-ok")),
+        "Fetch: https://example.com",
+    )
+    .kind(acp::ToolKind::Fetch)
+    .status(acp::ToolCallStatus::Completed)
+    .content(vec![acp::ToolCallContent::from(acp::ContentBlock::Text(
+        acp::TextContent::new("# hi".to_string()),
+    ))])
+    .raw_input(Some(serde_json::json!({ "url": "https://example.com" })))
+    .raw_output(serde_json::to_value(output).ok())
+    .locations(vec![]);
+    let RenderBlock::ToolCall(ToolCallBlock::WebFetch(block)) =
+        tool_call_to_block(&tc, None, &SubagentLabelRegistry::default())
+    else {
+        panic!("expected a web fetch block");
+    };
+    assert!(block.error.is_none());
+    assert_eq!(block.output.as_deref(), Some("# hi"));
+    assert_eq!(block.status_code, Some(200));
+    assert_eq!(block.content_type.as_deref(), Some("markdown"));
+    assert_eq!(block.bytes, Some(4));
+}
+#[test]
 fn read_file_failure_surfaces_typed_error() {
     let msg = "Permission denied: /etc/shadow";
     let output = ToolOutput::ReadFile(ReadFileOutput::PermissionDenied(msg.to_string()));

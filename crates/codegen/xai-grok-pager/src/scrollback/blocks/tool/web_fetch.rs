@@ -1,4 +1,4 @@
-use ratatui::style::Modifier;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 
 use super::TOOL_HEADER_RANGE;
@@ -64,7 +64,11 @@ impl WebFetchToolCallBlock {
     }
 
     pub fn copy_text(&self) -> String {
-        self.output.clone().unwrap_or_default()
+        self.output
+            .clone()
+            .filter(|text| !text.is_empty())
+            .or_else(|| self.error.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_error(&mut self, error: Option<String>) {
@@ -231,7 +235,21 @@ impl BlockContent for WebFetchToolCallBlock {
                 } else {
                     MAX_INLINE_LINES
                 };
-                if let Some(ref output) = self.output {
+                if let Some(err) = &self.error {
+                    // Blank gap is decoration. The reason shares the header
+                    // range so a text drag can span the URL and the error.
+                    lines.push(BlockLine::separator(Line::from("")));
+                    let error_style = Style::default().fg(theme.accent_error);
+                    for line in err.lines() {
+                        lines.push(
+                            BlockLine::styled(Line::from(Span::styled(
+                                line.to_string(),
+                                error_style,
+                            )))
+                            .with_selection_range(Some(TOOL_HEADER_RANGE)),
+                        );
+                    }
+                } else if let Some(ref output) = self.output {
                     lines.push(Line::from("").into());
 
                     // Top padding inside the content box.
@@ -267,7 +285,7 @@ impl BlockContent for WebFetchToolCallBlock {
                     // Bottom padding inside the content box.
                     lines
                         .push(BlockLine::from(Line::from("")).with_panel_background(theme.bg_dark));
-                } else if self.error.is_none() {
+                } else {
                     lines.push(Line::from("").into());
                     lines.push(
                         Line::from(Span::styled("  (no content)".to_owned(), theme.muted())).into(),
@@ -317,7 +335,9 @@ impl BlockContent for WebFetchToolCallBlock {
     }
 
     fn is_foldable(&self) -> bool {
-        self.error.is_none() && self.output.is_some()
+        // Page text, or a failure the user can open. The collapsed header
+        // keeps only a short suffix of the reason.
+        self.output.is_some() || self.error.is_some()
     }
 
     fn default_display_mode(&self) -> DisplayMode {
@@ -479,5 +499,76 @@ mod tests {
             "one hidden fetch line:\n{singular}"
         );
         assert!(!singular.contains("+1 lines"), "singular fetch:\n{singular}");
+    }
+
+    #[test]
+    fn expanded_fetch_failure_shows_the_full_reason() {
+        let err = "Error fetching URL https://example.com/missing: connection reset\nwhile resolving the host";
+        let block = WebFetchToolCallBlock::new("https://example.com/missing").with_error(err);
+        assert!(block.is_foldable());
+        assert_eq!(block.default_display_mode(), DisplayMode::Collapsed);
+        assert_eq!(block.copy_text(), err);
+
+        let collapsed = rendered_text(&block, DisplayMode::Collapsed);
+        assert!(
+            collapsed.contains("https://example.com/missing"),
+            "collapsed:\n{collapsed}"
+        );
+        assert!(
+            !collapsed.contains("while resolving"),
+            "collapsed header keeps a short suffix, got:\n{collapsed}"
+        );
+
+        for mode in [DisplayMode::Truncated, DisplayMode::Expanded] {
+            let text = rendered_text(&block, mode);
+            let mut rows = text.lines();
+            let header = rows.next().unwrap_or("");
+            assert_eq!(
+                header, "Fetch https://example.com/missing",
+                "{mode:?} header should not repeat the reason, got:\n{text}"
+            );
+            assert!(
+                text.contains("connection reset"),
+                "{mode:?} body should include the first reason line, got:\n{text}"
+            );
+            assert!(
+                text.contains("while resolving the host"),
+                "{mode:?} body should include the rest of the reason, got:\n{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn expanded_fetch_failure_error_lines_are_selectable() {
+        let block = WebFetchToolCallBlock::new("https://example.com/missing").with_error(
+            "Error fetching URL https://example.com/missing: connection reset\nwhile resolving the host",
+        );
+        let output = block.output(&ctx(DisplayMode::Expanded));
+        let body: Vec<_> = output
+            .lines
+            .iter()
+            .filter(|line| line.selection_range == Some(TOOL_HEADER_RANGE))
+            .filter(|line| !matches!(line.selectable, Selectable::Spans(_)))
+            .collect();
+        assert_eq!(body.len(), 2, "both error lines should be selectable");
+        assert!(
+            body.iter()
+                .all(|line| !matches!(line.selectable, Selectable::None))
+        );
+        assert_eq!(output.lines[0].selection_range, Some(TOOL_HEADER_RANGE));
+    }
+
+    #[test]
+    fn expanded_fetch_failure_does_not_repeat_the_reason_as_page_text() {
+        let err = "Error: domain evil.com is not in the allowed domains list";
+        let block = WebFetchToolCallBlock::new("https://evil.com")
+            .with_error(err)
+            .with_output(err);
+        let expanded = rendered_text(&block, DisplayMode::Expanded);
+        assert_eq!(
+            expanded.matches(err).count(),
+            1,
+            "the reason is the error body, got:\n{expanded}"
+        );
     }
 }
