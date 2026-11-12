@@ -449,15 +449,19 @@ impl BlockContent for SearchToolCallBlock {
                         );
 
                         // Match lines: "    42  content..."
+                        // A tab is a control character, so the renderer drops it and the
+                        // following columns slide left. Draw it as spaces instead.
                         for m in &file_match.matches {
                             let line_num_str = format!("{:>4}", m.line_number);
-                            let content_trimmed = m.content.trim_end();
+                            let content_display = xai_grok_pager_render::appearance::expand_tabs(
+                                m.content.trim_end(),
+                            );
                             lines.push(
                                 BlockLine::from(Line::from(vec![
                                     Span::styled(match_indent.to_string(), theme.primary()),
                                     Span::styled(line_num_str, theme.muted()),
                                     Span::styled("  ".to_string(), theme.primary()),
-                                    Span::styled(content_trimmed.to_string(), theme.primary()),
+                                    Span::styled(content_display.into_owned(), theme.primary()),
                                 ]))
                                 .with_panel_background(theme.bg_dark),
                             );
@@ -542,5 +546,92 @@ impl BlockContent for SearchToolCallBlock {
             DisplayMode::Collapsed => DisplayMode::Expanded,
             _ => DisplayMode::Collapsed,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scrollback::types::{line_plain_text, BlockContext, DisplayMode};
+
+    fn context() -> BlockContext {
+        BlockContext {
+            width: 80,
+            mode: DisplayMode::Expanded,
+            is_running: false,
+            raw: false,
+            max_lines: None,
+            appearance: Default::default(),
+            is_selected: false,
+            cwd: None,
+        }
+    }
+
+    fn rendered(block: &SearchToolCallBlock) -> Vec<String> {
+        block
+            .output(&context())
+            .lines
+            .iter()
+            .map(|line| line_plain_text(&line.content))
+            .collect()
+    }
+
+    #[test]
+    fn match_lines_show_tabs_as_spaces_so_columns_line_up() {
+        let width = usize::from(xai_grok_pager_render::appearance::tab_width());
+        let gap = " ".repeat(width.max(1));
+        let block = SearchToolCallBlock::new("column").with_matches(
+            2,
+            vec![SearchFileMatch {
+                path: "src/lib.rs".into(),
+                matches: vec![
+                    SearchLineMatch {
+                        line_number: 1,
+                        content: "\tname_col".into(),
+                    },
+                    SearchLineMatch {
+                        line_number: 12,
+                        content: "\tother_col".into(),
+                    },
+                ],
+            }],
+        );
+        let rows = rendered(&block);
+        let name = rows
+            .iter()
+            .find(|row| row.contains("name_col"))
+            .expect("name");
+        let other = rows
+            .iter()
+            .find(|row| row.contains("other_col"))
+            .expect("other");
+        if width == 0 {
+            return;
+        }
+        assert!(!name.contains('\t'), "{name}");
+        assert!(!other.contains('\t'), "{other}");
+        assert!(name.contains(&gap), "{name}");
+        assert_eq!(
+            name.find("name_col"),
+            other.find("other_col"),
+            "tab columns\n{name:?}\n{other:?}"
+        );
+
+        let plain = SearchToolCallBlock::new("kept").with_matches(
+            1,
+            vec![SearchFileMatch {
+                path: "src/lib.rs".into(),
+                matches: vec![SearchLineMatch {
+                    line_number: 3,
+                    content: "kept_plain".into(),
+                }],
+            }],
+        );
+        let plain_row = rendered(&plain)
+            .into_iter()
+            .find(|row| row.contains("kept_plain"))
+            .expect("plain");
+        assert!(plain_row.contains("  kept_plain"), "{plain_row}");
+        assert!(!plain_row.contains('\t'), "{plain_row}");
     }
 }
