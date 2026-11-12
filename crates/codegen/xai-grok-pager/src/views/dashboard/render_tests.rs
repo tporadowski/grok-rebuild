@@ -2899,10 +2899,12 @@ fn render_rows_emits_group_headers_in_state_order() {
     }
 }
 
-/// The list scrollbar is a thick `█` thumb overlaid on the right edge, and it does NOT reserve a column.
-/// The row content is byte-for-byte identical whether or not the scrollbar shows (no layout shift).
+/// The list scrollbar is a solid thumb overlaid on the right edge, and it does NOT reserve a column.
+/// The glyph is a space, so a Shift+drag of the rows does not copy a block character.
+/// The row content is identical whether or not the scrollbar shows (no layout shift).
 #[test]
 fn render_rows_scrollbar_is_thick_overlay_without_layout_shift() {
+    let _guard = crate::theme::cache::pin_theme();
     let theme = Theme::current();
     // 6 working rows: 1 header (2 cells) + 6 rows (3 cells) = 20 cells
     let rows: Vec<_> = (0..6)
@@ -2933,13 +2935,32 @@ fn render_rows_scrollbar_is_thick_overlay_without_layout_shift() {
         &mut state_scroll,
     );
 
-    // The thick `█` thumb is painted on the rightmost column.
+    // The thumb overlays the rightmost column as a solid fill. The symbol is a space:
+    // Shift+drag copies that cell, and a block glyph would survive after trailing spaces are trimmed.
     let last_x = w - 1;
-    let has_thumb = (0..h).any(|y| buf_cell(&buf_scroll, last_x, y).symbol() == "\u{2588}");
-    assert!(has_thumb, "scrollbar thumb (█) must overlay the right edge");
-    // Old thin `│`-only thumb is gone.
-    let thin_only = (0..h).all(|y| buf_cell(&buf_scroll, last_x, y).symbol() != "\u{2588}");
-    assert!(!thin_only, "thumb must be the thick block glyph");
+    let is_solid_thumb = |y: u16| {
+        let cell = buf_cell(&buf_scroll, last_x, y);
+        cell.symbol() == " "
+            && matches!(
+                (cell.style().fg, cell.style().bg),
+                (Some(fg), Some(bg)) if fg == bg
+            )
+    };
+    assert!(
+        (0..h).any(is_solid_thumb),
+        "scrollbar thumb must overlay the right edge"
+    );
+    assert!(
+        (0..h).all(|y| buf_cell(&buf_scroll, last_x, y).symbol() != "│"),
+        "thumb must not be the thin bar"
+    );
+    assert!(
+        (0..h).all(|y| {
+            let symbol = buf_cell(&buf_scroll, last_x, y).symbol();
+            !symbol.chars().any(|c| ('\u{2580}'..='\u{259F}').contains(&c))
+        }),
+        "the overlay column must not paint a block glyph"
+    );
 
     // No layout shift: every content column (all but the overlaid right edge) matches the no-scrollbar render across the visible top
     for y in 0..h {

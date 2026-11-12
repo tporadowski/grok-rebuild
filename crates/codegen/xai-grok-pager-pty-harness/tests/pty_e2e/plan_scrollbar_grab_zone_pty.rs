@@ -5,8 +5,8 @@ const TAG: &str = "SBGRAB";
 const PLAN_LINES: usize = 120;
 
 /// PTY: presses, wheels, and drags on the modal border column next to the scrollbar track must
-/// scroll the plan. Terminal.app leaves line-gap pixels unpainted under a foreground-only `█`,
-/// striping the thumb with dark bars.
+/// scroll the plan. The thumb is a space whose background matches its foreground, so a native
+/// Shift+drag does not copy a block glyph.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "PTY e2e; run the owning pty_e2e_* Cargo test with --ignored (see Cargo.toml)"]
 async fn plan_scrollbar_grab_zone_pty() {
@@ -95,13 +95,11 @@ async fn plan_scrollbar_grab_zone_pty() {
         let mut col = 0usize;
         for run in &line.runs {
             let run_width = run.text.chars().count();
-            if col <= track_col && track_col < col + run_width && run.text.contains('\u{2588}') {
-                thumb_cells += 1;
-                assert!(run.fg.is_some(), "thumb must have a color (run {run:?})");
-                assert_eq!(
-                    run.bg, run.fg,
-                    "thumb cell background must match the glyph color (run {run:?})"
-                );
+            if col <= track_col && track_col < col + run_width {
+                let glyph = run.text.chars().nth(track_col - col);
+                if glyph == Some(' ') && run.fg.is_some() && run.bg == run.fg {
+                    thumb_cells += 1;
+                }
             }
             col += run_width;
         }

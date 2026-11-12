@@ -182,8 +182,9 @@ pub fn render_scrollbar(
     );
 }
 
-/// Some emulators (notably macOS Terminal.app) do not stretch the `█` glyph over the cell's line-gap pixels.
-/// A foreground-only thumb therefore renders striped with dark bars; the background fill covers the whole cell box.
+/// The thumb's background matches its foreground so the cell reads as a solid bar.
+/// The painted symbol stays a space: Shift+drag is the terminal's own selection, and a `█`
+/// would be copied at the end of every row the drag covers. A trailing space is trimmed.
 fn thumb_fill_style(thumb_style: Style) -> Style {
     match thumb_style.fg {
         Some(fg) => thumb_style.bg(fg),
@@ -261,11 +262,13 @@ pub fn render_scrollbar_styled(
         let Some(dst) = buf.cell_mut((x, y)) else {
             continue;
         };
+        // Any non-space from the scrollbar widget is a thumb cell, including a partial block.
+        // Copy a space either way. The style is what makes the thumb visible.
         if src.symbol() == " " {
             dst.set_symbol(" ");
             dst.set_style(track_style);
         } else {
-            dst.set_symbol("\u{2588}");
+            dst.set_symbol(" ");
             dst.set_style(thumb_fill);
         }
     }
@@ -405,7 +408,8 @@ mod tests {
         }
     }
 
-    /// macOS Terminal.app leaves line-gap pixels unpainted under a foreground-only `█`, striping the thumb with dark bars.
+    /// The thumb is a solid fill. Its symbol is a space, so a native Shift+drag
+    /// that reaches the track does not keep a block glyph after trailing spaces are trimmed.
     #[test]
     fn test_thumb_cells_fill_background() {
         let area = Rect::new(0, 0, 10, 10);
@@ -422,18 +426,54 @@ mod tests {
             let Some(cell) = buf.cell((sb.x, sb.y + y)) else {
                 panic!("missing scrollbar cell at y={y}");
             };
-            if cell.symbol() == "\u{2588}" {
+            assert_eq!(cell.symbol(), " ", "scrollbar cells stay spaces");
+            if cell.style().bg == Some(Color::White) {
                 thumb_cells += 1;
                 assert_eq!(
-                    cell.style().bg,
                     cell.style().fg,
-                    "thumb cell background must match the glyph color"
+                    Some(Color::White),
+                    "thumb cell background must match the foreground"
                 );
             } else {
                 assert_eq!(cell.style().bg, Some(Color::Black), "track keeps its bg");
             }
         }
         assert!(thumb_cells > 0, "a thumb must be rendered");
+    }
+
+    #[test]
+    fn shift_drag_beside_the_scrollbar_copies_no_block_glyph() {
+        let area = Rect::new(0, 0, 12, 8);
+        let (content, scrollbar_area) = split_area_for_scrollbar(area);
+        let mut buf = Buffer::empty(area);
+        for y in 0..area.height {
+            buf.set_string(content.x, y, "hello", Style::default());
+        }
+        let track = Style::new().bg(Color::Black);
+        let thumb = Style::new().fg(Color::White).bg(Color::Black);
+        render_scrollbar_styled(&mut buf, scrollbar_area, 80, 8, 0, track, thumb);
+
+        let mut saw_thumb = false;
+        for y in 0..area.height {
+            let mut copied = String::new();
+            for x in 0..area.width {
+                let cell = buf.cell((x, y)).expect("cell");
+                if x == scrollbar_area.unwrap().x && cell.style().bg == Some(Color::White) {
+                    saw_thumb = true;
+                }
+                copied.push_str(cell.symbol());
+            }
+            assert!(
+                copied.chars().all(|c| !('\u{2580}'..='\u{259F}').contains(&c)),
+                "row {y} paints a block glyph: {copied:?}"
+            );
+            assert_eq!(
+                copied.trim_end(),
+                "hello",
+                "row {y} keeps a trailing glyph after the terminal trims spaces: {copied:?}"
+            );
+        }
+        assert!(saw_thumb, "the drag must cover a thumb cell");
     }
 
     #[test]
@@ -450,12 +490,16 @@ mod tests {
         let mut buf_bottom = Buffer::empty(area);
         render_scrollbar(&mut buf_bottom, scrollbar_area, 100, 10, 90, false);
 
-        // Count thumb cells (non-space)
+        // The thumb is a space with matching fg and bg. The track is not.
         let count_thumb = |buf: &Buffer| -> usize {
             (0..sb.height)
                 .filter(|&y| {
-                    buf.cell((sb.x, sb.y + y))
-                        .is_some_and(|c| c.symbol() != " ")
+                    buf.cell((sb.x, sb.y + y)).is_some_and(|cell| {
+                        matches!(
+                            (cell.style().fg, cell.style().bg),
+                            (Some(fg), Some(bg)) if fg == bg
+                        )
+                    })
                 })
                 .count()
         };
@@ -470,8 +514,12 @@ mod tests {
         let thumb_positions = |buf: &Buffer| -> Vec<u16> {
             (0..sb.height)
                 .filter(|&y| {
-                    buf.cell((sb.x, sb.y + y))
-                        .is_some_and(|c| c.symbol() != " ")
+                    buf.cell((sb.x, sb.y + y)).is_some_and(|cell| {
+                        matches!(
+                            (cell.style().fg, cell.style().bg),
+                            (Some(fg), Some(bg)) if fg == bg
+                        )
+                    })
                 })
                 .collect()
         };
