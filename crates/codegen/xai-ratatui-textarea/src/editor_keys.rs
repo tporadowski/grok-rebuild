@@ -191,10 +191,35 @@ pub fn classify_key_event(event: &KeyEvent) -> Option<EditCommand> {
 
 fn shifted_char(character: char) -> char {
     if character.is_ascii_lowercase() {
-        character.to_ascii_uppercase()
-    } else {
-        character
+        return character.to_ascii_uppercase();
     }
+    // The Kitty protocol reports the unshifted key and sets SHIFT (`1` with SHIFT).
+    // A glyph the terminal already shifted (`/` for QWERTZ Shift+7) is not in this table.
+    // Windows console text is already translated for the active layout and still carries SHIFT,
+    // so an AZERTY Shift that produced `1` must stay `1`.
+    #[cfg(not(windows))]
+    if let Some(shifted) = us_shifted_digit(character) {
+        return shifted;
+    }
+    character
+}
+
+/// US digit-row shift pairs. Only the ten digits: other punctuation is also a shifted result on some layouts.
+#[cfg(not(windows))]
+fn us_shifted_digit(character: char) -> Option<char> {
+    Some(match character {
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        _ => return None,
+    })
 }
 
 fn backspace_command(modifiers: KeyModifiers) -> EditCommand {

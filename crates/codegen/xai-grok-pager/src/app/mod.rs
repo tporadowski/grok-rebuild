@@ -121,6 +121,7 @@ pub(crate) fn push_gboom_keyboard_flags(writer: &EscapeWriter) {
     }
     let flags = event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
         | event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+        | event::KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
         | event::KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES;
     writer.emit_command(event::PushKeyboardEnhancementFlags(flags));
 }
@@ -1705,6 +1706,8 @@ fn init_terminal(
                 kitty.disambiguate = true,
                 kitty.report_event_types =
                     flags.contains(event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES),
+                kitty.report_alternate_keys =
+                    flags.contains(event::KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS),
                 kitty.report_all_keys = false,
                 "kitty keyboard protocol pushed"
             );

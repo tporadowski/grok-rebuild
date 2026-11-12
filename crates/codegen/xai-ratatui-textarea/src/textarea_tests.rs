@@ -6083,12 +6083,14 @@ fn scroll_override_save_restore_with_mousewheel() {
 }
 
 #[test]
-fn shifted_character_classification_only_uppercases_letters() {
+fn shifted_character_classification_uppercases_letters_and_us_digits() {
+    // Windows keeps a digit: the console already applied the layout, and AZERTY Shift produces digits.
+    let shifted_seven = if cfg!(windows) { '7' } else { '&' };
     for (input, expected) in [
         ('a', 'A'),
         ('z', 'Z'),
         ('A', 'A'),
-        ('7', '7'),
+        ('7', shifted_seven),
         ('/', '/'),
         (';', ';'),
     ] {
@@ -6180,10 +6182,24 @@ fn altgr_char_insertion_platform_dependent() {
 
 #[test]
 fn shift_number_trusts_terminal_character() {
-    // QWERTZ: terminal sends Char('/') + SHIFT for Shift+7.
+    // QWERTZ: terminal sends Char('/') + SHIFT for Shift+7. That glyph is already shifted.
     let mut t = TextArea::new();
     t.input(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::SHIFT));
     assert_eq!(t.text(), "/");
+}
+
+#[test]
+fn shift_digits_insert_us_symbols_when_the_terminal_sends_the_unshifted_key() {
+    let mut t = TextArea::new();
+    for digit in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'] {
+        t.input(KeyEvent::new(KeyCode::Char(digit), KeyModifiers::SHIFT));
+    }
+    let expected = if cfg!(windows) {
+        "1234567890"
+    } else {
+        "!@#$%^&*()"
+    };
+    assert_eq!(t.text(), expected);
 }
 
 #[test]

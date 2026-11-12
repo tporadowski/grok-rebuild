@@ -1445,8 +1445,8 @@ const KITTY_STARTUP_PROBE: &[u8] = b"\x1b[?u\x1b[c";
 /// kitty's answer, trailing `;` included.
 const KITTY_STARTUP_PROBE_REPLY: &[u8] = b"\x1b[?0u\x1b[?62;c";
 
-/// Disambiguate (1) + report event types (2).
-pub(crate) const KITTY_PUSH_FLAGS: &[u8] = b"\x1b[>3u";
+/// Disambiguate (1) + report event types (2) + report alternate keys (4).
+pub(crate) const KITTY_PUSH_FLAGS: &[u8] = b"\x1b[>7u";
 
 /// crossterm pops one stack entry explicitly, not the bare `CSI < u`.
 pub(crate) const KITTY_POP_FLAGS: &[u8] = b"\x1b[<1u";

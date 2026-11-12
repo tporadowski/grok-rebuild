@@ -92,7 +92,10 @@ pub fn negotiated_kitty_flags(
     if skip_reason.is_some() {
         return KeyboardEnhancementFlags::empty();
     }
-    let mut flags = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES;
+    // Alternate keys carry the layout's shifted glyph (`1` → `!`, QWERTZ `7` → `/`).
+    // Without that field the protocol reports the unshifted key, and Shift+digit inserts the digit.
+    let mut flags = KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS;
     let mis_encodes_releases =
         da2_packed.is_some_and(|packed| packed <= ALACRITTY_BROKEN_EVENT_TYPES_MAX_PACKED);
     if !mis_encodes_releases {
@@ -145,16 +148,20 @@ mod tests {
 
     const DISAMBIGUATE: KeyboardEnhancementFlags =
         KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES;
+    const ALTERNATES: KeyboardEnhancementFlags = KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS;
     const EVENT_TYPES: KeyboardEnhancementFlags = KeyboardEnhancementFlags::REPORT_EVENT_TYPES;
 
     /// The exact boundary a careless `<`/`<=` edit breaks: `alacritty_terminal` 0.24.1 is Alacritty 0.14.0 (broken), 0.24.2 is 0.15.0 (fixed).
     #[test]
     fn downgrade_boundary_is_the_last_broken_library_version() {
         // Non-empty either side: a downgrade is still a push, teardown owes a pop.
-        assert_eq!(negotiated_kitty_flags(None, Some(2401)), DISAMBIGUATE);
+        assert_eq!(
+            negotiated_kitty_flags(None, Some(2401)),
+            DISAMBIGUATE | ALTERNATES
+        );
         assert_eq!(
             negotiated_kitty_flags(None, Some(2402)),
-            DISAMBIGUATE | EVENT_TYPES
+            DISAMBIGUATE | ALTERNATES | EVENT_TYPES
         );
     }
 
@@ -163,7 +170,7 @@ mod tests {
     fn absent_version_does_not_downgrade() {
         assert_eq!(
             negotiated_kitty_flags(None, None),
-            DISAMBIGUATE | EVENT_TYPES
+            DISAMBIGUATE | ALTERNATES | EVENT_TYPES
         );
     }
 
