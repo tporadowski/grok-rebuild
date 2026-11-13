@@ -232,6 +232,7 @@ pub(crate) fn test_app() -> AppView {
         welcome_tip_typing_dismissed: false,
         welcome_menu_index: None,
         welcome_menu_rects: Vec::new(),
+        welcome_click_frame: None,
         welcome_show_changelog_action: false,
         welcome_import_banner_rect: None,
         last_mouse_pos: None,
@@ -3252,6 +3253,91 @@ fn welcome_trust_decline_keys_quit() {
     };
     let outcome = app.handle_input(&key_event(KeyCode::Char('y'), KeyModifiers::NONE));
     assert!(matches!(outcome, InputOutcome::Action(Action::TrustFolder)));
+}
+#[test]
+fn welcome_click_after_a_screen_change_waits_for_the_next_frame() {
+    use ratatui::layout::Rect;
+    let menu = vec![Rect::new(10, 20, 30, 1), Rect::new(10, 21, 30, 1)];
+    let click = left_mouse(MouseEventKind::Down(MouseButton::Left), 12, 20);
+    let hover = left_mouse(MouseEventKind::Moved, 12, 20);
+
+    let mut app = test_app();
+    app.welcome_menu_rects = menu.clone();
+    app.stamp_welcome_click_frame();
+    assert!(
+        matches!(
+            app.handle_input(&click),
+            InputOutcome::Action(Action::FetchSessionList)
+        ),
+        "a click on the painted session menu resumes",
+    );
+
+    let mut app = test_app();
+    app.welcome_menu_rects = menu.clone();
+    app.stamp_welcome_click_frame();
+    app.trust_state = TrustState::Pending {
+        workspace: std::path::PathBuf::from("/tmp/x"),
+    };
+    assert!(
+        matches!(app.handle_input(&click), InputOutcome::Unchanged),
+        "a click aimed at the session menu must not trust the folder",
+    );
+    assert!(
+        matches!(
+            app.handle_input(&key_event(KeyCode::Char('y'), KeyModifiers::NONE)),
+            InputOutcome::Action(Action::TrustFolder)
+        ),
+        "y still answers the trust question while the frame is stale",
+    );
+
+    let mut app = test_app();
+    app.welcome_menu_rects = menu.clone();
+    app.stamp_welcome_click_frame();
+    app.has_claude_import = true;
+    assert!(
+        matches!(app.handle_input(&hover), InputOutcome::Changed),
+        "pointer movement still tracks the menu while the frame is stale",
+    );
+    assert_eq!(app.welcome_menu_index, Some(0));
+    assert!(
+        matches!(app.handle_input(&click), InputOutcome::Unchanged),
+        "the same stale frame still drops the left click",
+    );
+
+    let mut app = test_app();
+    app.welcome_menu_rects = menu.clone();
+    app.trust_state = TrustState::Pending {
+        workspace: std::path::PathBuf::from("/tmp/x"),
+    };
+    app.stamp_welcome_click_frame();
+    assert!(matches!(
+        app.handle_input(&click),
+        InputOutcome::Action(Action::TrustFolder)
+    ));
+
+    let mut app = test_app();
+    app.welcome_menu_rects = menu.clone();
+    app.trust_state = TrustState::Pending {
+        workspace: std::path::PathBuf::from("/tmp/x"),
+    };
+    assert!(app.welcome_click_frame.is_none());
+    assert!(
+        matches!(
+            app.handle_input(&click),
+            InputOutcome::Action(Action::TrustFolder)
+        ),
+        "a click before the first welcome frame still uses the live map",
+    );
+
+    let mut app = test_app();
+    app.welcome_menu_rects = menu;
+    app.auth_state = AuthState::Pending { error: None };
+    app.stamp_welcome_click_frame();
+    app.auth_state = AuthState::Done;
+    assert!(
+        matches!(app.handle_input(&click), InputOutcome::Unchanged),
+        "a click painted on the sign-in menu must not resume a session",
+    );
 }
 /// A notice already on screen, with both menu rows and both of its links painted.
 fn consent_pending_app() -> AppView {

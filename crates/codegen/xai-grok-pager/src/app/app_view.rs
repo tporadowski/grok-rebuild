@@ -365,6 +365,37 @@ pub enum TrustState {
         workspace: std::path::PathBuf,
     },
 }
+
+/// The welcome screen a left click was aimed at.
+///
+/// Hit rects stay from the last paint. This is the map that turns a rect index into an action.
+/// A left click is dropped while the live map differs, until the next welcome frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WelcomeClickFrame {
+    auth: WelcomeAuthKind,
+    has_access: bool,
+    zdr_blocked: bool,
+    trust_pending: bool,
+    /// Version of a pending consent notice. `None` when consent is done.
+    consent_version: Option<i32>,
+    workspace_ack_pending: bool,
+    picker_owns_clicks: bool,
+    has_claude_import: bool,
+    show_changelog: bool,
+    hide_worktree: bool,
+    import_modal: bool,
+    doc_viewer: bool,
+    worktree_dialog: bool,
+}
+
+/// Sign-in kind, without the in-flight request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WelcomeAuthKind {
+    Done,
+    Pending,
+    Authenticating(AuthMode),
+}
+
 /// Result of `handle_input`. Tells the event loop what to do next.
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -735,6 +766,9 @@ pub struct AppView {
     pub welcome_menu_index: Option<usize>,
     /// Hit-test rects for welcome menu items (populated during render).
     pub welcome_menu_rects: Vec<ratatui::layout::Rect>,
+    /// Welcome action map from the last frame. `None` until that frame paints, so a click
+    /// before the first paint still uses the live map.
+    pub(crate) welcome_click_frame: Option<WelcomeClickFrame>,
     /// Whether the welcome menu currently includes a "Changelog" row (above Quit).
     /// Set during render; the input handler uses it to size the menu and map the extra row to the release-notes action.
     pub welcome_show_changelog_action: bool,
@@ -1192,6 +1226,62 @@ impl AppView {
     pub fn has_access(&self) -> bool {
         self.gate.is_none()
     }
+    /// Action map a welcome left click would use right now.
+    fn current_welcome_click_frame(&self) -> WelcomeClickFrame {
+        let picker_loading = crate::views::session_picker::loading_spinner_active(
+            self.session_picker_entries.as_deref(),
+            self.session_picker_source_filter,
+            self.session_picker_loading,
+            &self.session_picker_lanes,
+        );
+        WelcomeClickFrame {
+            auth: match &self.auth_state {
+                AuthState::Done => WelcomeAuthKind::Done,
+                AuthState::Pending { .. } => WelcomeAuthKind::Pending,
+                AuthState::Authenticating { mode, .. } => WelcomeAuthKind::Authenticating(*mode),
+            },
+            has_access: self.has_access(),
+            zdr_blocked: self.is_zdr_blocked(),
+            trust_pending: matches!(self.trust_state, TrustState::Pending { .. }),
+            consent_version: match &self.consent_state {
+                ConsentState::Pending { notice, .. } => Some(notice.version),
+                ConsentState::Done => None,
+            },
+            workspace_ack_pending: {
+                #[cfg(feature = "local-workspace")]
+                {
+                    self.welcome_local_workspace_ack_pending
+                }
+                #[cfg(not(feature = "local-workspace"))]
+                {
+                    false
+                }
+            },
+            picker_owns_clicks: matches!(self.auth_state, AuthState::Done)
+                && (self.session_picker_entries.is_some() || picker_loading),
+            has_claude_import: self.has_claude_import,
+            show_changelog: self.welcome_show_changelog_action,
+            hide_worktree: worktree_options_hidden(),
+            import_modal: self.import_claude_modal.is_some(),
+            doc_viewer: self.welcome_doc_viewer.is_some(),
+            worktree_dialog: self.new_worktree_dialog.is_some(),
+        }
+    }
+    #[cfg(test)]
+    fn stamp_welcome_click_frame(&mut self) {
+        self.welcome_click_frame = Some(self.current_welcome_click_frame());
+    }
+    /// A left click whose painted welcome screen is no longer the live one.
+    fn stale_welcome_left_click(&self, ev: &Event) -> bool {
+        let Some(painted) = self.welcome_click_frame else {
+            return false;
+        };
+        let Event::Mouse(mouse) = ev else {
+            return false;
+        };
+        mouse.kind == MouseEventKind::Down(MouseButton::Left)
+            && painted != self.current_welcome_click_frame()
+    }
     /// True when the user should not see the prompt (gate, subscription, or ZDR).
     pub fn is_access_blocked(&self) -> bool {
         !self.has_access() || self.is_zdr_blocked()
@@ -1452,6 +1542,7 @@ impl AppView {
             minimal_state: crate::minimal_api::MinimalState::default(),
             welcome_menu_index: None,
             welcome_menu_rects: Vec::new(),
+            welcome_click_frame: None,
             welcome_show_changelog_action: false,
             welcome_import_banner_rect: None,
             last_mouse_pos: None,
@@ -2454,6 +2545,9 @@ impl AppView {
         #[cfg(feature = "local-workspace")]
         let session_picker_open = self.session_picker_entries.is_some() || sp_loading;
         let outcome = match self.active_view {
+            // Hit rects belong to the last welcome frame. A left click after that
+            // screen changes would run the new screen's action, so it waits.
+            ActiveView::Welcome if self.stale_welcome_left_click(ev) => InputOutcome::Unchanged,
             ActiveView::Welcome => handle_welcome_input(
                 ev,
                 &mut WelcomeInputCtx {
@@ -4579,6 +4673,8 @@ impl AppView {
             _ => None,
         };
         let hardware_cursor = self.hardware_cursor_style();
+        let welcome_frame = matches!(self.active_view, ActiveView::Welcome)
+            .then(|| self.current_welcome_click_frame());
         let Self {
             active_view,
             agents,
@@ -4779,6 +4875,10 @@ impl AppView {
                             );
                             self.welcome_menu_rects = result.menu_rects;
                             self.welcome_show_changelog_action = result.changelog_action_present;
+                            if let Some(mut frame) = welcome_frame {
+                                frame.show_changelog = self.welcome_show_changelog_action;
+                                self.welcome_click_frame = Some(frame);
+                            }
                             self.welcome_prompt_rect = result.prompt_rect;
                             self.welcome_import_banner_rect = result.import_banner_rect;
                             self.welcome_auth_url_rect = result.auth_url_rect;
