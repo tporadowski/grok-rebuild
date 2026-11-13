@@ -492,6 +492,13 @@ fn failed_flush_drops_trailing_echoes_before_requeue() {
             .all(|p| p.wire_matches_display() && p.wire_blocks.is_none()),
         "failed image/text leftover must stay flushable"
     );
+    assert_eq!(
+        agent_ref(&app, AgentId(0))
+            .toast
+            .as_ref()
+            .map(|(msg, _)| msg.as_str()),
+        Some("Interjection failed: channel closed (requeued)")
+    );
 }
 
 #[test]

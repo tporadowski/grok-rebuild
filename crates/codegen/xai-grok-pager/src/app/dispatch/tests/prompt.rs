@@ -5198,7 +5198,10 @@ fn failed_send_now_requeues_payload_and_retires_echo() {
         !agent.shared_queue.iter().any(|e| e.id == prompt_id),
         "the optimistic echo must be retired"
     );
-    assert!(agent.toast.is_some(), "the failure must explain itself");
+    assert_eq!(
+        agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
+        Some("Send now failed: transport closed (requeued)")
+    );
 }
 
 /// An image-bearing prompt submitted during a parked sendable wait routes through send-now (images ride as content blocks).

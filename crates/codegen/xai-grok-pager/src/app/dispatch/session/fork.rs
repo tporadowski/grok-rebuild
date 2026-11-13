@@ -15,6 +15,13 @@ use crate::scrollback::blocks::SessionEvent;
 use crate::scrollback::state::ScrollbackState;
 use agent_client_protocol as acp;
 use std::time::Instant;
+/// Off-session refusal, same sentence the dashboard uses for a session-scoped command.
+const FORK_ONLY_IN_SESSION: &str = "/fork only works in a session";
+/// Both the early guard and the resolved path use this when the parent has no session id yet.
+const FORK_SESSION_NOT_READY: &str = "Cannot fork: session is still being created";
+/// An open approval uses the same `Cannot fork:` stem as the other in-session refusals.
+const FORK_APPROVAL_OPEN: &str = "Cannot fork: answer the approval request first";
+
 /// When no flag is given and a persisted `fork_worktree_mode` (`Always` / `Never`) is set, the popup is skipped and that path is taken directly.
 /// The `Ask` default opens the [`open_fork_question`] modal so the user is asked.
 /// If the notification has not arrived yet (the user forks before the shell sends `git_head_changed`), the `worktree = false` fallback is safe.
@@ -23,7 +30,7 @@ pub(in crate::app::dispatch) fn dispatch_fork(
     args: crate::slash::commands::fork::ForkArgs,
 ) -> Vec<Effect> {
     let ActiveView::Agent(parent_id) = app.active_view else {
-        app.show_toast("/fork only works inside a session");
+        app.show_toast(FORK_ONLY_IN_SESSION);
         return vec![];
     };
     // A fork question uses the same number keys as the approval card. Leave the card in place.
@@ -32,7 +39,7 @@ pub(in crate::app::dispatch) fn dispatch_fork(
         .get(&parent_id)
         .is_some_and(|agent| !agent.permission_queue.is_empty())
     {
-        app.show_toast("Answer the approval request before /fork");
+        app.show_toast(FORK_APPROVAL_OPEN);
         return vec![];
     }
     let (has_session, in_git_repo) = app
@@ -41,7 +48,7 @@ pub(in crate::app::dispatch) fn dispatch_fork(
         .map(|a| (a.session.session_id.is_some(), a.current_branch.is_some()))
         .unwrap_or((false, false));
     if !has_session {
-        app.show_toast("Cannot fork: session is still being created");
+        app.show_toast(FORK_SESSION_NOT_READY);
         return vec![];
     }
     match args.worktree_override {
@@ -160,7 +167,7 @@ pub(in crate::app::dispatch) fn dispatch_fork_resolved(
         return vec![];
     };
     let Some(parent_session_id) = parent.session.session_id.clone() else {
-        app.show_toast("Cannot fork: session not yet created");
+        app.show_toast(FORK_SESSION_NOT_READY);
         return vec![];
     };
     let parent_cwd = parent.session.cwd.clone();

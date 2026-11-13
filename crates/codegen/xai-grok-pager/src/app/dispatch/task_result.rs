@@ -454,6 +454,16 @@ pub(crate) fn deliver_doctor_message(app: &mut AppView, preferred: AgentId, mess
         action: None,
     });
 }
+/// Send-now and interjection failures name the error first, then note the requeue.
+fn requeued_failure_toast(what: &str, error: &str) -> String {
+    let reason = error.trim();
+    if reason.is_empty() {
+        format!("{what} failed (requeued)")
+    } else {
+        format!("{what} failed: {reason} (requeued)")
+    }
+}
+
 /// Toast for a failed session delete. The prefix is applied once.
 /// A reason that already starts with it is not wrapped again: a second copy
 /// pushed the cause past the toast width and the 200-character error cap.
@@ -932,7 +942,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                             crate::app::agent::QueueEntryKind::Prompt,
                         )
                     });
-                agent.show_toast(&format!("Send now failed. Requeued: {error}"));
+                agent.show_toast(&requeued_failure_toast("Send now", &error));
             }
             vec![]
         }
@@ -2143,7 +2153,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
                             combined_texts: Vec::new(),
                         });
                 }
-                agent.show_toast(&format!("Interjection failed. Requeued: {error}"));
+                agent.show_toast(&requeued_failure_toast("Interjection", &error));
             }
             vec![]
         }

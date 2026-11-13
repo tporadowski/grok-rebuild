@@ -545,10 +545,9 @@ fn fork_while_an_approval_is_open_is_refused() {
     let Some(toast) = agent.toast.as_ref() else {
         panic!("toast should be set");
     };
-    assert!(
-        toast.0.contains("approval"),
-        "toast should name the approval, got {}",
-        toast.0
+    assert_eq!(
+        toast.0, "Cannot fork: answer the approval request first",
+        "fork refusals share one stem"
     );
     assert!(rx.try_recv().is_err(), "the approval must stay unanswered");
 }
@@ -559,8 +558,11 @@ fn dispatch_fork_from_welcome_toasts_and_returns_no_effect() {
     app.active_view = ActiveView::Welcome;
     let effects = dispatch(Action::Fork(fork_args(None, None)), &mut app);
     assert!(effects.is_empty());
-    // No active agent on Welcome, so no toast lands; the point is that no effect / agent was created
     assert_eq!(app.agents.len(), 1);
+    assert_eq!(
+        app.welcome_toast.as_ref().map(|(msg, _)| msg.as_str()),
+        Some("/fork only works in a session")
+    );
 }
 
 #[test]
@@ -575,7 +577,22 @@ fn dispatch_fork_without_session_id_toasts_and_returns_no_effect() {
     let Some(toast) = app.agents.get(&AgentId(0)).and_then(|a| a.toast.as_ref()) else {
         panic!("toast should be set");
     };
-    assert!(toast.0.contains("still being created"), "got: {}", toast.0);
+    assert_eq!(toast.0, "Cannot fork: session is still being created");
+}
+
+#[test]
+fn dispatch_fork_resolved_without_session_id_uses_the_same_refusal() {
+    let mut app = fork_test_app();
+    app.agents.get_mut(&AgentId(0)).unwrap().session.session_id = None;
+    let effects = super::super::super::session::fork::dispatch_fork_resolved(&mut app, false, None);
+    assert!(effects.is_empty());
+    assert_eq!(app.agents.len(), 1);
+    let toast = app
+        .agents
+        .get(&AgentId(0))
+        .and_then(|a| a.toast.as_ref())
+        .expect("toast");
+    assert_eq!(toast.0, "Cannot fork: session is still being created");
 }
 
 #[test]
