@@ -90,7 +90,7 @@ impl Theme {
             selection_border: HIGHLIGHT_HIGH,
             hover_border: HIGHLIGHT_MED,
             prompt_border: HIGHLIGHT_MED,
-            prompt_border_active: HIGHLIGHT_HIGH,
+            prompt_border_active: rgb(72, 68, 92), // #48445C, brighter when focused
 
             accent_model: CYAN,
 

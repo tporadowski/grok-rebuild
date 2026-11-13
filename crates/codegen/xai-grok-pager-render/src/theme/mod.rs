@@ -1036,6 +1036,41 @@ mod tests {
     }
 
     #[test]
+    fn focused_prompt_border_is_brighter_than_selection_in_rose_pine_and_oscura() {
+        use ratatui::style::Color;
+        let sum = |c: Color| -> i32 {
+            let Color::Rgb(r, g, b) = c else {
+                panic!("expected rgb, got {c:?}");
+            };
+            i32::from(r) + i32::from(g) + i32::from(b)
+        };
+        for theme in [Theme::rosepine_moon(), Theme::oscura_midnight()] {
+            let selection = sum(theme.selection_border);
+            let focused = sum(theme.prompt_border_active);
+            assert!(
+                focused >= selection + 48,
+                "focused prompt border {focused} should sit above selection {selection}"
+            );
+        }
+        assert_eq!(
+            Theme::rosepine_moon().selection_border,
+            Color::Rgb(86, 82, 110)
+        );
+        assert_eq!(
+            Theme::rosepine_moon().prompt_border_active,
+            Color::Rgb(110, 106, 134)
+        );
+        assert_eq!(
+            Theme::oscura_midnight().selection_border,
+            Color::Rgb(52, 48, 72)
+        );
+        assert_eq!(
+            Theme::oscura_midnight().prompt_border_active,
+            Color::Rgb(72, 68, 92)
+        );
+    }
+
+    #[test]
     fn scrollbar_thumb_contrasts_with_track_in_all_themes() {
         // Thumb must sit away from the canvas vs the track, by >=30 summed-RGB, or follow-mode's 40% blend hides the scrollbar.
         use ratatui::style::Color;

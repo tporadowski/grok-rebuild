@@ -71,7 +71,7 @@ impl Theme {
             selection_border: HIGHLIGHT_HIGH,
             hover_border: HIGHLIGHT_MED,
             prompt_border: HIGHLIGHT_MED,
-            prompt_border_active: HIGHLIGHT_HIGH,
+            prompt_border_active: MUTED, // #6e6a86, brighter when focused
 
             accent_model: PINE,
 
