@@ -56,6 +56,12 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-232 — Grok's own Node settings are not a hook identity in this tree
+
+The note says hooks no longer share an identity when Grok's own Node settings are present. Nothing in this tree is named that. `xai-grok-hooks` has no Node settings path, config key, or loader. `~/.grok/settings.json` is marketplace config, not a hook source. Discovery loads `~/.grok/hooks`, Claude `settings.json`, and Cursor `hooks.json`.
+
+The identities that do exist are not this bug. One pre-tool batch's `HookRunStarted` and `HookExecution` share `(event_name, tool_name, prompt_id)` on purpose (`pre_tool_batch_start_and_outcome_share_one_identity`). Discovery collapses a byte-identical hook from several origins on `(canonical event, command_raw, url_raw, configured_matcher)`. Generated names are `{file stem}:{event}[i].hooks[j]` plus `global/` or `project/`. A `command` of `node` with different `args` would collapse at discovery, and dispatch's run key already includes `args`, but the note does not say the shared field is the command or that `args` is what was missing. The word "node" elsewhere is a filesystem mount or inode, not a Node.js settings file. Splitting one of those identities would invent the fix (`v82-x02`).
+
 ### D-231 — Package version 1.0.81
 
 The lockstepped packages `xai-grok-version`, `xai-grok-shell`, `xai-grok-pager`, and `xai-grok-pager-bin` are `1.0.81`. `crates/codegen/xai-grok-shell/CHANGELOG.md` gained 1.0.81's own section, directly under `# Changelog`. `/release-notes` still prepends CDN `# ` sections whose headings are absent from that file.
@@ -998,7 +1004,7 @@ Refresh these numbers at the end of a session.
 | W2 | CLI surface | 1 | 0 | 7 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 1 | 0 | 12 | 12 | 7 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
-| W4 | Hooks | 1 | 0 | 24 | 10 | 2 |
+| W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 0 | 0 | 27 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 43 | 11 | 1 |
@@ -1012,9 +1018,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 18. Skipped: 9. Done: 523. Already: 109. Deferred: 25.
+Catalog rows: 684. Pending: 17. Skipped: 9. Done: 523. Already: 109. Deferred: 26.
 
-**Next:** `v82-x02`
+**Next:** `v82-f05`
 
 ## Waves
 
@@ -1036,7 +1042,7 @@ Pending: 0. Done: 6. Already: 1 (`v73-x12`, D-056). Look first: Do this after W1
 
 ### W4 — Hooks
 
-Pending: 1. Done: 24. Already: 10. Deferred: 2 (`v51-x37`, `v52-x17`, D-041). Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema.
+Pending: 0. Done: 24. Already: 10. Deferred: 3 (`v51-x37`, `v52-x17`, D-041; `v82-x02`, D-232). Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema. Nothing names Grok's own Node settings, and a batch start still shares its outcome identity on purpose (`v82-x02`, D-232).
 
 ### W5 — Workflows and goals
 
@@ -1175,7 +1181,7 @@ id | status | wave | kind | flag | covered | note
 - v67-x03 | done | W4 | Bug Fixes |  |  | **Quitting a session with hooks configured** is faster: the session-end `Stop` hook runs at the same time as the `SessionEnd` hooks and gets at most 1.5 seconds.
 - v71-f04 | done | W4 | Features |  |  | **Hooks** accept `"failClosed": true`: when such a `PreToolUse` or `UserPromptSubmit` hook times out or crashes, the tool call is denied or the prompt is blocked instead of going ahead.
 - v75-x18 | done | W4 | Bug Fixes |  |  | **Disabling a project's hook** in `/hooks` applies only to that repository, instead of also skipping hooks with the same name in other repositories.
-- v82-x02 | pending | W4 | Bug Fixes |  |  | **Hooks** no longer share an identity when Grok's own Node settings are present.
+- v82-x02 | deferred | W4 | Bug Fixes |  |  | **Hooks** no longer share an identity when Grok's own Node settings are present.
 - v47-x02 | done | W5 | Bug Fixes |  |  | **Clicking the Goal chip** now opens the goal panel even when workflow runs are present.
 - v50-x28 | done | W5 | Bug Fixes |  |  | A workflow file that fails to parse now reports the exact file and parse error instead of 'unknown workflow'.
 - v51-f02 | done | W5 | Features |  |  | Headless `grok -p` now waits for background goals to finish and reports their outcome.
