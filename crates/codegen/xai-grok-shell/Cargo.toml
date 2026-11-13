@@ -76,6 +76,8 @@ tokio = { workspace = true, features = [
     "sync",
 ] }
 tracing = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "fmt",

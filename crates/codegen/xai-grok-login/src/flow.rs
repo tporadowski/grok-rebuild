@@ -562,7 +562,7 @@ pub(super) async fn run_auth_flow_steps(
                     error = %e,
                     "auth: external auth provider failed, falling through to interactive login"
                 );
-                eprintln!("Signing in with browser instead...");
+                eprintln!("Signing in with browser instead…");
             }
         }
     }

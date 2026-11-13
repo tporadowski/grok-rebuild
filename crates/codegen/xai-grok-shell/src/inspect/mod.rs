@@ -1472,9 +1472,15 @@ fn print_columns<T>(
         return Ok(());
     }
     let names: Vec<String> = items.iter().map(&name).collect();
-    let pad = names.iter().map(String::len).max().unwrap_or(0).min(50);
+    let pad = names
+        .iter()
+        .map(|n| crate::util::columns::display_columns(n))
+        .max()
+        .unwrap_or(0)
+        .min(50);
     for (item, n) in items.iter().zip(&names) {
-        writeln!(out, "  {TREE} {:<pad$}  {}", n, label(item))?;
+        let shown = crate::util::columns::fit_cell(n, pad);
+        writeln!(out, "  {TREE} {shown}  {}", label(item))?;
     }
     Ok(())
 }
@@ -1578,11 +1584,9 @@ fn render_harness_compatibility(report: &ExternalCompatReport) -> String {
             let _ = writeln!(out, "  {TREE} {current_vendor}");
         }
         let status = if cell.enabled { "on" } else { "OFF" };
-        let _ = writeln!(
-            out,
-            "    {TREE} {:<10} {:<3}  ({})",
-            cell.surface, status, cell.source
-        );
+        let surface = crate::util::columns::fit_cell(&cell.surface, 10);
+        let status = crate::util::columns::fit_cell(status, 3);
+        let _ = writeln!(out, "    {TREE} {surface} {status}  ({})", cell.source);
     }
     out.push('\n');
     out
@@ -1919,6 +1923,58 @@ mod tests {
     use crate::agent::config::PathsConfig;
     use xai_grok_agent::prompt::skills::{SkillInfo, SkillsConfig};
     use xai_grok_tools::implementations::skills::types::SkillScope;
+
+    #[test]
+    fn ascii_name_column_keeps_format_width_spacing() {
+        let items = [("aaaa", "one"), ("bb", "two")];
+        let mut out = Vec::new();
+        print_columns(
+            &mut out,
+            "MCP Servers",
+            &items,
+            |(name, _)| (*name).to_owned(),
+            |(_, source)| (*source).to_owned(),
+        )
+        .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text, "\n  MCP Servers (2)\n  └ aaaa  one\n  └ bb    two\n");
+    }
+
+    #[test]
+    fn wide_names_stay_in_the_column_and_end_with_ellipsis() {
+        let long = "日本語".repeat(30);
+        let items = [(long.as_str(), "user"), ("short", "project")];
+        let mut out = Vec::new();
+        print_columns(
+            &mut out,
+            "MCP Servers",
+            &items,
+            |(name, _)| (*name).to_owned(),
+            |(_, source)| (*source).to_owned(),
+        )
+        .unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(!text.contains(&long), "{text}");
+        for (label, expect_ellipsis) in [("user", true), ("project", false)] {
+            let line = text
+                .lines()
+                .find(|line| line.ends_with(label))
+                .unwrap_or_else(|| panic!("missing {label} in {text}"));
+            let rest = line
+                .strip_prefix("  └ ")
+                .unwrap_or_else(|| panic!("row prefix: {line}"));
+            let suffix = format!("  {label}");
+            let shown = rest
+                .strip_suffix(&suffix)
+                .unwrap_or_else(|| panic!("row suffix: {line}"));
+            assert_eq!(crate::util::columns::display_columns(shown), 50, "{line}");
+            assert_eq!(
+                shown.trim_end().ends_with('…'),
+                expect_ellipsis,
+                "{line}"
+            );
+        }
+    }
 
     fn paths_config(extra_rule_dir: &Path) -> PathsConfig {
         PathsConfig {

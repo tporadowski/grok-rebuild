@@ -7,7 +7,7 @@
 //! It prints the provider URL on the real terminal, persists the token, then lets the pager start already authenticated.
 //!
 //! Deliberately does **not** call [`super::flow::run_auth_flow`]: on provider failure that falls through to browser OIDC.
-//! The fallthrough (`Signing in with browser instead...`) would re-enter the TUI splash this path exists to skip.
+//! The fallthrough (`Signing in with browser instead…`) would re-enter the TUI splash this path exists to skip.
 
 use std::sync::Arc;
 

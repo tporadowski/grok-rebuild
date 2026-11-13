@@ -277,8 +277,10 @@ pub fn byte_offset_at_width(s: &str, max_width: usize) -> usize {
 
 /// Left-align `s` in `width` display columns.
 /// `format!`'s `{:<width$}` pads by char count, which shears columns after wide (e.g. CJK) glyphs.
+/// Padding uses [`display_columns`], the same count [`truncate_to_width`] cuts on, so an emoji
+/// presentation such as `⚠️` does not stick out of the cell.
 pub fn pad_to_width(s: &str, width: usize) -> String {
-    let pad = width.saturating_sub(s.width());
+    let pad = width.saturating_sub(display_columns(s));
     let mut out = String::with_capacity(s.len() + pad);
     out.push_str(s);
     out.extend(std::iter::repeat_n(' ', pad));
@@ -368,6 +370,9 @@ mod tests {
         assert_eq!(pad_to_width("ab", 4), "ab  ");
         assert_eq!(pad_to_width("日本", 6), "日本  ");
         assert_eq!(pad_to_width("toolong", 3), "toolong");
+        let warning = pad_to_width("\u{26A0}\u{FE0F}", 4);
+        assert_eq!(display_columns(&warning), 4, "{warning:?}");
+        assert!(warning.ends_with("  "), "{warning:?}");
     }
 
     #[test]

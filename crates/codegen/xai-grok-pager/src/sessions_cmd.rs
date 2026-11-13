@@ -216,6 +216,37 @@ pub(crate) fn summary_or_untitled(title: &str) -> &str {
     }
 }
 
+const SESSION_ID_WIDTH: usize = 36;
+const DATE_WIDTH: usize = 10;
+const STATUS_WIDTH: usize = 10;
+const SUMMARY_WIDTH: usize = 50;
+
+/// First `DATE_WIDTH` bytes of an ISO timestamp, which is the calendar date.
+/// A slice that would split a character keeps the original string.
+fn session_date_cell(ts: &str) -> &str {
+    ts.get(..ts.len().min(DATE_WIDTH)).unwrap_or(ts)
+}
+
+/// One sessions-table row. Cells that would paint past their column end in `…`
+/// and stay inside that many terminal columns. The date prefix stays a cut of
+/// the timestamp, with no ellipsis, so `2026-11-13T12:00:00Z` still reads `2026-11-13`.
+fn format_session_row(
+    session_id: &str,
+    created_at: &str,
+    updated_at: &str,
+    source: &str,
+    summary: &str,
+) -> String {
+    format!(
+        "{}  {}  {}  {}  {}",
+        crate::util::truncate_to_width(session_id, SESSION_ID_WIDTH),
+        session_date_cell(created_at),
+        session_date_cell(updated_at),
+        crate::util::truncate_to_width(source, STATUS_WIDTH),
+        crate::util::truncate_to_width(summary, SUMMARY_WIDTH),
+    )
+}
+
 /// Print sessions grouped by worktree label, preserving the original table format with a `Label: <label>` header before each group.
 fn print_sessions_grouped(sessions: &[MergedSession]) -> Result<()> {
     if sessions.is_empty() {
@@ -233,7 +264,7 @@ fn print_sessions_grouped(sessions: &[MergedSession]) -> Result<()> {
     }
 
     let header = format!(
-        "{:<36}  {:<10}  {:<10}  {:<10}  {}",
+        "{:<SESSION_ID_WIDTH$}  {:<DATE_WIDTH$}  {:<DATE_WIDTH$}  {:<STATUS_WIDTH$}  {}",
         "SESSION ID", "CREATED", "UPDATED", "STATUS", "SUMMARY"
     );
 
@@ -254,18 +285,12 @@ fn print_sessions_grouped(sessions: &[MergedSession]) -> Result<()> {
             } else {
                 "(no summary)"
             };
-            let truncated: String = summary.chars().take(50).collect();
-            let created = s
-                .created_at
-                .get(..s.created_at.len().min(10))
-                .unwrap_or(s.created_at.as_str());
-            let updated = s
-                .updated_at
-                .get(..s.updated_at.len().min(10))
-                .unwrap_or(s.updated_at.as_str());
-            outln(format!(
-                "{}  {}  {}  {}  {}",
-                s.session_id, created, updated, s.source, truncated
+            outln(format_session_row(
+                &s.session_id,
+                &s.created_at,
+                &s.updated_at,
+                &s.source,
+                summary,
             ))?;
         }
         Ok(())
@@ -279,4 +304,60 @@ fn print_sessions_grouped(sessions: &[MergedSession]) -> Result<()> {
         print_group("(no label)", members)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn summary_cell(row: &str) -> &str {
+        row.rsplit_once("  ")
+            .map(|(_, summary)| summary)
+            .unwrap_or(row)
+    }
+
+    #[test]
+    fn session_summary_stays_within_display_columns_and_uses_one_ellipsis() {
+        let ascii = format_session_row(
+            "id",
+            "2026-11-13T12:00:00Z",
+            "2026-11-13T12:00:00Z",
+            "local",
+            "hello",
+        );
+        assert!(ascii.contains("2026-11-13"));
+        assert!(!ascii.contains('…'));
+        assert!(ascii.ends_with("hello"));
+
+        let fifty = "a".repeat(SUMMARY_WIDTH);
+        let exact = format_session_row("id", "2026-11-13", "2026-11-13", "local", &fifty);
+        assert!(summary_cell(&exact) == fifty.as_str());
+
+        let wide = "日本語".repeat(20);
+        let row = format_session_row("id", "2026-11-13", "2026-11-13", "both", &wide);
+        let summary = summary_cell(&row);
+        assert!(summary.ends_with('…'), "{summary}");
+        assert!(crate::util::display_columns(summary) <= SUMMARY_WIDTH);
+        assert!(!summary.contains(&wide));
+
+        let warning = format!("{}abcd", "\u{26A0}\u{FE0F}".repeat(SUMMARY_WIDTH));
+        let emoji_row = format_session_row("id", "d", "d", "local", &warning);
+        let emoji = summary_cell(&emoji_row);
+        assert!(emoji.ends_with('…'), "{emoji}");
+        assert!(crate::util::display_columns(emoji) <= SUMMARY_WIDTH);
+    }
+
+    #[test]
+    fn session_id_and_status_cut_with_the_same_ellipsis() {
+        let id = format_session_row(&"あ".repeat(40), "2026-11-13", "2026-11-13", "remote", "s");
+        let shown_id = id.split("  ").next().unwrap_or("");
+        assert!(shown_id.ends_with('…'), "{shown_id}");
+        assert!(crate::util::display_columns(shown_id) <= SESSION_ID_WIDTH);
+
+        let status = format_session_row("id", "2026-11-13", "2026-11-13", "ステータス値", "s");
+        let cells: Vec<&str> = status.split("  ").collect();
+        let source = cells.get(3).copied().unwrap_or("");
+        assert!(source.ends_with('…'), "{status}");
+        assert!(crate::util::display_columns(source) <= STATUS_WIDTH);
+    }
 }

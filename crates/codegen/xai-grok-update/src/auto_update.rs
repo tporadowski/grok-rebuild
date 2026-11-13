@@ -972,7 +972,7 @@ pub fn restart_grok() -> Result<()> {
     }
     cmd.env_clear();
     cmd.envs(std::env::vars_os().filter(|(k, _)| k != "GROK_AUTO_UPDATE"));
-    eprintln!("Restarting Grok...");
+    eprintln!("Restarting Grok…");
 
     // Use exec on Unix to replace the current process, avoiding stdio issues when the parent exits
     // On Windows, fall back to spawn and exit
@@ -1740,7 +1740,7 @@ async fn download_verified_from_base(
     let binary_path = download_dir.join(&binary_name);
     let staged = reinstall_paths(&binary_path, binary_path.exists());
 
-    eprintln!("  Downloading grok v{} ({})...", version, platform);
+    eprintln!("  Downloading grok v{} ({})…", version, platform);
 
     // The downloaded binary is already +x (see `publish_downloaded_artifact`)
     download_cli_artifact_from_gcs(gcs_base_url, &binary_name, &staged.download_to, true).await?;
@@ -2359,7 +2359,7 @@ async fn gh_release_download(tag: &str, pattern: &str, dest: &std::path::Path) -
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
-            .template("  {spinner:.cyan} Downloading from GitHub Releases...")
+            .template("  {spinner:.cyan} Downloading from GitHub Releases…")
             .unwrap(),
     );
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -2422,7 +2422,7 @@ async fn install_gh_release(target: Option<&str>) -> Result<()> {
     let tag = format!("v{}", version);
 
     eprintln!(
-        "  Downloading grok v{} ({}) from GitHub Releases...",
+        "  Downloading grok v{} ({}) from GitHub Releases…",
         version, platform
     );
 
@@ -2579,7 +2579,7 @@ fn install_npm(target: Option<&str>, channel: &str, npm_registry: Option<&str>) 
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
-            .template("  {spinner:.cyan} Installing via npm...")
+            .template("  {spinner:.cyan} Installing via npm…")
             .unwrap(),
     );
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -2749,7 +2749,7 @@ pub async fn run_update(
     // When --version is given, skip the latest-version check and install directly
     if let Some(version) = pinned_version {
         eprintln!(
-            "Installing Grok {} (current: {})...",
+            "Installing Grok {} (current: {})…",
             version, current_version
         );
         eprintln!();
@@ -2770,7 +2770,7 @@ pub async fn run_update(
     let pb = ProgressBar::new_spinner();
     pb.set_style(
         ProgressStyle::default_spinner()
-            .template("  {spinner:.cyan} Checking for updates...")
+            .template("  {spinner:.cyan} Checking for updates…")
             .unwrap(),
     );
     pb.enable_steady_tick(Duration::from_millis(100));

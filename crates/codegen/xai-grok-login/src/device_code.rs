@@ -344,7 +344,7 @@ async fn prompt_and_poll(
          Don't share it with anyone.\x1b[0m"
     );
     eprintln!();
-    eprintln!("Waiting for authorization...");
+    eprintln!("Waiting for authorization…");
 
     // The caller prints the `✓ Signed in` confirmation (it also owns the external-provider and devbox early-return paths that never reach here)
     complete_device_code_login(issuer, client_id, device_code, auth_manager, surface).await

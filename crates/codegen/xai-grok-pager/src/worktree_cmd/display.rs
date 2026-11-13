@@ -1,9 +1,10 @@
 use super::{DbStats, GcReport, RebuildReport};
 use crate::fs_size::{Volume, physical_dir_size};
-use crate::util::{format_age, format_bytes, pad_to_width, truncate_to_width, unix_now};
+use crate::util::{
+    display_columns, format_age, format_bytes, pad_to_width, truncate_to_width, unix_now,
+};
 use std::io::Write;
 use std::path::Path;
-use unicode_width::UnicodeWidthStr;
 use xai_fast_worktree::WorktreeRecord;
 const REPO_WIDTH: usize = 6;
 const BRANCH_WIDTH: usize = 20;
@@ -19,20 +20,20 @@ pub fn print_table(records: &[WorktreeRecord], out: &mut impl Write) -> std::io:
     }
     let id_width = records
         .iter()
-        .map(|r| UnicodeWidthStr::width(r.id.as_str()))
+        .map(|r| display_columns(r.id.as_str()))
         .max()
         .unwrap_or(0)
         .max(16);
     let label_width = records
         .iter()
-        .map(|r| r.label().map_or(0, UnicodeWidthStr::width))
+        .map(|r| r.label().map_or(0, display_columns))
         .max()
         .unwrap_or(0)
         .clamp(5, 24);
     let type_width = records
         .iter()
-        .map(|r| UnicodeWidthStr::width(r.kind.as_ref()))
-        .fold(UnicodeWidthStr::width("TYPE"), usize::max);
+        .map(|r| display_columns(r.kind.as_ref()))
+        .fold(display_columns("TYPE"), usize::max);
     writeln!(
         out,
         "  {} {} {} {} {} {:<AGE_WIDTH$} PATH",

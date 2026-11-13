@@ -372,7 +372,7 @@ mod windows {
             }
         };
         let zip = download_dir.join(format!("{object}.zip"));
-        eprintln!("  Downloading bundled git {version}...");
+        eprintln!("  Downloading bundled git {version}…");
         if let Err(e) = download_silent(&format!("{base}/{object}.zip"), &zip).await {
             tracing::warn!("MinGit payload: downloading {object}.zip failed: {e:#}");
             let _ = tokio::fs::remove_file(&zip).await;

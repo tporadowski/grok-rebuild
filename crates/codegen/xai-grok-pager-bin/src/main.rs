@@ -205,7 +205,7 @@ fn resolve_agent_profile_path(path: &std::path::Path) -> std::path::PathBuf {
 /// Print startup information for the serve command.
 fn print_serve_startup_info(bind_addr: SocketAddr, secret: &str) {
     eprintln!();
-    eprintln!("   Grok agent server starting...");
+    eprintln!("   Grok agent server starting…");
     eprintln!();
     eprintln!("   Address:  {}:{}", bind_addr.ip(), bind_addr.port());
     eprintln!("   Secret:   {}", secret);
@@ -2762,24 +2762,24 @@ async fn finish_update_on_exit(
     };
     match adopted {
         Some(handle) => {
-            eprintln!("Waiting for the update download to finish...");
+            eprintln!("Waiting for the update download to finish…");
             match handle.await {
                 Ok(Ok(status)) if status.success() => true,
                 Ok(Ok(status)) => {
                     run_blocking(Some(format!(
-                        "Background update exited with {status}; retrying..."
+                        "Background update exited with {status}; retrying…"
                     )))
                     .await
                 }
                 Ok(Err(e)) => {
                     run_blocking(Some(format!(
-                        "Could not wait for the background update ({e}); retrying..."
+                        "Could not wait for the background update ({e}); retrying…"
                     )))
                     .await
                 }
                 Err(join_err) => {
                     run_blocking(Some(format!(
-                        "Background update waiter failed ({join_err}); retrying..."
+                        "Background update waiter failed ({join_err}); retrying…"
                     )))
                     .await
                 }

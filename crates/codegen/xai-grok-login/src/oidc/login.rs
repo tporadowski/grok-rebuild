@@ -416,7 +416,7 @@ pub async fn run_login_flow_with_config(
         } else {
             oidc.issuer.clone()
         };
-        eprintln!("Signing in with {}...", provider_label);
+        eprintln!("Signing in with {}…", provider_label);
         eprintln!();
         if let Err(e) = webbrowser::open(&auth_url) {
             tracing::debug!(error = %e, "OIDC: failed to open browser");

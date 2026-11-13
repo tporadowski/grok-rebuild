@@ -788,6 +788,16 @@ pub async fn run_doctor(cwd: &Path, name_filter: Option<&str>) -> DoctorReport {
 
 // ── Human-readable output ───────────────────────────────────────
 
+const SOURCE_PATH_WIDTH: usize = 40;
+
+fn format_source_line(path: &str, status: &str) -> String {
+    format!(
+        "    {} {}",
+        crate::util::columns::fit_cell(path, SOURCE_PATH_WIDTH),
+        status
+    )
+}
+
 pub fn print_report(report: &DoctorReport) {
     println!();
     println!("MCP Doctor");
@@ -806,7 +816,7 @@ pub fn print_report(report: &DoctorReport) {
             ConfigSourceState::NotFound => "not found".to_string(),
             ConfigSourceState::Skipped { reason } => format!("skipped ({})", reason),
         };
-        println!("    {:<40} {}", source.path, status);
+        println!("{}", format_source_line(&source.path, &status));
     }
     println!();
 
@@ -855,6 +865,24 @@ pub fn print_report(report: &DoctorReport) {
 mod tests {
     use super::*;
     use mcp_servers::McpError;
+
+    #[test]
+    fn source_path_column_keeps_wide_text_from_pushing_status() {
+        let status = "3 servers";
+        let ascii = format_source_line("/home/grok/.grok/config.toml", status);
+        let wide = "日本語".repeat(20);
+        let wide_line = format_source_line(&wide, status);
+        assert!(!wide_line.contains(&wide), "{wide_line}");
+        assert!(wide_line.contains('…'), "{wide_line}");
+        let cols = |line: &str| {
+            let head = line
+                .strip_suffix(status)
+                .unwrap_or_else(|| panic!("status missing: {line}"));
+            crate::util::columns::display_columns(head)
+        };
+        assert_eq!(cols(&ascii), cols(&wide_line));
+        assert_eq!(cols(&ascii), 4 + SOURCE_PATH_WIDTH + 1);
+    }
 
     /// A hint must only survive on the first barrier.
     #[test]

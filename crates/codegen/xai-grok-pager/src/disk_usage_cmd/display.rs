@@ -5,11 +5,10 @@ use std::borrow::Cow;
 use std::io::Write;
 use std::path::Path;
 
-use unicode_width::UnicodeWidthStr;
 use xai_fast_worktree::WorktreeStatus;
 
 use super::{DiskUsageReport, Registration, RegistryState, WorktreeUsage};
-use crate::util::{format_age, format_bytes, pad_to_width, truncate_to_width};
+use crate::util::{display_columns, format_age, format_bytes, pad_to_width, truncate_to_width};
 
 const SIZE_WIDTH: usize = 10;
 const AGE_WIDTH: usize = 10;
@@ -111,13 +110,13 @@ pub fn print_report(
         let kind_cells: Vec<Cow<'_, str>> = report.worktrees.iter().map(kind_cell).collect();
         let kind_width = kind_cells
             .iter()
-            .map(|k| UnicodeWidthStr::width(k.as_ref()))
-            .fold(UnicodeWidthStr::width(TYPE_HEADER), usize::max);
+            .map(|k| display_columns(k.as_ref()))
+            .fold(display_columns(TYPE_HEADER), usize::max);
         let label_width = report
             .worktrees
             .iter()
-            .map(|w| UnicodeWidthStr::width(w.label()))
-            .fold(UnicodeWidthStr::width(LABEL_HEADER), usize::max)
+            .map(|w| display_columns(w.label()))
+            .fold(display_columns(LABEL_HEADER), usize::max)
             .min(LABEL_WIDTH_MAX);
         writeln!(
             out,

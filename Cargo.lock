@@ -14796,6 +14796,8 @@ dependencies = [
  "toml_edit 0.22.27",
  "tracing",
  "tracing-subscriber",
+ "unicode-segmentation",
+ "unicode-width 0.2.0",
  "url",
  "urlencoding",
  "uuid",

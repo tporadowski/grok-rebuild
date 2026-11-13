@@ -1,3 +1,4 @@
+pub(crate) mod columns;
 pub mod config;
 // Extracted to the `xai-grok-login` crate; re-exported so `crate::util::grok_auth_credentials::*` call sites keep compiling unchanged.
 pub use xai_grok_login::grok_auth_credentials;

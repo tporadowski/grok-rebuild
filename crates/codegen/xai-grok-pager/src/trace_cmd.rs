@@ -396,7 +396,7 @@ async fn run_export(
 ) -> Result<()> {
     let session_id = args.session_id.as_str();
     if !args.json {
-        eprintln!("Building session trace archive...");
+        eprintln!("Building session trace archive…");
     }
 
     let archive = build_session_tar(session_dir, session_id, agent_config)?;
@@ -462,7 +462,7 @@ async fn run_upload(
     };
 
     if !json {
-        eprintln!("Building session trace archive...");
+        eprintln!("Building session trace archive…");
     }
     let archive = build_session_tar(session_dir, session_id, agent_config)?;
     let archive_size = archive.len();
@@ -511,7 +511,7 @@ async fn run_upload(
     );
     if !json {
         let size_kb = archive_size / 1024;
-        eprintln!("Uploading session trace ({size_kb} KB)...");
+        eprintln!("Uploading session trace ({size_kb} KB)…");
         eprintln!("{method_desc}");
     }
 
@@ -697,7 +697,7 @@ async fn upload_with_retries(
     .retry(backoff)
     .notify(|err, dur| {
         tracing::warn!(error = %err, retry_in = ?dur, "trace_cmd: upload attempt failed, retrying");
-        eprintln!("  Upload failed, retrying in {}s...", dur.as_secs());
+        eprintln!("  Upload failed, retrying in {}s…", dur.as_secs());
     })
     .await
 }
