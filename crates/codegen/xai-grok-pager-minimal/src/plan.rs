@@ -32,10 +32,10 @@ fn focus(agent: &AgentView) -> PlanApprovalFocus {
 /// Scrollback notice when exit_plan_mode parks with no plan body.
 /// Kept short and plain (no markdown chrome) so native scrollback reads cleanly under minimal mode's chromeless commit path.
 const EMPTY_PLAN_SCROLLBACK: &str = "\
-No plan written yet.
+No plan written yet
 
 Approve to leave plan mode and start implementing, request changes to send the \
-agent back to planning, or quit to abandon.";
+agent back to planning, or quit to abandon";
 
 /// Controls-strip header for a parked plan approval.
 fn plan_header(has_plan: bool) -> &'static str {
@@ -223,8 +223,12 @@ mod tests {
     #[test]
     fn empty_plan_scrollback_uses_notice_not_silence() {
         let body = plan_scrollback_body(None);
-        assert!(body.contains("No plan written yet"));
+        assert!(body.starts_with("No plan written yet\n"));
         assert!(body.contains("Approve"));
+        assert!(
+            !body.trim_end().ends_with('.'),
+            "the empty-plan notice is unpunctuated: {body:?}"
+        );
 
         let whitespace = plan_scrollback_body(Some("  \n\t  "));
         assert_eq!(whitespace, body, "whitespace-only counts as empty");

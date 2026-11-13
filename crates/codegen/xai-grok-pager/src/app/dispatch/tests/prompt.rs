@@ -9,6 +9,19 @@ fn agent_ref(app: &AppView, id: AgentId) -> &AgentView {
     agent
 }
 
+#[test]
+fn plan_build_notices_do_not_end_with_a_period() {
+    for notice in [
+        super::super::prompt::TURN_BUSY_BUILD_NOTICE,
+        super::super::prompt::LEAVE_PLAN_BUILD_NOTICE,
+    ] {
+        assert!(
+            !notice.ends_with('.') && !notice.contains('.'),
+            "one-sentence plan notice must not use a period: {notice}"
+        );
+    }
+}
+
 /// Sending a prompt is a submit: it retires the active ephemeral tip.
 #[test]
 fn send_prompt_clears_active_ephemeral_tip() {
@@ -2953,7 +2966,7 @@ fn revise_send_success_commits_review_after_gates() {
     assert!(agent.plan_approval_view.is_none());
     assert_eq!(
         agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-        Some("Plan revision sent.")
+        Some("Plan revision sent")
     );
 }
 

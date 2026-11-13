@@ -96,7 +96,7 @@ async fn plan_overlay_slash_runs_command() {
     );
     let full = harness.full_text();
     assert!(
-        !full.contains("Plan revision sent."),
+        !full.contains("Plan revision sent"),
         "the command must not be sent as a revision; scrollback:\n{full}"
     );
     let leaked: Vec<String> = inference_requests(&content)

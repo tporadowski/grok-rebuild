@@ -21,11 +21,11 @@ use std::io::Read;
 pub(crate) const MAX_KEPT_PLAN_FILE_BYTES: u64 = crate::acp::MAX_PLAN_FILE_BYTES as u64;
 /// Shared by post-turn revise / abandon while ExecutePlan is already in flight.
 pub(crate) const BUILD_IN_FLIGHT_REVISE_NOTICE: &str =
-    "Wait for the current turn to end before revising the plan.";
+    "Wait for the current turn to end before revising the plan";
 pub(crate) const BUILD_IN_FLIGHT_ABANDON_NOTICE: &str =
-    "Wait for the current turn to end before abandoning the plan.";
+    "Wait for the current turn to end before abandoning the plan";
 pub(crate) const LEAVE_PLAN_REVISE_NOTICE: &str =
-    "Wait for plan mode to finish switching before revising the plan.";
+    "Wait for plan mode to finish switching before revising the plan";
 pub(crate) const PLAN_CHANGED_ON_DISK_NOTICE: &str =
     "The plan changed on disk. Review the updated plan before approving.";
 pub(crate) fn capped_kept_plan_body(text: String) -> Option<String> {
@@ -390,7 +390,7 @@ impl AgentView {
         } else {
             None
         }) else {
-            self.show_toast("No plan written yet.");
+            self.show_toast("No plan written yet");
             return;
         };
         viewer.kind = crate::views::file_search::line_viewer::LineViewerKind::PlanPreview;
@@ -444,11 +444,11 @@ impl AgentView {
         {
             let msg = match pav.focus {
                 PlanApprovalFocus::Commenting => {
-                    "The comment in progress is a slash command: finish or discard it before approving."
+                    "The comment in progress is a slash command: finish or discard it before approving"
                 }
                 PlanApprovalFocus::Preview | PlanApprovalFocus::Prompt => {
                     pav.focus = PlanApprovalFocus::Prompt;
-                    "Run the slash command in the notes with Enter, or clear it, before approving."
+                    "Run the slash command in the notes with Enter, or clear it, before approving"
                 }
             };
             if crate::app::minimal_mode_active() {
@@ -600,7 +600,7 @@ impl AgentView {
             return InputOutcome::Changed;
         };
         if self.is_post_turn_build_starting() {
-            self.show_toast("Wait for the current turn to end before abandoning the plan.");
+            self.show_toast(BUILD_IN_FLIGHT_ABANDON_NOTICE);
             return InputOutcome::Changed;
         }
         if pav.is_after_turn() {
@@ -679,7 +679,7 @@ impl AgentView {
                 pav.send_cancelled(None);
                 self.kept_plan.drop_body_if_pathed();
                 self.prompt.textarea.cancel_undo_group();
-                self.show_toast("Plan revision sent.");
+                self.show_toast("Plan revision sent");
                 log_plan_submit("revise");
             }
         }
@@ -703,7 +703,7 @@ impl AgentView {
                 .push_block(crate::scrollback::RenderBlock::user_prompt(msg.to_string()));
         }
         if post_turn && to_send.as_deref().is_none_or(|text| text.trim().is_empty()) {
-            self.show_toast("Type revision notes, or press a to approve.");
+            self.show_toast("Type revision notes, or press a to approve");
             return InputOutcome::Changed;
         }
         if self.is_post_turn_build_starting() {
@@ -729,7 +729,7 @@ impl AgentView {
             self.kept_plan.clear_body();
         }
         self.prompt.textarea.cancel_undo_group();
-        self.show_toast("Plan revision sent.");
+        self.show_toast("Plan revision sent");
         log_plan_submit("revise");
         InputOutcome::Changed
     }
@@ -866,7 +866,7 @@ impl AgentView {
                         return InputOutcome::Action(Action::SendPrompt(text));
                     }
                     if freeform_text.trim().is_empty() && !has_comments {
-                        self.show_toast("Type revision notes, or press a to approve.");
+                        self.show_toast("Type revision notes, or press a to approve");
                         return InputOutcome::Changed;
                     }
                     let freeform = {
@@ -1151,7 +1151,7 @@ impl AgentView {
     }
     pub(super) fn send_casual_plan_comments(&mut self) -> InputOutcome {
         if self.plan_comments.is_empty() {
-            self.show_toast("No comments to send.");
+            self.show_toast("No comments to send");
             return InputOutcome::Changed;
         }
         let plan_content = self.inline_plan_content().map(str::to_owned).or_else(|| {
@@ -1166,7 +1166,7 @@ impl AgentView {
         self.plan_comments.clear();
         self.plan_next_comment_id = 0;
         self.cancel_line_viewer();
-        self.show_toast("Plan feedback sent.");
+        self.show_toast("Plan feedback sent");
         InputOutcome::Action(Action::SendPrompt(text))
     }
 }
@@ -1374,9 +1374,31 @@ mod plan_approval_enter_tests {
         agent.toast.as_ref().map(|(msg, _)| msg.as_str())
     }
     const APPROVE_REFUSAL: &str =
-        "Run the slash command in the notes with Enter, or clear it, before approving.";
+        "Run the slash command in the notes with Enter, or clear it, before approving";
     const APPROVE_REFUSAL_COMMENTING: &str =
-        "The comment in progress is a slash command: finish or discard it before approving.";
+        "The comment in progress is a slash command: finish or discard it before approving";
+    #[test]
+    fn plan_notices_do_not_end_with_a_period() {
+        for notice in [
+            BUILD_IN_FLIGHT_REVISE_NOTICE,
+            BUILD_IN_FLIGHT_ABANDON_NOTICE,
+            LEAVE_PLAN_REVISE_NOTICE,
+            "No plan written yet",
+            "Plan revision sent",
+            "Type revision notes, or press a to approve",
+            "No comments to send",
+            "Plan feedback sent",
+            APPROVE_REFUSAL,
+            APPROVE_REFUSAL_COMMENTING,
+        ] {
+            assert!(
+                !notice.ends_with('.') && !notice.contains('.'),
+                "one-sentence plan notice must not use a period: {notice}"
+            );
+        }
+        assert!(PLAN_CHANGED_ON_DISK_NOTICE.contains(". "));
+        assert!(PLAN_CHANGED_ON_DISK_NOTICE.ends_with('.'));
+    }
     fn agent_with_revise_prompt() -> AgentView {
         agent_with_revise_prompt_and_response().0
     }
@@ -1413,7 +1435,7 @@ mod plan_approval_enter_tests {
         );
         assert_eq!(
             agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-            Some("Type revision notes, or press a to approve.")
+            Some("Type revision notes, or press a to approve")
         );
     }
     #[test]
@@ -1425,7 +1447,7 @@ mod plan_approval_enter_tests {
         assert!(agent.plan_approval_view.is_none());
         assert_eq!(
             agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-            Some("Plan revision sent.")
+            Some("Plan revision sent")
         );
     }
     #[test]
@@ -1443,7 +1465,7 @@ mod plan_approval_enter_tests {
         assert!(agent.plan_approval_view.is_none());
         assert_eq!(
             agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-            Some("Plan revision sent.")
+            Some("Plan revision sent")
         );
     }
     #[test]
@@ -1895,7 +1917,7 @@ mod plan_approval_enter_tests {
         );
         assert_eq!(
             agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-            Some("Type revision notes, or press a to approve.")
+            Some("Type revision notes, or press a to approve")
         );
     }
     #[test]
@@ -1930,7 +1952,7 @@ mod plan_approval_enter_tests {
             ),
             "the shell must not see a revision"
         );
-        assert_ne!(Some("Plan revision sent."), toast_text(&agent));
+        assert_ne!(Some("Plan revision sent"), toast_text(&agent));
     }
     #[test]
     fn enter_with_unedited_slash_prefill_empties_session_draft() {
@@ -1959,7 +1981,7 @@ mod plan_approval_enter_tests {
         let outcome = agent.handle_plan_feedback_key(&enter_key());
         assert!(matches!(outcome, InputOutcome::Changed));
         assert!(agent.plan_approval_view.is_none());
-        assert_eq!(Some("Plan revision sent."), toast_text(&agent));
+        assert_eq!(Some("Plan revision sent"), toast_text(&agent));
         let raw = rx
             .try_recv()
             .expect("revision response must be sent")
@@ -2559,7 +2581,7 @@ mod plan_approval_optimistic_mode_tests {
         );
         assert_eq!(
             agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-            Some("Type revision notes, or press a to approve.")
+            Some("Type revision notes, or press a to approve")
         );
         assert!(agent.kept_plan.is_kept());
     }
@@ -2715,7 +2737,7 @@ mod plan_approval_optimistic_mode_tests {
         assert!(plan_review_closed_rows(&agent).is_empty());
         assert_eq!(
             agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-            Some("Wait for the current turn to end before abandoning the plan.")
+            Some("Wait for the current turn to end before abandoning the plan")
         );
         assert!(agent.plan_mode_pending.is_none());
         assert!(matches!(
@@ -2728,7 +2750,7 @@ mod plan_approval_optimistic_mode_tests {
         assert!(plan_review_closed_rows(&agent).is_empty());
         assert_eq!(
             agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
-            Some("Wait for the current turn to end before revising the plan.")
+            Some("Wait for the current turn to end before revising the plan")
         );
     }
     #[test]

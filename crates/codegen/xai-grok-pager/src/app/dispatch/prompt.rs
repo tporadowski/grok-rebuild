@@ -47,8 +47,10 @@ pub(super) fn missing_session_cwd_notice(cwd: &std::path::Path) -> Option<String
 pub(super) use crate::app::agent_view::{
     BUILD_IN_FLIGHT_ABANDON_NOTICE, BUILD_IN_FLIGHT_REVISE_NOTICE, LEAVE_PLAN_REVISE_NOTICE,
 };
+pub(super) const TURN_BUSY_BUILD_NOTICE: &str =
+    "Wait for the current turn to end before building the plan";
 pub(super) const LEAVE_PLAN_BUILD_NOTICE: &str =
-    "Wait for plan mode to finish switching before building the plan.";
+    "Wait for plan mode to finish switching before building the plan";
 
 /// Chat kind for the next create: CLI `--chat` (`app.chat_mode`) or one-shot
 /// `/chat` (`deferred_startup.pending_chat`, consumed here).
@@ -211,7 +213,7 @@ pub(super) fn dispatch_execute_plan(
         return vec![];
     };
     if !agent.session.state.is_idle() {
-        agent.show_toast("Wait for the current turn to end before building the plan.");
+        agent.show_toast(TURN_BUSY_BUILD_NOTICE);
         return vec![];
     }
     // Shift+Tab / set_mode Off stages leave-Plan first. Approve must not
