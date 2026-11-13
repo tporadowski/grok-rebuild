@@ -920,13 +920,8 @@ pub(crate) fn build_hints(
             }
             if selected_is_user_prompt {
                 let user_collapsed = fold_label == Some("expand");
-                if user_collapsed {
-                    let key = registry
-                        .key_for_mode(ActionId::ToggleFold, vim_mode)
-                        .or_else(|| registry.key_for_mode(ActionId::Expand, vim_mode));
-                    if let Some(key) = key {
-                        hints.push(HintItem::new(key, "expand"));
-                    }
+                if user_collapsed && let Some(key) = registry.key_for(ActionId::OpenBlockViewer) {
+                    hints.push(HintItem::new(key, "expand"));
                 }
                 if let Some(key) = registry.key_for(ActionId::ExpandAllThinking) {
                     hints.push(HintItem::new(key, thinking_label));
@@ -947,9 +942,14 @@ pub(crate) fn build_hints(
                 } else {
                     ActionId::Collapse
                 };
-                let key = registry
-                    .key_for_mode(ActionId::ToggleFold, vim_mode)
-                    .or_else(|| registry.key_for_mode(directional, vim_mode));
+                // A long user message folds with Enter / Ctrl+F. Other blocks keep e / h / l.
+                let key = if selected_is_user_prompt {
+                    registry.key_for(ActionId::OpenBlockViewer)
+                } else {
+                    registry
+                        .key_for_mode(ActionId::ToggleFold, vim_mode)
+                        .or_else(|| registry.key_for_mode(directional, vim_mode))
+                };
                 if let Some(key) = key {
                     hints.push(HintItem::new(key, label));
                 }
@@ -1370,12 +1370,36 @@ mod tests {
         let registry = ActionRegistry::defaults();
         let hints = scrollback_hints(&registry, Some("expand"), false, false, true, false);
         assert_eq!(first_two_labels(&hints), vec!["expand", "expand thinking"]);
+        let enter = registry
+            .key_for(crate::actions::ActionId::OpenBlockViewer)
+            .expect("OpenBlockViewer has a default key");
+        let expand = hints
+            .iter()
+            .find(|hint| hint.label == "expand")
+            .expect("expand hint");
+        assert_eq!(
+            expand.keys,
+            vec![enter],
+            "Enter expands a long user message"
+        );
     }
     #[test]
     fn scrollback_user_prompt_expanded_hoists_thinking_then_space() {
         let registry = ActionRegistry::defaults();
         let hints = scrollback_hints(&registry, Some("collapse"), false, false, true, false);
         assert_eq!(first_two_labels(&hints), vec!["expand thinking", "prompt"]);
+        let enter = registry
+            .key_for(crate::actions::ActionId::OpenBlockViewer)
+            .expect("OpenBlockViewer has a default key");
+        let collapse = hints
+            .iter()
+            .find(|hint| hint.label == "collapse")
+            .expect("collapse hint");
+        assert_eq!(
+            collapse.keys,
+            vec![enter],
+            "Enter collapses a long user message"
+        );
     }
     #[test]
     fn scrollback_agent_message_hoists_copy_then_space() {

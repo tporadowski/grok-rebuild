@@ -2564,6 +2564,49 @@ mod link_click_tests {
             "expected fall-through to OpenBlockViewer, got {outcome:?}"
         );
     }
+    /// Enter and Ctrl+F expand or collapse a long user message in the transcript.
+    /// A short user message still takes the viewer path.
+    #[test]
+    fn enter_and_ctrl_f_fold_a_long_user_message_in_the_transcript() {
+        use crate::scrollback::types::DisplayMode;
+        let long = "one\ntwo\nthree\nfour";
+        let mut agent = make_agent();
+        agent
+            .scrollback
+            .push_block(crate::scrollback::block::RenderBlock::user_prompt(long));
+        agent.scrollback.prepare_layout(80, 40);
+        agent.scrollback.set_selected(Some(0));
+        let mode = |agent: &AgentView| {
+            agent
+                .scrollback
+                .entry(0)
+                .expect("user message")
+                .display_mode()
+        };
+        assert_eq!(mode(&agent), DisplayMode::Collapsed);
+        let registry = ActionRegistry::defaults();
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let ctrl_f = KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL);
+        let outcome = agent.handle_scrollback_key(&enter, &registry);
+        assert!(matches!(outcome, InputOutcome::Changed), "{outcome:?}");
+        assert_eq!(mode(&agent), DisplayMode::Expanded);
+        assert!(agent.block_viewer.is_none(), "the message stays in the transcript");
+        let outcome = agent.handle_scrollback_key(&ctrl_f, &registry);
+        assert!(matches!(outcome, InputOutcome::Changed), "{outcome:?}");
+        assert_eq!(mode(&agent), DisplayMode::Collapsed);
+
+        let mut agent = make_agent();
+        agent
+            .scrollback
+            .push_block(crate::scrollback::block::RenderBlock::user_prompt("hello"));
+        agent.scrollback.prepare_layout(80, 40);
+        agent.scrollback.set_selected(Some(0));
+        let outcome = agent.handle_scrollback_key(&enter, &registry);
+        assert!(
+            matches!(outcome, InputOutcome::Action(Action::OpenBlockViewer)),
+            "a short user message keeps the viewer path, got {outcome:?}"
+        );
+    }
     #[test]
     fn enter_on_subagent_group_header_falls_through_to_group_toggle() {
         let mut agent = make_agent();

@@ -76,6 +76,10 @@ impl AgentView {
         if action == Some(ActionId::OpenBlockViewer) && self.try_open_child_from_selected_row() {
             return InputOutcome::Changed;
         }
+        // A long user message folds in the transcript. Enter and Ctrl+F are this action.
+        if action == Some(ActionId::OpenBlockViewer) && self.toggle_selected_long_user_message() {
+            return InputOutcome::Changed;
+        }
         if self.vim_mode
             && key!('x').matches(key)
             && !self.scrollback.is_selected_group_header()
@@ -135,6 +139,23 @@ impl AgentView {
             return InputOutcome::ActionThenForward(Action::FocusPrompt);
         }
         InputOutcome::Unchanged
+    }
+
+    /// Expand or collapse the selected long user message in place.
+    /// A short message, and every other block, keeps the fullscreen viewer.
+    fn toggle_selected_long_user_message(&mut self) -> bool {
+        let Some(idx) = self.scrollback.selected() else {
+            return false;
+        };
+        let foldable_user = self
+            .scrollback
+            .entry(idx)
+            .is_some_and(|entry| entry.block.is_user_prompt() && entry.is_foldable());
+        if !foldable_user {
+            return false;
+        }
+        self.scrollback.toggle_fold_selected();
+        true
     }
 
     /// Quote the scrollback highlight, or else the selected message, into the prompt.

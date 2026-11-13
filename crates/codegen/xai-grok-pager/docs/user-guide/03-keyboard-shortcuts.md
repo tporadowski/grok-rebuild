@@ -92,8 +92,8 @@ Dragging across messages selects and copies the text of each message. It does no
 |-----|--------|
 | `y` | Copy block content to clipboard (rendered plain text for markdown). A quote in a finished reply also has a `[Copy]` button that copies that quote as Markdown without its `>` markers. A reference link inside that copy becomes an inline link, and an `&` in a link stays `&`. A code block inside a quote keeps the quote bar on every line. A code block's `[Copy]` copies that block while a queued prompt is open for editing, and the edit stays open. That button also stays clickable while a slash menu, `@` menu, completion menu, or prompt history is open; a click on the menu itself still picks the menu row. |
 | `⇧Y` | Copy block metadata (e.g., the shell command) to clipboard |
-| `Enter` | Open block content in fullscreen viewer |
-| `Ctrl+F` | Open block content in fullscreen viewer (alt binding) |
+| `Enter` | Open block content in the fullscreen viewer. A long user message expands or collapses in the transcript instead |
+| `Ctrl+F` | Same as `Enter` |
 | `Ctrl+L` | Quote the selected message, or the highlighted text, into the prompt. Extensions open with `/plugins` or `/hooks` |
 
 `Ctrl+O` copies the latest assistant reply: the same markdown `/copy` writes when it is given no arguments, even when an older assistant message is selected. A pinned upgrade prompt, the minimal-mode transcript opener, and Apple Terminal's send-now chord still use the key when those apply.
