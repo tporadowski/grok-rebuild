@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-237 — There is no `/debug tps` rate
+
+The note says `/debug tps` excludes model retry and auto-compaction waits from the tokens-per-second rate. `/debug` toggles the scroll HUD, the FPS overlay, and the scroll flight recorder (`slash/commands/debug.rs`). None of those is a token rate. Nothing in the pager, the shell, or the sampler formats tokens per second. Model retry and auto-compaction exist, and each has its own timing, but there is no rate that currently includes those waits. Adding `/debug tps` would invent the overlay and the formula (`v82-x08`).
+
 ### D-236 — A stale welcome click is dropped
 
 Welcome hit rects come from the last paint. The action for a rect index is chosen from the screen that is current: sign-in, access, ZDR, folder trust, consent, the resume picker, an open welcome dialog, and which menu rows are present. A left click that arrives after that screen changes, and before the next welcome frame, is dropped. It is not replayed as the action the painted screen would have run.
@@ -1042,13 +1046,13 @@ Refresh these numbers at the end of a session.
 | W12 | MCP, web, images, and browser | 0 | 0 | 46 | 13 | 9 |
 | W13 | Update, install, and sign-in | 2 | 0 | 25 | 10 | 0 |
 | W14 | Pager and remaining bug fixes | 3 | 1 | 152 | 20 | 4 |
-| W15 | Performance | 1 | 0 | 20 | 6 | 1 |
+| W15 | Performance | 0 | 0 | 20 | 6 | 2 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 9. Skipped: 9. Done: 531. Already: 109. Deferred: 26.
+Catalog rows: 684. Pending: 8. Skipped: 9. Done: 531. Already: 109. Deferred: 27.
 
-**Next:** `v82-x08`
+**Next:** `v83-x03`
 
 ## Waves
 
@@ -1110,7 +1114,7 @@ Pending: 3. Done: 152. Already: 20 (`v54-x03`, D-214; `v52-f05`, D-213; `v51-x11
 
 ### W15 — Performance
 
-Pending: 2. Done: 19. Already: 6 (`v54-p01`; `v54-p04`; `v69-p01`; `v74-p04`, D-221; `v74-p05`, D-222). Deferred: 1 (`v73-p01`, D-025). Look first: Performance notes. Confirm the cost with the existing code before adding caches. Skip a note whose hot path cannot be found and record that. Linux startup does not wait on the system-bus Hello handshake. A missing socket still skips the power listener. When the socket is present, that handshake runs on the power-listener thread (`v80-p02`, `open_listener_returns_while_the_bus_handshake_is_blocked`). A Kitty keyboard query that never answers stops at 500ms (`v80-p03`, `unanswered_keyboard_query_is_under_two_seconds`).
+Pending: 0. Done: 20. Already: 6 (`v54-p01`; `v54-p04`; `v69-p01`; `v74-p04`, D-221; `v74-p05`, D-222). Deferred: 2 (`v73-p01`, D-025; `v82-x08`, D-237). Look first: Performance notes. Confirm the cost with the existing code before adding caches. Skip a note whose hot path cannot be found and record that. Linux startup does not wait on the system-bus Hello handshake. A missing socket still skips the power listener. When the socket is present, that handshake runs on the power-listener thread (`v80-p02`, `open_listener_returns_while_the_bus_handshake_is_blocked`). A Kitty keyboard query that never answers stops at 500ms (`v80-p03`, `unanswered_keyboard_query_is_under_two_seconds`). `/debug` has no tokens-per-second toggle. The scroll HUD, the FPS overlay, and the scroll log are the only debug overlays, so there is no rate that can leave out model retry and auto-compaction waits (`v82-x08`, D-237).
 
 ## Catalog
 
@@ -1795,7 +1799,7 @@ id | status | wave | kind | flag | covered | note
 - v80-p01 | already | W15 | Performance |  |  | **Large pasted text** no longer stalls for many seconds when the terminal lacks bracketed-paste support.
 - v80-p02 | done | W15 | Performance |  |  | **Faster startup** on Linux when the system bus is slow or unresponsive.
 - v80-p03 | done | W15 | Performance |  |  | **Faster startup** when a Kitty-capable terminal never answers the keyboard protocol query.
-- v82-x08 | pending | W15 | Bug Fixes |  |  | **`/debug tps`** excludes model retry and auto-compaction waits from the tokens-per-second rate.
+- v82-x08 | deferred | W15 | Bug Fixes |  |  | **`/debug tps`** excludes model retry and auto-compaction waits from the tokens-per-second rate.
 - v52-f01 | skipped | SKIP | Features | skip-superseded | v63-f01 | **Rex terminal support**: Grok now reports its status (working, waiting for you, done, or failed) to Rex through OSC 7501, so Rex tabs show what each session is doing.
 - v55-x01 | skipped | SKIP | Bug Fixes | skip-unspecified |  | Minor bug fixes.
 - v56-x01 | skipped | SKIP | Bug Fixes | skip-unspecified |  | Minor bug fixes.
