@@ -88,8 +88,8 @@ mod tests {
 
     #[test]
     fn package_version_is_the_ported_release() {
-        assert_eq!(env!("CARGO_PKG_VERSION"), "1.0.82");
-        assert_eq!(VERSION, "1.0.82");
+        assert_eq!(env!("CARGO_PKG_VERSION"), "1.0.83");
+        assert_eq!(VERSION, "1.0.83");
     }
 
     #[test]

@@ -1,5 +1,14 @@
 # Changelog
 
+# 1.0.83 — 2026-11-11
+
+## Bug Fixes
+
+- **Welcome screens** display correctly on terminals with one or two rows or fewer than eight columns.
+- **A follow-up click** after you accept the consent notice or trust a folder no longer acts on the next screen before it is drawn.
+- **Bundled MinGit on Windows** uses the schannel backend for HTTPS operations.
+
+
 # 1.0.82 — 2026-11-11
 
 ## Features
