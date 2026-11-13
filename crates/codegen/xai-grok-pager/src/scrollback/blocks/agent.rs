@@ -565,6 +565,39 @@ mod tests {
     }
 
     #[test]
+    fn table_markdown_copy_keeps_backticks_around_inline_code() {
+        use crate::scrollback::table_copy::TableCopyFormat;
+
+        let block = AgentMessageBlock::new("| Note |\n| --- |\n| run `ls` |\n");
+        let pretty = ctx(80, false);
+        let affordances = block.table_copy_affordances(&pretty);
+        assert_eq!(affordances.len(), 1);
+        let markdown = affordances
+            .first()
+            .expect("one table")
+            .clipboard_text(TableCopyFormat::Markdown);
+        assert!(
+            markdown.contains("`ls`"),
+            "markdown export should keep the fence, got {markdown}"
+        );
+        let painted: String = block
+            .output(&pretty)
+            .lines
+            .iter()
+            .map(line_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !painted.contains('`'),
+            "the painted table hides fences, got {painted}"
+        );
+        assert!(
+            !block.copy_text(false).contains('`'),
+            "message copy stays on rendered text"
+        );
+    }
+
+    #[test]
     fn agent_copy_text_preserves_raw_semantics() {
         let block = AgentMessageBlock::new("**bold** text");
         assert_eq!(block.copy_text(true), "**bold** text");

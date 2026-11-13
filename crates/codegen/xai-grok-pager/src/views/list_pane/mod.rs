@@ -206,6 +206,12 @@ pub trait ListItem {
             .map(|s| s.content.as_ref())
             .collect()
     }
+
+    /// Clipboard text for `y`. Defaults to [`Self::copy_text`].
+    /// Override when the clipboard should differ from the painted line.
+    fn clipboard_text(&self) -> String {
+        self.copy_text()
+    }
 }
 
 /// Compute the display width of a ratatui `Line` (sum of span display widths).

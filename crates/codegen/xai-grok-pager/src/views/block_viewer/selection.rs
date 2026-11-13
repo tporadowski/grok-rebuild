@@ -450,20 +450,25 @@ impl BlockViewerPane {
             let Some(item) = items.get(idx) else {
                 break;
             };
-            let text = item.copy_text();
-            let slice = if start.item_idx == end.item_idx {
-                let lo = Self::col_at_char_start(&text, start.col);
-                let hi = crate::scrollback::types::col_past_grapheme(&text, end.col);
-                crate::scrollback::types::slice_display_cols(&text, lo, hi)
+            // Column bounds stay on the painted line. The clipboard string may be longer
+            // once inline-code fences are restored, so it must not feed the highlight math.
+            let painted = item.copy_text();
+            let (lo, hi) = if start.item_idx == end.item_idx {
+                (
+                    Self::col_at_char_start(&painted, start.col),
+                    crate::scrollback::types::col_past_grapheme(&painted, end.col),
+                )
             } else if idx == start.item_idx {
-                let lo = Self::col_at_char_start(&text, start.col);
-                crate::scrollback::types::slice_display_cols(&text, lo, u16::MAX)
+                (Self::col_at_char_start(&painted, start.col), u16::MAX)
             } else if idx == end.item_idx {
-                let hi = crate::scrollback::types::col_past_grapheme(&text, end.col);
-                crate::scrollback::types::slice_display_cols(&text, 0, hi)
+                (
+                    0,
+                    crate::scrollback::types::col_past_grapheme(&painted, end.col),
+                )
             } else {
-                text
+                (0, u16::MAX)
             };
+            let slice = super::clipboard_from_spans(&item.content, item.bg.is_some(), lo, hi);
             if wrote_any {
                 out.push('\n');
             }

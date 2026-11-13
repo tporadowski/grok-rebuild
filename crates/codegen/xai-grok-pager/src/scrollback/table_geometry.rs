@@ -677,18 +677,22 @@ mod tests {
             cells: vec![
                 TableCellCopy {
                     text: "Name".into(),
+                    display: "Name".into(),
                     joins: vec![],
                 },
                 TableCellCopy {
                     text: "Notes".into(),
+                    display: "Notes".into(),
                     joins: vec![],
                 },
                 TableCellCopy {
                     text: "Alice".into(),
+                    display: "Alice".into(),
                     joins: vec![],
                 },
                 TableCellCopy {
                     text: "likes  long   walks".into(),
+                    display: "likes  long   walks".into(),
                     joins: vec![CellJoin::Gap("  ".into()), CellJoin::Gap("   ".into())],
                 },
             ],

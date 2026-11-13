@@ -571,3 +571,150 @@ fn shift_y_in_the_markdown_viewer_copies_the_code_block_under_the_cursor() {
         );
     }
 }
+
+#[test]
+fn clipboard_span_wraps_a_fully_covered_inline_code_span() {
+    let _theme = crate::theme::cache::pin_theme();
+    let theme = crate::theme::Theme::current();
+    let code = Style::new().fg(theme.md_code).add_modifier(Modifier::BOLD);
+    let line = Line::from(vec![
+        Span::raw("hello "),
+        Span::styled("abc", code),
+        Span::raw(" tail"),
+    ]);
+    assert_eq!(
+        clipboard_from_spans(&line, false, 0, u16::MAX),
+        "hello `abc` tail"
+    );
+    assert_eq!(clipboard_from_spans(&line, false, 6, 9), "`abc`");
+    assert_eq!(
+        clipboard_from_spans(&line, false, 7, 8),
+        "b",
+        "a partial span stays on the painted columns"
+    );
+    assert_eq!(
+        clipboard_from_spans(&line, true, 0, u16::MAX),
+        "hello abc tail",
+        "a fenced code line does not gain inline fences"
+    );
+
+    let embedded = Line::from(vec![Span::styled("a`b", code)]);
+    assert_eq!(
+        clipboard_from_spans(&embedded, false, 0, u16::MAX),
+        "``a`b``"
+    );
+
+    let raw = Line::from(vec![
+        Span::raw("hello "),
+        Span::raw("`"),
+        Span::styled("abc", code),
+        Span::raw("`"),
+        Span::raw(" tail"),
+    ]);
+    assert_eq!(
+        clipboard_from_spans(&raw, false, 0, u16::MAX),
+        "hello `abc` tail",
+        "raw mode already paints the fences"
+    );
+}
+
+#[test]
+fn markdown_viewer_y_keeps_backticks_around_inline_code() {
+    use std::sync::{Arc, Mutex};
+    use xai_ratatui_textarea::ClipboardProvider;
+
+    // `NO_COLOR` quantizes every theme color to Reset, and the renderer then
+    // drops that foreground. Pin a real palette so inline code is distinguishable.
+    let _theme = crate::theme::cache::pin_theme();
+
+    #[derive(Debug)]
+    struct RecordingClip {
+        last: Arc<Mutex<Option<String>>>,
+    }
+    impl ClipboardProvider for RecordingClip {
+        fn get(&mut self) -> Option<String> {
+            self.last.lock().unwrap().clone()
+        }
+        fn set(&mut self, text: &str) {
+            *self.last.lock().unwrap() = Some(text.to_string());
+        }
+    }
+
+    let entry = ScrollbackEntry::new(RenderBlock::agent_message("use `ls` here"));
+    let mut pane = BlockViewerPane::for_markdown(entry.id, &entry).expect("markdown");
+    pane.prepare_for_test(area());
+    let clip = Arc::new(Mutex::new(None));
+    pane.list_state
+        .set_clipboard_provider(Box::new(RecordingClip { last: clip.clone() }));
+    let idx = pane
+        .items
+        .iter()
+        .position(|item| item.plain_text.contains("ls"))
+        .expect("the prose line");
+    let painted = pane
+        .items
+        .get(idx)
+        .map(|item| item.copy_text())
+        .unwrap_or_default();
+    assert!(
+        !painted.contains('`'),
+        "the painted line hides fences, got {painted:?}"
+    );
+    pane.select_body_line_for_test(idx);
+    assert!(pane.handle_key(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)));
+    let copied = clip.lock().unwrap().clone().unwrap_or_default();
+    assert!(
+        copied.contains("`ls`"),
+        "y should restore the fence, got {copied:?}"
+    );
+
+    let fenced = ScrollbackEntry::new(RenderBlock::agent_message("```\nfn main() {}\n```\n"));
+    let mut code_pane = BlockViewerPane::for_markdown(fenced.id, &fenced).expect("code");
+    code_pane.prepare_for_test(area());
+    let code_clip = Arc::new(Mutex::new(None));
+    code_pane
+        .list_state
+        .set_clipboard_provider(Box::new(RecordingClip {
+            last: code_clip.clone(),
+        }));
+    let code_idx = code_pane
+        .items
+        .iter()
+        .position(|item| item.plain_text.contains("fn main"))
+        .expect("code line");
+    code_pane.select_body_line_for_test(code_idx);
+    assert!(code_pane.handle_key(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)));
+    let code_copied = code_clip.lock().unwrap().clone().unwrap_or_default();
+    let code_painted = code_pane
+        .items
+        .get(code_idx)
+        .map(|item| item.copy_text())
+        .unwrap_or_default();
+    assert_eq!(
+        code_copied, code_painted,
+        "a fenced line must not gain inline fences"
+    );
+
+    let mut raw_entry = ScrollbackEntry::new(RenderBlock::agent_message("use `ls` here"));
+    raw_entry.toggle_raw();
+    let mut raw = BlockViewerPane::for_markdown(raw_entry.id, &raw_entry).expect("raw");
+    raw.prepare_for_test(area());
+    let raw_clip = Arc::new(Mutex::new(None));
+    raw.list_state
+        .set_clipboard_provider(Box::new(RecordingClip {
+            last: raw_clip.clone(),
+        }));
+    let raw_idx = raw
+        .items
+        .iter()
+        .position(|item| item.plain_text.contains("ls"))
+        .expect("raw prose");
+    raw.select_body_line_for_test(raw_idx);
+    assert!(raw.handle_key(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)));
+    let raw_copied = raw_clip.lock().unwrap().clone().unwrap_or_default();
+    assert_eq!(
+        raw_copied.matches('`').count(),
+        2,
+        "raw mode must not double the fence, got {raw_copied:?}"
+    );
+}

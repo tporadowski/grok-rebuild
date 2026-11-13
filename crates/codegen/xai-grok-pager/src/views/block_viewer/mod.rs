@@ -82,6 +82,104 @@ impl ListItem for ContentLine {
     fn background(&self) -> Option<Color> {
         self.bg
     }
+
+    fn clipboard_text(&self) -> String {
+        clipboard_from_spans(&self.content, self.bg.is_some(), 0, u16::MAX)
+    }
+}
+
+/// Clipboard text for one rendered line.
+/// Columns stay on the painted spans. A fully covered inline-code span gains fences.
+/// A line that already paints those fences (raw mode) is not wrapped again.
+/// Fenced code keeps its syntax spans.
+fn clipboard_from_spans(line: &Line<'_>, code_block: bool, start: u16, end: u16) -> String {
+    if start >= end {
+        return String::new();
+    }
+    let code_style = inline_code_style();
+    let mut out = String::new();
+    let mut col: u16 = 0;
+    let spans = &line.spans;
+    for (idx, span) in spans.iter().enumerate() {
+        let width = u16::try_from(crate::scrollback::types::str_display_cells(
+            span.content.as_ref(),
+        ))
+        .unwrap_or(u16::MAX);
+        let span_start = col;
+        let span_end = col.saturating_add(width);
+        col = span_end;
+        if span_end <= start || span_start >= end {
+            continue;
+        }
+        let take_lo = start.max(span_start).saturating_sub(span_start);
+        let take_hi = end.min(span_end).saturating_sub(span_start);
+        let piece =
+            crate::scrollback::types::slice_display_cols(span.content.as_ref(), take_lo, take_hi);
+        let full = width > 0 && take_lo == 0 && take_hi == width;
+        if full
+            && !code_block
+            && span_is_inline_code(span, code_style)
+            && !neighbor_paints_fence(spans, idx)
+        {
+            push_inline_fences(&mut out, &piece);
+        } else {
+            out.push_str(&piece);
+        }
+    }
+    out
+}
+
+/// Ratatui style the markdown renderer paints for inline code.
+/// `md_style` speaks anstyle; the viewer lines are already ratatui spans.
+fn inline_code_style() -> Style {
+    let theme = crate::theme::Theme::current();
+    Style::new().fg(theme.md_code).add_modifier(Modifier::BOLD)
+}
+
+fn span_is_inline_code(span: &Span<'_>, code: Style) -> bool {
+    !span.content.is_empty()
+        && span.style.fg == code.fg
+        && span.style.add_modifier.contains(Modifier::BOLD)
+}
+
+fn neighbor_paints_fence(spans: &[Span<'_>], idx: usize) -> bool {
+    let prev = idx.checked_sub(1).and_then(|i| spans.get(i));
+    let next = spans.get(idx.saturating_add(1));
+    prev.is_some_and(is_backtick_span) || next.is_some_and(is_backtick_span)
+}
+
+fn is_backtick_span(span: &Span<'_>) -> bool {
+    let text = span.content.as_ref();
+    !text.is_empty() && text.bytes().all(|byte| byte == b'`')
+}
+
+/// Fence long enough to round-trip `content`, with a space pad when the text needs one.
+fn push_inline_fences(out: &mut String, content: &str) {
+    let mut max_run = 0usize;
+    let mut run = 0usize;
+    for ch in content.chars() {
+        if ch == '`' {
+            run += 1;
+            max_run = max_run.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    let fence_len = max_run.saturating_add(1);
+    let pad = content.starts_with([' ', '`']) || content.ends_with([' ', '`']);
+    for _ in 0..fence_len {
+        out.push('`');
+    }
+    if pad {
+        out.push(' ');
+    }
+    out.push_str(content);
+    if pad {
+        out.push(' ');
+    }
+    for _ in 0..fence_len {
+        out.push('`');
+    }
 }
 
 /// Metadata for a single diff line, stored parallel to `items` in the edit viewer.

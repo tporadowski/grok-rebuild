@@ -1024,8 +1024,14 @@ pub fn reconstruct_table_selection_text_with_meta(
                     joiner.push(&full_band, copied.trim());
                 }
             }
-            if copy.is_some() {
-                Some(joined)
+            if let Some(copy) = copy {
+                // A drag that covers the painted cell gets the fenced clipboard text.
+                // A partial drag stays on the painted fragments, so columns do not shift.
+                if joined == copy.display {
+                    Some(copy.text.clone())
+                } else {
+                    Some(joined)
+                }
             } else {
                 Some(joiner.into_string())
             }
@@ -4227,6 +4233,7 @@ mod tests {
             n_cols: 1,
             cells: vec![TableCellCopy {
                 text: "foo\n\nbar".into(),
+                display: "foo\n\nbar".into(),
                 joins: vec![CellJoin::Tight, CellJoin::Gap("\n\n".into())],
             }],
         };
@@ -4234,6 +4241,39 @@ mod tests {
         assert_eq!(
             reconstruct_table_selection_text_with_meta(&geom, &drag, text_at, Some(&meta)),
             Some("foo\n\nbar".to_string())
+        );
+    }
+
+    #[test]
+    fn full_cell_drag_uses_fenced_copy_when_painted_text_matches() {
+        const LINES: &[&str] = &[
+            "┌────────┐",
+            "│ foo    │",
+            "│        │",
+            "│ bar    │",
+            "└────────┘",
+        ];
+        let text_at = |i: usize| LINES.get(i).map(|s| s.to_string());
+        let geom = TableGeometry::detect(text_at, 1).expect("grid");
+        let meta = TableCopyMeta {
+            line_index: 0,
+            line_count: LINES.len(),
+            n_cols: 1,
+            cells: vec![TableCellCopy {
+                text: "`foo`\n\n`bar`".into(),
+                display: "foo\n\nbar".into(),
+                joins: vec![CellJoin::Tight, CellJoin::Gap("\n\n".into())],
+            }],
+        };
+        let drag = table_drag((1, 2), (3, 5), SelectionKind::TableCell);
+        assert_eq!(
+            reconstruct_table_selection_text_with_meta(&geom, &drag, text_at, Some(&meta)),
+            Some("`foo`\n\n`bar`".to_string())
+        );
+        let partial = table_drag((1, 2), (1, 3), SelectionKind::TableCell);
+        assert_eq!(
+            reconstruct_table_selection_text_with_meta(&geom, &partial, text_at, Some(&meta)),
+            Some("fo".to_string())
         );
     }
 

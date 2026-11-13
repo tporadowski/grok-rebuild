@@ -1089,6 +1089,16 @@ pub(crate) fn normalize_label(label: &str) -> String {
     label.replace('\n', " ").replace("  ", " ")
 }
 
+/// Text `y` copies for one option. The description is markdown source, so inline-code fences stay.
+pub(crate) fn option_clipboard_text(label: &str, description: &str) -> String {
+    let mut text = normalize_label(label);
+    if !description.is_empty() {
+        text.push('\n');
+        text.push_str(description);
+    }
+    text
+}
+
 fn rendered_option_label(option: &QuestionOption, max_label_w: usize) -> String {
     if max_label_w == 0 {
         String::new()
@@ -1946,6 +1956,13 @@ mod tests {
         assert_eq!(hot.key.bg, Some(theme.bg_hover));
         assert_eq!(hot.pad.bg, Some(theme.bg_hover));
         assert_ne!(theme.text_primary, theme.gray);
+    }
+
+    #[test]
+    fn option_copy_keeps_backticks_in_the_description() {
+        let text = option_clipboard_text("Run", "run `ls`");
+        assert_eq!(text, "Run\nrun `ls`");
+        assert!(text.contains("`ls`"));
     }
 
     fn at<'a, T>(xs: &'a [T], i: usize) -> &'a T {

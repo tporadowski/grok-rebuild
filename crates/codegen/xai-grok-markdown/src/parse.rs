@@ -97,6 +97,30 @@ fn anstyle_to_ratatui_color(color: anstyle::Color) -> ratatui::style::Color {
     }
 }
 
+/// Opening fence length and whether a space sits just inside both fences.
+/// `Event::Code` yields the inner text; `outer` is the source slice, fences included.
+fn inline_code_fence(outer: &str) -> (u8, bool) {
+    let bytes = outer.as_bytes();
+    let mut fence = 0usize;
+    while bytes.get(fence) == Some(&b'`') {
+        fence += 1;
+    }
+    if fence == 0 {
+        return (1, false);
+    }
+    let fence = fence.min(u8::MAX as usize);
+    let close = bytes.len().saturating_sub(fence);
+    if close < fence {
+        return (fence as u8, false);
+    }
+    let closing = bytes.get(close..).unwrap_or(b"");
+    if closing.len() != fence || closing.iter().any(|byte| *byte != b'`') {
+        return (fence as u8, false);
+    }
+    let pad = bytes.get(fence) == Some(&b' ') && bytes.get(close.saturating_sub(1)) == Some(&b' ');
+    (fence as u8, pad)
+}
+
 /// Find a substring within a haystack, optionally searching outside or using rfind.
 fn find_substring(
     haystack: &str,
@@ -957,12 +981,24 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                 }
             }
             Event::Code(code) => {
-                // Capture code content into table cell if we're inside a table
+                // Capture code content into table cell if we're inside a table.
+                // The fence length is the source run, so a double-backtick span stays double.
                 if let Some(ref mut state) = self.table_state {
+                    let (fence, pad) = self
+                        .text
+                        .get(range.clone())
+                        .map(inline_code_fence)
+                        .unwrap_or((1, false));
                     let prev_code = state.cell_code;
+                    let prev_fence = state.cell_code_fence;
+                    let prev_pad = state.cell_code_pad;
                     state.cell_code = true;
+                    state.cell_code_fence = fence;
+                    state.cell_code_pad = pad;
                     state.push_text(&code);
                     state.cell_code = prev_code;
+                    state.cell_code_fence = prev_fence;
+                    state.cell_code_pad = prev_pad;
                 }
                 self.style_inline_code_span(&code, &range);
             }
@@ -2252,9 +2288,15 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
         let mut wrapped_cells = Vec::with_capacity(col_widths.len());
         let mut cell_copies = Vec::with_capacity(col_widths.len());
         for (i, &width) in col_widths.iter().enumerate() {
-            let text = cells.get(i).map(|c| c.plain_text()).unwrap_or_default();
-            let (lines, joins) = Self::wrap_cell_text_joins(&text, width);
-            cell_copies.push(TableCellCopy { text, joins });
+            let display = cells.get(i).map(|c| c.plain_text()).unwrap_or_default();
+            let text = cells.get(i).map(|c| c.copy_text()).unwrap_or_default();
+            // Joins follow the painted cell. `text` is the clipboard form, fences included.
+            let (lines, joins) = Self::wrap_cell_text_joins(&display, width);
+            cell_copies.push(TableCellCopy {
+                text,
+                display,
+                joins,
+            });
             wrapped_cells.push(lines);
         }
 

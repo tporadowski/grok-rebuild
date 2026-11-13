@@ -85,6 +85,10 @@ pub struct CellSpan {
     /// Hyperlink (url, id) when this span is inside a `[label](url)` link or autolink inside a table cell.
     /// `None` for plain text.
     pub link: Option<(String, u32)>,
+    /// Opening backtick run from the source. `0` when this span is not inline code.
+    pub code_fence: u8,
+    /// The source put a space just inside each fence.
+    pub code_pad: bool,
 }
 
 impl CellSpan {
@@ -103,6 +107,8 @@ impl CellSpan {
             code,
             strike,
             link,
+            code_fence: 0,
+            code_pad: false,
         }
     }
 }
@@ -121,6 +127,19 @@ impl StyledCell {
     /// Get plain text content (for width calculation).
     pub fn plain_text(&self) -> String {
         self.spans.iter().map(|s| s.text.as_str()).collect()
+    }
+
+    /// Clipboard text. Inline code keeps the source fence; widths stay on [`Self::plain_text`].
+    pub fn copy_text(&self) -> String {
+        let mut out = String::new();
+        for span in &self.spans {
+            if span.code_fence > 0 {
+                push_fenced_code(&mut out, &span.text, span.code_fence, span.code_pad);
+            } else {
+                out.push_str(&span.text);
+            }
+        }
+        out
     }
 
     pub fn clear(&mut self) {
@@ -145,6 +164,10 @@ pub struct TableState {
     pub cell_bold: bool,
     pub cell_italic: bool,
     pub cell_code: bool,
+    /// Opening fence length while `cell_code` is set. `0` when the span is not inline code.
+    pub cell_code_fence: u8,
+    /// Space padding that belongs to the current inline-code fence.
+    pub cell_code_pad: bool,
     pub cell_strike: bool,
     /// Current link state: `Some((url, id))` while inside a `Tag::Link` / `Tag::Image` inside a table cell.
     /// Text events while this is set produce link-tagged `CellSpan`s so the table renderer can apply link styling and emit `HyperlinkTarget`s.
@@ -166,6 +189,8 @@ impl TableState {
             cell_bold: false,
             cell_italic: false,
             cell_code: false,
+            cell_code_fence: 0,
+            cell_code_pad: false,
             cell_strike: false,
             cell_link: None,
             in_header: false,
@@ -177,14 +202,37 @@ impl TableState {
     /// Tabs expand here so column widths match the painted spaces. The markdown source still has the tabs.
     pub fn push_text(&mut self, text: &str) {
         let painted = crate::paint_tabs::expand_paint_tabs(text);
-        self.current_cell.spans.push(CellSpan::new(
+        let mut span = CellSpan::new(
             painted.into_owned(),
             self.cell_bold,
             self.cell_italic,
             self.cell_code,
             self.cell_strike,
             self.cell_link.clone(),
-        ));
+        );
+        if self.cell_code {
+            span.code_fence = self.cell_code_fence;
+            span.code_pad = self.cell_code_pad;
+        }
+        self.current_cell.spans.push(span);
+    }
+}
+
+/// Wrap `text` in `fence` backticks, restoring a source space pad when `pad` is set.
+fn push_fenced_code(out: &mut String, text: &str, fence: u8, pad: bool) {
+    let n = usize::from(fence.max(1));
+    for _ in 0..n {
+        out.push('`');
+    }
+    if pad {
+        out.push(' ');
+    }
+    out.push_str(text);
+    if pad {
+        out.push(' ');
+    }
+    for _ in 0..n {
+        out.push('`');
     }
 }
 
@@ -197,7 +245,10 @@ pub enum CellJoin {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableCellCopy {
+    /// Clipboard text. Inline code keeps its fences.
     pub text: String,
+    /// Painted cell text. Wrap joins are computed from this, not from [`Self::text`].
+    pub display: String,
     pub joins: Vec<CellJoin>,
 }
 

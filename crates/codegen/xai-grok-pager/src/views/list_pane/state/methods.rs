@@ -372,7 +372,7 @@ impl ListPaneState {
                 let mut lines = Vec::with_capacity(range.len());
                 for vi in range.clone() {
                     if let Some(item) = self.item_at(vi, items) {
-                        lines.push(item.copy_text());
+                        lines.push(item.clipboard_text());
                     }
                 }
                 let joined = lines.join("\n");
@@ -391,7 +391,7 @@ impl ListPaneState {
         let Some(item) = self.item_at(vi, items) else {
             return false;
         };
-        let text = item.copy_text();
+        let text = item.clipboard_text();
         if text.is_empty() {
             return false;
         }

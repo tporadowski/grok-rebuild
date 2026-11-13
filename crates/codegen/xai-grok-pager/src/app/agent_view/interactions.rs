@@ -593,12 +593,10 @@ impl AgentView {
                             if let Some(question) = qv.questions.get(active)
                                 && let Some(option) = question.options.get(cursor)
                             {
-                                let mut text =
-                                    crate::views::question_view::normalize_label(&option.label);
-                                if !option.description.is_empty() {
-                                    text.push('\n');
-                                    text.push_str(&option.description);
-                                }
+                                let text = crate::views::question_view::option_clipboard_text(
+                                    &option.label,
+                                    &option.description,
+                                );
                                 self.copy_to_clipboard(&text);
                             }
                         }

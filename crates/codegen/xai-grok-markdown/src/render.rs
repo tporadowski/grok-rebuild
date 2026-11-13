@@ -1627,6 +1627,46 @@ mod tests {
         );
     }
 
+    /// Table clipboard text keeps the source fence. Painted cells do not grow by it.
+    #[test]
+    fn table_cell_copy_keeps_inline_code_fences() {
+        let cases = [
+            (
+                "| A |\n|---|\n| hello `abc` |\n",
+                "hello abc",
+                "hello `abc`",
+            ),
+            ("| A |\n|---|\n| ``a`b`` |\n", "a`b", "``a`b``"),
+            ("| A |\n|---|\n| ``abc`` |\n", "abc", "``abc``"),
+            ("| A |\n|---|\n| ` foo ` |\n", "foo", "` foo `"),
+            ("| A |\n|---|\n| `a\tb` |\n", "a    b", "`a    b`"),
+        ];
+        for (md, display, text) in cases {
+            let (output, _) = render_markdown_ratatui_full(md, test_style::STYLE, true, None);
+            let table = output
+                .tables
+                .first()
+                .unwrap_or_else(|| panic!("no table for {md}"));
+            let body = table
+                .cells
+                .get(1)
+                .unwrap_or_else(|| panic!("no body cell for {md}"));
+            assert_eq!(body.display, display, "{md}");
+            assert_eq!(body.text, text, "{md}");
+            let painted = lines_to_text(&output.lines).join("\n");
+            assert!(
+                painted.contains(display),
+                "painted table should keep the cell text {display:?}, got {painted:?}"
+            );
+            if !display.contains('`') {
+                assert!(
+                    !painted.contains('`'),
+                    "painted table should hide fences, got {painted:?}"
+                );
+            }
+        }
+    }
+
     /// Regression: table cells with multi-byte UTF-8 characters (em-dash '—', CJK, emoji) could panic with "byte index N is not a char boundary".
     /// Cell wrapping can make `prev_len` (the sum of wrapped-line byte lengths) land inside a multi-byte character sequence.
     #[test]
