@@ -852,7 +852,8 @@ pub fn default_settings() -> Vec<SettingMeta> {
             hidden_in_minimal: false,
         },
         // Security-relevant: "always-approve" bypasses all permission prompts.
-        // The modal reads live state from `PagerLocalSnapshot.yolo_mode` (not `ui.permission_mode`) to reflect Ctrl+O toggles immediately
+        // The modal reads live state from `PagerLocalSnapshot.yolo_mode` (not `ui.permission_mode`)
+        // so a Shift+Tab or /always-approve change shows immediately.
         SettingMeta {
             key: "permission_mode",
             category: SettingCategory::Agent,

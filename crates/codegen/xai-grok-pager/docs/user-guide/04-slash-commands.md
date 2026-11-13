@@ -131,7 +131,7 @@ Both are real toggles for the permission mode: they stay in the menu, and runnin
 | `/always-approve` | Skip all permission prompts | Back to ask |
 | `/auto` | Auto-review: a classifier approves safe tools (dangerous ones may still prompt) | Back to ask |
 
-Running one while the other is active switches modes — for example, `/auto` while always-approve is on switches to Auto-review. `/auto` only appears when the Auto-review permission-mode feature is enabled. You can also change mode with `Shift+Tab` (cycles Normal / Plan / Auto-review (when enabled) / Always-approve), `Ctrl+O`, or `/settings`.
+Running one while the other is active switches modes — for example, `/auto` while always-approve is on switches to Auto-review. `/auto` only appears when the Auto-review permission-mode feature is enabled. You can also change mode with `Shift+Tab` (cycles Normal / Plan / Auto-review (when enabled) / Always-approve) or `/settings`.
 
 ### `/multiline`
 

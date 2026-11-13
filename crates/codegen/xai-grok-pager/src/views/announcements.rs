@@ -1403,7 +1403,7 @@ mod tests {
     }
 
     /// Dismissible promo row: `[Label]` leads (warning yellow), NO message and NO caption even when one is configured.
-    /// (Dismissible keeps `Ctrl+O` on YOLO, so the caption is pinned-only regardless of `caption_allowed`.)
+    /// (Ctrl+O opens the CTA only while the promo is pinned, so the caption is pinned-only regardless of `caption_allowed`.)
     /// Hide affordances right-aligned; rects for both buttons.
     #[test]
     fn render_promo_row_button_and_hide_affordances() {

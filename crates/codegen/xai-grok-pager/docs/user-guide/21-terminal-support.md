@@ -200,7 +200,8 @@ WezTerm ships with the Kitty keyboard protocol disabled. Run `/doctor` in Grok.
 The `terminal.wezterm-kitty` finding shows the setting and restart step. Over
 SSH, Doctor shows only the workaround that can work in the current session.
 Apple Terminal uses `Ctrl+O` for interjection because it cannot distinguish the
-modified Enter chord.
+modified Enter chord. When that press would not send, `Ctrl+O` copies the latest
+assistant reply.
 
 ### Shift+Enter does not insert a newline in VS Code
 

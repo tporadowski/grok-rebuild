@@ -545,7 +545,7 @@ fn yolo_toast(new: bool) -> String {
     }
 }
 
-/// Toggle YOLO mode (Ctrl+O keybinding path).
+/// Toggle YOLO mode (`Action::ToggleYolo`).
 /// Delegates to the registry-driven `set_yolo_mode` so permission-queue draining, telemetry, and persistence all flow through a single code path.
 pub(super) fn dispatch_toggle_yolo(app: &mut AppView) -> Vec<Effect> {
     let ActiveView::Agent(id) = app.active_view else {

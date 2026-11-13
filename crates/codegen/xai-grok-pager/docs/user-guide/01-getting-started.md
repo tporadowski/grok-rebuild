@@ -127,7 +127,7 @@ The `@` operator opens a fuzzy file picker. By default it respects `.gitignore` 
 
 By default, Grok asks for permission before executing shell commands or editing files. You can approve individually or toggle always-approve mode:
 
-- Press `Ctrl+O` to toggle always-approve mode
+- Press `Shift+Tab` to cycle to always-approve mode
 - Use the `--yolo` flag at launch: `grok --yolo`
 - Type `/always-approve` in the prompt to toggle the mode
 

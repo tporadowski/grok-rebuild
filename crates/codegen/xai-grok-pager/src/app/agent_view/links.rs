@@ -1530,7 +1530,7 @@ mod link_click_tests {
         assert!(agent.hit_upgrade_cta.rect.is_none());
     }
     /// In-session header upgrade CTA: a promo owning the slot arms `hit_upgrade_cta`, whose click dispatches `AnnouncementsOpenCta(Header)`.
-    /// The draw caches `pinned_upgrade_cta_live` so `Ctrl+O` can override YOLO, but only for a pinned (non-dismissible) promo.
+    /// The draw caches `pinned_upgrade_cta_live` so the ToggleYolo action opens a pinned upgrade prompt, and only for a non-dismissible promo.
     #[test]
     fn header_upgrade_cta_rect_and_ctrl_o_override() {
         use crate::actions::ActionId;
@@ -1556,7 +1556,7 @@ mod link_click_tests {
         let buf = draw_frame_sized(&mut agent, &reg, &pinned, 1, 120);
         assert!(
             agent.pinned_upgrade_cta_live,
-            "pinned promo lights the Ctrl+O override"
+            "pinned promo lights the keyboard override"
         );
         let rect = agent
             .hit_upgrade_cta
@@ -1588,7 +1588,7 @@ mod link_click_tests {
                     AnnouncementCtaSurface::Keyboard
                 ))
             ),
-            "Ctrl+O opens the pinned CTA (Keyboard surface) instead of YOLO"
+            "the ToggleYolo action opens the pinned CTA (Keyboard surface) instead of toggling"
         );
         let mut agent = make_agent();
         agent.last_terminal_size = (120, 30);
@@ -1602,7 +1602,7 @@ mod link_click_tests {
         draw_frame_sized(&mut agent, &reg, &dismissible, 1, 120);
         assert!(
             !agent.pinned_upgrade_cta_live,
-            "dismissible promo must not steal Ctrl+O"
+            "dismissible promo must not pin the keyboard override"
         );
         assert!(
             agent.hit_upgrade_cta.rect.is_some(),
@@ -1613,7 +1613,7 @@ mod link_click_tests {
                 agent.handle_agent_action(ActionId::ToggleYolo),
                 InputOutcome::Action(Action::SetYoloMode(_))
             ),
-            "Ctrl+O keeps toggling YOLO for a dismissible promo"
+            "the ToggleYolo action still toggles when the promo is dismissible"
         );
         let mut agent = make_agent();
         agent.last_terminal_size = (120, 30);

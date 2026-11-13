@@ -18,7 +18,7 @@
 //!         Space/i → FocusPrompt
 //!         registry.lookup(key, ScrollbackFocused) → navigation, view, etc.
 //!   → 2. agent level (if pane returned Unchanged):
-//!       registry.lookup(key, AgentScreen) → CancelTurn (Ctrl+C), ToggleYolo, NextModel
+//!       registry.lookup(key, AgentScreen) → CancelTurn (Ctrl+C), CopyLatestReply, NextModel
 //!       CancelTurn has runtime guards (Running→cancel, Cancelling→quit on Ctrl+C).
 //!       From the prompt pane, Ctrl+C CancelTurn is a two-step gesture:
 //!       a non-empty prompt skips the AgentScreen promotion so the key
@@ -1257,7 +1257,7 @@ pub struct AgentView {
     pub(crate) mode_switch_banner: Option<(String, u8)>,
     /// Session announcement banner (critical or promo) is showing (set at start of `draw`). Ephemeral-tip occluder: unlike short-lived mode-switch, an announcement can last the session, so tips must not burn TTL/seen counts while hidden.
     pub(crate) session_banner_active: bool,
-    /// A pinned (non-dismissible) promo upgrade CTA is live this frame (set at the start of `draw` from the same slot gate as the header CTA). When true, `Ctrl+O` opens that CTA instead of toggling YOLO; the dispatch re-resolves through the gate so a stale-by-one-frame value stays safe.
+    /// A pinned (non-dismissible) promo upgrade CTA is live this frame (set at the start of `draw` from the same slot gate as the header CTA). When true, `Ctrl+O` opens that CTA instead of copying the latest reply; the dispatch re-resolves through the gate so a stale-by-one-frame value stays safe.
     pub(crate) pinned_upgrade_cta_live: bool,
     /// Fullscreen block viewer. When `Some`, replaces the scrollback area.
     pub(crate) block_viewer: Option<BlockViewerPane>,
@@ -1979,6 +1979,8 @@ fn resolve_action(action_id: Option<ActionId>) -> Option<InputOutcome> {
         ActionId::CopyBlockContent => Action::CopyBlockContent,
         ActionId::CopyBlockMeta => Action::CopyBlockMeta,
         ActionId::CopyMarkdownSource => Action::CopyMarkdownSource,
+        // Pinned upgrade lives in the handler, so this mapper does not build the action.
+        ActionId::CopyLatestReply => return None,
         ActionId::OpenBlockViewer => Action::OpenBlockViewer,
         ActionId::OpenNextLink => Action::OpenNextLink,
         ActionId::OpenPrevLink => Action::OpenPrevLink,

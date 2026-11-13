@@ -16,7 +16,7 @@ pub struct CopyCommand;
 impl SlashCommand for CopyCommand {
     slash_meta! {
         name: "copy",
-        description: "Copy last response's markdown source to clipboard or file (/copy [N] [file]). Ctrl+Shift+Y does this for the selected or latest message",
+        description: "Copy last response's markdown source to clipboard or file (/copy [N] [file]). Ctrl+O copies the latest. Ctrl+Shift+Y copies the selected message, or the latest when none is selected",
         usage: "/copy [N] [file]",
         takes_args: true,
         session_scoped: true,

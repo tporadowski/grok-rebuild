@@ -694,6 +694,45 @@ fn copy_markdown_source_prefers_the_selected_message_over_the_latest() {
 }
 
 #[test]
+fn copy_latest_reply_ignores_a_selected_older_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let copy_path = dir.path().join("latest.md");
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent
+            .scrollback
+            .push_block(RenderBlock::agent_message("**older**"));
+        agent
+            .scrollback
+            .push_block(RenderBlock::agent_message("**newer** and `code`"));
+        agent.scrollback.set_selected(Some(0));
+    }
+    dispatch(
+        Action::CopyAssistantMessage {
+            n: 1,
+            file_path: Some(copy_path.clone()),
+        },
+        &mut app,
+    );
+    let written = std::fs::read_to_string(&copy_path).unwrap();
+    assert!(
+        written.contains("**newer**"),
+        "the latest reply is the copy, got {written:?}"
+    );
+    assert!(
+        !written.contains("**older**"),
+        "a selected older message is not the copy, got {written:?}"
+    );
+    assert_eq!(
+        app.agents.get(&id).unwrap().scrollback.selected(),
+        Some(0),
+        "selecting an older message does not move"
+    );
+}
+
+#[test]
 fn copy_markdown_source_uses_the_latest_when_selection_is_not_an_assistant_message() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);

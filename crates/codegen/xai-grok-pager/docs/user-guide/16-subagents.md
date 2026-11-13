@@ -381,7 +381,7 @@ This view is observational. The composer is hidden (zero rows). You cannot focus
 Root-only chords never start on this surface. They do not open a modal on the child, and they do not leak to the parent:
 
 - Command palette (`Ctrl+P`), model picker (`Ctrl+M`), session picker (`Ctrl+R`)
-- Settings, extensions, always-approve (`Ctrl+O`), send-to-background (`Ctrl+B`)
+- Settings, extensions, copy latest reply (`Ctrl+O`), send-to-background (`Ctrl+B`)
 - External prompt editor, Shift+Tab mode cycle
 
 A denied action is a silent redraw. There is no toast.

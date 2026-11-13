@@ -3301,9 +3301,9 @@ impl DashboardState {
             return outcome;
         }
 
-        // Free-tier override: Ctrl+O opens the pinned upgrade CTA (when one is live) instead of falling
-        // through to the dispatch input. Matched on the chord directly; `ToggleYolo` is
-        // `When::AgentScreen`-scoped and never resolves here.
+        // Free-tier override: Ctrl+O opens the pinned upgrade CTA (when one is live) instead of the
+        // dashboard row toggle. Matched on the chord directly. Session copy is AgentScreen-scoped
+        // and never resolves here.
         if self.pinned_upgrade_cta_live && key!('o', CONTROL).matches(key) {
             return InputOutcome::Action(Action::AnnouncementsOpenCta(
                 xai_grok_telemetry::events::AnnouncementCtaSurface::Keyboard,
@@ -4518,6 +4518,7 @@ fn dashboard_action_for_id(
         | ActionId::CopyBlockContent
         | ActionId::CopyBlockMeta
         | ActionId::CopyMarkdownSource
+        | ActionId::CopyLatestReply
         | ActionId::OpenBlockViewer
         | ActionId::OpenNextLink
         | ActionId::OpenPrevLink

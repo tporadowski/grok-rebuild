@@ -277,6 +277,7 @@ impl AgentView {
     fn permission_shortcut_hints(
         &self,
         perm: &crate::views::permission_view::PermissionViewState,
+        copy_on_ctrl_o: bool,
     ) -> Vec<HintItem> {
         use crate::views::permission_view::PermissionFocus;
         let perm_content_w = self
@@ -335,7 +336,9 @@ impl AgentView {
                     hints.push(HintItem::new(key!('e'), "edit pattern"));
                 }
                 hints.extend(ctrl_f_hint);
-                hints.push(HintItem::new(key!('o', CONTROL), "always-approve"));
+                if copy_on_ctrl_o {
+                    hints.push(HintItem::new(key!('o', CONTROL), "copy reply"));
+                }
                 hints.push(HintItem::new(key!('c', CONTROL), "cancel"));
                 hints.push(self.card_esc_hint());
                 hints
@@ -373,11 +376,19 @@ impl AgentView {
                     .map(|viewer| viewer.shortcuts_hints())
                     .unwrap_or_default(),
             ),
-            KeyOwner::Card(BlockingCard::Permission) => ShortcutsBarContent::Surface(
-                self.focused_permission()
-                    .map(|perm| self.permission_shortcut_hints(perm))
-                    .unwrap_or_default(),
-            ),
+            KeyOwner::Card(BlockingCard::Permission) => {
+                let ctrl_o = crossterm::event::KeyEvent::new(
+                    crossterm::event::KeyCode::Char('o'),
+                    crossterm::event::KeyModifiers::CONTROL,
+                );
+                let copy_on_ctrl_o = registry.matches_id(ActionId::CopyLatestReply, &ctrl_o)
+                    && !registry.matches_id(ActionId::InterjectPrompt, &ctrl_o);
+                ShortcutsBarContent::Surface(
+                    self.focused_permission()
+                        .map(|perm| self.permission_shortcut_hints(perm, copy_on_ctrl_o))
+                        .unwrap_or_default(),
+                )
+            }
             KeyOwner::PlanApproval => self
                 .plan_approval_view
                 .as_ref()
@@ -5186,7 +5197,7 @@ mod permission_hint_tests {
         );
         for focus in ALL_FOCUSES {
             perm.focus = focus;
-            let hints = agent.permission_shortcut_hints(&perm);
+            let hints = agent.permission_shortcut_hints(&perm, false);
             assert!(
                 hints.iter().any(|h| h.label == "expand"),
                 "missing Ctrl-F hint in {focus:?}"
@@ -5195,7 +5206,7 @@ mod permission_hint_tests {
         perm.args_expanded = true;
         assert!(
             agent
-                .permission_shortcut_hints(&perm)
+                .permission_shortcut_hints(&perm, false)
                 .iter()
                 .any(|h| h.label == "collapse")
         );
@@ -5211,7 +5222,7 @@ mod permission_hint_tests {
         )];
         for focus in ALL_FOCUSES {
             perm.focus = focus;
-            let hints = agent.permission_shortcut_hints(&perm);
+            let hints = agent.permission_shortcut_hints(&perm, false);
             assert!(
                 !hints
                     .iter()
@@ -5223,12 +5234,44 @@ mod permission_hint_tests {
         perm.description = vec!["{".into(), "  \"k\": 1".into(), "}".into()];
         for focus in ALL_FOCUSES {
             perm.focus = focus;
-            let hints = agent.permission_shortcut_hints(&perm);
+            let hints = agent.permission_shortcut_hints(&perm, false);
             assert!(
                 hints.iter().any(|h| h.label == "expand"),
                 "missing Ctrl-F hint for scope-less MCP args in {focus:?}"
             );
         }
+    }
+
+    /// Options focus names Ctrl+O only when that chord copies. Apple Terminal's
+    /// send-now binding swallows the key, so the bar omits it.
+    #[test]
+    fn options_focus_names_copy_reply_when_ctrl_o_copies() {
+        let mut agent = make_agent();
+        agent.pane_areas.prompt = Rect::new(0, 20, 80, 10);
+        let mut perm = make_followup_permission_state();
+        perm.focus = PermissionFocus::Options;
+        let copying = agent.permission_shortcut_hints(&perm, true);
+        assert!(
+            copying.iter().any(|h| h.label == "copy reply"),
+            "options focus advertises the copy chord, got {copying:?}"
+        );
+        assert!(
+            !copying.iter().any(|h| h.label == "always-approve"),
+            "the card no longer advertises always-approve on Ctrl+O"
+        );
+        let sending = agent.permission_shortcut_hints(&perm, false);
+        assert!(
+            !sending.iter().any(|h| h.label == "copy reply"),
+            "send-now owns Ctrl+O, so the bar omits the copy hint"
+        );
+        perm.focus = PermissionFocus::FollowupInput;
+        assert!(
+            !agent
+                .permission_shortcut_hints(&perm, true)
+                .iter()
+                .any(|h| h.label == "copy reply"),
+            "text focus does not advertise the copy chord"
+        );
     }
 }
 #[cfg(test)]

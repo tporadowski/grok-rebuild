@@ -43,7 +43,7 @@ ACP clients can set `"_meta": { "yoloMode": true }` on `session/new`. See [Agent
 
 ### How to set the mode
 
-**Interactive TUI:** `Shift+Tab` / `Ctrl+O`, `/always-approve` or `/auto`, or `/settings` ([shortcuts](03-keyboard-shortcuts.md), [commands](04-slash-commands.md)).
+**Interactive TUI:** `Shift+Tab`, `/always-approve` or `/auto`, or `/settings` ([shortcuts](03-keyboard-shortcuts.md), [commands](04-slash-commands.md)).
 
 **CLI:**
 
@@ -71,7 +71,7 @@ Skips ordinary permission prompts so tools run without waiting for a click. `den
 | --------- | ------- |
 | CLI | `--always-approve` (alias `--yolo`), or `--permission-mode bypassPermissions` |
 | Config | `[ui] permission_mode = "always-approve"` |
-| Interactive | `/always-approve`, `Ctrl+O` |
+| Interactive | `/always-approve`, `Shift+Tab` |
 | ACP | `_meta.yoloMode: true` on `session/new` |
 
 #### Always-approve with hard limits

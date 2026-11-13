@@ -18,6 +18,8 @@ const ALLOWED: &[&str] = &[
     "GotoBottom",
     "SelectNext",
     "SelectPrev",
+    "ReviewNextTool",
+    "ReviewPrevTool",
     "NextTurn",
     "PrevTurn",
     "NextResponse",

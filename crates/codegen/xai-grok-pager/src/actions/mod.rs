@@ -96,6 +96,9 @@ pub enum ActionId {
     /// Copy the markdown source of the selected assistant message, or the latest one.
     /// The chord is [`ActionId`]'s binding, overridable from Settings / `[ui].copy_markdown_shortcut`.
     CopyMarkdownSource,
+    /// Copy the latest assistant reply (`/copy` with no arguments). Ctrl+O.
+    /// Ctrl+Shift+Y / F6 stay [`Self::CopyMarkdownSource`].
+    CopyLatestReply,
     OpenBlockViewer,
 
     // Link navigation

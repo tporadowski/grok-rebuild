@@ -431,7 +431,22 @@ pub(super) fn default_actions(
             hint_key_display: None,
             requires_confirmation: false,
             long_help: Some(
-                "Copies an assistant message as markdown source: headings, bold, code fences, and links as written, not the rendered plain text.\nIf an assistant message is selected, or open in the viewer, that message is copied. Otherwise the latest assistant message is copied.\nDefault keys are Ctrl+Shift+Y and F6. Change them in Settings (Copy markdown shortcut) or with [ui].copy_markdown_shortcut. Set the value to off to unbind.\nLowercase y copies the rendered text of the selected block instead.",
+                "Copies an assistant message as markdown source: headings, bold, code fences, and links as written, not the rendered plain text.\nIf an assistant message is selected, or open in the viewer, that message is copied. Otherwise the latest assistant message is copied.\nDefault keys are Ctrl+Shift+Y and F6. Change them in Settings (Copy markdown shortcut) or with [ui].copy_markdown_shortcut. Set the value to off to unbind.\nCtrl+O copies the latest assistant reply even when an older message is selected. Lowercase y copies the rendered text of the selected block instead.",
+            ),
+        },
+        ActionDef {
+            id: ActionId::CopyLatestReply,
+            label: "copy reply",
+            description: "Copy latest reply",
+            default_key: key!('o', CONTROL),
+            alt_keys: vec![],
+            category: Category::ConversationAction,
+            context: When::AgentScreen,
+            hint_priority: None,
+            hint_key_display: Some("Ctrl+O"),
+            requires_confirmation: false,
+            long_help: Some(
+                "Copies the latest assistant reply to the clipboard: the same markdown source as /copy with no arguments.\nAn older selected message stays selected; this chord still copies the newest reply.\nCtrl+Shift+Y and F6 copy the selected assistant message's markdown source, or the latest when none is selected.\nOn Apple Terminal this key sends now while a turn is running and there is text to send. In minimal mode it opens the transcript unless that send would run. A pinned upgrade prompt takes the key.",
             ),
         },
         ActionDef {
@@ -580,7 +595,7 @@ pub(super) fn default_actions(
             hint_key_display: Some("Shift+Tab"),
             requires_confirmation: false,
             long_help: Some(
-                "Steps the session mode: Normal -> Plan -> Auto-review (when enabled) -> Always-Approve -> Normal.\nPlan keeps the agent planning first and writes no files; Auto-review has a classifier approve safe tool calls; Always-Approve runs every tool call without asking.\nCtrl+O toggles auto-approve directly.",
+                "Steps the session mode: Normal -> Plan -> Auto-review (when enabled) -> Always-Approve -> Normal.\nPlan keeps the agent planning first and writes no files; Auto-review has a classifier approve safe tool calls; Always-Approve runs every tool call without asking.\n/always-approve toggles auto-approve directly. Ctrl+O copies the latest assistant reply.",
             ),
         },
         // ── Panes (agent-level: toggle side panes) ─────────────────
@@ -796,7 +811,8 @@ pub(super) fn default_actions(
             id: ActionId::ToggleYolo,
             label: "yolo",
             description: "Toggle always-approve",
-            default_key: key!('o', CONTROL),
+            // Ctrl+O copies the latest reply. Shift+Tab and /always-approve still reach this mode.
+            default_key: key!(Null),
             alt_keys: vec![],
             category: Category::Session,
             context: When::AgentScreen,
@@ -804,7 +820,7 @@ pub(super) fn default_actions(
             hint_key_display: None,
             requires_confirmation: false,
             long_help: Some(
-                "Turns auto-approve (YOLO) on or off for this session.\nWhile on, the agent runs every tool call (edits, shell, deletes) with no per-action confirmation.\nSame state as the Shift+Tab cycle's Always-Approve; use with care.",
+                "Turns auto-approve (YOLO) on or off for this session.\nWhile on, the agent runs every tool call (edits, shell, deletes) with no per-action confirmation.\nThere is no default key. Shift+Tab reaches Always-Approve in the mode cycle, and /always-approve toggles it.",
             ),
         },
         ActionDef {
@@ -1133,8 +1149,8 @@ pub(super) fn default_actions(
                 "Closes the dashboard and returns to where you were.\nEsc is a cascade: it first dismisses an open peek or clears an active filter, and only exits once nothing else is pending.\nRebind this action to a different key to exit directly.",
             ),
         },
-        // Mirror of `ToggleYolo` (Ctrl+O) but scoped to the dashboard: flips the selected row's agent's always-approve / YOLO mode
-        // Reachable from the dashboard view (and from inside the session overlay)
+        // Dashboard-only always-approve. Session Ctrl+O copies the latest reply.
+        // This context stays the row toggle.
         ActionDef {
             id: ActionId::DashboardToggleAutoApprove,
             label: "always-approve",
@@ -1147,7 +1163,7 @@ pub(super) fn default_actions(
             hint_key_display: Some("Ctrl+O"),
             requires_confirmation: false,
             long_help: Some(
-                "Toggles auto-approve (YOLO) for the selected agent right from the dashboard, without attaching to it.\nWhile on, that agent runs every tool call with no per-action confirmation.\nThe per-session equivalent is Ctrl+O inside a session.",
+                "Toggles auto-approve (YOLO) for the selected agent right from the dashboard, without attaching to it.\nWhile on, that agent runs every tool call with no per-action confirmation.\nInside a session, Shift+Tab and /always-approve change that mode. Ctrl+O there copies the latest assistant reply.",
             ),
         },
         // Open the location picker, a floating modal to change the working directory new dashboard sessions spawn in

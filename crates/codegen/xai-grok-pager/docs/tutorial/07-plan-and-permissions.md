@@ -11,7 +11,7 @@ Reading is always free: file reads, searches, and safe read-only commands
 (`ls`, `git status`, `grep`, …) never prompt. Chained commands are
 checked piece by piece — `ls && rm -rf tmp` still prompts for the `rm`.
 
-Trust the session? `/always-approve` (or `Ctrl+O`) skips the prompts.
+Trust the session? `/always-approve` skips the prompts.
 
 ## Plan mode
 

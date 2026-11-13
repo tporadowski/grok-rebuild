@@ -245,7 +245,7 @@ pub fn status_line_inner_width(width: u16, padding: u16) -> Option<u16> {
     crate::views::status_line::inner_width(width, padding)
 }
 
-/// Ctrl+O opens the transcript unless an interject would actually consume the press, or a pinned upgrade CTA needs the key for ToggleYolo.
+/// Ctrl+O opens the transcript unless an interject would actually consume the press, or a pinned upgrade CTA needs the key.
 /// On Apple Terminal, Ctrl+O is the only interject chord (no kitty protocol, Ctrl+I aliases to Tab).
 /// The info-row hint re-evaluates every frame so the advertised key matches what the press would do.
 pub fn minimal_ctrl_o_opens_transcript(app: &AppView) -> bool {

@@ -33,7 +33,7 @@ impl AgentView {
 
     /// `registry` is the live shortcut map. When the pressed key is send-now
     /// (Ctrl+O on Apple Terminal, where Ctrl+Enter never arrives), it must not
-    /// also flip always-approve.
+    /// copy the latest reply. Elsewhere Ctrl+O copies that reply.
     pub(super) fn handle_permission_key_with_registry(
         &mut self,
         key: &KeyEvent,
@@ -120,12 +120,15 @@ impl AgentView {
                     }
                     return InputOutcome::Changed;
                 }
-                if key!('o', CONTROL).matches(key)
-                    && !registry.is_some_and(|registry| {
-                        registry.matches_id(crate::actions::ActionId::InterjectPrompt, key)
-                    })
-                {
-                    return InputOutcome::Action(Action::SetYoloMode(!self.session.is_yolo()));
+                // Ctrl+O copies the latest reply unless this terminal uses it as send-now.
+                if registry.is_some_and(|registry| {
+                    registry.matches_id(crate::actions::ActionId::CopyLatestReply, key)
+                        && !registry.matches_id(crate::actions::ActionId::InterjectPrompt, key)
+                }) {
+                    return InputOutcome::Action(Action::CopyAssistantMessage {
+                        n: 1,
+                        file_path: None,
+                    });
                 }
                 let is_right = key.code == KeyCode::Right || key.code == KeyCode::Char('>');
                 let is_left = key.code == KeyCode::Left || key.code == KeyCode::Char('<');
@@ -1559,9 +1562,9 @@ mod permission_mouse_tests {
     fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, modifiers)
     }
-    /// Apple Terminal's send-now chord is Ctrl+O. That press must not flip
-    /// always-approve while the permission card has the keyboard. Where Ctrl+O
-    /// is only the always-approve chord, it still toggles.
+    /// Apple Terminal's send-now chord is Ctrl+O. That press must not copy or
+    /// flip always-approve while the permission card has the keyboard. Where
+    /// Ctrl+O is the copy chord, it copies the latest reply and leaves the mode.
     #[test]
     fn send_now_does_not_enable_always_approve_on_a_permission_card() {
         use crossterm::event::Event;
@@ -1572,8 +1575,11 @@ mod permission_mouse_tests {
         let apple = ActionRegistry::apple_terminal_for_test();
         let outcome = agent.handle_input(&Event::Key(ctrl_o), &apple);
         assert!(
-            !matches!(outcome, InputOutcome::Action(Action::SetYoloMode(_))),
-            "send-now (Ctrl+O) must not enable always-approve, got {outcome:?}"
+            !matches!(
+                outcome,
+                InputOutcome::Action(Action::SetYoloMode(_) | Action::CopyAssistantMessage { .. })
+            ),
+            "send-now (Ctrl+O) must not copy or enable always-approve, got {outcome:?}"
         );
         assert_eq!(agent.session.is_yolo(), was_yolo);
         assert!(
@@ -1583,11 +1589,23 @@ mod permission_mouse_tests {
 
         let mut agent = make_agent();
         setup_permission(&mut agent);
+        let was_yolo = agent.session.is_yolo();
         let plain = ActionRegistry::non_vscode_for_test();
         let outcome = agent.handle_input(&Event::Key(ctrl_o), &plain);
         assert!(
-            matches!(outcome, InputOutcome::Action(Action::SetYoloMode(on)) if on),
-            "Ctrl+O that is not send-now still toggles always-approve, got {outcome:?}"
+            matches!(
+                outcome,
+                InputOutcome::Action(Action::CopyAssistantMessage {
+                    n: 1,
+                    file_path: None
+                })
+            ),
+            "Ctrl+O that is not send-now copies the latest reply, got {outcome:?}"
+        );
+        assert_eq!(agent.session.is_yolo(), was_yolo);
+        assert!(
+            !agent.permission_queue.is_empty(),
+            "the permission card stays open"
         );
     }
     /// A bare digit still picks the option. Ctrl+\, Ctrl+1, Alt+1, and Shift+1 do not.

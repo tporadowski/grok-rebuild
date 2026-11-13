@@ -478,7 +478,7 @@ grok --always-approve --prompt "Format all files"
 | `Ctrl+M`                     | Toggle multiline input mode     |
 | `Ctrl+C` or `Esc`            | Cancel current operation        |
 | `Ctrl+D` or `Ctrl+Q`         | Quit (with confirmation)        |
-| `Ctrl+O`                     | Toggle always-approve mode |
+| `Ctrl+O`                     | Copy the latest assistant reply |
 | `Ctrl+T`                     | Toggle TODO/task panel          |
 | `Ctrl+R`                     | Search prompt history           |
 | `Ctrl+V`                     | Paste from clipboard            |

@@ -730,9 +730,15 @@ impl AgentView {
                         return self
                             .handle_agent_action_with_registry(ActionId::CancelTurn, registry);
                     }
-                    // The viewer swallows keys that are not global. This chord copies the open message's source.
+                    // The viewer swallows keys that are not global. These chords still copy.
                     if registry.matches_id(ActionId::CopyMarkdownSource, key) {
                         return InputOutcome::Action(Action::CopyMarkdownSource);
+                    }
+                    if registry.matches_id(ActionId::CopyLatestReply, key) {
+                        return self.handle_agent_action_with_registry(
+                            ActionId::CopyLatestReply,
+                            registry,
+                        );
                     }
                     self.handle_block_viewer_key(key)
                 }
@@ -1300,6 +1306,18 @@ impl AgentView {
                     ))
                 } else {
                     InputOutcome::Action(Action::SetYoloMode(!self.session.is_yolo()))
+                }
+            }
+            ActionId::CopyLatestReply => {
+                if self.pinned_upgrade_cta_live {
+                    InputOutcome::Action(Action::AnnouncementsOpenCta(
+                        xai_grok_telemetry::events::AnnouncementCtaSurface::Keyboard,
+                    ))
+                } else {
+                    InputOutcome::Action(Action::CopyAssistantMessage {
+                        n: 1,
+                        file_path: None,
+                    })
                 }
             }
             ActionId::SendToBackground => {

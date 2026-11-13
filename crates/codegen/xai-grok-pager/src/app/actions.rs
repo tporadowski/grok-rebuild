@@ -452,7 +452,7 @@ pub enum Action {
     /// Plan entered on top of a permission (Plan + Auto, Plan + Always-Approve) exits plan and keeps that permission.
     /// Plan mode sends a signal to the shell; always-approve is local.
     CycleMode,
-    /// Toggle YOLO mode (auto-approve all permissions). Ctrl+O.
+    /// Toggle YOLO mode (auto-approve all permissions). Shift+Tab and `/always-approve` reach it.
     ToggleYolo,
     /// Set YOLO (auto-approve / `always-approve`) mode.
     SetYoloMode(bool),

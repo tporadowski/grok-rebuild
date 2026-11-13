@@ -96,6 +96,8 @@ Dragging across messages selects and copies the text of each message. It does no
 | `Ctrl+F` | Open block content in fullscreen viewer (alt binding) |
 | `Ctrl+L` | Quote the selected message, or the highlighted text, into the prompt. Extensions open with `/plugins` or `/hooks` |
 
+`Ctrl+O` copies the latest assistant reply: the same markdown `/copy` writes when it is given no arguments, even when an older assistant message is selected. A pinned upgrade prompt, the minimal-mode transcript opener, and Apple Terminal's send-now chord still use the key when those apply.
+
 `Ctrl+Shift+Y` (alt: `F6`) copies the **markdown source** of an assistant message: headings, `**bold**`, code fences, and links as written, not the rendered plain text `y` copies. It works while the prompt or the scrollback is focused. If an assistant message is selected, or open in the viewer, that message is copied; otherwise the latest assistant message is copied. `/copy` does the same for the latest message.
 
 Change the chord in Settings → Editor & input → **Copy markdown shortcut**, or in `config.toml`:
@@ -229,7 +231,7 @@ upload and still sends the report).
 | `←` / `→` | Widen / narrow the scope an "always" answer would remember |
 | `e` | Edit the always-allow pattern by hand (bash prompts) |
 | `Ctrl+F` | Expand / collapse the full arguments |
-| `Ctrl+O` | Turn on always-approve mode |
+| `Ctrl+O` | Copy the latest assistant reply |
 | `Esc` | Park focus in the scrollback (`Tab` returns). It never answers or dismisses the request |
 | `Ctrl+C` | Cancel the request |
 
@@ -273,7 +275,7 @@ Actions that affect the agent session, available from the agent screen.
 | `Ctrl+M` | Agent screen | Open the model picker / switch model |
 | `Ctrl+M` | Prompt focused | Toggle multiline input mode |
 | `Ctrl+C` | Agent screen | Cancel the current turn (or clear non-empty draft first; see Escape table). With `/mcps` or the block viewer open, it cancels a running turn and closes that screen. |
-| `Ctrl+O` | Agent screen | Toggle always-approve (YOLO) mode |
+| `Ctrl+O` | Agent screen | Copy the latest assistant reply |
 | `Ctrl+R` | Agent screen | Open the session picker (resume a previous session, same as `/resume`) |
 | `Ctrl+;` (alt: `Ctrl+'`) | Agent screen | Toggle the prompt queue pane (when non-empty). **Local macOS** VS Code family only: primary **`Ctrl+4`** (`;` / `'` still alts). SSH and non-Mac keep **`Ctrl+;`** / **`Ctrl+'`**. Inside WSL on Windows Terminal, **`Ctrl+Y`** is an additional alt. |
 | `Shift+Tab` | Prompt focused | Cycle mode (Normal → Plan → Auto-review (when enabled) → Always-approve) |
@@ -559,7 +561,8 @@ focused the same chords jump between turns (see Navigation above).
 Command palette:  Ctrl+P or ?
 Model picker:     Ctrl+M (from scrollback)
 Cancel:           Ctrl+C (see Escape table)
-Always-approve:   Ctrl+O (toggle YOLO)
+Copy latest reply: Ctrl+O
+Always-approve:   Shift+Tab or /always-approve
 New session:      Ctrl+N (press again, then choose normal/worktree)
 Quit:             Ctrl+Q (or Ctrl+D in VSCode)
 ```

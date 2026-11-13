@@ -87,7 +87,7 @@ impl AgentView {
 
     // `pub(super)`: also called by `AppView::minimal_key_intercept` to route Apple Terminal's Ctrl+O interject chord straight to the prompt path
     // Minimal's prompt is conceptually always focused, but `active_pane` can be Scrollback
-    // Scrollback's `When::AgentScreen` promotion would misroute the chord to `ToggleYolo`
+    // Scrollback's `When::AgentScreen` promotion would hit CopyLatestReply and skip send-now
     pub(in crate::app) fn handle_prompt_key(
         &mut self,
         key: &KeyEvent,
@@ -625,6 +625,14 @@ impl AgentView {
                         }
                     } else if let Some(outcome) = self.try_send_now_queued_from_prompt() {
                         return outcome;
+                    }
+                    // Idle, or a press that did not send: Ctrl+O copies the latest reply.
+                    // A pinned upgrade prompt still owns that key inside the handler.
+                    if registry.matches_id(ActionId::CopyLatestReply, key) {
+                        return self.handle_agent_action_with_registry(
+                            ActionId::CopyLatestReply,
+                            registry,
+                        );
                     }
                     if registry.matches_id(ActionId::ToggleYolo, key) {
                         return self
@@ -2190,7 +2198,7 @@ mod apple_terminal_ctrl_o_upgrade_cta_tests {
     }
 
     #[test]
-    fn apple_terminal_idle_ctrl_o_without_promo_toggles_yolo() {
+    fn apple_terminal_idle_ctrl_o_without_promo_copies_the_latest_reply() {
         let mut agent = super::test_fixtures::make_agent();
         agent.pinned_upgrade_cta_live = false;
         let was_yolo = agent.session.is_yolo();
@@ -2200,10 +2208,14 @@ mod apple_terminal_ctrl_o_upgrade_cta_tests {
         assert!(
             matches!(
                 outcome,
-                InputOutcome::Action(Action::SetYoloMode(m)) if m != was_yolo
+                InputOutcome::Action(Action::CopyAssistantMessage {
+                    n: 1,
+                    file_path: None
+                })
             ),
-            "idle Apple-Terminal Ctrl+O without promo must toggle YOLO, got {outcome:?}"
+            "idle Apple-Terminal Ctrl+O without promo must copy the latest reply, got {outcome:?}"
         );
+        assert_eq!(agent.session.is_yolo(), was_yolo);
     }
 
     #[test]
@@ -2313,6 +2325,64 @@ mod queue_recall_tests {
         assert!(
             agent.queue.list_state.scroll_offset() > 0,
             "a queue taller than the pane must scroll to the selected row"
+        );
+    }
+
+    #[test]
+    fn ctrl_o_from_the_prompt_copies_the_latest_reply() {
+        let mut agent = test_fixtures::make_agent();
+        agent.active_pane = AgentPane::Prompt;
+        let outcome = agent
+            .handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        assert!(
+            matches!(
+                outcome,
+                InputOutcome::Action(Action::CopyAssistantMessage {
+                    n: 1,
+                    file_path: None
+                })
+            ),
+            "Ctrl+O must copy the latest reply, got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn ctrl_o_from_the_scrollback_copies_the_latest_reply() {
+        let mut agent = test_fixtures::make_agent();
+        agent.active_pane = AgentPane::Scrollback;
+        let registry = ActionRegistry::defaults();
+        let outcome = agent.handle_input(
+            &Event::Key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
+            &registry,
+        );
+        assert!(
+            matches!(
+                outcome,
+                InputOutcome::Action(Action::CopyAssistantMessage {
+                    n: 1,
+                    file_path: None
+                })
+            ),
+            "Ctrl+O from the scrollback must copy the latest reply, got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn ctrl_o_with_a_pinned_upgrade_opens_the_cta() {
+        use xai_grok_telemetry::events::AnnouncementCtaSurface;
+        let mut agent = test_fixtures::make_agent();
+        agent.pinned_upgrade_cta_live = true;
+        agent.active_pane = AgentPane::Prompt;
+        let outcome = agent
+            .handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        assert!(
+            matches!(
+                outcome,
+                InputOutcome::Action(Action::AnnouncementsOpenCta(
+                    AnnouncementCtaSurface::Keyboard
+                ))
+            ),
+            "a pinned upgrade prompt must take Ctrl+O, got {outcome:?}"
         );
     }
 
