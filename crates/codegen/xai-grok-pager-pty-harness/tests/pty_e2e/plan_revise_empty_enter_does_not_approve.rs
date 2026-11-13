@@ -38,7 +38,7 @@ async fn plan_revise_empty_enter_does_not_approve() {
         .inject_keys(b"present the plan\r")
         .expect("submit plan prompt");
     harness
-        .wait_for_text("Waiting on plan approval", Duration::from_secs(60))
+        .wait_for_text("Waiting for plan approval", Duration::from_secs(60))
         .unwrap_or_else(|e| {
             panic!(
                 "plan approval never parked: {e}\nscreen:\n{}",
@@ -53,7 +53,7 @@ async fn plan_revise_empty_enter_does_not_approve() {
             "plan approval preview interactive",
             Duration::from_secs(20),
             Duration::from_millis(250),
-            |h| h.contains_text("request changes") && h.contains_text("Waiting on plan approval"),
+            |h| h.contains_text("request changes") && h.contains_text("Waiting for plan approval"),
         )
         .unwrap_or_else(|e| {
             panic!(
@@ -83,7 +83,7 @@ async fn plan_revise_empty_enter_does_not_approve() {
         });
     let screen = harness.screen_contents();
     assert!(
-        screen.contains("request changes") && screen.contains("Waiting on plan approval"),
+        screen.contains("request changes") && screen.contains("Waiting for plan approval"),
         "empty Enter must leave plan approval open; screen:\n{screen}"
     );
     assert!(

@@ -370,7 +370,7 @@ impl AgentView {
     }
     /// Show the plan in the line viewer overlay or a "no plan" toast.
     /// When plan approval is parked without a body, opens a placeholder preview.
-    /// The user then always sees a decision surface (a/s/q) instead of a dead "Waiting on plan approval" line with a no-op Tab:plan.
+    /// The user then always sees a decision surface (a/s/q) instead of a dead "Waiting for plan approval" line with a no-op Tab:plan.
     pub fn show_plan_preview(&mut self) {
         let body = self.plan_body_for_preview();
         let approval_empty = self

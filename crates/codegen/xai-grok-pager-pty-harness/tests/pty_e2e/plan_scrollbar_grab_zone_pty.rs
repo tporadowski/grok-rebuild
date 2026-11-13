@@ -46,7 +46,7 @@ async fn plan_scrollbar_grab_zone_pty() {
         .inject_keys(b"present the plan\r")
         .expect("submit plan prompt");
     harness
-        .wait_for_text("Waiting on plan approval", Duration::from_secs(60))
+        .wait_for_text("Waiting for plan approval", Duration::from_secs(60))
         .unwrap_or_else(|e| {
             panic!(
                 "plan approval never parked: {e}\nscreen:\n{}",
@@ -58,7 +58,7 @@ async fn plan_scrollbar_grab_zone_pty() {
             "plan approval preview interactive",
             Duration::from_secs(20),
             Duration::from_millis(250),
-            |h| h.contains_text("request changes") && h.contains_text("Waiting on plan approval"),
+            |h| h.contains_text("request changes") && h.contains_text("Waiting for plan approval"),
         )
         .unwrap_or_else(|e| {
             panic!(

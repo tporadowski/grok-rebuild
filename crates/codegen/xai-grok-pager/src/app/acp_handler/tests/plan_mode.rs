@@ -130,7 +130,7 @@
     #[test]
     fn exit_plan_mode_empty_opens_placeholder_preview() {
         // An empty plan.md must still open the approval UI
-        // Otherwise the user only sees "Waiting on plan approval" with a dead Tab:plan and thinks the session is stuck
+        // Otherwise the user only sees "Waiting for plan approval" with a dead Tab:plan and thinks the session is stuck
         let mut app = make_app_with_agent("sess-1");
         let (ext, _rx) = make_exit_plan_ext(None);
 

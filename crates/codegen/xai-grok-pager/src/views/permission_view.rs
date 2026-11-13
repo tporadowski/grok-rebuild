@@ -847,7 +847,7 @@ fn render_pattern_preview_line(
     match edit.trimmed() {
         None => {
             spans.push(Span::styled(
-                "type a command pattern to allow (e.g. gh api repos/*)",
+                "Type a command pattern to allow (e.g. gh api repos/*)",
                 dim,
             ));
         }
@@ -1725,6 +1725,33 @@ mod tests {
             Some(v) => v,
             None => panic!("index {i} out of {}", xs.len()),
         }
+    }
+
+    fn preview_line_text(edit: &PatternEditState, command: &str) -> String {
+        let theme = Theme::groknight();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 80, 1));
+        render_pattern_preview_line(&mut buf, 0, 0, 80, edit, command, &theme);
+        (0..buf.area.width)
+            .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn empty_command_pattern_hint_uses_sentence_case() {
+        let empty = preview_line_text(&PatternEditState::new(""), "gh api repos/x");
+        assert!(
+            empty.starts_with("Type a command pattern to allow (e.g. gh api repos/*)"),
+            "{empty}"
+        );
+        let filled = preview_line_text(&PatternEditState::new("nomatch"), "gh api repos/x");
+        assert!(
+            filled.contains("won't match this command"),
+            "a typed pattern keeps the match hint: {filled}"
+        );
+        assert!(
+            !filled.contains("command pattern"),
+            "the empty-field hint is only for a blank pattern: {filled}"
+        );
     }
 
     #[test]
