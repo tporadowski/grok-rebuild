@@ -142,6 +142,82 @@ pub fn take_kitty_flags_pushed() -> bool {
     PUSHED_KITTY_FLAGS.swap(0, Ordering::Relaxed) != 0
 }
 
+/// Crossterm's probe waits two seconds when the terminal sends nothing.
+/// A living terminal answers `CSI ? u`, or the primary DA sent with it, well inside this.
+/// Silence is "unsupported", same as a timed-out crossterm poll, without holding startup for the rest of that window.
+pub const KEYBOARD_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
+
+#[cfg(unix)]
+const KEYBOARD_QUERY: &[u8] = b"\x1b[?u\x1b[c";
+
+/// The primary-DA reply usually follows the flags reply in the same burst.
+/// Long enough to catch that burst, short enough that a missing DA does not bring the two-second wait back.
+#[cfg(unix)]
+const DA_FOLLOWUP: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// Ask the terminal whether it speaks the Kitty keyboard protocol.
+/// `Some(true)` is a flags reply (`CSI ? <digits> u`). `Some(false)` is a primary DA reply and no flags reply.
+/// `None` is silence, a failed write, or a non-Unix host.
+pub fn query_keyboard_enhancement() -> Option<bool> {
+    #[cfg(unix)]
+    {
+        if !super::probe::write_query(KEYBOARD_QUERY) {
+            return None;
+        }
+        let reply = super::probe::read_tty_reply(KEYBOARD_QUERY_TIMEOUT, |buf, _| {
+            keyboard_query_verdict(buf).is_some()
+        });
+        let verdict = reply.as_deref().and_then(keyboard_query_verdict);
+        if verdict == Some(true) {
+            let _ = super::probe::read_tty_reply(DA_FOLLOWUP, |buf, _| da1_reply(buf));
+        }
+        verdict
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+/// `Some(true)` when `buf` holds a flags reply. `Some(false)` when it holds only a primary DA reply.
+/// `None` when neither reply is complete.
+pub fn keyboard_query_verdict(buf: &[u8]) -> Option<bool> {
+    if kitty_flags_reply(buf) {
+        Some(true)
+    } else if da1_reply(buf) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// `CSI ? <digits> u`. The query we send is `CSI ? u` with no digits, so that form is not a reply.
+fn kitty_flags_reply(buf: &[u8]) -> bool {
+    buf.windows(3).enumerate().any(|(i, window)| {
+        if window != b"\x1b[?" {
+            return false;
+        }
+        let rest = buf.get(i + 3..).unwrap_or(b"");
+        let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+        digits > 0 && rest.get(digits) == Some(&b'u')
+    })
+}
+
+/// Primary device attributes: `CSI ? <params> c`, params being digits and semicolons.
+fn da1_reply(buf: &[u8]) -> bool {
+    buf.windows(3).enumerate().any(|(i, window)| {
+        if window != b"\x1b[?" {
+            return false;
+        }
+        let rest = buf.get(i + 3..).unwrap_or(b"");
+        let params = rest
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit() || **byte == b';')
+            .count();
+        params > 0 && rest.get(params) == Some(&b'c')
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,6 +308,30 @@ mod tests {
             KittyKeyboardMode::Auto
         );
         assert_eq!(KittyKeyboardMode::parse(Some("")), KittyKeyboardMode::Auto);
+    }
+
+    #[test]
+    fn keyboard_query_verdict_reads_flags_and_primary_da() {
+        assert_eq!(keyboard_query_verdict(b"\x1b[?15u"), Some(true));
+        assert_eq!(keyboard_query_verdict(b"hi\x1b[?1u"), Some(true));
+        // Flags win when the primary DA is already in the same buffer.
+        assert_eq!(keyboard_query_verdict(b"\x1b[?15u\x1b[?62;1;6c"), Some(true));
+        assert_eq!(keyboard_query_verdict(b"\x1b[?62;1;6c"), Some(false));
+        // The query itself, a bare DA request, and silence are not replies.
+        assert_eq!(keyboard_query_verdict(b"\x1b[?u"), None);
+        assert_eq!(keyboard_query_verdict(b"\x1b[c"), None);
+        assert_eq!(keyboard_query_verdict(b""), None);
+        assert_eq!(keyboard_query_verdict(b"\x1b[?15"), None);
+    }
+
+    /// A capable terminal with no skip reason still probes. Silence is unsupported, and the wait is the query budget, not crossterm's two seconds.
+    #[test]
+    fn unanswered_keyboard_query_is_under_two_seconds() {
+        assert!(KEYBOARD_QUERY_TIMEOUT <= std::time::Duration::from_millis(500));
+        assert!(KEYBOARD_QUERY_TIMEOUT < std::time::Duration::from_secs(2));
+        let skipped = kitty_push_skip_reason(None, KittyKeyboardMode::Auto, || None);
+        assert_eq!(skipped, Some("unsupported"));
+        assert!(negotiated_kitty_flags(skipped, None).is_empty());
     }
 
     /// A skip reason outranks any version, so teardown owes no pop.

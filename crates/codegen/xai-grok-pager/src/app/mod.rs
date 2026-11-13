@@ -1678,13 +1678,12 @@ fn init_terminal(
         let ctx = crate::terminal::terminal_context();
         // `query` drops only the unidentified-terminal skip, then this probe runs.
         // A positive answer pushes flags, so Shift+Enter arrives as a modified Enter.
+        // The probe's own budget replaces crossterm's two-second poll, so a terminal
+        // that never answers does not hold startup for that long.
         let skip_reason: Option<&str> = crate::terminal::kitty_push_skip_reason(
             ctx.kitty_skip_reason(),
             kitty_keyboard,
-            || match terminal::supports_keyboard_enhancement() {
-                Ok(supported) => Some(supported),
-                Err(_) => None,
-            },
+            crate::terminal::query_keyboard_enhancement,
         );
         let alacritty_conservative_version = (ctx.brand
             == crate::terminal::TerminalName::Alacritty)

@@ -39,7 +39,7 @@ pub use keyboard::{
 pub use kitty_keyboard::{
     KittyKeyboardMode, effective_kitty_skip_reason, kitty_event_types_withheld,
     kitty_flags_pushed, kitty_push_skip_reason, kitty_releases_reported, negotiated_kitty_flags,
-    pushed_kitty_flags, set_pushed_kitty_flags, take_kitty_flags_pushed,
+    pushed_kitty_flags, query_keyboard_enhancement, set_pushed_kitty_flags, take_kitty_flags_pushed,
 };
 pub use pop_fence::{PopFence, PopFenceOutcome};
 pub use term_version::{TermVersion, TermVersionSource};
