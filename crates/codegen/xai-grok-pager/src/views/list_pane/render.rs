@@ -562,17 +562,23 @@ fn render_bottom_bar(
             super::state::MatchMode::Filter => "filter",
             super::state::MatchMode::Search => "search",
         };
-        let status = format!("[{}: {}]  ", mode_word, matcher.query());
-        let status_w = status.len() as u16;
+        let raw = format!("[{mode_word}: {}]  ", matcher.query());
+        // Display columns keep a wide query flush with the right edge.
+        let status = if crate::util::display_columns(&raw) > area.width as usize {
+            crate::util::truncate_to_width(&raw, area.width as usize).into_owned()
+        } else {
+            raw
+        };
+        let status_w = crate::util::display_columns(&status) as u16;
         let dim_style = Style::default()
             .fg(style.input_bar_text_fg)
             .bg(style.input_bar_bg)
             .add_modifier(Modifier::DIM);
 
-        // Right-align.
+        // Right-align by terminal columns, and do not paint past the bar.
         let x = area.x.saturating_add(area.width.saturating_sub(status_w));
         let status_line = Line::from(Span::styled(status, dim_style));
-        buf.set_line_safe(x, area.y, &status_line, area.width);
+        buf.set_line_safe(x, area.y, &status_line, area.right().saturating_sub(x));
     }
 }
 
@@ -838,6 +844,32 @@ mod tests {
             "no ellipsis expected for short items, got: {row}"
         );
         assert_eq!(row, ">short");
+    }
+
+    #[test]
+    fn search_status_with_wide_query_sits_on_the_right_edge() {
+        let items = vec![RenderTestItem::new(0, "row")];
+        let width = 40u16;
+        let area = Rect::new(0, 0, width, 4);
+        for query in ["ab", "日本語"] {
+            let mut state = ListPaneState::new(WrapMode::NoWrap, false);
+            state.set_matcher(Some(ListMatcher::new(
+                query,
+                QueryKind::Substring,
+                MatchMode::Search,
+            )));
+            state.prepare_layout(&items, area.width, area.height);
+            let mut buf = Buffer::empty(area);
+            StatefulWidget::render(ListPane::new(&items), area, &mut buf, &mut state);
+            let y = area.height - 1;
+            let close =
+                (0..width).find(|&x| buf.cell((x, y)).is_some_and(|cell| cell.symbol() == "]"));
+            assert_eq!(
+                close,
+                Some(width - 3),
+                "query {query:?} must end the status on the right edge"
+            );
+        }
     }
 
     #[test]

@@ -204,6 +204,14 @@ pub enum TaskEntry {
         styled: Line<'static>,
     },
 }
+
+/// Scheduled-task prompts share the column budget with ASCII text: 60 display columns, cut with `…`.
+const SCHEDULED_PROMPT_PREVIEW_WIDTH: usize = 60;
+
+fn scheduled_prompt_preview(prompt: &str) -> String {
+    crate::util::truncate_to_width(prompt, SCHEDULED_PROMPT_PREVIEW_WIDTH).into_owned()
+}
+
 impl TaskEntry {
     fn from_bg_task(
         task: &BgTaskState,
@@ -409,6 +417,7 @@ impl TaskEntry {
                 .unwrap_or_else(Instant::now),
         }
     }
+
     fn from_scheduled(
         info: &ScheduledTaskInfo,
         linked: Option<(String, bool)>,
@@ -416,11 +425,7 @@ impl TaskEntry {
     ) -> Self {
         let linked_running = linked.as_ref().is_some_and(|(_, running)| *running);
         let theme = Theme::current();
-        let prompt_preview = if info.prompt.chars().count() > 60 {
-            info.prompt.chars().take(57).collect::<String>() + "..."
-        } else {
-            info.prompt.clone()
-        };
+        let prompt_preview = scheduled_prompt_preview(&info.prompt);
         let is_provisional = info.task_id.starts_with("provisional-");
         let suffix = if linked_running {
             " (running)".to_owned()
@@ -2697,10 +2702,11 @@ mod tests {
             _ => panic!("expected Scheduled"),
         };
         assert!(label.contains("Loop"), "tag rendered in label");
-        assert!(
-            label.contains("...") || label.len() > 10,
-            "preview truncated or full"
-        );
+        let preview = scheduled_prompt_preview(&unicode_prompt);
+        assert!(preview.ends_with('…'), "{preview}");
+        assert!(crate::util::display_columns(&preview) <= SCHEDULED_PROMPT_PREVIEW_WIDTH);
+        assert!(!label.contains(&unicode_prompt), "{label}");
+        assert!(label.contains('…'), "{label}");
     }
     #[test]
     fn scheduled_bad_next_fire_at_falls_back_to_approx() {
