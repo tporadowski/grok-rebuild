@@ -36,6 +36,11 @@ pub(super) fn handle_models_update(notif: &acp::ExtNotification, app: &mut AppVi
                 .models
                 .update_catalog(new_models.available.clone());
             agent.refresh_context_total();
+            // An open /model or /context-window menu still shows the previous list.
+            // Rebuild it so its rows and markers match this catalog before the next key.
+            if agent.prompt.slash_open() {
+                agent.prompt.refresh_slash(&agent.session.models);
+            }
         }
         true
     } else {

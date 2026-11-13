@@ -3,6 +3,7 @@
 
     use super::*;
     use crate::app::actions::{Action, ModelChoice, TaskResult};
+    use crate::app::agent_view::AgentView;
     use crate::app::dispatch::dispatch;
 
     /// Regression: a machine-wide `x.ai/models/update` broadcast carries each model's static catalog-default effort (`high`).
@@ -507,5 +508,166 @@
             Some("grok-3"),
             "unrelated-session broadcast must not touch this agent's model"
         );
+    }
+
+    /// An already-open `/model` menu was snapshotted from the previous catalog.
+    /// `x.ai/models/update` rebuilds those rows and the `(current)` marker without another key.
+    #[test]
+    fn models_update_refreshes_an_open_model_dropdown() {
+        let mut app = make_app_with_agent("sess-1");
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            seed_models(agent, "grok-3", &["grok-3", "grok-4"]);
+            open_slash(agent, "/model ");
+            let displays = slash_displays(agent);
+            assert!(agent.prompt.slash_open(), "the /model menu is open");
+            assert!(
+                displays.iter().any(|row| row == "grok-3 (current)"),
+                "the open menu marks the current model: {displays:?}"
+            );
+            assert!(
+                displays.iter().any(|row| row == "grok-4"),
+                "the open menu lists grok-4: {displays:?}"
+            );
+        }
+
+        let notif = make_models_update_notif("grok-3", &["grok-3", "grok-4.5"]);
+        assert!(handle_models_update(&notif, &mut app));
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        assert!(agent.prompt.slash_open(), "the menu stays open");
+        let displays = slash_displays(agent);
+        assert!(
+            displays.iter().any(|row| row == "grok-3 (current)"),
+            "the current marker stays on grok-3 without another refresh: {displays:?}"
+        );
+        assert!(
+            displays.iter().any(|row| row == "grok-4.5"),
+            "the new model appears in the open menu: {displays:?}"
+        );
+        assert!(
+            displays.iter().all(|row| row != "grok-4"),
+            "the removed model leaves the open menu: {displays:?}"
+        );
+    }
+
+    /// An already-open `/context-window` menu rebuilds its rows, the `(active)` marker,
+    /// and the `Default • ` marker when the session catalog's windows change.
+    #[test]
+    fn models_update_refreshes_an_open_context_window_dropdown() {
+        let mut app = make_app_with_agent("sess-1");
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            seed_windowed_model(agent, "grok-4", 256_000, &[256_000, 500_000]);
+            agent.session.models.current = Some(acp_fixtures::model_id("grok-4"));
+            agent.session.models.context_window_selection = Some(500_000);
+            open_slash(agent, "/context-window ");
+            assert!(agent.prompt.slash_open(), "the /context-window menu is open");
+            let displays = slash_displays(agent);
+            assert!(
+                displays.iter().any(|row| row == "500k (active)"),
+                "the selected window is marked active: {displays:?}"
+            );
+            assert!(
+                displays.iter().any(|row| row == "256k"),
+                "the default window is listed: {displays:?}"
+            );
+            assert!(
+                slash_descriptions(agent)
+                    .iter()
+                    .any(|row| row.0 == "256k" && row.1.starts_with("Default • ")),
+                "the catalog default keeps its marker"
+            );
+        }
+
+        let listed = acp_fixtures::model_info_with_meta(
+            "grok-4",
+            "grok-4",
+            serde_json::json!({
+                "totalContextTokens": 256_000,
+                "contextWindows": [256_000, 1_000_000],
+            }),
+        );
+        let state = acp::SessionModelState::new(acp_fixtures::model_id("grok-4"), vec![listed]);
+        let notif = acp_fixtures::ext_notification("x.ai/models/update", &state);
+        assert!(handle_models_update(&notif, &mut app));
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        assert!(
+            agent.prompt.slash_open(),
+            "the menu stays open across the catalog change"
+        );
+        let displays = slash_displays(agent);
+        assert!(
+            displays.iter().any(|row| row == "256k (active)"),
+            "the active marker moves to the window the catalog still offers: {displays:?}"
+        );
+        assert!(
+            displays.iter().any(|row| row == "1m"),
+            "the new window appears: {displays:?}"
+        );
+        assert!(
+            displays.iter().all(|row| !row.contains("500k")),
+            "the removed window leaves the open menu: {displays:?}"
+        );
+        assert!(
+            slash_descriptions(agent).iter().any(|row| {
+                row.0 == "256k (active)" && row.1.starts_with("Default • ")
+            }),
+            "the default marker stays on the catalog default"
+        );
+    }
+
+    /// A catalog change does not open a menu the composer has not opened.
+    #[test]
+    fn models_update_does_not_open_a_closed_slash_menu() {
+        let mut app = make_app_with_agent("sess-1");
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            seed_models(agent, "grok-3", &["grok-3", "grok-4"]);
+            agent.prompt.set_text("/model ");
+            let end = agent.prompt.text().len();
+            agent.prompt.set_cursor(end);
+            assert!(
+                !agent.prompt.slash_open(),
+                "the menu stays closed until something refreshes it"
+            );
+        }
+
+        let notif = make_models_update_notif("grok-3", &["grok-3", "grok-4.5"]);
+        assert!(handle_models_update(&notif, &mut app));
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        assert!(
+            !agent.prompt.slash_open(),
+            "a catalog change must not open a menu that was closed"
+        );
+    }
+
+    fn open_slash(agent: &mut AgentView, text: &str) {
+        agent.prompt.set_text(text);
+        let end = agent.prompt.text().len();
+        agent.prompt.set_cursor(end);
+        agent.prompt.refresh_slash(&agent.session.models);
+    }
+
+    fn slash_displays(agent: &AgentView) -> Vec<String> {
+        agent
+            .prompt
+            .slash_snapshot()
+            .matches
+            .iter()
+            .map(|row| row.display.clone())
+            .collect()
+    }
+
+    fn slash_descriptions(agent: &AgentView) -> Vec<(String, String)> {
+        agent
+            .prompt
+            .slash_snapshot()
+            .matches
+            .iter()
+            .map(|row| (row.display.clone(), row.description.clone()))
+            .collect()
     }
 
