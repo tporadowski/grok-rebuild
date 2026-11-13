@@ -2291,6 +2291,18 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
         xai_grok_workspace::permission::ClientType::Generic
     });
     schedule_startup_prewarm();
+    // Blank headless `--resume` fails before session lookup.
+    xai_grok_pager::headless::refuse_blank_headless_resume(
+        xai_grok_pager::headless::launch_is_headless(
+            args.command.is_none(),
+            args.single.is_some() || args.prompt_json.is_some() || args.prompt_file.is_some(),
+            args.memory_flush,
+            std::io::stdin().is_terminal(),
+        ),
+        args.resume_session
+            .as_deref()
+            .or(args.load_session.as_deref()),
+    )?;
     args.pin_local_resume_target()?;
     let saved_profile = args.saved_resume_profile();
     let sandbox_profile_arg = match args.startup_sandbox_profile(saved_profile.as_deref()) {

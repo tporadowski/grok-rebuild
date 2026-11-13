@@ -116,6 +116,26 @@ fn without_leading_bom(text: &str) -> &str {
     text.strip_prefix('\u{feff}').unwrap_or(text)
 }
 
+/// Whether this launch runs a headless turn (`-p`, a prompt file, `--memory-flush`, or a pipe).
+/// A subcommand is not headless unless it also carries a prompt or `--memory-flush`.
+pub fn launch_is_headless(
+    command_is_none: bool,
+    has_explicit_prompt: bool,
+    memory_flush: bool,
+    stdin_is_terminal: bool,
+) -> bool {
+    has_explicit_prompt || memory_flush || (command_is_none && !stdin_is_terminal)
+}
+
+/// Headless `--resume` must name a session. A blank value is not a new session.
+/// Interactive `grok --resume` with no value still means most recent (`headless: false`).
+pub fn refuse_blank_headless_resume(headless: bool, resume: Option<&str>) -> anyhow::Result<()> {
+    if headless && resume.is_some_and(|value| value.trim().is_empty()) {
+        anyhow::bail!("--resume requires a valid session ID.");
+    }
+    Ok(())
+}
+
 /// Parse ACP content blocks from an array (`[...]`) or typed wrapper (`{"type":"acp","content":[...]}`).
 fn parse_prompt_json(json_str: &str) -> anyhow::Result<Vec<acp::ContentBlock>> {
     let value: serde_json::Value =
@@ -313,6 +333,34 @@ mod tests {
             .expect("flag prompt");
         assert_eq!(reads.get(), 0, "an explicit prompt must not read stdin");
         assert_eq!(text_of(prompt), "from the flag");
+    }
+
+    #[test]
+    fn headless_resume_rejects_a_blank_session_id() {
+        let missing = super::refuse_blank_headless_resume(true, Some(""))
+            .expect_err("an empty --resume is not a session");
+        assert!(
+            missing.to_string().contains("valid session ID"),
+            "{missing}"
+        );
+        let blank = super::refuse_blank_headless_resume(true, Some(" \n"))
+            .expect_err("whitespace is empty");
+        assert!(blank.to_string().contains("valid session ID"), "{blank}");
+        assert!(super::refuse_blank_headless_resume(true, Some("abc-123")).is_ok());
+        assert!(super::refuse_blank_headless_resume(true, None).is_ok());
+        assert!(
+            super::refuse_blank_headless_resume(false, Some("")).is_ok(),
+            "interactive --resume with no value still means most recent"
+        );
+    }
+
+    #[test]
+    fn a_pipe_is_headless_and_a_subcommand_without_a_prompt_is_not() {
+        assert!(super::launch_is_headless(true, false, false, false));
+        assert!(!super::launch_is_headless(true, false, false, true));
+        assert!(super::launch_is_headless(true, true, false, true));
+        assert!(super::launch_is_headless(false, false, true, true));
+        assert!(!super::launch_is_headless(false, false, false, false));
     }
 
     #[test]

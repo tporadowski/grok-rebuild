@@ -48,7 +48,10 @@ use prompt_ack::{abort_unacknowledged_prompt, headless_ack_signal};
 use signals::HeadlessSignals;
 mod cli;
 pub(crate) use cli::parse_comma_list;
-pub use cli::{HeadlessPrompt, OutputFormat, parse_json_schema, parse_permission_rules_lenient};
+pub use cli::{
+    HeadlessPrompt, OutputFormat, launch_is_headless, parse_json_schema,
+    parse_permission_rules_lenient, refuse_blank_headless_resume,
+};
 pub(crate) use cli::{ResolvedAgent, resolve_agent_arg};
 use cli::{apply_agent_flag, parse_cli_agents, parse_permission_rules_strict};
 #[derive(Debug, Clone)]
@@ -1078,6 +1081,8 @@ pub async fn run_single_turn(
     verbatim: bool,
     options: HeadlessOptions,
 ) -> Result<()> {
+    // Blank `--resume` is not "most recent". Refuse it before signals, config, or session lookup.
+    refuse_blank_headless_resume(true, options.resume.as_deref())?;
     let signals = HeadlessSignals::install().await?;
     xai_grok_shell::http::set_process_client_mode_headless();
     let cwd = match options.cwd {

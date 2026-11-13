@@ -2245,6 +2245,45 @@ mod tests {
         assert_eq!(args.session_to_resume(), None);
     }
     #[test]
+    fn headless_resume_without_a_value_is_refused() {
+        let args = try_parse_pager(&["grok-pager", "-p", "hello", "--resume"]).unwrap();
+        assert!(args.resume_most_recent());
+        let err = crate::headless::refuse_blank_headless_resume(
+            crate::headless::launch_is_headless(
+                args.command.is_none(),
+                args.single.is_some(),
+                args.memory_flush,
+                true,
+            ),
+            args.resume_session.as_deref(),
+        )
+        .expect_err("grok -p --resume needs a session id");
+        assert!(err.to_string().contains("valid session ID"), "{err}");
+
+        let blank = try_parse_pager(&["grok-pager", "-p", "hello", "--resume", " "]).unwrap();
+        let err = crate::headless::refuse_blank_headless_resume(
+            true,
+            blank.resume_session.as_deref(),
+        )
+        .expect_err("a blank id is empty");
+        assert!(err.to_string().contains("valid session ID"), "{err}");
+
+        let interactive = try_parse_pager(&["grok-pager", "--resume"]).unwrap();
+        assert!(
+            crate::headless::refuse_blank_headless_resume(
+                crate::headless::launch_is_headless(
+                    interactive.command.is_none(),
+                    interactive.single.is_some(),
+                    interactive.memory_flush,
+                    true,
+                ),
+                interactive.resume_session.as_deref(),
+            )
+            .is_ok(),
+            "interactive --resume with no value still means most recent"
+        );
+    }
+    #[test]
     fn cli_short_r_no_id_sets_empty_sentinel() {
         let args = try_parse_pager(&["grok-pager", "-r"]).unwrap();
         assert_eq!(args.resume_session.as_deref(), Some(""));

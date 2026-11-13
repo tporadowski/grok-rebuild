@@ -352,7 +352,7 @@ grok -p "hello" --session-id "$(uuidgen | tr '[:upper:]' '[:lower:]')" --output-
 
 ### Resume (`-r`)
 
-The `-r/--resume` flag resumes a specific session by ID, or by title for the current directory when the value is not an ID, ignoring letter case (a sole manually renamed match wins among duplicates; remaining duplicates error with their IDs; UUID-shaped values always take the ID path, so scripts should prefer IDs). It errors if the session does not exist:
+The `-r/--resume` flag resumes a specific session by ID, or by title for the current directory when the value is not an ID, ignoring letter case (a sole manually renamed match wins among duplicates; remaining duplicates error with their IDs; UUID-shaped values always take the ID path, so scripts should prefer IDs). It errors if the session does not exist. Omitting the id, or passing a blank one, is an error before any session is opened; continue the most recent session with `-c`:
 
 ```bash
 # Get the session ID from a previous JSON response
