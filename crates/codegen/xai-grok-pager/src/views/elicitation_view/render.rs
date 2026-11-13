@@ -8,6 +8,7 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 use xai_grok_tools::mcp_elicitation::ElicitFieldKind;
 
+use crate::render::SafeBuf;
 use crate::theme::Theme;
 
 use super::state::{
@@ -193,24 +194,25 @@ pub fn render_elicitation_view(
 
     buf.set_style(area, Style::default().bg(theme.bg_light));
     let accent_style = Style::default().fg(theme.accent_user);
-    for row in area.y..area.y + area.height {
+    // `bottom()` saturates. A shrink can hand us a rect whose y + height would overflow.
+    for row in area.y..area.bottom() {
         if let Some(cell) = buf.cell_mut((area.x, row)) {
             cell.set_symbol(crate::glyphs::accent_bar());
             cell.set_style(accent_style);
         }
     }
 
-    let content_x = area.x + 3;
+    let content_x = area.x.saturating_add(3);
     let content_width = area.width.saturating_sub(ELICIT_HPAD);
-    let bottom = area.y + area.height;
+    let bottom = area.bottom();
     let mut y = area.y.saturating_add(1);
 
     y = write_wrapped(
         buf,
+        area,
         content_x,
         y,
         content_width,
-        bottom,
         &state.title(),
         Style::default()
             .fg(theme.text_primary)
@@ -220,10 +222,10 @@ pub fn render_elicitation_view(
     y = y.saturating_add(1);
     y = write_wrapped(
         buf,
+        area,
         content_x,
         y,
         content_width,
-        bottom,
         &state.message,
         Style::default().fg(theme.gray),
         MAX_MESSAGE_LINES,
@@ -232,10 +234,10 @@ pub fn render_elicitation_view(
         let err = err.to_string();
         y = write_wrapped(
             buf,
+            area,
             content_x,
             y,
             content_width,
-            bottom,
             &err,
             Style::default().fg(theme.accent_error),
             2,
@@ -274,11 +276,20 @@ pub fn render_elicitation_view(
 
     // The "↑ more" and "↓ more" markers paint into the separator rows the layout already has
     if scroll > 0 {
-        paint_more_marker(buf, content_x, above_body_y, content_width, "↑ more", theme);
+        paint_more_marker(
+            buf,
+            area,
+            content_x,
+            above_body_y,
+            content_width,
+            "↑ more",
+            theme,
+        );
     }
     if total > scroll + body_h {
         paint_more_marker(
             buf,
+            area,
             content_x,
             actions_y.saturating_sub(1),
             content_width,
@@ -292,10 +303,13 @@ pub fn render_elicitation_view(
         .map(|f| form_value_column(&f.fields, content_width as usize))
         .unwrap_or(0);
     for (offset, row) in rows.iter().skip(scroll).take(body_h).enumerate() {
-        let row_y = y + offset as u16;
+        let row_y = y.saturating_add(offset as u16);
+        if !row_is_inside(area, content_x, row_y) {
+            continue;
+        }
         match row {
             BodyRow::Text(line) => {
-                buf.set_line(content_x, row_y, line, content_width);
+                paint_in_area(buf, area, content_x, row_y, line, content_width);
             }
             BodyRow::Field(i) => {
                 let Some(field) = form.and_then(|f| f.fields.get(*i)) else {
@@ -304,6 +318,7 @@ pub fn render_elicitation_view(
                 let is_cur = cursor_is_on_field(state, *i);
                 paint_row(
                     buf,
+                    area,
                     content_x,
                     row_y,
                     content_width,
@@ -324,6 +339,7 @@ pub fn render_elicitation_view(
                 let is_cur = cursor_is_on_field(state, *i);
                 paint_row(
                     buf,
+                    area,
                     content_x,
                     row_y,
                     content_width,
@@ -336,6 +352,7 @@ pub fn render_elicitation_view(
                 };
                 paint_row(
                     buf,
+                    area,
                     content_x,
                     row_y,
                     content_width,
@@ -367,12 +384,15 @@ pub fn render_elicitation_view(
             };
         paint_row(
             buf,
+            area,
             content_x,
             action_y,
             content_width,
             action_row(shortcut, label, is_cur, focused, theme),
         );
-        if let Some(ref mut hits) = hits {
+        if row_is_inside(area, content_x, action_y)
+            && let Some(ref mut hits) = hits
+        {
             hits.push((hit, Rect::new(content_x, action_y, content_width, 1)));
         }
         action_y = action_y.saturating_add(1);
@@ -390,12 +410,33 @@ fn cursor_is_on_field(state: &ElicitationViewState, i: usize) -> bool {
     ) && state.field_cursor() == i
 }
 
-fn paint_more_marker(buf: &mut Buffer, x: u16, y: u16, width: u16, label: &str, theme: &Theme) {
+fn paint_more_marker(
+    buf: &mut Buffer,
+    area: Rect,
+    x: u16,
+    y: u16,
+    width: u16,
+    label: &str,
+    theme: &Theme,
+) {
     let line = Line::from(vec![Span::styled(
         label.to_string(),
         Style::default().fg(theme.gray_dim),
     )]);
-    buf.set_line(x, y, &line, width);
+    paint_in_area(buf, area, x, y, &line, width);
+}
+
+/// `Buffer::set_line` panics outside the buffer. A short or narrow area, or a
+/// shrink while the card is open, can leave the row past `area`.
+fn row_is_inside(area: Rect, x: u16, y: u16) -> bool {
+    y >= area.y && y < area.bottom() && x < area.right()
+}
+
+fn paint_in_area(buf: &mut Buffer, area: Rect, x: u16, y: u16, line: &Line<'_>, width: u16) {
+    if row_is_inside(area, x, y) {
+        let width = width.min(area.right().saturating_sub(x));
+        buf.set_line_safe(x, y, line, width);
+    }
 }
 
 fn wrap_count(text: &str, width: usize) -> u16 {
@@ -411,25 +452,25 @@ fn wrap_count(text: &str, width: usize) -> u16 {
 #[allow(clippy::too_many_arguments)]
 fn write_wrapped(
     buf: &mut Buffer,
+    area: Rect,
     x: u16,
     y: u16,
     width: u16,
-    max_y: u16,
     text: &str,
     style: Style,
     cap: u16,
 ) -> u16 {
-    if text.is_empty() || y >= max_y {
+    if text.is_empty() || y >= area.bottom() {
         return y;
     }
     let raw = Line::from(vec![Span::styled(text.to_string(), style)]);
     let wrapped = crate::render::wrapping::word_wrap_line(&raw, width.max(1) as usize);
     let mut cur = y;
     for line in wrapped.into_iter().take(cap as usize) {
-        if cur >= max_y {
+        if cur >= area.bottom() {
             break;
         }
-        buf.set_line(x, cur, &line, width);
+        paint_in_area(buf, area, x, cur, &line, width);
         cur = cur.saturating_add(1);
     }
     cur
@@ -454,7 +495,11 @@ fn row_style(is_cur: bool, focused: bool, theme: &Theme) -> Style {
     }
 }
 
-fn paint_row(buf: &mut Buffer, x: u16, y: u16, width: u16, line: Line<'_>) {
+fn paint_row(buf: &mut Buffer, area: Rect, x: u16, y: u16, width: u16, line: Line<'_>) {
+    if !row_is_inside(area, x, y) {
+        return;
+    }
+    let width = width.min(area.right().saturating_sub(x));
     let row = Rect {
         x,
         y,
@@ -462,7 +507,7 @@ fn paint_row(buf: &mut Buffer, x: u16, y: u16, width: u16, line: Line<'_>) {
         height: 1,
     };
     buf.set_style(row, line.style);
-    buf.set_line(x, y, &line, width);
+    buf.set_line_safe(x, y, &line, width);
 }
 
 pub(super) fn form_value_column(fields: &[FormFieldUi], content_w: usize) -> usize {

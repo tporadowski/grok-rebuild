@@ -98,6 +98,67 @@ fn form_accept_requires_email() {
 }
 
 #[test]
+fn card_draws_in_a_tiny_area() {
+    let sizes = [
+        (1u16, 1u16),
+        (2, 1),
+        (3, 2),
+        (4, 3),
+        (5, 1),
+        (8, 2),
+        (12, 4),
+        (40, 1),
+        (1, 12),
+    ];
+    for (w, h) in sizes {
+        let mut form = ElicitationViewState::from_request(many_field_req(8), None, None);
+        form.scroll = 20;
+        let _ = render_to_text(&mut form, w, h);
+        let mut url = ElicitationViewState::from_request(
+            url_req("https://example.com/oauth/callback?code=abcdefghijklmnopqrstuvwxyz"),
+            None,
+            None,
+        );
+        url.scroll = 20;
+        let _ = render_to_text(&mut url, w, h);
+        url.begin_url_waiting();
+        url.scroll = 20;
+        let _ = render_to_text(&mut url, w, h);
+    }
+
+    // A roomy card still paints the title and the pinned action.
+    let mut form = ElicitationViewState::from_request(form_req(), None, None);
+    let text = render_to_text(&mut form, 80, 16);
+    assert!(
+        text.contains("MCP server") && text.contains("Accept"),
+        "a normal card keeps its title and action:\n{text}"
+    );
+
+    // The rect hangs past a buffer that already shrank.
+    let theme = Theme::default();
+    let mut shrunk = ElicitationViewState::from_request(many_field_req(8), None, None);
+    shrunk.scroll = 20;
+    let mut buf = Buffer::empty(Rect::new(0, 0, 10, 10));
+    let overhang = Rect {
+        x: 0,
+        y: 8,
+        width: 10,
+        height: 4,
+    };
+    render_elicitation_view(&mut buf, overhang, &mut shrunk, &theme, true, None);
+
+    let mut narrow = ElicitationViewState::from_request(form_req(), None, None);
+    let mut wide = Buffer::empty(Rect::new(0, 0, 20, 8));
+    let edge = Rect {
+        x: 18,
+        y: 0,
+        width: 4,
+        height: 8,
+    };
+    render_elicitation_view(&mut wide, edge, &mut narrow, &theme, true, None);
+}
+
+#[test]
 fn title_names_the_mcp_server() {
     let form = ElicitationViewState::from_request(form_req(), None, None);
     assert_eq!(form.title(), "MCP server “demo” requests your input");
