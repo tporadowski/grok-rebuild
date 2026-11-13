@@ -155,7 +155,7 @@ They share one contract:
 ### MCP elicitation card (`x.ai/mcp/elicit`)
 
 Shown when an MCP server asks for user input (form fields or URL consent).
-The title always includes the MCP server name.
+The title reads "MCP server", then the server name.
 
 | Key | Action |
 |-----|--------|

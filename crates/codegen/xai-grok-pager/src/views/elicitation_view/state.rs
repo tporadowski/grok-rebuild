@@ -369,13 +369,13 @@ impl ElicitationViewState {
     pub fn title(&self) -> String {
         match &self.stage {
             ElicitationStage::Form(_) => {
-                format!("MCP “{}” requests your input", self.server_name)
+                format!("MCP server “{}” requests your input", self.server_name)
             }
             ElicitationStage::UrlConsent(_) => {
-                format!("MCP “{}” wants to open a URL", self.server_name)
+                format!("MCP server “{}” wants to open a URL", self.server_name)
             }
             ElicitationStage::UrlWaiting(_) => {
-                format!("MCP “{}”, waiting for completion", self.server_name)
+                format!("MCP server “{}”, waiting for completion", self.server_name)
             }
         }
     }

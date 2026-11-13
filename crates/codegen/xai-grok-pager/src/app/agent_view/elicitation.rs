@@ -435,13 +435,13 @@ impl AgentView {
         let server = notice_server_name(server);
         let text = match outcome {
             UnansweredElicitation::Declined => {
-                format!("Declined MCP “{server}” request for input.")
+                format!("Declined MCP server “{server}” request for input.")
             }
             UnansweredElicitation::Cancelled => {
-                format!("Dismissed MCP “{server}” request for input without answering.")
+                format!("Dismissed MCP server “{server}” request for input without answering.")
             }
             UnansweredElicitation::ClosedElsewhere => format!(
-                "MCP “{server}” request for input closed before it was answered here (it timed out or was answered elsewhere)."
+                "MCP server “{server}” request for input closed before it was answered here (it timed out or was answered elsewhere)."
             ),
         };
         crate::app::mode_switch::push_block_behind_live_stream(

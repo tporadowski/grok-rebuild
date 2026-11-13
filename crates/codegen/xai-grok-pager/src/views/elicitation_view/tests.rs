@@ -98,9 +98,20 @@ fn form_accept_requires_email() {
 }
 
 #[test]
-fn title_includes_server() {
-    let state = ElicitationViewState::from_request(form_req(), None, None);
-    assert!(state.title().contains("demo"));
+fn title_names_the_mcp_server() {
+    let form = ElicitationViewState::from_request(form_req(), None, None);
+    assert_eq!(form.title(), "MCP server “demo” requests your input");
+
+    let url = ElicitationViewState::from_request(url_req("https://example.com/cb"), None, None);
+    assert_eq!(url.title(), "MCP server “oauth” wants to open a URL");
+
+    let mut waiting =
+        ElicitationViewState::from_request(url_req("https://example.com/cb"), None, None);
+    waiting.begin_url_waiting();
+    assert_eq!(
+        waiting.title(),
+        "MCP server “oauth”, waiting for completion"
+    );
 }
 
 #[test]

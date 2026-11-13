@@ -1481,7 +1481,7 @@ fn declined_elicitation_tells_the_server_and_leaves_a_notice() {
     );
     assert!(agent.elicitation_view.is_none());
     assert_eq!(
-        vec!["Declined MCP “demo” request for input.".to_owned()],
+        vec!["Declined MCP server “demo” request for input.".to_owned()],
         system_notes(&agent)
     );
 }
@@ -1501,7 +1501,7 @@ fn cancelled_elicitation_tells_the_server_and_leaves_a_notice() {
         delivered_answer(&mut rx)
     );
     assert_eq!(
-        vec!["Dismissed MCP “demo” request for input without answering.".to_owned()],
+        vec!["Dismissed MCP server “demo” request for input without answering.".to_owned()],
         system_notes(&agent)
     );
 }
@@ -1517,7 +1517,7 @@ fn accept_after_the_server_gave_up_leaves_a_notice() {
     assert!(agent.elicitation_view.is_none());
     assert_eq!(
         vec![
-            "MCP “demo” request for input closed before it was answered here (it timed out or was answered elsewhere)."
+            "MCP server “demo” request for input closed before it was answered here (it timed out or was answered elsewhere)."
                 .to_owned()
         ],
         system_notes(&agent)
@@ -1535,7 +1535,7 @@ fn notice_quotes_only_catalog_name_characters_of_the_server() {
     assert!(agent.dismiss_resolved_interaction("mcp-elicit-test"));
     assert_eq!(
         vec![
-            "MCP “xapprovedVisithttpsevilexample” request for input closed before it was answered here (it timed out or was answered elsewhere)."
+            "MCP server “xapprovedVisithttpsevilexample” request for input closed before it was answered here (it timed out or was answered elsewhere)."
                 .to_owned()
         ],
         system_notes(&agent)
@@ -1553,7 +1553,7 @@ fn elicitation_closed_elsewhere_leaves_a_notice() {
     assert!(!agent.is_awaiting_user_answer());
     assert_eq!(
         vec![
-            "MCP “demo” request for input closed before it was answered here (it timed out or was answered elsewhere)."
+            "MCP server “demo” request for input closed before it was answered here (it timed out or was answered elsewhere)."
                 .to_owned()
         ],
         system_notes(&agent)
