@@ -616,13 +616,17 @@ pub fn render_goal_detail(
         return Some(close_rect);
     }
 
-    // Progress bar, only when a budget is set
+    // Progress bar, only when a budget is set.
+    // Brackets and the percentage stay on the row; the bar gives up columns
+    // first, including on a narrow terminal (`v81-x27`).
     if has_budget {
-        let bar_w = w.min(30);
+        let pct_label = format!(" {:.0}%", pct * 100.0);
+        let pct_w = unicode_width::UnicodeWidthStr::width(pct_label.as_str()) as u16;
+        let chrome = pct_w.saturating_add(2);
+        let bar_w = 30u16.min(w.saturating_sub(chrome));
         let fg = budget_color(pct, &theme);
         let bg = theme.scrollbar_bg;
         let bar_spans = progress_bar_spans(bar_w, pct, fg, bg);
-        let pct_label = format!(" {:.0}%", pct * 100.0);
         let mut line_spans = vec![Span::styled("[", Style::default().fg(theme.gray))];
         line_spans.extend(bar_spans);
         line_spans.push(Span::styled("]", Style::default().fg(theme.gray)));
@@ -1269,6 +1273,77 @@ mod tests {
         // Exactly 50% is yellow (green below 50%, yellow 50-80%)
         assert_eq!(budget_color(0.50, &theme), theme.warning);
         assert_eq!(budget_color(0.499, &theme), theme.accent_success);
+    }
+
+    fn row_cells(buf: &ratatui::buffer::Buffer, y: u16) -> Vec<String> {
+        (0..buf.area.width)
+            .map(|x| {
+                buf.cell((x, y))
+                    .map(|cell| cell.symbol().to_owned())
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    /// The meter row is the one with `[`, then a later `]`, then `%`.
+    /// The budget sentence uses `(25%)` and the close button has no percent.
+    fn budget_meter_cells(buf: &ratatui::buffer::Buffer) -> Vec<String> {
+        for y in 0..buf.area.height {
+            let cells = row_cells(buf, y);
+            let Some(open) = cells.iter().position(|cell| cell == "[") else {
+                continue;
+            };
+            let Some(close) = cells.iter().position(|cell| cell == "]") else {
+                continue;
+            };
+            if open < close && cells.iter().skip(close + 1).any(|cell| cell == "%") {
+                return cells;
+            }
+        }
+        panic!("goal budget meter not found:\n{}", buffer_text(buf));
+    }
+
+    #[test]
+    fn narrow_goal_budget_meter_keeps_brackets_and_percentage() {
+        // Content width is the popup width minus the border and the one-cell inset.
+        // The bar shrinks so `[`, `]`, and the percentage all land inside that width.
+        fn assert_meter(area_width: u16, tokens_used: i64, budget: i64, bar_cap: usize) {
+            let mut goal = make_goal();
+            goal.tokens_used = tokens_used;
+            goal.token_budget = Some(budget);
+            let area = Rect::new(0, 0, area_width, 16);
+            let mut buf = ratatui::buffer::Buffer::empty(area);
+            render_goal_detail(&mut buf, area, &goal, &[], 0, None, 0, false);
+            let pct = (tokens_used as f64 / budget as f64).min(1.0);
+            let pct_label = format!(" {:.0}%", pct * 100.0);
+            let content_w = usize::from(area_width.saturating_sub(4));
+            let chrome = unicode_width::UnicodeWidthStr::width(pct_label.as_str()) + 2;
+            let expected_bar = bar_cap.min(content_w.saturating_sub(chrome));
+
+            let cells = budget_meter_cells(&buf);
+            let open = cells.iter().position(|cell| cell == "[").expect("[");
+            let close = cells.iter().position(|cell| cell == "]").expect("]");
+            let pct_at = cells.iter().position(|cell| cell == "%").expect("%");
+            assert_eq!(open, 2, "meter starts at the content inset");
+            assert!(open < close && close < pct_at);
+            assert_eq!(close - open - 1, expected_bar);
+            assert!(
+                pct_at < 2 + content_w,
+                "percentage must sit inside the content width {content_w}, at column {pct_at}"
+            );
+            let suffix: String = cells
+                .iter()
+                .skip(close + 1)
+                .take(pct_at - close)
+                .cloned()
+                .collect();
+            assert_eq!(suffix, pct_label);
+        }
+
+        assert_meter(20, 12_300, 50_000, 30);
+        assert_meter(20, 0, 50_000, 30);
+        assert_meter(20, 50_000, 50_000, 30);
+        assert_meter(80, 12_300, 50_000, 30);
     }
 
     #[test]
