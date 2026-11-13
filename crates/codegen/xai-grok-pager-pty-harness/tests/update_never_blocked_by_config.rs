@@ -238,7 +238,7 @@ fn winget_install_update_hands_off_without_update_writes() {
                 ("GROK_TEST_VERSION", "5.0.0"),
             ],
             succeeds: true,
-            expected: "Already up to date (5.0.0).",
+            expected: "Already up to date (5.0.0)",
             prints_install: false,
         },
         CappedCase {
@@ -247,7 +247,7 @@ fn winget_install_update_hands_off_without_update_writes() {
                 ("GROK_TEST_VERSION", "6.0.0"),
             ],
             succeeds: true,
-            expected: "Already up to date (6.0.0).",
+            expected: "Already up to date (6.0.0)",
             prints_install: false,
         },
         CappedCase {

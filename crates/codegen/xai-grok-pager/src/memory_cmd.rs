@@ -122,7 +122,7 @@ fn run_clear(storage: &MemoryStorage, targets: &[ClearTarget], skip_confirm: boo
     }
 
     if cleared && errors.is_empty() {
-        println!("Memory cleared.");
+        println!("Memory cleared");
     } else if cleared {
         println!("Memory partially cleared. Errors:");
         for e in &errors {

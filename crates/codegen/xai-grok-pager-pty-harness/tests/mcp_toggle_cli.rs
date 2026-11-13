@@ -132,7 +132,7 @@ fn noop_enable_reports_already_enabled_without_config_write() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        stdout.contains("MCP server 'svc' is already enabled."),
+        stdout.contains("MCP server 'svc' is already enabled"),
         "stdout: {stdout}"
     );
     assert!(
@@ -161,7 +161,7 @@ fn noop_disable_reports_already_disabled_without_config_write() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        stdout.contains("MCP server 'svc' is already disabled."),
+        stdout.contains("MCP server 'svc' is already disabled"),
         "stdout: {stdout}"
     );
     assert!(
@@ -315,7 +315,7 @@ fn disable_persists_personal_disable_over_project_tier_disable() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        stdout.contains("Disabled MCP server 'x'.")
+        stdout.contains("Disabled MCP server 'x'")
             && stdout.contains("File modified: $GROK_HOME/config.toml"),
         "stdout: {stdout}"
     );
@@ -335,7 +335,7 @@ fn disable_persists_personal_disable_over_project_tier_disable() {
     let output = run_mcp(&env, &["disable", "x"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("MCP server 'x' is already disabled.") && !stdout.contains("File modified"),
+        stdout.contains("MCP server 'x' is already disabled") && !stdout.contains("File modified"),
         "stdout: {stdout}"
     );
 }
@@ -440,7 +440,7 @@ fn real_toggle_writes_config_and_reports_file_modified() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        stdout.contains("Enabled MCP server 'svc'."),
+        stdout.contains("Enabled MCP server 'svc'"),
         "stdout: {stdout}"
     );
     assert!(
@@ -465,7 +465,7 @@ fn real_toggle_writes_config_and_reports_file_modified() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        stdout.contains("Disabled MCP server 'svc'."),
+        stdout.contains("Disabled MCP server 'svc'"),
         "stdout: {stdout}"
     );
     assert!(

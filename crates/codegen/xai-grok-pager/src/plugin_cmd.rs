@@ -695,7 +695,7 @@ fn cmd_validate(path: &str) -> Result<()> {
             manifest
                 .validate()
                 .map_err(|e| anyhow::anyhow!("Manifest validation failed: {e}"))?;
-            println!("Plugin manifest is valid.");
+            println!("Plugin manifest is valid");
             println!("  name: {}", manifest.name);
             if let Some(ref v) = manifest.version {
                 println!("  version: {v}");
@@ -754,7 +754,7 @@ fn cmd_tag(path: &str, push: bool, force: bool, dry_run: bool) -> Result<()> {
     if dry_run {
         println!("Would create tag: {tag}");
         if push {
-            println!("Would push tag to remote.");
+            println!("Would push tag to remote");
         }
         return Ok(());
     }
@@ -786,7 +786,7 @@ fn cmd_tag(path: &str, push: bool, force: bool, dry_run: bool) -> Result<()> {
                 String::from_utf8_lossy(&out.stderr)
             );
         }
-        println!("Pushed tag {tag} to origin.");
+        println!("Pushed tag {tag} to origin");
     }
     Ok(())
 }
@@ -1082,7 +1082,7 @@ fn marketplace_update_with_cache_root(
     if refreshed == 0 && errors.is_empty() {
         if let Some(filter) = name {
             if name_matched {
-                println!("Source \"{filter}\" is local, nothing to sync.");
+                println!("Source \"{filter}\" is local, nothing to sync");
             } else {
                 bail!("Marketplace source \"{filter}\" not found.");
             }
@@ -1090,7 +1090,7 @@ fn marketplace_update_with_cache_root(
             println!("No marketplace sources configured.");
         }
     } else if errors.is_empty() {
-        println!("Refreshed {refreshed} source(s).");
+        println!("Refreshed {refreshed} source(s)");
     } else {
         eprintln!(
             "Refreshed {refreshed} source(s) with {} error(s): {}",

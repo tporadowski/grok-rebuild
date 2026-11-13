@@ -655,7 +655,7 @@ async fn run_set_enabled(name: &str, enabled: bool) -> Result<()> {
     };
     if already {
         let state = if enabled { "enabled" } else { "disabled" };
-        println!("MCP server '{name}' is already {state}.");
+        println!("MCP server '{name}' is already {state}");
         return Ok(());
     }
 
@@ -676,9 +676,9 @@ async fn run_set_enabled(name: &str, enabled: bool) -> Result<()> {
     }
 
     if enabled {
-        println!("Enabled MCP server '{name}'.");
+        println!("Enabled MCP server '{name}'");
     } else {
-        println!("Disabled MCP server '{name}'.");
+        println!("Disabled MCP server '{name}'");
     }
 
     let user_config = xai_grok_shell::util::config::user_config_path();

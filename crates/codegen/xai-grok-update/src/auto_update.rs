@@ -2656,7 +2656,7 @@ pub async fn apply_channel_switch(
         })
         .await;
         update_config.channel = ch.to_string();
-        eprintln!("Switched to {} channel.", ch);
+        eprintln!("Switched to {} channel", ch);
     }
     Ok(())
 }
@@ -2693,7 +2693,7 @@ pub async fn run_update(
                             && needs_update(&current, &target, "stable", above_hard_cap)
                                 == Some(false)
                         {
-                            eprintln!("Already up to date ({current}).");
+                            eprintln!("Already up to date ({current})");
                             return Ok(None);
                         }
                         Some(target)
@@ -2821,7 +2821,7 @@ pub async fn run_update(
                 } else {
                     let stable_ptr = try_fetch_stable_pointer().await;
                     write_version_cache(&install_target, stable_ptr.as_deref()).await;
-                    eprintln!("Already up to date ({}).", effective_current);
+                    eprintln!("Already up to date ({})", effective_current);
                     // Retry if a prior sync failed.
                     refresh_deployment_config().await;
                     // The target is on disk even though this call installed nothing
@@ -2904,7 +2904,7 @@ async fn refresh_deployment_config() {
         return;
     }
     match xai_grok_cloud_config::managed_config::sync().await {
-        Ok(true) => eprintln!("  Applied managed configuration."),
+        Ok(true) => eprintln!("  Applied managed configuration"),
         Ok(false) => tracing::debug!("no managed configuration to apply"),
         // Auth issues aren't actionable mid-update: quiet here, loud on `grok setup`.
         Err(e) if e.is_auth_rejection() => tracing::debug!("managed config not applied: {e}"),

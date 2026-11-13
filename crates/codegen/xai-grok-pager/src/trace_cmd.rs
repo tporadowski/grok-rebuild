@@ -547,7 +547,7 @@ async fn run_upload(
                 println!("{}", serde_json::to_string(&result)?);
             } else {
                 eprintln!();
-                eprintln!("Session trace uploaded successfully.");
+                eprintln!("Session trace uploaded successfully");
                 eprintln!("  {url}");
                 match turns.skipped_reason {
                     Some(reason) => eprintln!("Per-turn trace skipped: {}", reason.user_message()),

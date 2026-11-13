@@ -315,7 +315,7 @@ async fn run_setup_command(json: bool) {
         return;
     }
     match managed_config::run_setup().await {
-        SetupOutcome::Installed => eprintln!("Applied managed configuration."),
+        SetupOutcome::Installed => eprintln!("Applied managed configuration"),
         SetupOutcome::NothingConfigured => {
             eprintln!(
                 "Your team doesn't have a managed configuration yet. A team admin can set one up at console.x.ai."
@@ -416,9 +416,9 @@ async fn kill_leaders() -> Result<()> {
         killed += 1;
     }
     if killed > 0 {
-        eprintln!("Killed {killed} leader process(es).");
+        eprintln!("Killed {killed} leader process(es)");
     } else if cleaned > 0 {
-        eprintln!("No live leader processes found (cleaned up {cleaned} stale lock(s)).");
+        eprintln!("No live leader processes found (cleaned up {cleaned} stale lock(s))");
     } else {
         eprintln!("No live leader processes found.");
     }
