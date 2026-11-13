@@ -1027,9 +1027,33 @@ fn resolve_restart_exe() -> Result<std::path::PathBuf> {
     Ok(std::env::current_exe()?)
 }
 
+/// What `grok update` prints before handing off to the installed copy.
+/// Names the copy that started the command, then the copy to run next.
+pub fn different_copy_update_message(
+    current: Option<&std::path::Path>,
+    managed: &std::path::Path,
+) -> String {
+    let started = match current {
+        Some(current) => format!(
+            "grok update started from {}, a different copy.",
+            current.display()
+        ),
+        None => "grok update started from a different copy.".to_string(),
+    };
+    format!(
+        "{started}\nContinuing with the installed copy. Run that copy next:\n  {}",
+        managed.display()
+    )
+}
+
 /// Replace this process with the self-updating build, keeping the update arguments.
+/// Prints which copy started the command and which copy to run next.
 /// `GROK_UPDATE_DELEGATED` stops that build from handing off again.
 pub fn exec_delegated_update(exe: &std::path::Path) -> Result<()> {
+    eprintln!(
+        "{}",
+        different_copy_update_message(std::env::current_exe().ok().as_deref(), exe)
+    );
     let mut cmd = Command::new(exe);
     for arg in std::env::args_os().skip(1) {
         cmd.arg(arg);

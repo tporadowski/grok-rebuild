@@ -83,6 +83,29 @@ fn update_delegates_to_the_self_updating_build_when_needed() {
 }
 
 #[test]
+fn different_copy_update_message_names_both_copies_and_the_next_step() {
+    let current = std::path::Path::new("/opt/other/grok");
+    let managed = std::path::Path::new("/home/u/.grok/bin/grok");
+    let message = different_copy_update_message(Some(current), managed);
+    assert!(message.contains("/opt/other/grok"), "{message}");
+    assert!(message.contains("a different copy"), "{message}");
+    assert!(message.contains("/home/u/.grok/bin/grok"), "{message}");
+    assert!(message.contains("Run that copy next"), "{message}");
+}
+
+#[test]
+fn different_copy_update_message_without_the_starting_path() {
+    let managed = std::path::Path::new("/home/u/.grok/bin/grok");
+    let message = different_copy_update_message(None, managed);
+    assert!(
+        message.contains("started from a different copy"),
+        "{message}"
+    );
+    assert!(message.contains("/home/u/.grok/bin/grok"), "{message}");
+    assert!(message.contains("Run that copy next"), "{message}");
+}
+
+#[test]
 fn homebrew_cask_update_and_channel_switch_show_brew_commands() {
     let cellar = std::path::Path::new(
         "/opt/homebrew/Caskroom/grok-build/1.0.77/grok-1.0.77-macos-aarch64",
