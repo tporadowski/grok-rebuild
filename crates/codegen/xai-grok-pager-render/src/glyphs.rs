@@ -318,22 +318,14 @@ pub fn chevron_down() -> &'static str {
 
 /// `"▾"` (U+25BE BLACK DOWN-POINTING SMALL TRIANGLE) normally, `"v"` (ASCII) on legacy ConHost. Always 1 column wide.
 ///
-/// The "expanded" disclosure indicator for a collapsible dashboard section header (the section's rows are visible below it).
+/// The "expanded" disclosure indicator for a collapsible row (the rows under it are visible).
 pub fn disclosure_open() -> &'static str {
-    if is_legacy_windows_console() {
-        "v"
-    } else {
-        "\u{25BE}"
-    }
+    console_mark(is_legacy_windows_console(), "\u{25BE}", "v")
 }
 
 /// Collapsed disclosure; pairs with [`disclosure_open`]. Legacy ConHost uses `>`.
 pub fn disclosure_closed() -> &'static str {
-    if is_legacy_windows_console() {
-        ">"
-    } else {
-        "\u{25B8}"
-    }
+    console_mark(is_legacy_windows_console(), "\u{25B8}", ">")
 }
 
 /// `"▴"` (U+25B4 BLACK UP-POINTING SMALL TRIANGLE) normally, `"^"` (ASCII) on legacy ConHost. Always 1 column wide.
@@ -643,9 +635,13 @@ mod tests {
         assert_eq!(console_mark(true, "\u{25CF}", "\u{2022}"), "\u{2022}");
         assert_eq!(console_mark(true, "\u{276F}", ">"), ">");
         assert_eq!(console_mark(true, "\u{25A1}", "-"), "-");
+        assert_eq!(console_mark(true, "\u{25BE}", "v"), "v");
+        assert_eq!(console_mark(true, "\u{25B8}", ">"), ">");
         assert_eq!(console_mark(false, "\u{25B6}", ">"), "\u{25B6}");
         assert_eq!(console_mark(false, "\u{25A1}", "-"), "\u{25A1}");
-        for mark in [">", "=", "o", "\u{2022}", "-"] {
+        assert_eq!(console_mark(false, "\u{25BE}", "v"), "\u{25BE}");
+        assert_eq!(console_mark(false, "\u{25B8}", ">"), "\u{25B8}");
+        for mark in [">", "=", "o", "\u{2022}", "-", "v"] {
             assert_eq!(UnicodeWidthStr::width(mark), 1, "{mark}");
         }
     }

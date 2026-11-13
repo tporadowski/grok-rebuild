@@ -1626,11 +1626,12 @@ fn render_personas_tab(
                     }
                 }
                 let mut x = content_area.x;
-                let indicator = if is_expanded {
-                    "\u{25bc} "
+                let mark = if is_expanded {
+                    crate::glyphs::disclosure_open()
                 } else {
-                    "\u{25b6} "
+                    crate::glyphs::disclosure_closed()
                 };
+                let indicator = format!("{mark} ");
                 let mut ind_style = Style::default().fg(theme.gray_dim);
                 if let Some(bg_color) = bg {
                     ind_style = ind_style.bg(bg_color);

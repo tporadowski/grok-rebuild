@@ -120,7 +120,8 @@ fn narrow_width_clips_name_and_skips_tags_that_do_not_fit() {
     render_row(&mut buf, 0, 8, 0, &row, &theme);
 
     let dot = crate::glyphs::filled_dot();
-    assert_eq!(format!("\u{25b6} {dot} long    "), row_text(&buf, 0));
+    let closed = crate::glyphs::disclosure_closed();
+    assert_eq!(format!("{closed} {dot} long    "), row_text(&buf, 0));
 }
 
 #[test]

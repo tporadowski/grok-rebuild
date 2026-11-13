@@ -2276,8 +2276,12 @@ pub(super) fn render_setting_row(
         0
     };
 
-    // Triangle prefix: "▸" collapsed, "▾" expanded.
-    let triangle = if is_expanded { "\u{25BE}" } else { "\u{25B8}" };
+    // Disclosure prefix: "▸" collapsed, "▾" expanded. Legacy ConHost draws ">" and "v".
+    let triangle = if is_expanded {
+        crate::glyphs::disclosure_open()
+    } else {
+        crate::glyphs::disclosure_closed()
+    };
     debug_assert_eq!(
         triangle.width(),
         (ROW_TRIANGLE_PREFIX_W - 1) as usize,
@@ -2534,8 +2538,13 @@ fn render_setting_group_row(
         .saturating_sub(ROW_RIGHT_PAD_W)
         .saturating_sub(ROW_CHEVRON_COL_W);
 
-    // Triangle prefix mirrors normal rows: "▾" expanded, "▸" collapsed (the group's description expands inline via Right/l like other rows)
-    let triangle = if is_expanded { "\u{25BE}" } else { "\u{25B8}" };
+    // Disclosure prefix mirrors normal rows: "▾" expanded, "▸" collapsed.
+    // The group's description expands inline via Right/l like other rows. Legacy ConHost draws "v" and ">".
+    let triangle = if is_expanded {
+        crate::glyphs::disclosure_open()
+    } else {
+        crate::glyphs::disclosure_closed()
+    };
     let label_text = format!("{triangle} {}", meta.label);
     let label_cap = chevron_x.saturating_sub(area.x).saturating_sub(1);
     let label_w = (label_text.width() as u16).min(label_cap);

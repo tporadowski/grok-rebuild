@@ -478,7 +478,13 @@ impl TaskEntry {
     /// The label aligns with item labels (chevron plus space is the same width as an item's 2-space indent).
     fn header(group: GroupKind, count: usize, collapsed: bool) -> Self {
         let theme = Theme::current();
-        let chevron = if collapsed { "\u{25B8} " } else { "\u{25BE} " };
+        let mark = if collapsed {
+            crate::glyphs::disclosure_closed()
+        } else {
+            crate::glyphs::disclosure_open()
+        };
+        // Glyph plus a space matches an item's 2-space indent. Legacy ConHost draws ">" / "v".
+        let chevron = format!("{mark} ");
         let styled = Line::from(vec![
             Span::styled(chevron, Style::default().fg(theme.gray)),
             Span::styled(
@@ -2338,6 +2344,10 @@ mod tests {
         };
         assert!(header_text.contains("Subagents"), "got: {header_text}");
         assert!(header_text.contains('1'), "count in header: {header_text}");
+        assert!(
+            header_text.starts_with(crate::glyphs::disclosure_open()),
+            "expanded group uses the disclosure glyph: {header_text}"
+        );
     }
     #[test]
     fn toggle_group_hides_and_shows_items() {
@@ -2354,6 +2364,16 @@ mod tests {
         assert!(matches!(pane_entry(&pane, 1), TaskEntry::Agent { .. }));
         pane.toggle_group(GroupKind::Subagents);
         assert_eq!(pane.entries.len(), 1);
+        let collapsed_header: String = match pane_entry(&pane, 0) {
+            TaskEntry::Header { styled, .. } => {
+                styled.spans.iter().map(|s| s.content.as_ref()).collect()
+            }
+            _ => unreachable!(),
+        };
+        assert!(
+            collapsed_header.starts_with(crate::glyphs::disclosure_closed()),
+            "collapsed group uses the disclosure glyph: {collapsed_header}"
+        );
         assert!(matches!(
             pane_entry(&pane, 0),
             TaskEntry::Header {

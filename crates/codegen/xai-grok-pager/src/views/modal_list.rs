@@ -56,12 +56,13 @@ pub(crate) fn render_row(
     }
     let dot_x = match row.expand {
         Some(is_expanded) => {
-            let arrow = if is_expanded {
-                "\u{25bc} "
+            let mark = if is_expanded {
+                crate::glyphs::disclosure_open()
             } else {
-                "\u{25b6} "
+                crate::glyphs::disclosure_closed()
             };
-            put(buf, x, end, y, arrow, Style::default().fg(theme.gray_dim));
+            let arrow = format!("{mark} ");
+            put(buf, x, end, y, &arrow, Style::default().fg(theme.gray_dim));
             x.saturating_add(2)
         }
         None => x,

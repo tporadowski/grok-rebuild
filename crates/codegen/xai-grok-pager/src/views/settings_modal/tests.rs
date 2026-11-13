@@ -616,6 +616,10 @@ fn render_setting_row_shows_full_label_when_one_line_fits() {
         rendered.contains("A very long label that exceeds the budget"),
         "full label must be visible when one-line layout fits: {rendered:?}"
     );
+    assert!(
+        rendered.starts_with(crate::glyphs::disclosure_closed()),
+        "a collapsed settings row uses the disclosure glyph: {rendered:?}"
+    );
 }
 
 /// The default registry contains Appearance settings (3 bools + 3 enums + 1 int = 7 entries).
