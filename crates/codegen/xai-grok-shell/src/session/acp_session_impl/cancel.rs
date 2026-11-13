@@ -385,6 +385,9 @@ impl SessionActor {
         if let Some((input, epoch, target_prompt_index, message_completions)) = claimed_rewound {
             let _strip_guard = self.prepare_image_strips_for_rewind().await;
             self.cancel_active_sampling_requests();
+            // This return skips the generic teardown below, which is what aborts a compact.
+            // The summarizer for the turn being rewound is still in that gate.
+            self.compaction.cancel.request_cancel();
             self.cancel_pending_image_strips_for_rewind();
             self.notify_turn_abort(epoch, xai_agent_lifecycle::TurnAbortReason::Interrupted)
                 .await;

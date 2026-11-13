@@ -1089,7 +1089,7 @@ Refresh these numbers at the end of a session.
 | Wave | Name | Pending | Skipped | Done | Already | Deferred |
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
-| W2 | CLI surface | 1 | 0 | 9 | 0 | 0 |
+| W2 | CLI surface | 0 | 0 | 10 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 0 | 0 | 13 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
@@ -1106,9 +1106,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 719. Pending: 31. Skipped: 9. Done: 538. Already: 112. Deferred: 29.
+Catalog rows: 719. Pending: 30. Skipped: 9. Done: 539. Already: 112. Deferred: 29.
 
-**Next:** v85-x21
+**Next:** v85-x06
 
 ## Waves
 
@@ -1118,7 +1118,7 @@ Pending: 0. Done: 5. Deferred: 1 (`v51-b01`, D-020). Look first: Share: `crates/
 
 ### W2 — CLI surface
 
-Pending: 1. Done: 9. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
+Pending: 0. Done: 10. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
 
 ### W3 — Permissions, sandbox, and config
 
@@ -1195,7 +1195,7 @@ id | status | wave | kind | flag | covered | note
 - v74-f10 | done | W2 | Features |  |  | **Picked `@` files in the prompt** can be edited in place: `Backspace` at the end of one reopens the picker on its path, and `Left` or `Right` puts the cursor inside it to change the path.
 - v83-x03 | done | W2 | Bug Fixes |  |  | **Bundled MinGit on Windows** uses the schannel backend for HTTPS operations.
 - v85-x01 | done | W2 | Bug Fixes |  |  | **`--fork-session` alone** now starts a new session instead of failing.
-- v85-x21 | pending | W2 | Bug Fixes |  |  | **`/rewind`** now cancels a compaction that is still summarizing.
+- v85-x21 | done | W2 | Bug Fixes |  |  | **`/rewind`** now cancels a compaction that is still summarizing.
 - v46-x04 | already | W3 | Bug Fixes |  |  | **Permission rules** with relative paths now correctly apply even when the cwd contains symlinks.
 - v48-x02 | already | W3 | Bug Fixes |  |  | Custom model tables in config.toml now preserve the original model's notice banner.
 - v50-x01 | deferred | W3 | Bug Fixes |  |  | **Shell permission decisions** now correctly prompt or approve commands matching the permission manager.

@@ -109,6 +109,46 @@ async fn rewind_removes_turn_after_synthetic_auto_wake_marked() {
     local.run_until(run_rewind_over_synthetic_turn(true)).await;
 }
 
+/// Opening or executing `/rewind` aborts a compaction that is still summarizing.
+/// A compact that starts after that scope ends gets a fresh token.
+#[tokio::test(flavor = "current_thread")]
+async fn rewind_cancels_a_compaction_that_is_still_summarizing() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (gateway_tx, _gateway_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (persistence_tx, _persistence_rx) = tokio::sync::mpsc::unbounded_channel();
+            let actor = create_test_actor(0, 200_000, 80, gateway_tx, persistence_tx).await;
+
+            let (listing, listing_scope) = actor.compaction.cancel.enter();
+            let _points = actor.get_rewind_points().await;
+            assert!(
+                listing.is_cancelled(),
+                "opening /rewind must abort the summarizer"
+            );
+            drop(listing_scope);
+
+            let (executing, executing_scope) = actor.compaction.cancel.enter();
+            assert!(
+                !executing.is_cancelled(),
+                "a compact that starts after the listing scope ends is a new run"
+            );
+            let _ = actor
+                .handle_rewind(RewindRequest {
+                    target_prompt_index: 0,
+                    force: false,
+                    mode: RewindMode::ConversationOnly,
+                })
+                .await;
+            assert!(
+                executing.is_cancelled(),
+                "executing /rewind must abort the summarizer"
+            );
+            drop(executing_scope);
+        })
+        .await;
+}
+
 /// `/rewind` lists the prompts the user typed and skips an automatic task-wake turn between them.
 #[tokio::test(flavor = "current_thread")]
 async fn rewind_points_list_only_prompts_the_user_typed() {

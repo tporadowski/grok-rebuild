@@ -24,6 +24,8 @@ impl SessionActor {
     /// The list is the prompts the user typed, `[0, 1, ..., N-1]` minus automatic runtime turns.
     /// File snapshots may or may not exist for each checkpoint (indicated by `has_file_changes`).
     pub(super) async fn get_rewind_points(&self) -> RewindPointsResponse {
+        // A summarizer still running would apply a summary of the conversation this rewind is about to replace.
+        self.compaction.cancel.request_cancel();
         // Metadata only: don't load the (huge) file-content snapshots just to render the picker
         let file_metas = self.file_state_tracker.get_rewind_point_metas().await;
 
@@ -129,6 +131,8 @@ impl SessionActor {
         request: RewindRequest,
     ) -> anyhow::Result<RewindResponse> {
         self.signals_handle().mark_reverted();
+        // Same abort as listing points: execute can arrive without a fresh points call.
+        self.compaction.cancel.request_cancel();
 
         let target_index = request.target_prompt_index;
         let mode = request.mode;
