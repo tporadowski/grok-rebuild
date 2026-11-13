@@ -263,7 +263,10 @@ impl ReadToolCallBlock {
         } else if let Some(media) = &self.media_kind {
             match media {
                 ReadMediaKind::Image => " (image)".to_string(),
-                ReadMediaKind::Pdf { pages } => format!(" ({pages} pages)"),
+                ReadMediaKind::Pdf { pages } => {
+                    let noun = if *pages == 1 { "page" } else { "pages" };
+                    format!(" ({pages} {noun})")
+                }
             }
         } else {
             String::new()
@@ -856,6 +859,27 @@ The file is there, but this process cannot read it.";
         assert!(matches!(&header.selectable, Selectable::Spans(r) if *r == (1..2)));
         assert_eq!(derive_selection_text(header), "deploy");
         assert_eq!(span_text(header, 0), "Skill ");
+    }
+
+    #[test]
+    fn pdf_header_says_one_page_and_many_pages() {
+        fn header_text(pages: usize) -> String {
+            let mut block = ReadToolCallBlock::new("notes.pdf");
+            block.media_kind = Some(ReadMediaKind::Pdf { pages });
+            let output = block.output(&make_ctx());
+            first_line(&output)
+                .content
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect()
+        }
+
+        let one = header_text(1);
+        assert!(one.contains("(1 page)"), "{one}");
+        assert!(!one.contains("pages"), "{one}");
+        let many = header_text(3);
+        assert!(many.contains("(3 pages)"), "{many}");
     }
 
     #[test]

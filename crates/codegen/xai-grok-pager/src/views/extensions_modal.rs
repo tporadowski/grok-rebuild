@@ -333,10 +333,25 @@ type GroupedPlugins<'a> = std::collections::BTreeMap<
 
 /// Header count suffix: `1 plugin`, `2 plugins`.
 fn plugin_count_label(n: usize) -> String {
+    counted(n, "plugin")
+}
+
+/// `1 hook`, `2 hooks`. The noun pluralizes with a trailing `s`.
+fn counted(n: usize, singular: &str) -> String {
     if n == 1 {
-        "1 plugin".to_string()
+        format!("1 {singular}")
     } else {
-        format!("{n} plugins")
+        format!("{n} {singular}s")
+    }
+}
+
+/// MCP tool summary: `1 tool`, `3 tools`, `4 tools (2 enabled)`.
+fn tool_count_summary(total: usize, enabled: usize) -> String {
+    let label = counted(total, "tool");
+    if enabled == total {
+        label
+    } else {
+        format!("{label} ({enabled} enabled)")
     }
 }
 
@@ -2694,7 +2709,7 @@ fn build_plugin_fields(plugin: &xai_hooks_plugins_types::PluginInfo) -> Vec<Stri
     if !plugin.skill_names.is_empty() {
         components.push(format!("skills: {}", plugin.skill_names.join(", ")));
     } else if plugin.skill_count > 0 {
-        components.push(format!("{} skills", plugin.skill_count));
+        components.push(counted(plugin.skill_count, "skill"));
     }
     if plugin.skills_linked_outside > 0 {
         components.push(format!(
@@ -2705,14 +2720,14 @@ fn build_plugin_fields(plugin: &xai_hooks_plugins_types::PluginInfo) -> Vec<Stri
     if !plugin.agent_names.is_empty() {
         components.push(format!("agents: {}", plugin.agent_names.join(", ")));
     } else if plugin.agent_count > 0 {
-        components.push(format!("{} agents", plugin.agent_count));
+        components.push(counted(plugin.agent_count, "agent"));
     }
     if plugin.hook_count > 0 {
-        components.push(format!("{} hooks", plugin.hook_count));
+        components.push(counted(plugin.hook_count, "hook"));
     }
     match plugin.mcp_status {
         McpStatus::Active | McpStatus::ActiveInline => {
-            components.push(format!("{} MCP servers", plugin.mcp_server_count));
+            components.push(counted(plugin.mcp_server_count, "MCP server"));
         }
         McpStatus::Blocked => {
             components.push(format!("{} MCP: blocked", plugin.mcp_server_count));
@@ -2736,6 +2751,66 @@ mod plugin_field_tests {
         assert!(fields.iter().any(|field| {
             field == "2 skipped because they link outside the plugin folder"
         }));
+    }
+
+    #[test]
+    fn plugin_fields_use_the_singular_for_one() {
+        use xai_hooks_plugins_types::McpStatus;
+        let mut plugin = test_plugin_info("demo", None);
+        plugin.skill_count = 1;
+        plugin.agent_count = 1;
+        plugin.hook_count = 1;
+        plugin.mcp_server_count = 1;
+        plugin.mcp_status = McpStatus::Active;
+        assert_eq!(
+            build_plugin_fields(&plugin),
+            vec![
+                "1 skill".to_string(),
+                "1 agent".to_string(),
+                "1 hook".to_string(),
+                "1 MCP server".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn plugin_fields_keep_plural_counts() {
+        use xai_hooks_plugins_types::McpStatus;
+        let mut plugin = test_plugin_info("demo", None);
+        plugin.skill_count = 2;
+        plugin.agent_count = 3;
+        plugin.hook_count = 4;
+        plugin.mcp_server_count = 5;
+        plugin.mcp_status = McpStatus::Active;
+        assert_eq!(
+            build_plugin_fields(&plugin),
+            vec![
+                "2 skills".to_string(),
+                "3 agents".to_string(),
+                "4 hooks".to_string(),
+                "5 MCP servers".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn plugin_fields_blocked_mcp_keeps_its_wording() {
+        use xai_hooks_plugins_types::McpStatus;
+        let mut plugin = test_plugin_info("demo", None);
+        plugin.mcp_server_count = 1;
+        plugin.mcp_status = McpStatus::Blocked;
+        assert_eq!(
+            build_plugin_fields(&plugin),
+            vec!["1 MCP: blocked".to_string()]
+        );
+    }
+
+    #[test]
+    fn tool_count_summary_uses_the_singular_for_one() {
+        assert_eq!(super::tool_count_summary(1, 1), "1 tool");
+        assert_eq!(super::tool_count_summary(3, 3), "3 tools");
+        assert_eq!(super::tool_count_summary(4, 2), "4 tools (2 enabled)");
+        assert_eq!(super::tool_count_summary(1, 0), "1 tool (0 enabled)");
     }
 }
 
@@ -3490,16 +3565,10 @@ pub fn render_extensions_modal(
                             } else {
                                 let enabled_count =
                                     server.tools.iter().filter(|t| t.enabled).count();
-                                if enabled_count == server.tools.len() {
-                                    entry_desc_lines
-                                        .push(vec![format!("{} tools", server.tools.len())]);
-                                } else {
-                                    entry_desc_lines.push(vec![format!(
-                                        "{} tools ({} enabled)",
-                                        server.tools.len(),
-                                        enabled_count
-                                    )]);
-                                }
+                                entry_desc_lines.push(vec![tool_count_summary(
+                                    server.tools.len(),
+                                    enabled_count,
+                                )]);
                             }
                             entry_summary_lines.push(vec![]);
                             entry_fields.push(vec![]);

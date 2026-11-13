@@ -3245,11 +3245,7 @@ impl SessionActor {
                 .or_else(|| tool_parsed_args.get("path"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            prompt_text = format!(
-                "Read PDF file: {path} ({} pages rendered, {} total)",
-                pdf.pages.len(),
-                pdf.total_pages,
-            );
+            prompt_text = pdf_read_prompt(path, pdf.pages.len(), pdf.total_pages);
         }
         (prompt_text, inline_images, extracted_images)
     }
@@ -3424,6 +3420,28 @@ fn pre_tool_context_for_model(
         .iter()
         .map(|context| (context.hook_name.as_str(), context.text.as_str()))
         .collect()
+}
+
+fn pdf_read_prompt(path: &str, rendered: usize, total: usize) -> String {
+    let noun = if rendered == 1 { "page" } else { "pages" };
+    format!("Read PDF file: {path} ({rendered} {noun} rendered, {total} total)")
+}
+
+#[cfg(test)]
+mod pdf_read_prompt_tests {
+    use super::pdf_read_prompt;
+
+    #[test]
+    fn one_rendered_page_is_singular() {
+        assert_eq!(
+            pdf_read_prompt("doc.pdf", 1, 10),
+            "Read PDF file: doc.pdf (1 page rendered, 10 total)"
+        );
+        assert_eq!(
+            pdf_read_prompt("doc.pdf", 3, 25),
+            "Read PDF file: doc.pdf (3 pages rendered, 25 total)"
+        );
+    }
 }
 
 #[cfg(test)]

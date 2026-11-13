@@ -711,10 +711,12 @@ impl ToolOutput {
                         .map(|p| p.page_number.to_string())
                         .collect();
                     format!(
-                        "[Read PDF: {} pages rendered (pages {}). Total document: {} pages, {:.1} KB]",
+                        "[Read PDF: {} {} rendered (pages {}). Total document: {} {}, {:.1} KB]",
                         pdf.pages.len(),
+                        pdf_count_noun(pdf.pages.len()),
                         page_list.join(", "),
                         pdf.total_pages,
+                        pdf_count_noun(pdf.total_pages),
                         pdf.file_size as f64 / 1024.0,
                     )
                 }
@@ -1288,6 +1290,11 @@ impl xai_tool_runtime::ToolOutput for EnterPlanModeOutput {}
 impl xai_tool_runtime::ToolOutput for ExitPlanModeOutput {}
 impl xai_tool_runtime::ToolOutput for AskUserQuestionOutput {}
 impl xai_tool_runtime::ToolOutput for MCPOutput {}
+
+fn pdf_count_noun(n: usize) -> &'static str {
+    if n == 1 { "page" } else { "pages" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2644,10 +2651,20 @@ mod tests {
         let pdf = make_pdf_page_images(&[5], 10, 51200);
         let output = ToolOutput::ReadFile(ReadFileOutput::PdfPageImages(pdf));
         let text = output.to_prompt_format();
-        assert!(text.contains("1 pages rendered"), "got: {text}");
+        assert!(text.contains("1 page rendered"), "got: {text}");
+        assert!(!text.contains("1 pages"), "got: {text}");
         assert!(text.contains("pages 5"), "got: {text}");
         assert!(text.contains("10 pages"), "got: {text}");
         assert!(text.contains("50.0 KB"), "got: {text}");
+    }
+    #[test]
+    fn pdf_page_images_to_prompt_format_one_page_document() {
+        let pdf = make_pdf_page_images(&[1], 1, 1024);
+        let output = ToolOutput::ReadFile(ReadFileOutput::PdfPageImages(pdf));
+        let text = output.to_prompt_format();
+        assert!(text.contains("1 page rendered"), "got: {text}");
+        assert!(text.contains("Total document: 1 page,"), "got: {text}");
+        assert!(!text.contains("1 pages"), "got: {text}");
     }
     #[test]
     fn pdf_page_images_json_round_trip() {

@@ -2605,6 +2605,13 @@ pub fn verify(req: &HttpRequest) -> Result<Claims, Error> {
         assert_eq!(parse_page_range("1", 1).unwrap(), vec![0]);
     }
     #[test]
+    fn parse_page_range_one_page_document_says_page() {
+        let err = parse_page_range("2", 1).unwrap_err();
+        assert_eq!(err, "page 2 out of range (document has 1 page)");
+        let many = parse_page_range("11", 10).unwrap_err();
+        assert!(many.contains("document has 10 pages"), "got: {many}");
+    }
+    #[test]
     fn parse_page_range_range_clamped_to_doc_end() {
         assert_eq!(parse_page_range("1-100", 5).unwrap(), vec![0, 1, 2, 3, 4]);
     }

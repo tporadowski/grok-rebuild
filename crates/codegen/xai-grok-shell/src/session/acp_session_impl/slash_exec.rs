@@ -230,31 +230,15 @@ impl SessionActor {
                                 "  {}{} ({}{})",
                                 plugin.name, version, plugin.scope, status,
                             ));
-                            let mut components = Vec::new();
-                            if plugin.skill_count > 0 {
-                                components.push(format!("{} skills", plugin.skill_count));
-                            }
-                            if plugin.agent_count > 0 {
-                                components.push(format!("{} agents", plugin.agent_count));
-                            }
-                            if plugin.has_hooks {
-                                components.push(if plugin.has_inline_hooks_only {
-                                    "hooks: active (inline)".into()
-                                } else if plugin.trusted {
-                                    "hooks: active".into()
-                                } else {
-                                    "hooks: blocked".into()
-                                });
-                            }
-                            if plugin.mcp_server_count > 0 {
-                                components.push(if plugin.has_inline_mcp_only {
-                                    format!("{} MCP servers (inline)", plugin.mcp_server_count)
-                                } else if plugin.trusted {
-                                    format!("{} MCP servers", plugin.mcp_server_count)
-                                } else {
-                                    format!("{} MCP servers: blocked", plugin.mcp_server_count)
-                                });
-                            }
+                            let components = plugin_list_components(
+                                plugin.skill_count,
+                                plugin.agent_count,
+                                plugin.has_hooks,
+                                plugin.has_inline_hooks_only,
+                                plugin.trusted,
+                                plugin.mcp_server_count,
+                                plugin.has_inline_mcp_only,
+                            );
                             if !components.is_empty() {
                                 lines.push(format!("    {}", components.join(", ")));
                             }
@@ -990,10 +974,78 @@ impl SessionActor {
     }
 }
 
+fn counted_label(n: usize, singular: &str, plural: &str) -> String {
+    format!("{n} {}", if n == 1 { singular } else { plural })
+}
+
+fn plugin_list_components(
+    skill_count: usize,
+    agent_count: usize,
+    has_hooks: bool,
+    has_inline_hooks_only: bool,
+    trusted: bool,
+    mcp_server_count: usize,
+    has_inline_mcp_only: bool,
+) -> Vec<String> {
+    let mut components = Vec::new();
+    if skill_count > 0 {
+        components.push(counted_label(skill_count, "skill", "skills"));
+    }
+    if agent_count > 0 {
+        components.push(counted_label(agent_count, "agent", "agents"));
+    }
+    if has_hooks {
+        components.push(if has_inline_hooks_only {
+            "hooks: active (inline)".into()
+        } else if trusted {
+            "hooks: active".into()
+        } else {
+            "hooks: blocked".into()
+        });
+    }
+    if mcp_server_count > 0 {
+        let mcp = counted_label(mcp_server_count, "MCP server", "MCP servers");
+        components.push(if has_inline_mcp_only {
+            format!("{mcp} (inline)")
+        } else if trusted {
+            mcp
+        } else {
+            format!("{mcp}: blocked")
+        });
+    }
+    components
+}
+
 pub(super) fn slash_feedback_rated_turn(
     conversation: &[xai_grok_sampling_types::ConversationItem],
 ) -> super::FeedbackTurnLookup {
     super::slash_feedback_last_turn(conversation)
         .map(|n| super::turn_texts_for_feedback(conversation, n))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod plugin_list_component_tests {
+    use super::plugin_list_components;
+
+    #[test]
+    fn plugin_list_components_use_the_singular_for_one() {
+        assert_eq!(
+            plugin_list_components(1, 1, true, false, true, 1, false),
+            vec![
+                "1 skill".to_string(),
+                "1 agent".to_string(),
+                "hooks: active".to_string(),
+                "1 MCP server".to_string(),
+            ]
+        );
+        assert_eq!(
+            plugin_list_components(2, 0, false, false, true, 3, true),
+            vec!["2 skills".to_string(), "3 MCP servers (inline)".to_string()]
+        );
+        assert_eq!(
+            plugin_list_components(0, 0, false, false, false, 1, false),
+            vec!["1 MCP server: blocked".to_string()]
+        );
+    }
 }

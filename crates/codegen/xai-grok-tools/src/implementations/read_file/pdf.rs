@@ -111,6 +111,11 @@ pub(crate) async fn handle_pdf(
     .await
 }
 
+fn pages_in_document(page_count: usize) -> String {
+    let noun = if page_count == 1 { "page" } else { "pages" };
+    format!("document has {page_count} {noun}")
+}
+
 /// Parse a page range specification into sorted, deduplicated 0-based page indices.
 pub fn parse_page_range(spec: &str, page_count: usize) -> Result<Vec<usize>, String> {
     let mut pages = Vec::new();
@@ -133,8 +138,8 @@ pub fn parse_page_range(spec: &str, page_count: usize) -> Result<Vec<usize>, Str
             };
             if start < 1 || start > page_count {
                 return Err(format!(
-                    "page {} out of range (document has {} pages)",
-                    start, page_count
+                    "page {start} out of range ({})",
+                    pages_in_document(page_count)
                 ));
             }
             if start > end {
@@ -153,8 +158,8 @@ pub fn parse_page_range(spec: &str, page_count: usize) -> Result<Vec<usize>, Str
                 .map_err(|_| format!("invalid page number: '{}'", part))?;
             if p < 1 || p > page_count {
                 return Err(format!(
-                    "page {} out of range (document has {} pages)",
-                    p, page_count
+                    "page {p} out of range ({})",
+                    pages_in_document(page_count)
                 ));
             }
             pages.push(p - 1);
