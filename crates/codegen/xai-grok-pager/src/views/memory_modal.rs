@@ -1041,7 +1041,8 @@ fn render_status_line(
     } else {
         theme.accent_user
     };
-    let text = crate::render::line_utils::truncate_str(&status.text, area.width as usize);
+    let shown = crate::views::modal::drop_one_sentence_period(&status.text);
+    let text = crate::render::line_utils::truncate_str(shown, area.width as usize);
     buf.set_span(
         area.x,
         area.y + area.height - 1,
@@ -2716,6 +2717,39 @@ mod tests {
             out.push('\n');
         }
         out
+    }
+
+    #[test]
+    fn one_sentence_status_drops_its_period_when_painted() {
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 80, 3);
+        let paint = |text: &str| -> String {
+            let mut state = MemoryModalState::new(Vec::new());
+            state.status = Some(MemoryStatusLine {
+                text: text.to_owned(),
+                is_error: false,
+                ticks_remaining: None,
+            });
+            let mut buf = Buffer::empty(area);
+            assert_eq!(render_status_line(&mut buf, area, &state, &theme), 1);
+            let mut row = String::new();
+            let y = area.y + area.height - 1;
+            for x in area.x..area.x + area.width {
+                if let Some(cell) = buf.cell((x, y)) {
+                    row.push_str(cell.symbol());
+                }
+            }
+            assert_eq!(state.status.unwrap().text, text);
+            row
+        };
+        assert_eq!(
+            paint("Memory enabled for this session.").trim(),
+            "Memory enabled for this session"
+        );
+        assert_eq!(
+            paint("Memory enabled for this session. Config stays off.").trim(),
+            "Memory enabled for this session. Config stays off."
+        );
     }
 
     fn render_full(state: &mut MemoryModalState) -> String {

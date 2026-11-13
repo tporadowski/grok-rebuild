@@ -181,7 +181,8 @@ fn usage_modal_renders_allowance_from_app_balance() {
         .unwrap()
         .set_tab(UsageInfoTab::ContextUsage);
     let content = render_with_modal(&mut state, area, Some(&balance));
-    assert!(content.contains("No active session."), "{content}");
+    assert!(content.contains("No active session"), "{content}");
+    assert!(!content.contains("No active session."), "{content}");
 }
 
 #[test]

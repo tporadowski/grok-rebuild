@@ -324,12 +324,12 @@ mod tests {
         let session_id = acp::SessionId::new("sess-delete");
         ctx.session_id = Some(&session_id);
         match cmd.run(&mut ctx, "old notes") {
-            CommandResult::Error(text) => assert_eq!(text, "/delete takes no arguments."),
+            CommandResult::Error(text) => assert_eq!(text, "/delete takes no arguments"),
             other => panic!("expected Error, got {other:?}"),
         }
         assert_eq!(
             cmd.submission_refusal("old notes", false),
-            Some("/delete takes no arguments.")
+            Some("/delete takes no arguments")
         );
         assert!(matches!(
             cmd.run(&mut ctx, "   "),
@@ -364,7 +364,7 @@ mod tests {
         let result = cmd.run(&mut ctx, "focus on auth");
         match result {
             CommandResult::Error(text) => {
-                assert_eq!(text, "/compact takes no arguments.")
+                assert_eq!(text, "/compact takes no arguments")
             }
             other => panic!("expected Error, got {other:?}"),
         }

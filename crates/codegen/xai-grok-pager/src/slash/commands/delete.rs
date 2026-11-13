@@ -4,7 +4,7 @@
 use crate::app::actions::Action;
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 
-const NO_ARGS: &str = "/delete takes no arguments.";
+const NO_ARGS: &str = "/delete takes no arguments";
 
 pub struct DeleteCommand;
 

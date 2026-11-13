@@ -1835,6 +1835,7 @@ fn render_persona_create_form(
     buf.set_string(content_area.x, y, title, title_style);
     y += 2;
     if let Some(msg) = message {
+        let msg = crate::views::modal::drop_one_sentence_period(msg);
         buf.set_string(
             content_area.x,
             y,
@@ -1965,7 +1966,8 @@ fn render_modal_message_line(
     msg: &AgentsModalMessage,
     theme: &Theme,
 ) -> u16 {
-    let display: String = msg.text.chars().take(w).collect();
+    let shown = crate::views::modal::drop_one_sentence_period(&msg.text);
+    let display: String = shown.chars().take(w).collect();
     buf.set_string(x, y, &display, message_line_style(msg.kind, theme));
     y += 1;
     y + 1
@@ -2544,6 +2546,28 @@ pub fn handle_agents_mouse(state: &mut AgentsModalState, mouse: &MouseEvent) -> 
 mod tests {
     use super::*;
     use xai_grok_shell::agent::config::DEFAULT_AGENT_TYPE;
+    #[test]
+    fn one_sentence_agent_message_drops_its_period() {
+        let area = Rect::new(0, 0, 80, 3);
+        let theme = Theme::current();
+        let row = |msg: AgentsModalMessage| -> String {
+            let mut buf = Buffer::empty(area);
+            render_modal_message_line(&mut buf, 0, 0, 80, &msg, &theme);
+            (0..area.width)
+                .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+                .collect::<String>()
+        };
+        assert_eq!(
+            row(AgentsModalMessage::error("Name is required.")).trim(),
+            "Name is required"
+        );
+        let two = row(AgentsModalMessage::info(
+            "Plugin agents stay here. They are spawned as subagents.",
+        ));
+        assert!(two.contains("here. They"));
+        assert!(two.trim_end().ends_with("subagents."));
+    }
+
     #[test]
     fn agents_tab_next_cycles() {
         assert_eq!(AgentsTab::Agents.next(), AgentsTab::Personas);

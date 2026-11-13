@@ -4069,7 +4069,8 @@ pub fn render_extensions_modal(
         let text_style = Style::reset().fg(fg).bg(theme.bg_base);
         let pad = 2u16;
         let max_w = msg_area.width.saturating_sub(pad * 2) as usize;
-        let wrapped_lines: Vec<&str> = word_wrap(text, max_w);
+        let shown = crate::views::modal::drop_one_sentence_period(text);
+        let wrapped_lines: Vec<&str> = word_wrap(shown, max_w);
         let msg_height = wrapped_lines.len().min(msg_area.height as usize);
         let msg_y = msg_area.y + (msg_area.height.saturating_sub(msg_height as u16)) / 2;
         // Centered: left-aligned overlay text reads poorly.
@@ -6904,6 +6905,23 @@ mod tests {
                 "Expand this row (Enter), then select a plugin row to update.".into()
             ))
         );
+    }
+
+    #[test]
+    fn one_sentence_info_overlay_drops_the_trailing_period() {
+        let mut state = plugins_modal_state(vec![make_plugin("tool")]);
+        state.modal_message = Some(ModalMessage::Info("Select a plugin row to update.".into()));
+        let buf = render_plugins_into_buffer(&mut state, 120, 40);
+        assert_eq!(buffer_count(&buf, "Select a plugin row to update"), 1);
+        assert_eq!(buffer_count(&buf, "update."), 0);
+        assert!(matches!(
+            &state.modal_message,
+            Some(ModalMessage::Info(text)) if text.ends_with('.')
+        ));
+
+        state.modal_message = Some(ModalMessage::Info("Kept. Still kept.".into()));
+        let buf = render_plugins_into_buffer(&mut state, 120, 40);
+        assert_eq!(buffer_count(&buf, "Kept. Still kept."), 1);
     }
 
     #[test]

@@ -40,6 +40,6 @@ fn no_args(command: &str, args: &str) -> CommandResult {
     if args.trim().is_empty() {
         CommandResult::QueueCommand(command.to_string())
     } else {
-        CommandResult::Error(format!("{command} takes no arguments."))
+        CommandResult::Error(format!("{command} takes no arguments"))
     }
 }

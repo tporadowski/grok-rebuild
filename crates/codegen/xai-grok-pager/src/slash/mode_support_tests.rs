@@ -67,7 +67,7 @@ fn use_instead_refusal_names_the_substitute_not_a_relaunch() {
         .expect("minimal-only command is refused in fullscreen");
     assert_eq!(
         refusal,
-        "/expand isn't available in fullscreen mode: press → on the block."
+        "/expand isn't available in fullscreen mode: press → on the block"
     );
     assert!(
         !refusal.contains("/minimal"),
@@ -79,11 +79,11 @@ fn use_instead_refusal_names_the_substitute_not_a_relaunch() {
 fn already_in_mode_refusal_is_a_plain_statement() {
     assert_eq!(
         ModeSupport::FullscreenOnly(Remedy::AlreadyInMode).refusal("minimal", ScreenMode::Minimal),
-        Some("You're already in minimal mode.".to_string())
+        Some("You're already in minimal mode".to_string())
     );
     assert_eq!(
         ModeSupport::MinimalOnly(Remedy::AlreadyInMode).refusal("fullscreen", ScreenMode::Inline),
-        Some("You're already in fullscreen mode.".to_string())
+        Some("You're already in fullscreen mode".to_string())
     );
 }
 
@@ -114,7 +114,7 @@ fn mode_specific_builtin_refusals_are_pinned() {
             (
                 "expand",
                 "/expand isn't available in fullscreen mode: press Tab to focus the \
-                 scrollback, then → on the block."
+                 scrollback, then → on the block"
                     .to_string()
             ),
             (
@@ -125,7 +125,7 @@ fn mode_specific_builtin_refusals_are_pinned() {
             ),
             (
                 "fullscreen",
-                "You're already in fullscreen mode.".to_string()
+                "You're already in fullscreen mode".to_string()
             ),
             (
                 "jump",
@@ -134,7 +134,7 @@ fn mode_specific_builtin_refusals_are_pinned() {
                  Run /fullscreen to switch this session."
                     .to_string()
             ),
-            ("minimal", "You're already in minimal mode.".to_string()),
+            ("minimal", "You're already in minimal mode".to_string()),
             (
                 "theme",
                 "/theme isn't available in minimal mode \

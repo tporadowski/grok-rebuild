@@ -86,7 +86,7 @@ impl SlashCommand for UsageCommand {
 
     fn run(&self, ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
         if !ctx.usage_command_visible {
-            return CommandResult::Error("/usage is not available.".into());
+            return CommandResult::Error("/usage is not available".into());
         }
         let arg = args.trim();
         if !ctx.billing_surface_visible {

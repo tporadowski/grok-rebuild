@@ -3762,7 +3762,7 @@ fn slash_compact_with_trailing_text_is_refused() {
             .toast
             .as_ref()
             .map(|(text, _)| text.as_str()),
-        Some("/compact takes no arguments."),
+        Some("/compact takes no arguments"),
         "the send path refuses before the command runs"
     );
 }
@@ -4263,7 +4263,7 @@ fn fullscreen_mode_blocks_minimal_only_slash_command() {
     assert_eq!(
         refusal,
         "/expand isn't available in fullscreen mode: press Tab to focus the scrollback, \
-         then → on the block."
+         then → on the block"
     );
 }
 
@@ -4275,7 +4275,7 @@ fn mode_switcher_in_its_own_mode_says_you_are_already_there() {
     assert!(effects.is_empty(), "got: {effects:?}");
     assert_eq!(
         last_system_text(&app, AgentId(0)),
-        "You're already in minimal mode."
+        "You're already in minimal mode"
     );
 }
 

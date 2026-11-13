@@ -13,6 +13,17 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
+
+/// Drop a trailing period when it is the only one.
+/// Another sentence, `e.g.`, or a decimal keeps every period.
+#[must_use]
+pub(crate) fn drop_one_sentence_period(text: &str) -> &str {
+    match text.strip_suffix('.') {
+        Some(body) if !body.contains('.') => body,
+        _ => text,
+    }
+}
+
 /// A blocking confirmation dialog with typed results. `R` is the result type; each dialog use-case
 /// defines its own enum. Key-matching is generic; labels are computed per-variant at render time.
 pub struct ModalConfirmation<R> {
@@ -1721,5 +1732,51 @@ mod cancel_turn_short_terminal_tests {
                 layout.prompt
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod one_sentence_period_tests {
+    use super::drop_one_sentence_period;
+
+    #[test]
+    fn one_sentence_lines_drop_only_a_trailing_period() {
+        assert_eq!(
+            drop_one_sentence_period("Select a plugin row to update."),
+            "Select a plugin row to update"
+        );
+        assert_eq!(
+            drop_one_sentence_period("You're already in minimal mode."),
+            "You're already in minimal mode"
+        );
+        assert_eq!(
+            drop_one_sentence_period(
+                "Couldn't restore one feedback image; the original file was kept."
+            ),
+            "Couldn't restore one feedback image; the original file was kept"
+        );
+        assert_eq!(
+            drop_one_sentence_period(
+                "Delete the stored recovery copy? Your current edits will remain."
+            ),
+            "Delete the stored recovery copy? Your current edits will remain"
+        );
+        assert_eq!(
+            drop_one_sentence_period("Memory enabled for this session. Config stays off."),
+            "Memory enabled for this session. Config stays off."
+        );
+        assert_eq!(
+            drop_one_sentence_period(
+                "/memory takes no arguments. Open it, then press t to turn memory on or off and s for status."
+            ),
+            "/memory takes no arguments. Open it, then press t to turn memory on or off and s for status."
+        );
+        assert_eq!(
+            drop_one_sentence_period("No active session"),
+            "No active session"
+        );
+        assert_eq!(drop_one_sentence_period("Wait for v1.2."), "Wait for v1.2.");
+        assert_eq!(drop_one_sentence_period("..."), "...");
+        assert_eq!(drop_one_sentence_period(""), "");
     }
 }

@@ -11,6 +11,11 @@ use crate::theme::Theme;
 use crate::views::modal_window::{self, ModalSizing, ModalWindowConfig, Shortcut};
 use crate::views::prompt_widget::PromptStyle;
 
+/// One-sentence status and confirm copy loses only a trailing period.
+fn shown_modal_sentence(text: &str) -> &str {
+    crate::views::modal::drop_one_sentence_period(text)
+}
+
 /// How many rows `text` occupies when wrapped to `width` columns.
 fn status_row_count(text: &str, width: u16) -> u16 {
     if width == 0 || text.is_empty() {
@@ -141,6 +146,7 @@ fn paint_confirm(
     if content.width == 0 || content.height == 0 {
         return;
     }
+    let prompt = shown_modal_sentence(prompt);
     let prompt_rows = status_row_count(prompt, content.width);
     let answer_rows = status_row_count(answer, content.width).max(1);
     let (prompt_keep, gap, answer_keep) =
@@ -211,7 +217,7 @@ impl FeedbackModalState {
             && let Some(error) = self.error.as_deref()
         {
             let width = modal_window::footer_text_width(area, &config.sizing);
-            let status_rows = status_row_count(error, width);
+            let status_rows = status_row_count(shown_modal_sentence(error), width);
             let shortcut_rows = modal_window::shortcuts_rows_needed(config.shortcuts, width);
             config.sizing.footer_lines = shortcut_rows.saturating_add(status_rows);
         }
@@ -251,6 +257,7 @@ impl FeedbackModalState {
             self.composer
                 .draw(buf, content, Some(area), &Self::prompt_style(), None, None);
         if let Some(error) = self.error.as_deref() {
+            let error = shown_modal_sentence(error);
             let shortcut_rows =
                 modal_window::shortcuts_rows_needed(shortcuts, areas.footer.width);
             let status_rows = areas.footer.height.saturating_sub(shortcut_rows);
@@ -291,7 +298,9 @@ impl FeedbackModalState {
         let error_rows = browse_error
             .as_deref()
             .or(self.error.as_deref())
-            .map_or(0, |text| usize::from(status_row_count(text, width)));
+            .map_or(0, |text| {
+                usize::from(status_row_count(shown_modal_sentence(text), width))
+            });
         let selected_id = match &self.drafts {
             DraftsState::Browse { selected_id, .. } => selected_id.clone(),
             _ => None,
@@ -446,6 +455,7 @@ impl FeedbackModalState {
                 if let Some(error) = error.as_deref().or(self.error.as_deref())
                     && y < content.bottom()
                 {
+                    let error = shown_modal_sentence(error);
                     let painted = paint_wrapped_status(
                         buf,
                         Rect {
@@ -576,6 +586,7 @@ impl FeedbackModalState {
             );
         }
         if let Some(error) = &self.error {
+            let error = shown_modal_sentence(error);
             line(buf, &mut y, "", ratatui::style::Style::default());
             paint_wrapped_status(
                 buf,

@@ -3,7 +3,7 @@
 
 use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
 
-const NO_ARGS: &str = "/compact takes no arguments.";
+const NO_ARGS: &str = "/compact takes no arguments";
 
 /// Compact the conversation history.
 pub struct CompactCommand;

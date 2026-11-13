@@ -18,7 +18,7 @@ impl SlashCommand for ReleaseNotesCommand {
                 title: "Release Notes".to_string(),
                 content: content.trim().to_string(),
             }),
-            None => CommandResult::Error("No release notes available (offline).".to_string()),
+            None => CommandResult::Error("No release notes available (offline)".to_string()),
         }
     }
 }

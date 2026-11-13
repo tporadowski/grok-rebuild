@@ -310,7 +310,7 @@ pub(super) fn handle_billing_fetched(
     nonce: u64,
 ) -> Vec<Effect> {
     // Parse/transport failures route to `BillingError`, so a `None` balance here means the response carried no billing config
-    // Clear the cached balance and polling so the status bar agrees with the "No billing data available." message rather than showing a stale value
+    // Clear the cached balance and polling so the status bar agrees with the "No billing data available" message rather than showing a stale value
     app.credit_balance = balance.clone();
     apply_auto_topup(&mut app.auto_topup, &autotopup);
     app.billing_poll_wanted = balance
@@ -342,7 +342,7 @@ pub(super) fn handle_billing_fetched(
                 Some(bal) => {
                     crate::views::credit_bar::format_usage_summary(bal, summary_topup.as_ref())
                 }
-                None => "No billing data available.".to_string(),
+                None => "No billing data available".to_string(),
             };
             agent.scrollback.push_block(RenderBlock::System(
                 crate::scrollback::blocks::SystemMessageBlock::new(msg),

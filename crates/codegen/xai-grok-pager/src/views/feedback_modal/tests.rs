@@ -1535,8 +1535,12 @@ fn narrow_feedback_dialog_wraps_confirm_prompts() {
     let (buf, rendered) = render_area(&mut delete, area);
     let collapsed = collapse_ws(&rendered);
     assert!(
-        collapsed.contains("Delete the stored recovery copy? Your current edits will remain."),
+        collapsed.contains("Delete the stored recovery copy? Your current edits will remain"),
         "the delete question must stay readable:\n{rendered}"
+    );
+    assert!(
+        !collapsed.contains("will remain."),
+        "a one-sentence confirm question drops its trailing period:\n{rendered}"
     );
     assert!(
         collapsed.contains("y delete") && collapsed.contains("n cancel"),
@@ -1557,6 +1561,26 @@ fn narrow_feedback_dialog_wraps_confirm_prompts() {
         &rendered,
         &["Delete the stored", "will remain", "y delete"],
     );
+}
+
+#[test]
+fn one_sentence_feedback_error_drops_its_period() {
+    let mut modal = open_with_text("hello");
+    modal.set_error(FEEDBACK_EMPTY_SUBMIT_ERROR.to_string());
+    let area = Rect::new(0, 0, 100, 30);
+    let (_buf, rendered) = render_area(&mut modal, area);
+    let collapsed = collapse_ws(&rendered);
+    assert!(
+        collapsed.contains("Add feedback text or an image before sending"),
+        "{collapsed}"
+    );
+    assert!(!collapsed.contains("sending."), "{collapsed}");
+
+    modal.set_error("The remote outcome is unknown. Close and do not resend.".to_string());
+    let (_buf, rendered) = render_area(&mut modal, area);
+    let collapsed = collapse_ws(&rendered);
+    assert!(collapsed.contains("unknown. Close"), "{collapsed}");
+    assert!(collapsed.contains("resend."), "{collapsed}");
 }
 
 #[test]

@@ -858,7 +858,7 @@ fn context_tab_lines(state: &UsageInfoModalState, theme: &Theme, width: u16) -> 
         return block.lines_for_width(theme, width);
     }
     if state.ctx.session_id.is_none() {
-        return vec![muted_line(theme, "No active session.")];
+        return vec![muted_line(theme, "No active session")];
     }
     vec![muted_line(theme, "Loading context usage\u{2026}")]
 }
@@ -875,7 +875,7 @@ fn usage_limit_lines(
     if state.ctx.chat_kind {
         // Gateway chat sessions have no Build coding credits to show.
     } else if !state.ctx.usage_visible {
-        lines.push(muted_line(theme, "Usage limits are managed by your team."));
+        lines.push(muted_line(theme, "Usage limits are managed by your team"));
     } else if let Some(url) = &state.ctx.billing_redirect_url {
         let text = format!("Please check your usage on {url}");
         lines.extend(
@@ -894,7 +894,7 @@ fn usage_limit_lines(
     } else if state.billing_loading {
         lines.push(muted_line(theme, "Loading usage\u{2026}"));
     } else {
-        lines.push(muted_line(theme, "No billing data available."));
+        lines.push(muted_line(theme, "No billing data available"));
     }
 
     if let Some(usage_text) = &state.session_usage_text {
@@ -902,6 +902,7 @@ fn usage_limit_lines(
             lines.push(Line::default());
         }
         for (i, row) in usage_text.lines().enumerate() {
+            let row = crate::views::modal::drop_one_sentence_period(row);
             if i == 0 {
                 lines.push(Line::styled(row.to_string(), header_style(theme)));
             } else {
@@ -976,7 +977,7 @@ fn session_info_content(
     }
     let Some(fields) = state.session_fields.as_ref().filter(|f| !f.is_empty()) else {
         if state.ctx.session_id.is_none() {
-            return TabContent::from_lines(vec![muted_line(theme, "No active session.")]);
+            return TabContent::from_lines(vec![muted_line(theme, "No active session")]);
         }
         return TabContent::from_lines(vec![muted_line(theme, "Loading session info\u{2026}")]);
     };
@@ -1304,10 +1305,14 @@ mod tests {
             "Usage limit",
             "Session info",
             "copy session ID",
-            "Session usage: no model calls yet.",
+            "Session usage: no model calls yet",
         ] {
             assert!(text.contains(needle), "missing {needle:?} in:\n{text}");
         }
+        assert!(
+            !text.contains("no model calls yet."),
+            "a one-sentence usage line keeps no trailing period:\n{text}"
+        );
         assert_eq!(state.window.tab_rects.len(), 3);
         assert!(state.window.close_button_rect.is_some());
     }
