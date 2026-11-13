@@ -46,6 +46,11 @@ Update to the latest version at any time:
 grok update
 ```
 
+A `grok` that is not the install in `~/.grok/bin` runs that self-updating
+build when it is present. `$GROK_HOME/bin` is that directory when
+`GROK_HOME` is set. WinGet and a Homebrew cask keep their own update
+commands.
+
 If you installed Grok Build with WinGet, update it with WinGet instead. Quit
 Grok first, then run:
 

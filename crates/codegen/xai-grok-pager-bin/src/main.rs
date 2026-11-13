@@ -2961,6 +2961,14 @@ async fn run_update_command(
     trigger: auto_update::CliUpdateTrigger,
     base_update_config: &UpdateConfig,
 ) -> Result<()> {
+    if let Some(managed) = auto_update::managed_update_delegate(
+        std::env::current_exe().ok().as_deref(),
+        &xai_grok_shell::util::grok_home::grok_home(),
+        std::env::var_os("GROK_UPDATE_DELEGATED").is_some(),
+    ) {
+        // The managed build continues this update, including --check.
+        auto_update::exec_delegated_update(&managed)?;
+    }
     if json && !check {
         anyhow::bail!("--json requires --check");
     }

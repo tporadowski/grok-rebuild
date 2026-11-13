@@ -1,5 +1,87 @@
 use super::*;
 
+#[cfg(unix)]
+fn write_exec(path: &std::path::Path, body: &[u8]) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(path, body).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A different copy hands `grok update` to `$GROK_HOME/bin/grok`.
+/// The managed build, an empty or dangling path, and package-manager installs do not.
+#[cfg(unix)]
+#[test]
+fn update_delegates_to_the_self_updating_build_when_needed() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let bin = home.join("bin");
+    let versioned = bin.join("grok-1.2.3");
+    write_exec(&versioned, b"managed-build");
+    std::os::unix::fs::symlink("grok-1.2.3", bin.join("grok")).unwrap();
+    let managed = bin.join("grok");
+
+    let other = dir.path().join("other").join("grok");
+    write_exec(&other, b"other-copy");
+    assert_eq!(
+        managed_update_delegate(Some(&other), &home, false),
+        Some(managed.clone())
+    );
+    assert!(managed_update_delegate(Some(&managed), &home, false).is_none());
+    assert!(managed_update_delegate(Some(&versioned), &home, false).is_none());
+    assert!(managed_update_delegate(Some(&other), &home, true).is_none());
+    assert_eq!(
+        managed_update_delegate(None, &home, false),
+        Some(managed.clone())
+    );
+
+    let pinned = bin.join("grok-9.9.9");
+    write_exec(&pinned, b"old-pinned");
+    assert_eq!(
+        managed_update_delegate(Some(&pinned), &home, false),
+        Some(managed.clone())
+    );
+
+    let npm = dir.path().join("node_modules").join("grok");
+    write_exec(&npm, b"npm-copy");
+    assert_eq!(
+        managed_update_delegate(Some(&npm), &home, false),
+        Some(managed)
+    );
+
+    let brew = std::path::Path::new("/opt/homebrew/Caskroom/grok-build/1.0.77/grok");
+    assert!(managed_update_delegate(Some(brew), &home, false).is_none());
+    let winget = std::path::Path::new(
+        r"C:\Users\a\AppData\Local\Microsoft\WinGet\Packages\xAI.GrokBuild_xAI\grok.exe",
+    );
+    assert!(managed_update_delegate(Some(winget), &home, false).is_none());
+
+    let missing = dir.path().join("missing-home");
+    std::fs::create_dir_all(&missing).unwrap();
+    assert!(managed_update_delegate(Some(&other), &missing, false).is_none());
+    assert!(managed_update_delegate(Some(&other), std::path::Path::new(""), false).is_none());
+
+    let empty_home = dir.path().join("empty-file");
+    let empty_bin = empty_home.join("bin").join("grok");
+    write_exec(&empty_bin, b"");
+    assert!(managed_update_delegate(Some(&other), &empty_home, false).is_none());
+
+    let plain_home = dir.path().join("not-executable");
+    let plain = plain_home.join("bin").join("grok");
+    std::fs::create_dir_all(plain.parent().unwrap()).unwrap();
+    std::fs::write(&plain, b"not-exec").unwrap();
+    std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(managed_update_delegate(Some(&other), &plain_home, false).is_none());
+
+    let dangling_home = dir.path().join("dangling");
+    std::fs::create_dir_all(dangling_home.join("bin")).unwrap();
+    std::os::unix::fs::symlink("missing-target", dangling_home.join("bin").join("grok")).unwrap();
+    assert!(managed_update_delegate(Some(&other), &dangling_home, false).is_none());
+}
+
 #[test]
 fn homebrew_cask_update_and_channel_switch_show_brew_commands() {
     let cellar = std::path::Path::new(

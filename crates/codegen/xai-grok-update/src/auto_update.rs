@@ -582,11 +582,75 @@ pub async fn get_installer() -> Option<&'static str> {
 /// npm bin, WinGet's `Links\grok.exe`) link into the package, so the canonical path names the installer.
 fn running_exe_matches(is_match: fn(&std::path::Path) -> bool) -> bool {
     match std::env::current_exe() {
-        Ok(exe) => is_match(&exe) || dunce::canonicalize(&exe).is_ok_and(|real| is_match(&real)),
+        Ok(exe) => path_matches(&exe, is_match),
         Err(e) => {
             tracing::debug!(error = %e, "current_exe unavailable; installer path checks skipped");
             false
         }
+    }
+}
+
+fn path_matches(exe: &std::path::Path, is_match: fn(&std::path::Path) -> bool) -> bool {
+    is_match(exe) || dunce::canonicalize(exe).is_ok_and(|real| is_match(&real))
+}
+
+/// `$GROK_HOME/bin/grok` when `grok update` should replace this process with it.
+///
+/// That build has to be a non-empty executable, and `current_exe` a different file.
+/// A Homebrew cask or WinGet package stays here. `already_delegated` blocks a second handoff.
+pub fn managed_update_delegate(
+    current_exe: Option<&std::path::Path>,
+    grok_home: &std::path::Path,
+    already_delegated: bool,
+) -> Option<std::path::PathBuf> {
+    if already_delegated || grok_home.as_os_str().is_empty() {
+        return None;
+    }
+    let managed = managed_grok_path(grok_home);
+    if !managed_build_is_runnable(&managed) {
+        return None;
+    }
+    if current_exe.is_some_and(|exe| path_matches(exe, is_foreign_updater_path)) {
+        return None;
+    }
+    if current_exe.is_some_and(|exe| same_canonical_file(exe, &managed)) {
+        return None;
+    }
+    Some(managed)
+}
+
+/// Same entry the installers maintain. See `xai_grok_config::grok_application_in`.
+fn managed_grok_path(home: &std::path::Path) -> std::path::PathBuf {
+    let name = if cfg!(windows) { "grok.exe" } else { "grok" };
+    home.join("bin").join(name)
+}
+
+fn managed_build_is_runnable(path: &std::path::Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() == 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn is_foreign_updater_path(path: &std::path::Path) -> bool {
+    is_homebrew_cask_path(path) || crate::winget::is_winget_package_path(path)
+}
+
+fn same_canonical_file(left: &std::path::Path, right: &std::path::Path) -> bool {
+    match (dunce::canonicalize(left), dunce::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
     }
 }
 
@@ -961,6 +1025,38 @@ fn resolve_restart_exe() -> Result<std::path::PathBuf> {
         return Ok(canonical);
     }
     Ok(std::env::current_exe()?)
+}
+
+/// Replace this process with the self-updating build, keeping the update arguments.
+/// `GROK_UPDATE_DELEGATED` stops that build from handing off again.
+pub fn exec_delegated_update(exe: &std::path::Path) -> Result<()> {
+    let mut cmd = Command::new(exe);
+    for arg in std::env::args_os().skip(1) {
+        cmd.arg(arg);
+    }
+    cmd.env("GROK_UPDATE_DELEGATED", "1");
+    cmd.stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    #[cfg(unix)]
+    {
+        let _ = io::stdout().flush();
+        let _ = io::stderr().flush();
+        let err = cmd.exec();
+        anyhow::bail!(
+            "could not run the self-updating build at {}: {err}",
+            exe.display()
+        );
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = io::stdout().flush();
+        let _ = io::stderr().flush();
+        // The managed build replaces this process.
+        #[allow(clippy::disallowed_methods)]
+        let status = cmd.status()?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
 }
 
 /// Restart grok with the original command-line arguments to pick up the update.
