@@ -159,7 +159,12 @@ fn write_item(
             let Some(cwd) = state.cwd else {
                 return false;
             };
-            let short = cwd.rsplit('/').next().unwrap_or(cwd);
+            // `\` is a separator on Windows. Splitting only on `/` leaves the
+            // whole path in the title.
+            let short = cwd
+                .rsplit(['/', '\\'])
+                .find(|part| !part.is_empty())
+                .unwrap_or(cwd);
             if short.is_empty() {
                 return false;
             }
@@ -241,19 +246,14 @@ fn write_activity(buf: &mut String, activity: &TurnActivity) {
 }
 
 fn write_truncated(buf: &mut String, s: &str, max: usize) {
-    // Fast path: ASCII-only strings where byte length == char count.
-    if s.len() <= max {
-        buf.push_str(s);
-        return;
-    }
-    // Slow path: iterate chars for multi-byte or over-limit strings.
-    for (count, ch) in s.chars().enumerate() {
-        if count >= max {
-            buf.push('\u{2026}');
-            return;
-        }
-        buf.push(ch);
-    }
+    // Display columns, not chars: CJK and emoji are wider than one column.
+    // A Windows path keeps its file name; a char cut from the front hides it and still overflows.
+    let fitted = if s.contains('\\') {
+        crate::render::tool_paths::shorten_path(s, max)
+    } else {
+        crate::util::truncate_to_width(s, max).into_owned()
+    };
+    buf.push_str(&fitted);
 }
 
 /// Build the escape sequence for setting the terminal title without writing it to stderr. Those must not terminate
@@ -829,9 +829,88 @@ mod tests {
             ..idle_state()
         };
         mgr.update(&state);
-        // "Running: " (9 chars) + 30 chars + ellipsis = 40 chars
+        // "Running: " plus a 30-column title. The ellipsis sits inside that budget.
         assert!(mgr.last_title.starts_with("Running: "));
         assert!(mgr.last_title.ends_with('\u{2026}'));
+        let title = mgr
+            .last_title
+            .strip_prefix("Running: ")
+            .expect("activity prefix");
+        assert!(crate::util::display_columns(title) <= 30);
+    }
+
+    #[test]
+    fn wide_session_name_stays_within_its_column_budget() {
+        let cfg = config_with_items(vec![TitleItem::SessionName]);
+        let mut mgr = TitleManager::new(&cfg);
+        let name = "日本語".repeat(25);
+        let state = TitleState {
+            session_name: Some(&name),
+            ..idle_state()
+        };
+        mgr.update(&state);
+        assert!(mgr.last_title.ends_with('\u{2026}'));
+        assert!(crate::util::display_columns(&mgr.last_title) <= 40);
+    }
+
+    #[test]
+    fn emoji_tool_title_keeps_the_ellipsis_inside_the_budget() {
+        let cfg = config_with_items(vec![TitleItem::Activity]);
+        let mut mgr = TitleManager::new(&cfg);
+        let activity = TurnActivity::ToolRunning {
+            title: "\u{26A0}\u{FE0F}".repeat(20),
+            description: None,
+        };
+        let state = TitleState {
+            activity: Some(&activity),
+            ..idle_state()
+        };
+        mgr.update(&state);
+        let title = mgr
+            .last_title
+            .strip_prefix("Running: ")
+            .expect("activity prefix");
+        assert!(title.ends_with('\u{2026}'));
+        assert!(
+            crate::util::display_columns(title) <= 30,
+            "emoji title overflows: {title:?}"
+        );
+    }
+
+    #[test]
+    fn windows_cwd_uses_the_last_component() {
+        let cfg = config_with_items(vec![TitleItem::Cwd, TitleItem::Grok]);
+        let mut mgr = TitleManager::new(&cfg);
+        let state = TitleState {
+            cwd: Some(r"C:\Users\me\my-project\"),
+            ..idle_state()
+        };
+        mgr.update(&state);
+        assert_eq!(mgr.last_title, "my-project - grok");
+    }
+
+    #[test]
+    fn windows_tool_path_keeps_the_file_name() {
+        let cfg = config_with_items(vec![TitleItem::Activity]);
+        let mut mgr = TitleManager::new(&cfg);
+        let activity = TurnActivity::ToolRunning {
+            title: format!(r"C:\Users\me\{}\file.rs", "reports\\".repeat(12)),
+            description: None,
+        };
+        let state = TitleState {
+            activity: Some(&activity),
+            ..idle_state()
+        };
+        mgr.update(&state);
+        let title = mgr
+            .last_title
+            .strip_prefix("Running: ")
+            .expect("activity prefix");
+        assert!(
+            title.contains("file.rs"),
+            "Windows path hid the file name: {title:?}"
+        );
+        assert!(crate::util::display_columns(title) <= 30, "{title:?}");
     }
 
     /// Title parts from remote sources must not smuggle control bytes into the OSC sequence: the only ESC/BEL in the output is crossterm's framing.

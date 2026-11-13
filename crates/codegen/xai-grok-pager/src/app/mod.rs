@@ -1814,14 +1814,22 @@ pub(crate) fn set_terminal_title(title: &str) {
 /// Sanitized/truncated window title.
 /// Strips control characters: crossterm's `SetTitle` emits the string raw inside an OSC sequence.
 /// An embedded BEL/ESC would terminate the OSC early and let the remainder inject arbitrary escape sequences into the terminal.
+/// The whole title, including ` - grok`, stays within 80 display columns. CJK and emoji count
+/// as the columns the terminal draws, and a Windows path keeps its file name.
 fn terminal_title_string(title: &str) -> String {
+    const BUDGET: usize = 80;
+    const SUFFIX: &str = " - grok";
     let sanitized: String = title.chars().filter(|c| !c.is_control()).collect();
     if sanitized.is_empty() {
-        "grok".into()
-    } else {
-        let truncated: String = sanitized.chars().take(80 - 6).collect();
-        format!("{} - grok", truncated)
+        return "grok".into();
     }
+    let body_budget = BUDGET.saturating_sub(crate::util::display_columns(SUFFIX));
+    let body = if sanitized.contains('\\') {
+        crate::render::tool_paths::shorten_path(&sanitized, body_budget)
+    } else {
+        crate::util::truncate_to_width(&sanitized, body_budget).into_owned()
+    };
+    format!("{body}{SUFFIX}")
 }
 #[cfg(test)]
 mod tests {
@@ -1875,6 +1883,27 @@ mod tests {
         assert_eq!(terminal_title_string("\x07\x1b\x00"), "grok");
         assert_eq!(terminal_title_string(""), "grok");
         assert_eq!(terminal_title_string("My chat"), "My chat - grok");
+    }
+    #[test]
+    fn terminal_title_fits_cjk_emoji_and_windows_paths() {
+        let cjk = terminal_title_string(&"日本語".repeat(40));
+        assert!(cjk.ends_with(" - grok"));
+        assert!(cjk.contains('\u{2026}'));
+        assert!(crate::util::display_columns(&cjk) <= 80, "{cjk:?}");
+
+        let emoji = terminal_title_string(&"\u{26A0}\u{FE0F}".repeat(40));
+        assert!(emoji.ends_with(" - grok"));
+        assert!(crate::util::display_columns(&emoji) <= 80, "{emoji:?}");
+
+        let path = terminal_title_string(&format!(
+            r"C:\Users\me\{}file.rs",
+            "reports\\".repeat(20)
+        ));
+        assert!(
+            path.contains("file.rs"),
+            "Windows path hid the file name: {path:?}"
+        );
+        assert!(crate::util::display_columns(&path) <= 80, "{path:?}");
     }
     #[test]
     fn hunk_tracker_mode_nothing_set_is_none() {
