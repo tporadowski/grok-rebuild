@@ -266,9 +266,17 @@ pub const SLOW_TICK_INTERVAL: Duration = Duration::from_millis(83);
 pub const FILE_SEARCH_TICK_INTERVAL: Duration = Duration::from_millis(5);
 /// Welcome toast lifetime (wall clock, so the duration holds whether the event loop is ticking Slow or Fast).
 const WELCOME_TOAST_DURATION: Duration = Duration::from_secs(2);
+/// One-line reconnect status. The final period is omitted, matching other status lines.
+pub(crate) const RECONNECTED_NOTICE: &str = "Reconnected";
+pub(crate) const SESSION_RESTORED_NOTICE: &str =
+    "Session restored. In-progress tools and terminals were lost";
+pub(crate) const SESSION_RESTORE_FAILED_NOTICE: &str =
+    "Session restore failed. Kept the existing transcript";
 fn reconnect_success_hides_mismatch(current: Option<&str>, incoming: &str) -> bool {
     current.is_some_and(crate::acp::is_version_mismatch_banner)
-        && (incoming.starts_with("Reconnected.") || incoming.starts_with("Session restored."))
+        && (incoming == RECONNECTED_NOTICE
+            || incoming.starts_with("Reconnected.")
+            || incoming.starts_with("Session restored."))
 }
 /// Entry from the session list wire: welcome/resume pickers and non-leader dashboard roster fallback (`session_picker_entry_to_roster`).
 #[derive(Debug, Clone)]
@@ -1891,7 +1899,7 @@ impl AppView {
     }
     /// Show a toast on the currently active view.
     /// Registration (and thus the mismatch notif) finishes during reconnect.
-    /// The later "Reconnected." / "Session restored…" line would hide a still-true skew.
+    /// The later "Reconnected" / "Session restored…" line would hide a still-true skew.
     pub fn show_toast(&mut self, msg: &str) {
         match self.active_view {
             ActiveView::Agent(id) => {
@@ -6103,3 +6111,39 @@ fn agent_waiting_on_approval(agent: &crate::app::agent_view::AgentView) -> bool 
 #[cfg(test)]
 #[path = "app_view_tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod reconnect_notice_tests {
+    use super::{
+        RECONNECTED_NOTICE, SESSION_RESTORED_NOTICE, SESSION_RESTORE_FAILED_NOTICE,
+        reconnect_success_hides_mismatch,
+    };
+
+    #[test]
+    fn reconnect_status_notices_do_not_end_with_a_period() {
+        for notice in [
+            RECONNECTED_NOTICE,
+            SESSION_RESTORED_NOTICE,
+            SESSION_RESTORE_FAILED_NOTICE,
+        ] {
+            assert!(!notice.ends_with('.'), "{notice}");
+        }
+        let mismatch = "Version mismatch: client 1, leader 2. Restart grok to match";
+        assert!(reconnect_success_hides_mismatch(
+            Some(mismatch),
+            RECONNECTED_NOTICE
+        ));
+        assert!(reconnect_success_hides_mismatch(
+            Some(mismatch),
+            "Reconnected. Reloading session..."
+        ));
+        assert!(reconnect_success_hides_mismatch(
+            Some(mismatch),
+            SESSION_RESTORED_NOTICE
+        ));
+        assert!(!reconnect_success_hides_mismatch(
+            Some(mismatch),
+            SESSION_RESTORE_FAILED_NOTICE
+        ));
+    }
+}

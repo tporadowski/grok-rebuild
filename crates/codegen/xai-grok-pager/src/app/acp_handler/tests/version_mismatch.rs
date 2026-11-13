@@ -81,15 +81,15 @@
 
         app.show_toast("Reconnected. Reloading session...");
         assert_eq!(agent_toast(&app, AgentId(0)), Some(mismatch.as_str()));
-        app.show_toast("Reconnected.");
+        app.show_toast(crate::app::app_view::RECONNECTED_NOTICE);
         assert_eq!(agent_toast(&app, AgentId(0)), Some(mismatch.as_str()));
-        app.show_toast("Session restored. In-progress tools and terminals were lost.");
+        app.show_toast(crate::app::app_view::SESSION_RESTORED_NOTICE);
         assert_eq!(agent_toast(&app, AgentId(0)), Some(mismatch.as_str()));
 
-        app.show_toast("Session restore failed. Kept the existing transcript.");
+        app.show_toast(crate::app::app_view::SESSION_RESTORE_FAILED_NOTICE);
         assert_eq!(
             agent_toast(&app, AgentId(0)),
-            Some("Session restore failed. Kept the existing transcript.")
+            Some(crate::app::app_view::SESSION_RESTORE_FAILED_NOTICE)
         );
     }
 
@@ -104,7 +104,7 @@
             app.welcome_toast.as_ref().map(|(msg, _)| msg.as_str()),
             Some(mismatch.as_str())
         );
-        app.show_toast("Reconnected.");
+        app.show_toast(crate::app::app_view::RECONNECTED_NOTICE);
         assert_eq!(
             app.welcome_toast.as_ref().map(|(msg, _)| msg.as_str()),
             Some(mismatch.as_str())

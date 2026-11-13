@@ -4,7 +4,8 @@
 //! The event loop only handles IO: terminal events, the ACP channel, spawned task results, animation ticks, and hot-reloadable config changes.
 use super::actions::{Action, Effect, TaskResult};
 use super::app_view::{
-    ActiveView, AppView, AuthState, InputOutcome, PasteProvenance, TrustState, VoiceState,
+    ActiveView, AppView, AuthState, InputOutcome, PasteProvenance, RECONNECTED_NOTICE,
+    SESSION_RESTORED_NOTICE, SESSION_RESTORE_FAILED_NOTICE, TrustState, VoiceState,
 };
 use super::session_load_barrier::{
     AcpDrainArm, SessionLoadAcpTick, SessionLoadBarrier, session_load_agent_id,
@@ -2894,11 +2895,11 @@ pub(crate) async fn run(
 
                 if pending.agent_ids.is_empty() {
                     // Nothing was reloaded (no open sessions at reconnect).
-                    app.show_toast("Reconnected.");
+                    app.show_toast(RECONNECTED_NOTICE);
                 } else if restored {
-                    app.show_toast("Session restored. In-progress tools and terminals were lost.");
+                    app.show_toast(SESSION_RESTORED_NOTICE);
                 } else {
-                    app.show_toast("Session restore failed. Kept the existing transcript.");
+                    app.show_toast(SESSION_RESTORE_FAILED_NOTICE);
                 }
 
                 // Re-trigger the queue drain suppressed during the outage
