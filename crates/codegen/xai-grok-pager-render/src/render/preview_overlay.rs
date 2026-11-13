@@ -1,5 +1,5 @@
 //! Renders a bordered popup showing a preview of multiline content.
-//! Shows first N and last N lines with a `⋮` separator when content exceeds the preview limit.
+//! Shows first N and last N lines with an ASCII `...` separator when content exceeds the preview limit.
 //!
 //! Used for:
 //! - Paste element previews in the prompt widget
@@ -11,7 +11,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Widget};
 
-use super::line_utils::{truncate_line, truncate_str};
+use super::line_utils::truncate_line;
 use super::safe_buf::SafeBuf;
 
 // ---------------------------------------------------------------------------
@@ -185,10 +185,11 @@ fn render_content_lines(
             row += 1;
         }
 
-        // Dots separator
+        // Omitted-lines mark. U+22EE `⋮` is tofu in Consolas and on a legacy
+        // console, so the mark is three ASCII dots (one column each everywhere).
         if row < max_rows {
             let omitted = total - preview_lines * 2;
-            let dots_text = format!("⋮ ({omitted} more lines)");
+            let dots_text = format!("... ({omitted} more lines)");
             buf.set_span_safe(
                 inner.x,
                 inner.y + row,
@@ -221,8 +222,31 @@ fn render_content_lines(
 
 #[inline]
 fn render_line(buf: &mut Buffer, x: u16, y: u16, width: u16, line: &str, style: Style) {
-    let truncated = truncate_str(line, width as usize);
+    let truncated = truncate_preview_line(line, width as usize);
     buf.set_span_safe(x, y, &Span::styled(truncated, style), width);
+}
+
+/// Cut `line` to `max_width` columns. A cut ends in ASCII `...`.
+///
+/// U+2026 `…` is one column in Unicode and two on a CJK terminal, and the legacy
+/// console font does not have it, so a one-column reservation overflows the box
+/// or paints tofu. Three dots are one column each on every terminal.
+fn truncate_preview_line(line: &str, max_width: usize) -> String {
+    if crate::util::byte_offset_at_width(line, max_width) == line.len() {
+        return line.to_string();
+    }
+    let dots = max_width.min(3);
+    if dots == 0 {
+        return String::new();
+    }
+    let mark = match dots {
+        1 => ".",
+        2 => "..",
+        _ => "...",
+    };
+    let end = crate::util::byte_offset_at_width(line, max_width - dots);
+    let prefix = line.get(..end).unwrap_or("");
+    format!("{prefix}{mark}")
 }
 
 /// Hint sits in the bottom border after the corner and one dash. Corners and one dash per side are never overwritten.
@@ -325,9 +349,16 @@ mod tests {
         // 4 lines + 2 borders = 6 rows
         assert_eq!(rect.height, 6);
 
-        // 4 lines does not exceed preview_lines * 2 = 6, so no dots separator
+        // 4 lines does not exceed preview_lines * 2 = 6, so no omission mark
         let buf_str = buffer_to_string(&buf);
-        assert!(!buf_str.contains("⋮"), "Should not have dots: {}", buf_str);
+        assert!(
+            !buf_str.contains("..."),
+            "Should not have an ellipsis: {buf_str}"
+        );
+        assert!(
+            !buf_str.contains('\u{22EE}'),
+            "Should not have a vertical ellipsis: {buf_str}"
+        );
     }
 
     #[test]
@@ -346,13 +377,15 @@ mod tests {
         );
         assert!(result.is_some());
 
-        // 10 lines exceeds preview_lines * 2 = 6, so the dots separator renders
+        // 10 lines exceeds preview_lines * 2 = 6, so the omission mark renders
         let buf_str = buffer_to_string(&buf);
-        assert!(buf_str.contains("⋮"), "Should have dots: {}", buf_str);
         assert!(
-            buf_str.contains("4 more lines"),
-            "Should show omitted count: {}",
-            buf_str
+            buf_str.contains("... (4 more lines)"),
+            "Should have an ASCII ellipsis: {buf_str}"
+        );
+        assert!(
+            !buf_str.contains('\u{22EE}'),
+            "vertical ellipsis is tofu on some terminals: {buf_str}"
         );
     }
 
@@ -421,10 +454,94 @@ mod tests {
 
         let buf_str = buffer_to_string(&buf);
         assert!(
-            buf_str.contains("…"),
-            "Long line should be truncated: {}",
-            buf_str
+            buf_str.contains("..."),
+            "Long line should be truncated: {buf_str}"
         );
+        assert!(
+            !buf_str.contains('\u{2026}'),
+            "U+2026 overflows a CJK terminal: {buf_str}"
+        );
+        let rect = result.unwrap();
+        let y = rect.y + 1;
+        assert_eq!(
+            buf.cell((rect.x + rect.width - 1, y)).map(|c| c.symbol()),
+            Some("│"),
+            "ellipsis must stay inside the border"
+        );
+    }
+
+    #[test]
+    fn preview_ellipsis_is_ascii_even_when_the_row_is_narrow() {
+        let warning = "\u{26A0}\u{FE0F}";
+        let cases = [
+            ("abcdef", 0, ""),
+            ("abcdef", 1, "."),
+            ("abcdef", 2, ".."),
+            ("abcdef", 3, "..."),
+            ("abcdef", 4, "a..."),
+            ("abcdef", 6, "abcdef"),
+            ("hello", 5, "hello"),
+            ("日本語", 5, "日..."),
+            ("日本語", 4, "..."),
+        ];
+        for (line, width, expected) in cases {
+            let out = truncate_preview_line(line, width);
+            assert_eq!(out, expected, "{line:?} @ {width}");
+            assert_preview_mark_fits(&out, width);
+        }
+        assert_eq!(
+            truncate_preview_line(&format!("{warning}abcd"), 5),
+            format!("{warning}...")
+        );
+        assert_eq!(truncate_preview_line(&format!("{warning}abcd"), 4), "...");
+        assert_preview_mark_fits(&truncate_preview_line(&format!("{warning}abcd"), 5), 5);
+        assert_preview_mark_fits(&truncate_preview_line(&format!("{warning}abcd"), 4), 4);
+    }
+
+    fn assert_preview_mark_fits(out: &str, max_width: usize) {
+        use unicode_width::UnicodeWidthStr;
+        assert!(!out.contains('\u{2026}'), "{out:?}");
+        assert!(!out.contains('\u{22EE}'), "{out:?}");
+        assert!(
+            UnicodeWidthStr::width(out) <= max_width,
+            "{out:?} is wider than {max_width}"
+        );
+        assert!(
+            UnicodeWidthStr::width_cjk(out) <= max_width,
+            "{out:?} is wider than {max_width} on a CJK terminal"
+        );
+    }
+
+    #[test]
+    fn long_paste_line_keeps_ascii_ellipsis_inside_the_border() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 40, 12));
+        let line = format!("{}{}", "日".repeat(20), "\u{26A0}\u{FE0F}".repeat(6));
+        let rect = render_preview_overlay(
+            &mut buf,
+            Rect::new(0, 0, 40, 12),
+            &line,
+            test_style(),
+            PreviewConfig::default(),
+        )
+        .unwrap();
+        let y = rect.y + 1;
+        assert_eq!(
+            buf.cell((rect.x + rect.width - 1, y)).map(|c| c.symbol()),
+            Some("│"),
+            "ellipsis must stay inside the border"
+        );
+        let painted: String = (rect.x + 1..rect.x + rect.width - 1)
+            .map(|x| {
+                buf.cell((x, y))
+                    .map(|cell| cell.symbol())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let painted = painted.trim_end();
+        assert!(painted.ends_with("..."), "{painted}");
+        assert!(!painted.contains('\u{2026}'), "{painted}");
+        assert!(!painted.contains('\u{22EE}'), "{painted}");
+        assert_eq!(painted.matches('日').count(), 12, "{painted}");
     }
 
     fn test_hint() -> Line<'static> {
