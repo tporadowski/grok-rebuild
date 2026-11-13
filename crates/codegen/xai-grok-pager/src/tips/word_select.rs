@@ -25,8 +25,8 @@ pub(crate) const WORD_SELECT_TIP_TICKS: u16 = 600;
 /// Any prompt edit retires the tip, so the long TTL cannot shadow a kill-then-yank sequence.
 pub(crate) const WORD_SELECT_ACCEPT_CHORD: &str = "Ctrl+Y";
 
-/// Build "Want double-click to select? Shows are capped at [`WORD_SELECT_TIP_SEEN_CAP`] per session, counted in
-/// memory only.
+/// Build "Want double-click to select? /settings · Text selection · Ctrl+Y to enable".
+/// Shows are capped at [`WORD_SELECT_TIP_SEEN_CAP`] per session, counted in memory only.
 pub fn word_select_tip() -> EphemeralTip {
     let theme = Theme::current();
     let dim = Style::default().fg(theme.gray);
@@ -40,9 +40,9 @@ pub fn word_select_tip() -> EphemeralTip {
             Line::from(vec![
                 Span::styled("Want double-click to select? ", dim),
                 Span::styled("/settings", key_style),
-                Span::styled(" → Text selection · ", dim),
+                Span::styled(" · Text selection · ", dim),
                 Span::styled(WORD_SELECT_ACCEPT_CHORD, key_style),
-                Span::styled(": enable now", dim),
+                Span::styled(" to enable", dim),
             ]),
         )
         .with_session_seen_cap(WORD_SELECT_TIP_SEEN_KEY, WORD_SELECT_TIP_SEEN_CAP)
@@ -85,12 +85,10 @@ mod tests {
     fn word_select_tip_advertises_settings_and_accept_chord() {
         let tip = word_select_tip();
         let text: String = tip.line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(
-            text.contains("double-click to select")
-                && text.contains("/settings")
-                && text.contains("Text selection")
-                && text.contains(WORD_SELECT_ACCEPT_CHORD),
-            "expected settings path + accept chord copy, got {text:?}"
+        let expected = format!(
+            "Want double-click to select? /settings · Text selection · {} to enable",
+            WORD_SELECT_ACCEPT_CHORD
         );
+        assert_eq!(text, expected);
     }
 }

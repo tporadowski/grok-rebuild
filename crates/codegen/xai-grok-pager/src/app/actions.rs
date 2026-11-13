@@ -212,7 +212,7 @@ pub enum Action {
     /// Gated by the per-tip `contextual_hints.plan_mode` gate.
     ShowPlanNudge,
     /// The user double-clicked scrollback while Text selection is fold/nav:
-    /// show the seen-gated "/settings → Text selection → Word select" tip.
+    /// show the seen-gated "/settings · Text selection · Ctrl+Y to enable" tip.
     /// Gated by the per-tip `contextual_hints.word_select` gate.
     ShowWordSelectTip,
     /// Accept the word-select tip (its advertised chord, pressed while the tip is on screen).

@@ -442,10 +442,12 @@ impl ContextInfoBlock {
             && (80..snapshot.auto_compact_threshold_percent).contains(&usage_pct)
         {
             lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Tip: run /compact to free up context space.".to_string(),
-                Style::default().fg(quantize(theme.warning)),
-            )));
+            let warn = Style::default().fg(quantize(theme.warning));
+            lines.push(Line::from(vec![
+                Span::styled("Run ", warn),
+                Span::styled("/compact", warn.add_modifier(Modifier::BOLD)),
+                Span::styled(" to free up context space", warn),
+            ]));
         }
 
         lines
@@ -673,7 +675,7 @@ mod tests {
         let theme = test_theme();
         let lines = block.build_lines(&theme, BarLayout::WIDE);
         let last = line_text(&lines, lines.len() - 1);
-        assert!(last.contains("/compact"), "expected tip line, got {last:?}");
+        assert_eq!(last, "Run /compact to free up context space");
     }
 
     #[test]

@@ -41,7 +41,7 @@ pub fn ssh_wrap_tip() -> EphemeralTip {
             Line::from(vec![
                 Span::styled("Run ", dim),
                 Span::styled("/doctor", command),
-                Span::styled(" for details and fixes.", dim),
+                Span::styled(" for details and fixes", dim),
             ]),
         )
         .with_session_seen_cap(SSH_WRAP_TIP_SEEN_KEY, SSH_WRAP_TIP_SEEN_CAP)
@@ -66,7 +66,7 @@ mod tests {
         let tip = ssh_wrap_tip();
         assert_eq!(tip.key, SSH_WRAP_TIP_KEY);
         let text: String = tip.line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(text, "Run /doctor for details and fixes.");
+        assert_eq!(text, "Run /doctor for details and fixes");
     }
 
     #[test]

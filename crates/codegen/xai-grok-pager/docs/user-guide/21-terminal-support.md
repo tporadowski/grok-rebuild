@@ -152,7 +152,7 @@ wrap container and pod shells. It also restores terminal modes after a dropped
 connection.
 
 When an SSH session is not using `grok wrap`, Grok shows the one-time tip
-“Run `/doctor` for details and fixes.” The tip stops appearing after the session
+“Run `/doctor` for details and fixes”. The tip stops appearing after the session
 is launched through wrap. Turn it off with `/settings` → **Show contextual
 hints** → **SSH wrap**, or set `ssh_wrap = false` under
 `[ui.contextual_hints]` in `$GROK_HOME/config.toml`. This setting does not hide

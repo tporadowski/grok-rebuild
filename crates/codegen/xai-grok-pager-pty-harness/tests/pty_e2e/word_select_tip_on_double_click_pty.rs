@@ -2,7 +2,7 @@
 #[allow(unused_imports)]
 use super::common::*;
 
-/// Unique prefix of the word-select settings tip: `Want double-click to select? /settings → Text selection · Ctrl+Y: enable now`.
+/// Unique prefix of the word-select settings tip: `Want double-click to select? /settings · Text selection · Ctrl+Y to enable`.
 pub(crate) const WORD_SELECT_TIP_SENTINEL: &str = "Want double-click to select";
 
 /// Stable body text we double-click in scrollback (also the mock response).
