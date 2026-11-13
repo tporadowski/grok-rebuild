@@ -1,5 +1,29 @@
 # Changelog
 
+# 1.0.80 — 2026-11-09
+
+## Bug Fixes
+
+- **Failed web fetches** now show the actual error reason when expanded.
+- **Grep results** now display tab characters as spaces so columns line up correctly.
+- **Thinking blocks** stay expanded while streaming after pressing Ctrl+E to expand all.
+- **Pending todos** now render correctly on legacy Windows consoles.
+- **Usage modal** no longer clips the credit bar or billing URL on narrow terminals.
+- **Numbered lists** in workflow phases and tool search now align correctly for 10+ items.
+- **Read headers** and video overlays now handle narrow terminals and CJK text correctly.
+- **Dashboard peek** now shows all options and keeps input visible on narrow terminals.
+- **Scrollback** glyphs now render correctly on legacy Windows consoles.
+- Dashboard now uses compact session rows on narrow terminals (40-43 columns).
+- Plan review buttons remain visible and clickable on narrower terminals.
+- **Shift+drag selection** beside the scrollbar no longer copies an extra block character at the end of each row.
+
+## Performance
+
+- **Large pasted text** no longer stalls for many seconds when the terminal lacks bracketed-paste support.
+- **Faster startup** on Linux when the system bus is slow or unresponsive.
+- **Faster startup** when a Kitty-capable terminal never answers the keyboard protocol query.
+
+
 # 1.0.79 — 2026-11-08
 
 ## Features
