@@ -1,5 +1,34 @@
 # Changelog
 
+# 1.0.82 — 2026-11-11
+
+## Features
+
+- **`grok update`** now delegates to the self-updating build in `~/.grok/bin` when needed.
+- **Enter** (or `Ctrl+F`) expands or collapses long user messages directly in the transcript.
+- **The note about models coming from XAI_API_KEY** now appears only the first time you open any model list and never again.
+- **New `minimal` sandbox profile** and `workspace_write` option let custom profiles control launch-folder writes.
+- **`Ctrl+O`** now copies the latest assistant reply.
+
+## Bug Fixes
+
+- **Sign-in screen** now renders correctly on the legacy Windows console.
+- **Hooks** no longer share an identity when Grok's own Node settings are present.
+- **Folder trust prompt** no longer accepts keystrokes typed before the question appears on screen.
+- **Queued prompt edits** keep your composer draft when the queued row disappears under an open question.
+- **Caret** no longer flickers when resizing the window in minimal mode or opening the sign-in chooser.
+- **`grok -p --resume`** now requires a valid session ID and refuses empty values early.
+- **Drag selection** from transcript text now autoscrolls immediately at the pane edge.
+- **`/debug tps`** excludes model retry and auto-compaction waits from the tokens-per-second rate.
+- **Windows** Git helpers now use the bundled MinGit binary.
+- **Up arrow** in a question's text answer moves to the previous option when at the top line.
+- **Headless runs** no longer trigger unnecessary turn-summary model calls.
+- **Copied text** from tables, question cards and the fullscreen viewer now includes backticks around inline code.
+- **Browser sign-in** finishes against the login stored now, and is refused if another window removed that login.
+- **Sign-in screen** now starts fresh after logout or a cancelled login.
+- **Clicks** on the welcome screen no longer fire the wrong action when the UI changes before the next frame.
+
+
 # 1.0.81 — 2026-11-11
 
 ## Bug Fixes

@@ -1,6 +1,6 @@
 # Upstream port plan: 1.0.46 through 1.0.84
 
-Living tracker for bringing this fork from package version **1.0.45** up to the behavior described in the official release notes. The port through alpha **1.0.81** (11 November 2026; stable on the 12 November 2026 fetch was still 1.0.77) is stamped. On 12 November 2026 the alpha channel pointed at **1.0.84** and stable at **1.0.77**, and this plan now includes 1.0.79 through 1.0.84 from that alpha fetch. Public GitHub `xai-org/grok-build` stopped at the 29 September 2026 sync.
+Living tracker for bringing this fork from package version **1.0.45** up to the behavior described in the official release notes. The port through alpha **1.0.82** (11 November 2026; stable on the 12 November 2026 fetch was still 1.0.77) is stamped. On 12 November 2026 the alpha channel pointed at **1.0.84** and stable at **1.0.77**, and this plan now includes 1.0.79 through 1.0.84 from that alpha fetch. Public GitHub `xai-org/grok-build` stopped at the 29 September 2026 sync.
 
 This approval **adds this document to the repo**. It does not start the port. A later session executes it when asked to run the upstream port plan.
 
@@ -55,6 +55,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 ## Decisions already made
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
+
+### D-238 — Package version 1.0.82
+
+The lockstepped packages `xai-grok-version`, `xai-grok-shell`, `xai-grok-pager`, and `xai-grok-pager-bin` are `1.0.82`. `crates/codegen/xai-grok-shell/CHANGELOG.md` gained 1.0.82's own section, directly under `# Changelog`. `/release-notes` still prepends CDN `# ` sections whose headings are absent from that file.
 
 ### D-237 — There is no `/debug tps` rate
 
