@@ -988,13 +988,13 @@ Refresh these numbers at the end of a session.
 | W12 | MCP, web, images, and browser | 3 | 0 | 43 | 13 | 9 |
 | W13 | Update, install, and sign-in | 5 | 0 | 22 | 10 | 0 |
 | W14 | Pager and remaining bug fixes | 24 | 1 | 132 | 20 | 3 |
-| W15 | Performance | 3 | 0 | 18 | 6 | 1 |
+| W15 | Performance | 2 | 0 | 19 | 6 | 1 |
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 49. Skipped: 9. Done: 494. Already: 109. Deferred: 23.
+Catalog rows: 684. Pending: 48. Skipped: 9. Done: 495. Already: 109. Deferred: 23.
 
-**Next:** `v80-p02`
+**Next:** `v80-p03`
 
 ## Waves
 
@@ -1056,7 +1056,7 @@ Pending: 24. Done: 132. Already: 20 (`v54-x03`, D-214; `v52-f05`, D-213; `v51-x1
 
 ### W15 — Performance
 
-Pending: 3. Done: 18. Already: 6 (`v54-p01`; `v54-p04`; `v69-p01`; `v74-p04`, D-221; `v74-p05`, D-222). Deferred: 1 (`v73-p01`, D-025). Look first: Performance notes. Confirm the cost with the existing code before adding caches. Skip a note whose hot path cannot be found and record that.
+Pending: 2. Done: 19. Already: 6 (`v54-p01`; `v54-p04`; `v69-p01`; `v74-p04`, D-221; `v74-p05`, D-222). Deferred: 1 (`v73-p01`, D-025). Look first: Performance notes. Confirm the cost with the existing code before adding caches. Skip a note whose hot path cannot be found and record that. Linux startup does not wait on the system-bus Hello handshake. A missing socket still skips the power listener. When the socket is present, that handshake runs on the power-listener thread (`v80-p02`, `open_listener_returns_while_the_bus_handshake_is_blocked`).
 
 ## Catalog
 
@@ -1739,7 +1739,7 @@ id | status | wave | kind | flag | covered | note
 - v74-p07 | done | W15 | Performance |  |  | **`grok --resume <id>`** opens much faster on large session stores, reading only the resumed session instead of every session.
 - v78-p01 | done | W15 | Performance |  |  | **grok export** of sessions containing large shell output is now faster and uses less memory.
 - v80-p01 | already | W15 | Performance |  |  | **Large pasted text** no longer stalls for many seconds when the terminal lacks bracketed-paste support.
-- v80-p02 | pending | W15 | Performance |  |  | **Faster startup** on Linux when the system bus is slow or unresponsive.
+- v80-p02 | done | W15 | Performance |  |  | **Faster startup** on Linux when the system bus is slow or unresponsive.
 - v80-p03 | pending | W15 | Performance |  |  | **Faster startup** when a Kitty-capable terminal never answers the keyboard protocol query.
 - v82-x08 | pending | W15 | Bug Fixes |  |  | **`/debug tps`** excludes model retry and auto-compaction waits from the tokens-per-second rate.
 - v52-f01 | skipped | SKIP | Features | skip-superseded | v63-f01 | **Rex terminal support**: Grok now reports its status (working, waiting for you, done, or failed) to Rex through OSC 7501, so Rex tabs show what each session is doing.
