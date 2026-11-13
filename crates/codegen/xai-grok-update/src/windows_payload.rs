@@ -484,6 +484,7 @@ mod windows {
         if payload_usable(&version_dir) {
             // A concurrent updater finished first; theirs is as good as ours.
             let _ = tokio::fs::remove_dir_all(&staging).await;
+            select_mingit_schannel(&version_dir);
             return Ok(());
         }
         // Only an unusable leftover of this same version can be here.
@@ -496,7 +497,14 @@ mod windows {
             let _ = tokio::fs::remove_dir_all(&staging).await;
             return Err(e).with_context(|| format!("publish {}", version_dir.display()));
         }
+        select_mingit_schannel(&version_dir);
         Ok(())
+    }
+
+    fn select_mingit_schannel(version_dir: &Path) {
+        if let Err(err) = xai_tty_utils::ensure_bundled_git_schannel(version_dir) {
+            tracing::warn!("bundled git system config did not select schannel: {err}");
+        }
     }
 
     /// Keep the newest [`KEEP_MINGIT_VERSIONS`] payloads; never remove the one

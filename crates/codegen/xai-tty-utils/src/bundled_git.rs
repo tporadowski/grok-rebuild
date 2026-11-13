@@ -11,7 +11,9 @@
 //! helpers do not prepend: they only detach, so a hermetic test child that
 //! `env_clear`ed and installed its own `PATH` keeps exactly that. The user's
 //! own `PATH` and git installation are never modified. Off Windows, or when
-//! the payload is absent, nothing changes.
+//! the payload is absent, nothing changes. A child that does receive this
+//! `cmd` directory also gets `http.sslBackend = schannel` in that payload's
+//! system gitconfig, so its HTTPS uses the Windows certificate store.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -175,17 +177,129 @@ pub enum PathBase {
 /// Prepend the bundled git's `cmd` directory to the child's `PATH` (no-op
 /// without a payload). Production spawns that resolve `git` by name call this
 /// with the base that matches their environment handling; the detach helpers
-/// deliberately do not.
+/// deliberately do not. A child that receives the directory also gets schannel
+/// in that payload's system gitconfig ([`ensure_bundled_git_schannel`]).
 pub fn prepend_bundled_git_path(cmd: &mut std::process::Command, base: PathBase) {
     if let Some(git) = bundled_git() {
-        prepend_child_path(cmd, &git.cmd_dir, base);
+        apply_bundled_git(cmd, git, base);
     }
+}
+
+/// PATH prepend plus the schannel system-config write, for one already located
+/// payload. The write happens only when `cmd` will actually resolve `git` from
+/// this payload.
+fn apply_bundled_git(cmd: &mut std::process::Command, git: &BundledGit, base: PathBase) {
+    if !prepend_child_path(cmd, &git.cmd_dir, base) {
+        return;
+    }
+    if let Some(version_dir) = git.cmd_dir.parent() {
+        let _ = ensure_bundled_git_schannel(version_dir);
+    }
+}
+
+/// Select schannel in this MinGit version's system gitconfig.
+///
+/// Git for Windows reads `<version>/etc/gitconfig` for the `mingw64`,
+/// `mingw32`, and `clangarm64` prefixes: `ETC_GITCONFIG` is `../etc/gitconfig`
+/// relative to those prefixes. The last plain `[http]` `sslBackend` becomes
+/// `schannel` when it is not already. A `[http "url"]` value stays, and a
+/// global or repo `http.sslBackend` still wins over this system file.
+pub fn ensure_bundled_git_schannel(version_dir: &Path) -> std::io::Result<()> {
+    let path = version_dir.join("etc").join("gitconfig");
+    let existing = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err),
+    };
+    if last_plain_http_ssl_backend(&existing)
+        .is_some_and(|value| value.eq_ignore_ascii_case("schannel"))
+    {
+        return Ok(());
+    }
+    let mut next = existing;
+    if !next.is_empty() && !next.ends_with('\n') {
+        next.push('\n');
+    }
+    next.push_str("[http]\n\tsslBackend = schannel\n");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    write_replacing(&path, next.as_bytes())
+}
+
+/// Last `sslBackend` in a plain `[http]` section, not a `[http "url"]` one.
+fn last_plain_http_ssl_backend(text: &str) -> Option<String> {
+    let mut in_http = false;
+    let mut last = None;
+    for raw in text.lines() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_http = plain_http_section(trimmed);
+            continue;
+        }
+        if !in_http {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if key.trim().eq_ignore_ascii_case("sslBackend") {
+            last = Some(gitconfig_value(value).to_owned());
+        }
+    }
+    last
+}
+
+fn plain_http_section(header: &str) -> bool {
+    let Some(rest) = header.strip_prefix('[') else {
+        return false;
+    };
+    let Some((name, _)) = rest.split_once(']') else {
+        return false;
+    };
+    name.trim().eq_ignore_ascii_case("http")
+}
+
+/// The value of a gitconfig assignment, without a trailing `#` or `;` comment.
+fn gitconfig_value(raw: &str) -> &str {
+    let mut quoted = false;
+    let mut end = raw.len();
+    for (index, ch) in raw.char_indices() {
+        match ch {
+            '"' => quoted = !quoted,
+            '#' | ';' if !quoted => {
+                end = index;
+                break;
+            }
+            _ => {}
+        }
+    }
+    raw.get(..end).unwrap_or(raw).trim().trim_matches('"').trim()
+}
+
+fn write_replacing(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_file_name(".gitconfig.schannel.tmp");
+    std::fs::write(&tmp, bytes)?;
+    if std::fs::rename(&tmp, path).is_ok() {
+        return Ok(());
+    }
+    // Windows `rename` does not replace a file that already exists.
+    let result = std::fs::write(path, bytes);
+    let _ = std::fs::remove_file(&tmp);
+    result
 }
 
 /// Put `dir` first on the child's `PATH`. Honors a `PATH` the caller already
 /// set on `cmd` (and a caller's explicit removal); without one, `base` says
 /// whether this process's `PATH` may serve as the tail. Idempotent.
-pub fn prepend_child_path(cmd: &mut std::process::Command, dir: &Path, base: PathBase) {
+///
+/// `true` when `dir` is first on the child's `PATH` afterwards. `false` when
+/// the caller removed `PATH`, or when `base` is [`PathBase::ExplicitOnly`] and
+/// the command has no `PATH` to extend.
+pub fn prepend_child_path(cmd: &mut std::process::Command, dir: &Path, base: PathBase) -> bool {
     use std::ffi::OsString;
 
     let explicit = cmd
@@ -194,16 +308,16 @@ pub fn prepend_child_path(cmd: &mut std::process::Command, dir: &Path, base: Pat
         .map(|(_, value)| value.map(OsString::from));
     let tail = match (explicit, base) {
         // The caller removed PATH on purpose; do not resurrect it.
-        (Some(None), _) => return,
+        (Some(None), _) => return false,
         (Some(Some(value)), _) => value,
         (None, PathBase::Process) => std::env::var_os("PATH").unwrap_or_default(),
-        (None, PathBase::ExplicitOnly) => return,
+        (None, PathBase::ExplicitOnly) => return false,
     };
     if std::env::split_paths(&tail)
         .next()
         .is_some_and(|first| first == dir)
     {
-        return;
+        return true;
     }
     let mut path = dir.as_os_str().to_owned();
     if !tail.is_empty() {
@@ -211,6 +325,7 @@ pub fn prepend_child_path(cmd: &mut std::process::Command, dir: &Path, base: Pat
         path.push(&tail);
     }
     cmd.env("PATH", path);
+    true
 }
 
 #[cfg(test)]

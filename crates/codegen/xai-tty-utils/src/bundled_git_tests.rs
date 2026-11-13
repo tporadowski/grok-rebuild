@@ -2,7 +2,10 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{PathBase, bundled_git_at, bundled_git_in, prepend_child_path, version_key};
+use super::{
+    PathBase, apply_bundled_git, bundled_git_at, bundled_git_in, ensure_bundled_git_schannel,
+    prepend_child_path, version_key,
+};
 
 /// Unique scratch root under the OS temp dir, removed on drop (no tempfile
 /// dev-dep for this crate).
@@ -319,4 +322,103 @@ fn explicit_only_never_resurrects_the_process_path() {
         child_path(&policy_path).flatten().unwrap(),
         OsStr::new(&format!("/bundled/cmd{sep}/policy/bin"))
     );
+}
+
+fn system_config(version: &Path) -> PathBuf {
+    version.join("etc").join("gitconfig")
+}
+
+/// An openssl default in the payload's system file is followed by schannel,
+/// once. A value that is already schannel, in any case, is left untouched.
+#[test]
+fn system_gitconfig_selects_schannel_once() {
+    let tmp = TempRoot::new("schannel-once");
+    let version = tmp.path().join("2.47.1");
+    let path = system_config(&version);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        "[core]\n\tautocrlf = true\n[http]\n\tsslBackend = openssl",
+    )
+    .unwrap();
+    ensure_bundled_git_schannel(&version).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("autocrlf = true"), "{text}");
+    assert!(text.contains("sslBackend = openssl"), "{text}");
+    assert!(text.trim_end().ends_with("sslBackend = schannel"), "{text}");
+    let once = text.clone();
+    ensure_bundled_git_schannel(&version).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), once);
+
+    let already = TempRoot::new("schannel-case");
+    let version = already.path().join("2.47.1");
+    let path = system_config(&version);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = "[http]\n\tsslBackend = SChannel\n";
+    std::fs::write(&path, original).unwrap();
+    ensure_bundled_git_schannel(&version).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+}
+
+/// A backend pinned to one URL is not the plain `[http]` default. The plain
+/// section is still added, and a second call does not add it again.
+#[test]
+fn url_scoped_backend_does_not_block_the_plain_http_default() {
+    let tmp = TempRoot::new("schannel-url");
+    let version = tmp.path().join("2.47.1");
+    let path = system_config(&version);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        "[http \"https://example.com\"]\n\tsslBackend = openssl # pinned\n",
+    )
+    .unwrap();
+    ensure_bundled_git_schannel(&version).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("sslBackend = openssl"), "{text}");
+    assert_eq!(text.matches("sslBackend = schannel").count(), 1, "{text}");
+    ensure_bundled_git_schannel(&version).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+}
+
+/// The system file is written when the child will resolve this payload, and
+/// not when the caller removed PATH (that child does not see bundled git).
+#[test]
+fn bundled_git_on_path_writes_schannel_and_a_removed_path_does_not() {
+    let tmp = TempRoot::new("schannel-path");
+    install(tmp.path(), "2.47.1", true);
+    let version = tmp.path().join("2.47.1");
+    let git = bundled_git_at(&version).unwrap();
+    let mut cmd = Command::new("git");
+    apply_bundled_git(&mut cmd, &git, PathBase::Process);
+    let text = std::fs::read_to_string(system_config(&version)).unwrap();
+    assert!(text.contains("sslBackend = schannel"), "{text}");
+    assert_eq!(
+        std::env::split_paths(child_path(&cmd).flatten().unwrap())
+            .next()
+            .unwrap(),
+        git.cmd_dir
+    );
+    apply_bundled_git(&mut cmd, &git, PathBase::Process);
+    assert_eq!(
+        std::fs::read_to_string(system_config(&version))
+            .unwrap()
+            .matches("sslBackend = schannel")
+            .count(),
+        1
+    );
+
+    let skipped = TempRoot::new("schannel-skip");
+    install(skipped.path(), "2.47.1", true);
+    let version = skipped.path().join("2.47.1");
+    let git = bundled_git_at(&version).unwrap();
+    let mut removed = Command::new("git");
+    removed.env_remove("PATH");
+    apply_bundled_git(&mut removed, &git, PathBase::Process);
+    assert!(!system_config(&version).exists());
+
+    let mut cleared = Command::new("git");
+    cleared.env_clear();
+    apply_bundled_git(&mut cleared, &git, PathBase::ExplicitOnly);
+    assert!(!system_config(&version).exists());
 }

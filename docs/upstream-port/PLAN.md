@@ -56,6 +56,14 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-239 — Bundled MinGit selects schannel in its system config
+
+The note says bundled MinGit on Windows uses the schannel backend for HTTPS. This tree already locates that payload and puts its `cmd` directory on a child's `PATH` (`prepend_bundled_git_path`), and the installer publishes the same tree (`install_mingit`). Git for Windows reads `<version>/etc/gitconfig` as the system config for the `mingw64`, `mingw32`, and `clangarm64` prefixes (`ETC_GITCONFIG` is `../etc/gitconfig` relative to those prefixes).
+
+When a child actually receives that `cmd` directory, and when the installer publishes a version directory, that file gains `http.sslBackend = schannel` if the last plain `[http]` value is not already schannel. A `[http "url"]` entry is left as it is. Global and repo config still override the system file. A child whose `PATH` was removed, or a policy base with no `PATH`, does not get the bundled git and does not get this write. Injecting the key through `GIT_CONFIG_COUNT` would override the user's own backend and would apply to every other `git.exe` that child runs.
+
+This host is Linux, so the Windows binary and the installer path were not run (`system_gitconfig_selects_schannel_once`, `url_scoped_backend_does_not_block_the_plain_http_default`, `bundled_git_on_path_writes_schannel_and_a_removed_path_does_not`) (`v83-x03`).
+
 ### D-238 — Package version 1.0.82
 
 The lockstepped packages `xai-grok-version`, `xai-grok-shell`, `xai-grok-pager`, and `xai-grok-pager-bin` are `1.0.82`. `crates/codegen/xai-grok-shell/CHANGELOG.md` gained 1.0.82's own section, directly under `# Changelog`. `/release-notes` still prepends CDN `# ` sections whose headings are absent from that file.
@@ -1037,7 +1045,7 @@ Refresh these numbers at the end of a session.
 | Wave | Name | Pending | Skipped | Done | Already | Deferred |
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
-| W2 | CLI surface | 1 | 0 | 7 | 0 | 0 |
+| W2 | CLI surface | 0 | 0 | 8 | 0 | 0 |
 | W3 | Permissions, sandbox, and config | 1 | 0 | 12 | 12 | 7 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
@@ -1054,9 +1062,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 8. Skipped: 9. Done: 531. Already: 109. Deferred: 27.
+Catalog rows: 684. Pending: 7. Skipped: 9. Done: 532. Already: 109. Deferred: 27.
 
-**Next:** `v83-x03`
+**Next:** `v83-x02`
 
 ## Waves
 
@@ -1066,7 +1074,7 @@ Pending: 0. Done: 5. Deferred: 1 (`v51-b01`, D-020). Look first: Share: `crates/
 
 ### W2 — CLI surface
 
-Pending: 1. Done: 7. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented.
+Pending: 0. Done: 8. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
 
 ### W3 — Permissions, sandbox, and config
 
@@ -1141,7 +1149,7 @@ id | status | wave | kind | flag | covered | note
 - v51-x117 | done | W2 | Bug Fixes |  |  | **disable_zdr_incompatible_tools** changes now apply to new turns without restarting the worker.
 - v53-f03 | done | W2 | Features |  |  | **`--tools` and `--disallowed-tools`** also apply in the interactive TUI.
 - v74-f10 | done | W2 | Features |  |  | **Picked `@` files in the prompt** can be edited in place: `Backspace` at the end of one reopens the picker on its path, and `Left` or `Right` puts the cursor inside it to change the path.
-- v83-x03 | pending | W2 | Bug Fixes |  |  | **Bundled MinGit on Windows** uses the schannel backend for HTTPS operations.
+- v83-x03 | done | W2 | Bug Fixes |  |  | **Bundled MinGit on Windows** uses the schannel backend for HTTPS operations.
 - v46-x04 | already | W3 | Bug Fixes |  |  | **Permission rules** with relative paths now correctly apply even when the cwd contains symlinks.
 - v48-x02 | already | W3 | Bug Fixes |  |  | Custom model tables in config.toml now preserve the original model's notice banner.
 - v50-x01 | deferred | W3 | Bug Fixes |  |  | **Shell permission decisions** now correctly prompt or approve commands matching the permission manager.

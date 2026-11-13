@@ -55,8 +55,8 @@ use std::io;
 
 mod bundled_git;
 pub use bundled_git::{
-    BundledGit, PathBase, bundled_git, bundled_git_at, prepend_bundled_git_path,
-    prepend_child_path, version_key,
+    BundledGit, PathBase, bundled_git, bundled_git_at, ensure_bundled_git_schannel,
+    prepend_bundled_git_path, prepend_child_path, version_key,
 };
 
 mod child_wait;
