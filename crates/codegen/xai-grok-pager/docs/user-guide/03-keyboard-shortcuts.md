@@ -98,7 +98,7 @@ Dragging across messages selects and copies the text of each message. It does no
 
 `Ctrl+Shift+Y` (alt: `F6`) copies the **markdown source** of an assistant message: headings, `**bold**`, code fences, and links as written, not the rendered plain text `y` copies. It works while the prompt or the scrollback is focused. If an assistant message is selected, or open in the viewer, that message is copied; otherwise the latest assistant message is copied. `/copy` does the same for the latest message.
 
-Change the chord in Settings → Editor & Input → **Copy markdown shortcut**, or in `config.toml`:
+Change the chord in Settings → Editor & input → **Copy markdown shortcut**, or in `config.toml`:
 
 ```toml
 [ui]
@@ -280,7 +280,7 @@ Actions that affect the agent session, available from the agent screen.
 | `Ctrl+B` | Agent screen | Send the running foreground command to the background |
 | `Ctrl+T` | Agent screen | Toggle the todos pane |
 | `Ctrl+G` | Agent screen (full TUI) | Toggle the tasks pane |
-| `Ctrl+G` | Ordinary composer (minimal mode) | Edit the current draft in an external editor without sending it. If the terminal reserves this chord, choose **Edit Prompt in External Editor** from the command palette. |
+| `Ctrl+G` | Ordinary composer (minimal mode) | Edit the current draft in an external editor without sending it. If the terminal reserves this chord, choose **Edit prompt in external editor** from the command palette. |
 | `Ctrl+L` | Scrollback focused | Quote the selected message, or the highlighted text, into the prompt. Extensions open with `/plugins` or `/hooks`. On VS Code / Cursor / Windsurf / Zed, `Ctrl+L` in the prompt is mid-turn **interject**. On the dashboard, `Ctrl+L` changes location. |
 | `↑` | Prompt focused (empty prompt, normal input mode) | With prompts queued, move focus into the queue pane with the last row highlighted (`e` edits it, `Enter` sends it now). Otherwise open the history panel with your last prompt filled in; `↑`/`↓` step through entries (each lands in the input), `↓` at the newest closes the panel, and typing edits the recalled prompt in place. Recalled `!` shell commands re-enter shell mode. `↓` never opens history. |
 | `Ctrl+S` (alt: `Alt+S`) | Prompt focused | Stash / pop the draft, `git stash`-style. With text or images in the composer: stash it and start fresh. On an empty composer: restore the newest stash (images and `!` shell mode included). After restore, the cursor is at the end of the restored draft. `Ctrl+Z` pressed right after the stash restores it too (any other key you type into the prompt disarms that). A chord-stashed draft also **restores automatically after you send your next prompt** (a double-Esc-cleared draft stays stashed, since that gesture is a discard). One draft at a time: a new stash replaces the old one. |
@@ -421,7 +421,7 @@ Details (peek vs dispatch, search prefixes, persistence): [Agent Dashboard](23-d
 
 ## Command Palette
 
-Press `Ctrl+P` or `?` to open the command palette -- a searchable list of common actions, each showing its key binding or slash command. It includes session actions, the extensions modal tabs (Hooks, Plugins, Marketplace, Skills, Workflows, MCP Servers), and more.
+Press `Ctrl+P` or `?` to open the command palette -- a searchable list of common actions, each showing its key binding or slash command. It includes session actions, the extensions modal tabs (Hooks, Plugins, Marketplace, Skills, Workflows, MCP servers), and more.
 
 Type to filter, then press `Enter` to execute the selected action.
 

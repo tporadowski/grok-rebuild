@@ -327,7 +327,7 @@ Grok Build shows running and finished work in side panes on the agent screen:
 - Press `Ctrl+G` to toggle the tasks pane, which lists active and completed subagents and background commands with their status.
 - Press `Ctrl+T` to toggle the separate todo pane.
 
-To view the available agent types and personas, open the command palette with `Ctrl+P` and choose **Manage Agents** (`/config-agents`).
+To view the available agent types and personas, open the command palette with `Ctrl+P` and choose **Manage agents** (`/config-agents`).
 
 Subagents appear at the top of the tasks pane in their own collapsible "Subagents" group.
 

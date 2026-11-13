@@ -596,7 +596,7 @@ fn space_on_remember_tool_approvals_dispatches_typed_setter() {
     assert_set_bool_action(outcome, "remember_tool_approvals", false);
 }
 
-/// The Ask-Question timeout row renders in Agent & Approval directly above Plan Mode and reads the resolved default ON.
+/// The Ask-Question timeout row renders in Agent & approval directly above Plan Mode and reads the resolved default ON.
 /// Space dispatches the typed setter toggling it off.
 #[test]
 fn space_on_ask_user_question_timeout_dispatches_typed_setter() {

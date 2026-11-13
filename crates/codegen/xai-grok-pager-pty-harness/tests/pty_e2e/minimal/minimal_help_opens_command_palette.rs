@@ -15,16 +15,16 @@ async fn minimal_help_opens_command_palette() {
     inject_keys_paced(&mut harness, b"/help");
     harness.inject_keys(b"\r").expect("submit /help");
 
-    // "New Session" is a stable command-palette entry that renders only inside the palette modal (not the status line or the slash dropdown)
+    // "New session" is a stable command-palette entry that renders only inside the palette modal (not the status line or the slash dropdown)
     harness
-        .wait_for_text("New Session", Duration::from_secs(10))
+        .wait_for_text("New session", Duration::from_secs(10))
         .expect("command palette opens inline");
 
     // Esc closes it. The palette opens in input mode, so the first Esc may only exit input mode and a second closes; press up to twice.
     for _ in 0..2 {
         harness.inject_keys(keys::ESC).expect("press esc");
         harness.update(Duration::from_millis(300));
-        if !harness.contains_text("New Session") {
+        if !harness.contains_text("New session") {
             break;
         }
     }
@@ -32,7 +32,7 @@ async fn minimal_help_opens_command_palette() {
         .wait_for_text(MINIMAL_IDLE_SENTINEL, Duration::from_secs(10))
         .expect("palette closed, back to the prompt");
     assert!(
-        !harness.contains_text("New Session"),
+        !harness.contains_text("New session"),
         "command palette must be gone after Esc\nscreen:\n{}",
         harness.screen_contents()
     );

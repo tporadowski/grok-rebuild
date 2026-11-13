@@ -96,7 +96,7 @@ grok plugin details <name>                # show the plugin's component inventor
 
 ### In the terminal UI
 
-Open the plugins modal with `/plugins`. It has six tabs, **Hooks**, **Plugins**, **Marketplace**, **Skills**, **Workflows**, and **MCP Servers**; switch with `Tab` / `Shift+Tab`. The `/hooks`, `/marketplace`, `/skills`, `/workflows`, and `/mcps` commands open the modal on the matching tab.
+Open the plugins modal with `/plugins`. It has six tabs, **Hooks**, **Plugins**, **Marketplace**, **Skills**, **Workflows**, and **MCP servers**; switch with `Tab` / `Shift+Tab`. The `/hooks`, `/marketplace`, `/skills`, `/workflows`, and `/mcps` commands open the modal on the matching tab.
 
 In the **Plugins** tab, press `Enter` to expand a plugin and see its name, version, scope (`cli`, `project`, `user`, `custom path`, or the marketplace source name), skills, agents, hooks, MCP servers (shown as `blocked` when the plugin is not trusted), description, and path. Then:
 

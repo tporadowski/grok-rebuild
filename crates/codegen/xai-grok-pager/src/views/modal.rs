@@ -359,7 +359,7 @@ pub struct PaletteSnapshot {
 /// A single entry in the command palette.
 #[derive(Debug, Clone)]
 pub struct PaletteEntry {
-    /// Display label (e.g., "New Session").
+    /// Display label (e.g., "New session").
     pub label: String,
     /// Keyboard shortcut hint (e.g., "Ctrl+N").
     pub shortcut: String,
@@ -408,47 +408,47 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::SectionHeader("Session".into()),
         },
         PaletteEntry {
-            label: "New Session".into(),
+            label: "New session".into(),
             shortcut: "Ctrl+N".into(),
             command: PaletteCommand::NewSession,
         },
         PaletteEntry {
-            label: "New Session in Worktree".into(),
+            label: "New session in worktree".into(),
             shortcut: "Ctrl+P → worktree".into(),
             command: PaletteCommand::NewSessionInWorktree,
         },
         PaletteEntry {
-            label: "Agent Dashboard".into(),
+            label: "Agent dashboard".into(),
             shortcut: "/dashboard".into(),
             command: PaletteCommand::SlashCommand("/dashboard".into()),
         },
         PaletteEntry {
-            label: "Back to Home".into(),
+            label: "Back to home".into(),
             shortcut: "/home".into(),
             command: PaletteCommand::Home,
         },
         PaletteEntry {
-            label: "Delete This Session".into(),
+            label: "Delete this session".into(),
             shortcut: "/delete".into(),
             command: PaletteCommand::SlashCommand("/delete".into()),
         },
         PaletteEntry {
-            label: "Resume Session".into(),
+            label: "Resume session".into(),
             shortcut: "/resume".into(),
             command: PaletteCommand::SlashCommand("/resume".into()),
         },
         PaletteEntry {
-            label: "Rename Session".into(),
+            label: "Rename session".into(),
             shortcut: "/rename ".into(),
             command: PaletteCommand::SlashCommand("/rename ".into()),
         },
         PaletteEntry {
-            label: "Session Info".into(),
+            label: "Session info".into(),
             shortcut: "/session-info".into(),
             command: PaletteCommand::SlashCommand("/session-info".into()),
         },
         PaletteEntry {
-            label: "Send Feedback".into(),
+            label: "Send feedback".into(),
             shortcut: "/feedback".into(),
             command: PaletteCommand::OpenFeedbackModal,
         },
@@ -458,17 +458,17 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::SectionHeader("Context".into()),
         },
         PaletteEntry {
-            label: "Compact History".into(),
+            label: "Compact history".into(),
             shortcut: "/compact".into(),
             command: PaletteCommand::SlashCommand("/compact".into()),
         },
         PaletteEntry {
-            label: "Context Usage".into(),
+            label: "Context usage".into(),
             shortcut: "/context".into(),
             command: PaletteCommand::SlashCommand("/context".into()),
         },
         PaletteEntry {
-            label: "View Plan".into(),
+            label: "View plan".into(),
             shortcut: "/view-plan".into(),
             command: PaletteCommand::SlashCommand("/view-plan".into()),
         },
@@ -478,27 +478,27 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::Memory,
         },
         PaletteEntry {
-            label: "Model & Input".into(),
+            label: "Model & input".into(),
             shortcut: String::new(),
-            command: PaletteCommand::SectionHeader("Model & Input".into()),
+            command: PaletteCommand::SectionHeader("Model & input".into()),
         },
         PaletteEntry {
-            label: "Switch Model".into(),
+            label: "Switch model".into(),
             shortcut: "/model".into(),
             command: PaletteCommand::SlashCommand("/model ".into()),
         },
         PaletteEntry {
-            label: "Always Approve Mode".into(),
+            label: "Always approve mode".into(),
             shortcut: "/always-approve".into(),
             command: PaletteCommand::SlashCommand("/always-approve".into()),
         },
         PaletteEntry {
-            label: "Multiline Input".into(),
+            label: "Multiline input".into(),
             shortcut: "/multiline".into(),
             command: PaletteCommand::SlashCommand("/multiline".into()),
         },
         PaletteEntry {
-            label: "Edit Prompt in External Editor".into(),
+            label: "Edit prompt in external editor".into(),
             shortcut: "Ctrl+G".into(),
             command: PaletteCommand::EditPromptExternal,
         },
@@ -543,14 +543,14 @@ pub(crate) fn default_palette_entries(
             ),
         },
         PaletteEntry {
-            label: "MCP Servers".into(),
+            label: "MCP servers".into(),
             shortcut: "/mcps".into(),
             command: PaletteCommand::OpenExtensionsTab(
                 crate::views::extensions_modal::ExtensionsTab::McpServers,
             ),
         },
         PaletteEntry {
-            label: "Manage Agents".into(),
+            label: "Manage agents".into(),
             shortcut: "/config-agents".into(),
             command: PaletteCommand::OpenAgentsModal,
         },
@@ -560,7 +560,7 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::SectionHeader("Other".into()),
         },
         PaletteEntry {
-            label: "Switch Theme".into(),
+            label: "Switch theme".into(),
             shortcut: "/theme".into(),
             command: PaletteCommand::SlashCommand("/theme ".into()),
         },
@@ -570,7 +570,7 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::OpenSettings,
         },
         PaletteEntry {
-            label: "Keyboard Shortcuts".into(),
+            label: "Keyboard shortcuts".into(),
             shortcut: if crate::actions::ctrl_dot_unreliable() {
                 "Ctrl+X".into()
             } else {
@@ -579,7 +579,7 @@ pub(crate) fn default_palette_entries(
             command: PaletteCommand::KeyboardShortcuts,
         },
         PaletteEntry {
-            label: "How-to Guides".into(),
+            label: "How-to guides".into(),
             shortcut: "/docs".into(),
             command: PaletteCommand::HowTo,
         },
@@ -706,9 +706,9 @@ impl ActiveModal {
                 "theme" | "t" => "Pick theme",
                 _ => "Pick option",
             },
-            ActiveModal::DocPicker { .. } => "How-to Guides",
+            ActiveModal::DocPicker { .. } => "How-to guides",
             ActiveModal::DocViewer { title, .. } => title.as_str(),
-            ActiveModal::ShortcutsHelp { .. } => "Keyboard Shortcuts",
+            ActiveModal::ShortcutsHelp { .. } => "Keyboard shortcuts",
             ActiveModal::MemoryBrowser { .. } => "Memory",
             ActiveModal::Settings { .. } => crate::views::settings_modal::MODAL_TITLE,
             ActiveModal::ResetSettingsConfirm { .. } => "Reset setting?",
@@ -1139,7 +1139,7 @@ pub fn render_doc_picker_overlay(
         ..base_sizing
     };
     let modal_config = ModalWindowConfig {
-        title: "How-to Guides",
+        title: "How-to guides",
         tabs: None,
         shortcuts: &picker_shortcuts,
         sizing,
@@ -1376,11 +1376,43 @@ mod palette_sharing_tests {
             has_dashboard,
             "/dashboard entry must be present in the palette so users can switch between agents"
         );
-        let labelled = entries.iter().any(|e| e.label == "Agent Dashboard");
+        let labelled = entries.iter().any(|e| e.label == "Agent dashboard");
         assert!(
             labelled,
-            "palette entry must use the 'Agent Dashboard' label"
+            "palette entry must use the 'Agent dashboard' label"
         );
+    }
+    #[test]
+    fn palette_labels_use_sentence_case() {
+        let entries = default_palette_entries(true, &slash(crate::app::ScreenMode::Fullscreen));
+        let labels: Vec<&str> = entries.iter().map(|entry| entry.label.as_str()).collect();
+        for kept in [
+            "New session",
+            "New session in worktree",
+            "Agent dashboard",
+            "Back to home",
+            "Model & input",
+            "Always approve mode",
+            "Edit prompt in external editor",
+            "MCP servers",
+            "Keyboard shortcuts",
+            "How-to guides",
+        ] {
+            assert!(labels.contains(&kept), "missing sentence-case label {kept}");
+        }
+        for retired in [
+            "New Session",
+            "Agent Dashboard",
+            "Model & Input",
+            "MCP Servers",
+            "Keyboard Shortcuts",
+            "How-to Guides",
+        ] {
+            assert!(
+                !labels.contains(&retired),
+                "title-case label still on the palette: {retired}"
+            );
+        }
     }
     fn slash_rows(mode: crate::app::ScreenMode) -> Vec<String> {
         default_palette_entries(true, &slash(mode))
@@ -1494,7 +1526,7 @@ mod palette_sharing_tests {
             ("Marketplace", ExtensionsTab::Marketplace),
             ("Skills", ExtensionsTab::Skills),
             ("Workflows", ExtensionsTab::Workflows),
-            ("MCP Servers", ExtensionsTab::McpServers),
+            ("MCP servers", ExtensionsTab::McpServers),
         ] {
             let entry = entries
                 .iter()

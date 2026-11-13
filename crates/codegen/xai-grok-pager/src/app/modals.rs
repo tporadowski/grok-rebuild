@@ -314,7 +314,7 @@ impl AgentView {
                 shortcuts_help::modal_footer(*filter_active)
             };
             let chrome_cfg = mw::ModalWindowConfig {
-                title: "Keyboard Shortcuts",
+                title: "Keyboard shortcuts",
                 tabs: None,
                 shortcuts: &footer,
                 sizing: crate::views::shortcuts_help::modal_sizing(
@@ -1280,7 +1280,7 @@ impl AgentView {
                 })
                 .collect();
             let config = PickerConfig {
-                title: Some("How-to Guides"),
+                title: Some("How-to guides"),
                 show_search_hint: false,
                 expandable: false,
                 esc_clears_query: true,
@@ -2333,7 +2333,7 @@ impl AgentView {
                 let non_sel: Vec<bool> = vec![false; picker_entries.len()];
                 let footer = shortcuts_help::modal_footer(*filter_active);
                 let modal_config = mw::ModalWindowConfig {
-                    title: "Keyboard Shortcuts",
+                    title: "Keyboard shortcuts",
                     tabs: None,
                     shortcuts: &footer,
                     sizing: shortcuts_help::modal_sizing(compact),
@@ -3166,7 +3166,7 @@ mod command_palette_vim_input_tests {
             ),
             state: {
                 let mut state = PickerState::input_active();
-                // Contiguous substring of the label ("Edit Prompt in External Editor").
+                // Contiguous substring of the label ("Edit prompt in external editor").
                 state.set_query("external editor");
                 state.selected = 1; // matching section header is row 0
                 state

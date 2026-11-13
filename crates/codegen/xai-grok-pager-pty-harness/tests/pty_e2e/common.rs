@@ -328,8 +328,8 @@ pub(crate) async fn drive_mcp_menu_load(content: &ContentController, cwd: &std::
 
     // Tab chrome renders even while loading, so this gate isolates setup failures.
     harness
-        .wait_for_text("MCP Servers", Duration::from_secs(15))
-        .expect("extensions modal open on MCP Servers tab");
+        .wait_for_text("MCP servers", Duration::from_secs(15))
+        .expect("extensions modal open on MCP servers tab");
 
     harness
         .wait_for_text(MCP_TEST_SERVER, MCP_MENU_LOAD_TIMEOUT)

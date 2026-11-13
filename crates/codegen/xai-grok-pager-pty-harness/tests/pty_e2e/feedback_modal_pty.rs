@@ -156,9 +156,9 @@ async fn feedback_modal_send_prefill_edit_and_palette_pty() {
     inject_keys_paced(&mut harness, b"\x10"); // Ctrl+P opens the command palette
     inject_keys_paced(&mut harness, b"send feedback");
     harness
-        .wait_for_text("Send Feedback", Duration::from_secs(15))
-        .expect("palette filter shows the Send Feedback entry");
-    harness.inject_keys(b"\r").expect("pick Send Feedback");
+        .wait_for_text("Send feedback", Duration::from_secs(15))
+        .expect("palette filter shows the Send feedback entry");
+    harness.inject_keys(b"\r").expect("pick Send feedback");
     harness
         .wait_for_text(FEEDBACK_MODAL_PLACEHOLDER_SENTINEL, Duration::from_secs(15))
         .expect("palette must open the feedback modal on the Write tab");

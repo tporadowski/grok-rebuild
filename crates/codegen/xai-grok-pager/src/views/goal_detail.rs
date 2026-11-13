@@ -73,7 +73,7 @@ fn status_label(goal: &GoalDisplayState) -> (&'static str, Color, String) {
         | GoalDisplayStatus::Blocked => (goal.status.pause_label(), theme.warning, String::new()),
         GoalDisplayStatus::Failed => ("Failed", theme.accent_error, String::new()),
         GoalDisplayStatus::Interrupted => ("Interrupted", theme.accent_error, String::new()),
-        GoalDisplayStatus::BudgetLimited => ("Budget Limited", theme.accent_error, String::new()),
+        GoalDisplayStatus::BudgetLimited => ("Budget limited", theme.accent_error, String::new()),
         GoalDisplayStatus::Complete => ("Complete", theme.accent_success, String::new()),
     }
 }
@@ -228,12 +228,12 @@ fn classifier_details_display(path: Option<&str>, exists: bool) -> &str {
 fn classifier_verdict_label(verdict: Option<GoalClassifierVerdict>) -> &'static str {
     match verdict {
         Some(GoalClassifierVerdict::Achieved) => "Achieved",
-        Some(GoalClassifierVerdict::NotAchieved) => "Not Achieved",
+        Some(GoalClassifierVerdict::NotAchieved) => "Not achieved",
         None => "Not yet evaluated",
     }
 }
 
-/// Humanize a wire goal-event name (and optional detail) for the Recent History row. This is the
+/// Humanize a wire goal-event name (and optional detail) for the Recent history row. This is the
 /// single wire-to-display mapping, so machine vocabulary (`goal_paused`, snake_case detail) never
 /// reaches the user.
 fn humanize_goal_event(event: &str, detail: Option<&str>) -> String {
@@ -464,7 +464,7 @@ pub fn render_goal_detail(
         .saturating_sub(2); // leading and trailing space
     let cleaned = sanitize_title(&goal.objective);
     let objective = if cleaned.is_empty() {
-        "Active Goal".to_owned()
+        "Active goal".to_owned()
     } else {
         truncate_to_width(&cleaned, objective_budget)
     };
@@ -723,7 +723,7 @@ pub fn render_goal_detail(
             return Some(close_rect);
         }
         let mut subagent_spans = vec![
-            Span::styled("Active Subagent: ", Style::default().fg(theme.gray)),
+            Span::styled("Active subagent: ", Style::default().fg(theme.gray)),
             Span::styled(
                 role.as_str(),
                 Style::default()
@@ -906,7 +906,7 @@ pub fn render_goal_detail(
             x,
             y,
             &Line::from(Span::styled(
-                "Recent History:",
+                "Recent history:",
                 Style::default()
                     .fg(theme.text_primary)
                     .add_modifier(Modifier::BOLD),
@@ -1096,7 +1096,7 @@ mod tests {
             "expected header, got:\n{text}"
         );
         assert!(
-            text.contains("Last verdict: Not Achieved"),
+            text.contains("Last verdict: Not achieved"),
             "expected verdict line, got:\n{text}"
         );
         assert!(
@@ -1468,7 +1468,7 @@ mod tests {
         // Positive collapse assertions: the active-subagent metrics block still renders its single tokens line
         // Zero per-model rows are emitted for a single-model goal
         assert!(
-            rows_containing(&goal, "Active Subagent:") >= 1,
+            rows_containing(&goal, "Active subagent:") >= 1,
             "metrics block must still render"
         );
         assert_eq!(
@@ -1613,7 +1613,7 @@ mod tests {
 
         goal.status = GoalDisplayStatus::BudgetLimited;
         let (s, _, _) = status_label(&goal);
-        assert_eq!(s, "Budget Limited");
+        assert_eq!(s, "Budget limited");
 
         goal.status = GoalDisplayStatus::Complete;
         let (s, _, _) = status_label(&goal);
@@ -2046,7 +2046,7 @@ mod tests {
             "title must show the objective, got:\n{text}"
         );
         assert!(
-            !text.contains("Active Goal"),
+            !text.contains("Active goal"),
             "static placeholder title must be replaced by the objective, got:\n{text}"
         );
     }
@@ -2217,6 +2217,10 @@ mod tests {
             Some((chrono::Utc::now() - chrono::Duration::minutes(2)).to_rfc3339());
         let text = render_to_text(&goal);
         assert!(
+            text.contains("Recent history:"),
+            "history header uses sentence case, got:\n{text}"
+        );
+        assert!(
             text.contains("Paused: back off"),
             "humanized event label, got:\n{text}"
         );
@@ -2309,7 +2313,7 @@ mod tests {
         goal.objective = "  \n\t  ".into(); // whitespace/control only
         let text = render_to_text(&goal);
         assert!(
-            text.contains("Active Goal"),
+            text.contains("Active goal"),
             "a blank objective must fall back to the placeholder, got:\n{text}"
         );
     }

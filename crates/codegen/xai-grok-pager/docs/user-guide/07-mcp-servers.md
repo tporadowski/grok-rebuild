@@ -221,7 +221,7 @@ You can enable or disable MCP servers without restarting Grok (TUI `/mcps` or CL
 Open the MCP servers modal in the TUI:
 
 - Run `/mcps` as a slash command
-- Or run `/plugins` or `/mcp` and open the MCP Servers tab
+- Or run `/plugins` or `/mcp` and open the MCP servers tab
 
 From the modal you can:
 

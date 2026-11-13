@@ -1,4 +1,4 @@
-//! Extensions modal popup (Hooks, Plugins, Marketplace, Skills, Workflows, MCP Servers).
+//! Extensions modal popup (Hooks, Plugins, Marketplace, Skills, Workflows, MCP servers).
 //!
 //! A centered overlay using the shared [`ModalWindow`](super::modal_window) chrome, opened by the `/hooks` and `/plugins` slash commands.
 //! Blocks all input until closed with `Esc`.
@@ -507,7 +507,7 @@ impl ExtensionsTab {
             Self::Marketplace => "Marketplace",
             Self::Skills => "Skills",
             Self::Workflows => "Workflows",
-            Self::McpServers => "MCP Servers",
+            Self::McpServers => "MCP servers",
         }
     }
 

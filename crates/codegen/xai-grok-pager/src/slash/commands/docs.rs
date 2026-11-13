@@ -1,6 +1,6 @@
 //! `/docs` opens How-to Guides (in-TUI) or the online Build docs.
 //!
-//! Bare `/docs` opens the same DocPicker as command-palette "How-to Guides".
+//! Bare `/docs` opens the same DocPicker as command-palette "How-to guides".
 //! `/docs web` opens https://docs.x.ai/build/overview in the browser.
 //! `/docs <title>` opens a single guide by title (case-insensitive).
 

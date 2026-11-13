@@ -33,7 +33,7 @@ fn cta_mcps_loaded_needs_auth_opens_modal_and_seeds() {
     );
     // The CTA is finished; the modal owns the flow from here
     assert_eq!(test_agent(&app, id).plugin_cta.phase, CtaPhase::Hidden);
-    // Modal opened to the MCP Servers tab.
+    // Modal opened to the MCP servers tab.
     let modal = test_agent(&app, id)
         .extensions_modal
         .as_ref()

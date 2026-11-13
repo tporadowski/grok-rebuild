@@ -190,7 +190,7 @@ later, use the **Unlock-First (non-colliding)** preset:
 
 Press `Ctrl+g` when you need Zellij's own pane or session controls. In minimal
 mode, if `Ctrl+G` still does not reach Grok, open the command palette and select
-**Edit Prompt in External Editor**. This preserves the current draft; typing
+**Edit prompt in external editor**. This preserves the current draft; typing
 `/edit-prompt` starts an empty editor draft because the command itself occupies
 the composer.
 

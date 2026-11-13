@@ -630,7 +630,7 @@ pub enum Action {
     /// Open the command palette (`/help`).
     /// The keybinding path (Ctrl+P) opens it directly in `handle_agent_action`; this lets a slash command reach the same modal through dispatch.
     OpenCommandPalette,
-    /// Open the in-TUI How-to Guides doc picker (`/docs`, palette "How-to Guides").
+    /// Open the in-TUI How-to Guides doc picker (`/docs`, palette "How-to guides").
     OpenHowtoGuides,
     /// Open the onboarding tutorial overlay (`/tutorial` or the command palette).
     OpenTutorial,

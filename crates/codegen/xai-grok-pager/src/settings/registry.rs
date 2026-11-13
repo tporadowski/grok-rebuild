@@ -57,8 +57,8 @@ impl SettingCategory {
         match self {
             Self::Appearance => "Appearance",
             Self::Mouse => "Mouse",
-            Self::Editor => "Editor & Input",
-            Self::Agent => "Agent & Approval",
+            Self::Editor => "Editor & input",
+            Self::Agent => "Agent & approval",
             Self::Privacy => "Privacy",
             Self::Models => "Models",
             Self::Session => "Session",
@@ -817,6 +817,14 @@ pub fn default_value_for(meta: &SettingMeta) -> SettingValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn category_headers_use_sentence_case() {
+        assert_eq!(SettingCategory::Editor.label(), "Editor & input");
+        assert_eq!(SettingCategory::Agent.label(), "Agent & approval");
+        assert_eq!(SettingCategory::Appearance.label(), "Appearance");
+        assert_eq!(SettingCategory::Session.label(), "Session");
+    }
 
     /// Every SHELL/SHARED setting's default must match `UiConfig::default()`.
     /// PAGER-owned settings are covered by `defaults_match_pager_state`.

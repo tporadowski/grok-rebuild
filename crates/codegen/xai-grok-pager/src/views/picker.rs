@@ -2265,7 +2265,7 @@ pub fn render_picker(
     };
 
     if config.disable_search {
-        // Replace the search bar row with a plain title (e.g. "Keyboard Shortcuts" for the cheatsheet modal).
+        // Replace the search bar row with a plain title (e.g. "Keyboard shortcuts" for the cheatsheet modal).
         // Mirrors the search-bar padding for visual consistency
         let title_text = config.title.unwrap_or("");
         let title_style = Style::default()

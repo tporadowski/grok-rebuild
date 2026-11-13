@@ -793,7 +793,7 @@ pub fn render_detail(
     };
     let footer = modal_footer_detail();
     let modal_config = mw::ModalWindowConfig {
-        title: "Keyboard Shortcuts",
+        title: "Keyboard shortcuts",
         tabs: None,
         shortcuts: &footer,
         sizing: modal_sizing(compact),
@@ -1363,7 +1363,7 @@ pub fn render_modal(
     let non_sel: Vec<bool> = vec![false; picker_entries.len()];
     let footer = modal_footer(filter_active);
     let modal_config = mw::ModalWindowConfig {
-        title: "Keyboard Shortcuts",
+        title: "Keyboard shortcuts",
         tabs: None,
         shortcuts: &footer,
         sizing: modal_sizing(compact),
@@ -1474,7 +1474,7 @@ pub fn handle_modal_key(
         modal_footer(filter_active)
     };
     let chrome_cfg = mw::ModalWindowConfig {
-        title: "Keyboard Shortcuts",
+        title: "Keyboard shortcuts",
         tabs: None,
         shortcuts: &footer,
         sizing: modal_sizing(compact),

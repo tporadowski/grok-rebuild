@@ -128,7 +128,7 @@ impl GoalPauseReason {
         }
     }
 
-    /// Short, stable label stashed in the `GoalPaused` history entry's `detail` so the pager's Recent History distinguishes pause causes.
+    /// Short, stable label stashed in the `GoalPaused` history entry's `detail` so the pager's Recent history distinguishes pause causes.
     fn history_detail(self) -> &'static str {
         match self {
             Self::User => "user",

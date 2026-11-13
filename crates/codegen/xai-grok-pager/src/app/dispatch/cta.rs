@@ -350,7 +350,7 @@ pub(super) fn handle_plugin_cta_mcps_loaded(
                 && agent.plugin_cta.mcp_attempt >= CTA_MCP_ABSENT_MAX_ATTEMPTS;
             let mut effects = Vec::new();
             if needs_auth {
-                // Hand off into the Extensions modal on the MCP Servers tab with only the new plugin's section expanded
+                // Hand off into the Extensions modal on the MCP servers tab with only the new plugin's section expanded
                 // Seed the MCP data from the read we already have (no flash)
                 // Emit the same tab fetches as a manual open so no other tab is left stuck Loading; the modal then owns the auth UX
                 let mut modal = ExtensionsModalState::new(ExtensionsTab::McpServers);
