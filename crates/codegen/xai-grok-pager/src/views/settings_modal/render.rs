@@ -2580,7 +2580,7 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
             };
             let mut shortcuts = vec![
                 Shortcut {
-                    label: "\u{2191}/\u{2193}/j/k nav",
+                    label: "\u{2191}/\u{2193} nav",
                     clickable: false,
                     id: 0,
                 },
@@ -2759,7 +2759,7 @@ pub(super) fn build_shortcuts(state: &SettingsModalState) -> Vec<Shortcut<'stati
         ],
         SettingsMode::PickingGroup { .. } => vec![
             Shortcut {
-                label: "\u{2191}/\u{2193}/j/k nav",
+                label: "\u{2191}/\u{2193} nav",
                 clickable: false,
                 id: 0,
             },

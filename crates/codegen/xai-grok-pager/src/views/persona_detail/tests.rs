@@ -192,3 +192,18 @@ fn detail_editor_uses_canonical_graphemes_and_keeps_cursor_visible() {
         Some(theme.text_primary)
     );
 }
+
+#[test]
+fn browse_footer_advertises_arrow_nav() {
+    let (_directory, _path, state) = editable_state();
+    assert!(!state.is_editing());
+    let labels: Vec<_> = build_shortcuts(&state).iter().map(|sc| sc.label).collect();
+    assert!(
+        labels.contains(&"\u{2191}/\u{2193} nav"),
+        "persona detail footer must advertise arrow navigation: {labels:?}"
+    );
+    assert!(
+        labels.iter().all(|label| !label.contains("j/k")),
+        "persona detail footer must not advertise j/k: {labels:?}"
+    );
+}

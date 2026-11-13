@@ -678,7 +678,7 @@ fn build_shortcuts(state: &PersonaDetailState) -> Vec<Shortcut<'static>> {
         ]
     } else {
         let mut shortcuts = vec![Shortcut {
-            label: "j/k nav",
+            label: "\u{2191}/\u{2193} nav",
             clickable: false,
             id: 0,
         }];

@@ -925,6 +925,50 @@ fn browse_footer_advertises_i_search_under_vim() {
     crate::appearance::cache::set_vim_mode(false);
 }
 
+/// Browse and the group sub-sheet advertise arrow keys, the same nav chip as the other modals.
+#[test]
+fn modal_footers_advertise_arrow_keys() {
+    let browse = make_state();
+    let browse_labels: Vec<_> = build_shortcuts(&browse).iter().map(|sc| sc.label).collect();
+    assert!(
+        browse_labels.contains(&"\u{2191}/\u{2193} nav"),
+        "browse footer must advertise arrow navigation: {browse_labels:?}"
+    );
+    assert!(
+        browse_labels.contains(&"g/G top/btm"),
+        "browse footer keeps the g/G hint: {browse_labels:?}"
+    );
+    assert!(
+        browse_labels.iter().all(|label| !label.contains("j/k")),
+        "browse footer must not advertise j/k: {browse_labels:?}"
+    );
+
+    let mut picking = make_state();
+    let group_idx = picking
+        .rows
+        .iter()
+        .position(|r| matches!(r, RowEntry::Setting { key, .. } if *key == "contextual_hints"))
+        .expect("group row present");
+    picking.selected = group_idx;
+    let out = handle_settings_key(
+        &mut picking,
+        &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+    );
+    assert!(matches!(out, SettingsKeyOutcome::Changed));
+    let picking_labels: Vec<_> = build_shortcuts(&picking)
+        .iter()
+        .map(|sc| sc.label)
+        .collect();
+    assert!(
+        picking_labels.contains(&"\u{2191}/\u{2193} nav"),
+        "group picker footer must advertise arrow navigation: {picking_labels:?}"
+    );
+    assert!(
+        picking_labels.iter().all(|label| !label.contains("j/k")),
+        "group picker footer must not advertise j/k: {picking_labels:?}"
+    );
+}
+
 #[test]
 fn mouse_click_on_bool_row_dispatches_toggle() {
     // We can't render to a real Buffer here without a real terminal, but we can hand-set the row_rects to simulate the post-render state
@@ -5085,7 +5129,7 @@ fn modal_interior_row_is_blank(buf: &Buffer, popup_area: Rect, y: u16) -> bool {
     true
 }
 
-/// Narrow modal: the Browse-mode hint string `↑/↓/j/k nav | g/G top/btm | …` wraps to 2+ lines.
+/// Narrow modal: the Browse-mode hint string `↑/↓ nav | g/G top/btm | …` wraps to 2+ lines.
 /// Without the fix the tip would sit directly above the first hint line; with the fix there's exactly one blank row between them.
 #[test]
 fn footer_has_blank_line_between_tip_and_hints_when_hints_wrap() {
@@ -5104,9 +5148,9 @@ fn footer_has_blank_line_between_tip_and_hints_when_hints_wrap() {
 
     let tip_y = find_row_y(&buf, area, "Tip").expect("tip row must render");
     // Sanity-check that the hints actually wrap. Look for the first hint label (`nav`) AND the last
-    // (`F2/Esc`); they must land on different y if the hints wrapped. Use `j/k nav` (hint-unique)
+    // (`F2/Esc`); they must land on different y if the hints wrapped. Use `↑/↓ nav` (hint-unique)
     // rather than `nav` alone, which also matches the `vim_mode` row's "navigation" keyword.
-    let first_hint_y = find_row_y(&buf, area, "j/k nav").expect("first hint line must render");
+    let first_hint_y = find_row_y(&buf, area, "↑/↓ nav").expect("first hint line must render");
     let last_hint_y = find_row_y(&buf, area, "F2/Esc").expect("close hint must render");
     assert!(
         last_hint_y > first_hint_y,

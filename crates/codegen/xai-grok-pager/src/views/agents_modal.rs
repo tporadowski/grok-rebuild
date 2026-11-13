@@ -1099,7 +1099,7 @@ pub fn render_agents_modal(
 fn build_agents_tab_shortcuts<'a>(state: &AgentsModalState) -> Vec<Shortcut<'a>> {
     let mut shortcuts = vec![
         Shortcut {
-            label: "j/k nav",
+            label: "\u{2191}/\u{2193} nav",
             clickable: false,
             id: 0,
         },
@@ -1183,7 +1183,7 @@ fn build_personas_tab_shortcuts<'a>(state: &AgentsModalState) -> Vec<Shortcut<'a
     } else {
         let mut shortcuts = vec![
             Shortcut {
-                label: "j/k nav",
+                label: "\u{2191}/\u{2193} nav",
                 clickable: false,
                 id: 0,
             },
@@ -3004,6 +3004,25 @@ mod tests {
             "Personas browse footer must advertise `/ search`"
         );
         crate::appearance::cache::set_vim_mode(false);
+    }
+    /// Both tab footers advertise arrow keys, matching the other modal nav chips.
+    #[test]
+    fn tab_footers_advertise_arrow_nav() {
+        let s = make_persona_state(three_personas(), "", 0);
+        for (name, shortcuts) in [
+            ("Agents", build_agents_tab_shortcuts(&s)),
+            ("Personas", build_personas_tab_shortcuts(&s)),
+        ] {
+            let labels: Vec<_> = shortcuts.iter().map(|sc| sc.label).collect();
+            assert!(
+                labels.contains(&"\u{2191}/\u{2193} nav"),
+                "{name} footer must advertise arrow navigation: {labels:?}"
+            );
+            assert!(
+                labels.iter().all(|label| !label.contains("j/k")),
+                "{name} footer must not advertise j/k: {labels:?}"
+            );
+        }
     }
     #[test]
     fn search_text_changes_refilter_but_cursor_moves_do_not() {

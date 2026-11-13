@@ -1443,6 +1443,30 @@ fn narrow_feedback_dialog_shows_the_full_draft_title() {
 }
 
 #[test]
+fn drafts_footer_advertises_arrow_keys() {
+    let area = Rect::new(0, 0, 80, 24);
+    let mut modal = FeedbackModalState::new(OpenFeedbackModal::default());
+    modal.window.active_tab = FeedbackTab::Drafts.index();
+    modal.drafts = DraftsState::Browse {
+        rows: vec![draft("stored", "stored text", FeedbackTaxonomy::default())],
+        selected_id: Some("stored".to_owned().into()),
+        query: LineEditor::default(),
+        search_focused: false,
+        error: None,
+    };
+    let (_buf, rendered) = render_area(&mut modal, area);
+    let collapsed = collapse_ws(&rendered);
+    assert!(
+        collapsed.contains("↑↓ move"),
+        "drafts footer must advertise arrow keys:\n{rendered}"
+    );
+    assert!(
+        !collapsed.contains("j k") && !collapsed.contains("j/k"),
+        "drafts footer must not advertise j/k:\n{rendered}"
+    );
+}
+
+#[test]
 fn narrow_feedback_dialog_wraps_confirm_prompts() {
     let area = Rect::new(0, 0, 64, 36);
     let mut discard = FeedbackModalState::new(OpenFeedbackModal {

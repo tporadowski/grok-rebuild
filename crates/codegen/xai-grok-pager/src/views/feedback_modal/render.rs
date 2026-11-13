@@ -299,7 +299,7 @@ impl FeedbackModalState {
         );
         let mut shortcuts = vec![
             Shortcut {
-                label: "↑↓/j k move",
+                label: "↑↓ move",
                 clickable: false,
                 id: 0,
             },
