@@ -190,7 +190,8 @@ The `/feedback` form is the one exception to this table: its report box has no
 answers to walk, so it has its own keys (below).
 
 While typing a free-text answer, `Enter` submits and `Esc` returns to the
-answer rows; every other key goes to the text field.
+answer rows. `↑` on the top line of that text moves to the previous answer;
+on a lower line it moves the caret. Every other key goes to the text field.
 
 ### `/feedback` form
 

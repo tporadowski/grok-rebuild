@@ -361,6 +361,7 @@ impl AgentView {
     /// Handle key input when the question view is active.
     /// **Navigation**: j/k move the cursor between answers and Tab/Shift+Tab walk the same rows in a loop.
     /// Space toggles, Enter advances or edits freeform, h/l/[/] cycle questions, 1-9/a-f jump and toggle.
+    /// Up on the top line of a text answer moves to the previous option.
     pub(super) fn handle_question_key(&mut self, key: &KeyEvent) -> InputOutcome {
         use crate::views::question_view::{CursorMotion, QuestionFocus};
         if key.code == KeyCode::Esc {
@@ -402,6 +403,24 @@ impl AgentView {
                         return InputOutcome::Changed;
                     }
                     EnterOutcome::PassThrough => {}
+                }
+                // Up on the top visual row leaves the text answer for the option above it.
+                // A lower row, Shift+Up, and an open dropdown still belong to the text.
+                if key.code == KeyCode::Up
+                    && key.modifiers.is_empty()
+                    && !self.prompt.any_dropdown_open()
+                    && self.prompt.caret_on_top_visual_row()
+                    && self
+                        .question_view
+                        .as_ref()
+                        .is_some_and(|qv| qv.cursor() > 0)
+                {
+                    self.commit_question_freeform();
+                    if let Some(ref mut qv) = self.question_view {
+                        qv.move_cursor(CursorMotion::Prev);
+                    }
+                    self.ensure_question_cursor_visible();
+                    return InputOutcome::Changed;
                 }
                 match self.prompt.handle_key(key) {
                     PromptEvent::Edited => {
@@ -2386,6 +2405,96 @@ mod question_no_freeform_tests {
             "yanking must not close the card"
         );
         assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
+    }
+
+    /// Up on the top line of a text answer leaves that field for the option above it.
+    /// The typed answer is kept. Shift+Up stays in the field and extends the selection.
+    #[test]
+    fn up_on_the_top_line_of_a_text_answer_moves_to_the_previous_option() {
+        let mut agent = make_agent();
+        open_question(&mut agent, false);
+        let z = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
+        let _ = agent.handle_question_key(&z);
+        assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
+        assert_eq!(
+            qv(&agent).cursor(),
+            2,
+            "freeform sits after the two options"
+        );
+        agent.prompt.set_text("typed answer");
+        agent.prompt.set_cursor(6);
+        draw_frame(&mut agent);
+        assert!(
+            agent.prompt.caret_on_top_visual_row(),
+            "a single line is the top row"
+        );
+
+        let shift_up = KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT);
+        let _ = agent.handle_question_key(&shift_up);
+        assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
+        assert_eq!(qv(&agent).cursor(), 2, "Shift+Up must not leave the text");
+
+        let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        let _ = agent.handle_question_key(&up);
+        let state = qv(&agent);
+        assert_eq!(state.focus, QuestionFocus::Navigation);
+        assert_eq!(state.cursor(), 1, "Up lands on the option above the text");
+        assert_eq!(
+            state
+                .per_question_freeform
+                .first()
+                .map(String::as_str)
+                .unwrap_or_else(|| panic!("missing freeform slot")),
+            "typed answer"
+        );
+        assert!(agent.question_view.is_some(), "Up must not submit the card");
+    }
+
+    /// Up below the top line moves the caret inside the answer. The next Up, now on
+    /// the top line, leaves for the previous option.
+    #[test]
+    fn up_below_the_top_line_of_a_text_answer_stays_in_the_text() {
+        let mut agent = make_agent();
+        open_question(&mut agent, false);
+        let z = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
+        let _ = agent.handle_question_key(&z);
+        agent.prompt.set_text("first\nsecond");
+        agent.prompt.set_cursor(agent.prompt.text().len());
+        draw_frame(&mut agent);
+        assert!(
+            !agent.prompt.caret_on_top_visual_row(),
+            "the caret starts on the second line"
+        );
+
+        let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        let _ = agent.handle_question_key(&up);
+        assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
+        assert_eq!(
+            qv(&agent).cursor(),
+            2,
+            "the highlight stays on the text row"
+        );
+        assert!(
+            agent.prompt.cursor() <= "first".len(),
+            "Up moves onto the first line, cursor {}",
+            agent.prompt.cursor()
+        );
+        assert!(
+            agent.prompt.caret_on_top_visual_row(),
+            "the caret is now on the top line"
+        );
+
+        let _ = agent.handle_question_key(&up);
+        assert_eq!(qv(&agent).focus, QuestionFocus::Navigation);
+        assert_eq!(qv(&agent).cursor(), 1);
+        assert_eq!(
+            qv(&agent)
+                .per_question_freeform
+                .first()
+                .map(String::as_str)
+                .unwrap_or_else(|| panic!("missing freeform slot")),
+            "first\nsecond"
+        );
     }
 
     #[test]
