@@ -597,6 +597,10 @@ pub struct FeedbackContext {
 pub struct StartupHints {
     #[serde(default)]
     pub non_interactive: bool,
+    /// One-shot `grok -p` session (`session_kind` headless). Not a wire field.
+    /// Spawn sets it from the persisted kind. The turn-summary model call is skipped.
+    #[serde(skip)]
+    pub headless_session: bool,
     /// Leading conversation items to preserve verbatim across compaction (the immutable head).
     /// A fresh subagent's head is its spawn-injected items; a `resume_from` subagent's is just the System head so the resumed body stays compactable.
     #[serde(default)]

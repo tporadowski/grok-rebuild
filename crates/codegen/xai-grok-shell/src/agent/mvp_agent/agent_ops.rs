@@ -4294,7 +4294,9 @@ impl MvpAgent {
             );
             std::sync::Arc::new(TerminalRunner::new(notifier, session_info.id.clone()))
         };
-        let startup_hints = startup_hints_from_meta(session_meta, init.meta.as_ref());
+        let mut startup_hints = startup_hints_from_meta(session_meta, init.meta.as_ref());
+        // Roster hides this kind, so the dashboard turn-summary model call is unnecessary.
+        startup_hints.headless_session = is_headless;
         let hunk_plan = plan_hunk_tracking(
             init
                 .client_capabilities

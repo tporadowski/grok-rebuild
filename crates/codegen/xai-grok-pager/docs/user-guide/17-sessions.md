@@ -399,7 +399,7 @@ The smaller state files -- `summary.json`, `plan.json`, and `signals.json` -- ar
 - `current_model_id` -- the model in use
 - `parent_session_id` -- the source session for a fork or restore
 - `agent_name` -- named agents persist this only; an inline `--agent-profile` session also persists `agent_profile` JSON
-- `last_turn_summary` -- an ultra-short summary of the most recent turn
+- `last_turn_summary` -- an ultra-short summary of the most recent turn. A headless session does not call the model for this line.
 - `last_recap` -- a bounded preview of the latest session recap
 
 ### Disk Usage

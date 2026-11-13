@@ -927,6 +927,51 @@ async fn turn_summary_bails_when_newer_turn_already_running() {
         .await;
 }
 
+/// A headless session never starts the turn-summary model call.
+/// An interactive session still registers the task.
+#[tokio::test(flavor = "current_thread")]
+async fn headless_session_does_not_spawn_a_turn_summary() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (gateway_tx, _grx) =
+                tokio::sync::mpsc::unbounded_channel::<xai_acp_lib::AcpClientMessage>();
+            let (persistence_tx, mut prx) =
+                tokio::sync::mpsc::unbounded_channel::<PersistenceMsg>();
+            let mut actor = create_test_actor(0, 256_000, 85, gateway_tx, persistence_tx).await;
+            actor.turn_summary_enabled = true;
+            actor.startup_hints.headless_session = true;
+            let actor = std::sync::Arc::new(actor);
+            actor.restart_turn_summary("pid-headless".into());
+            assert!(
+                actor.turn_summary_task.borrow().is_none(),
+                "headless session must not start a turn-summary model call"
+            );
+            assert!(
+                prx.try_recv().is_err(),
+                "a skipped summary does not persist"
+            );
+
+            let (gateway_tx, _grx) =
+                tokio::sync::mpsc::unbounded_channel::<xai_acp_lib::AcpClientMessage>();
+            let (persistence_tx, _prx) = tokio::sync::mpsc::unbounded_channel::<PersistenceMsg>();
+            let mut actor = create_test_actor(0, 256_000, 85, gateway_tx, persistence_tx).await;
+            actor.turn_summary_enabled = true;
+            assert!(
+                !actor.startup_hints.headless_session,
+                "a normal test session is interactive"
+            );
+            let actor = std::sync::Arc::new(actor);
+            actor.restart_turn_summary("pid-live".into());
+            assert!(
+                actor.turn_summary_task.borrow().is_some(),
+                "an interactive session still starts the call"
+            );
+            actor.abort_turn_summary();
+        })
+        .await;
+}
+
 /// A real user prompt aborts an in-flight summary generation: its result would describe a conversation the prompt is about to extend.
 /// (A newer completion aborts via `restart_turn_summary` the same way.)
 #[tokio::test(flavor = "current_thread")]

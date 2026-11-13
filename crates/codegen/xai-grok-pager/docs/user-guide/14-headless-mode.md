@@ -12,7 +12,7 @@ Passing a prompt non-interactively triggers headless mode. The most common way i
 grok -p "Your prompt here"
 ```
 
-Grok processes the prompt, runs any necessary tools, and prints the result to stdout. The process exits when the response is complete.
+Grok processes the prompt, runs any necessary tools, and prints the result to stdout. The process exits when the response is complete. A headless session does not make an extra model call to write the dashboard's one-line turn summary. Interactive sessions still do.
 
 ---
 
