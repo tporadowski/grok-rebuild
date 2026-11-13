@@ -3,6 +3,7 @@ use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Span;
 
+use crate::render::SafeBuf;
 use crate::theme::Theme;
 
 use super::logo::logo_visual_width;
@@ -57,17 +58,37 @@ pub fn render_menu(
     let mut rects = Vec::with_capacity(items.len());
     let mut y = menu_centered.y;
     for (i, (key, label)) in items.iter().enumerate() {
-        if y >= menu_centered.y + menu_centered.height {
+        if y >= menu_centered.y.saturating_add(menu_centered.height) {
             break;
         }
 
         let is_selected = selected == Some(i);
+        let row_width = menu_centered.width;
+        // A zero-width row cannot hold a shortcut. Keep the index, skip the paint.
+        if row_width == 0 {
+            rects.push(Rect {
+                x: menu_centered.x,
+                y,
+                width: 0,
+                height: 0,
+            });
+            y = y.saturating_add(1);
+            continue;
+        }
         let key_width = cols(key);
-        // The key sits at the right edge, so the label is cut to leave room for it.
-        let label = crate::render::line_utils::truncate_str(
-            label,
-            menu_centered.width.saturating_sub(key_width + 1) as usize,
-        );
+        // A shortcut wider than the row used to underflow. Clip it onto the row.
+        let key_room = key_width.min(row_width);
+        let key_drawn = if key_width == 0 || key_room == key_width {
+            (*key).to_string()
+        } else {
+            crate::render::line_utils::truncate_str(key, key_room as usize)
+        };
+        let key_drawn_width = cols(&key_drawn);
+        let key_x = menu_centered
+            .x
+            .saturating_add(row_width.saturating_sub(key_drawn_width));
+        let label_budget = key_x.saturating_sub(menu_centered.x).saturating_sub(1);
+        let label = crate::render::line_utils::truncate_str(label, label_budget as usize);
         let label_len = cols(&label);
 
         let row_rect = Rect {
@@ -81,7 +102,8 @@ pub fn render_menu(
         // Fill row background when selected/hovered
         if is_selected {
             let hover_bg = Style::default().bg(theme.bg_highlight);
-            for x in menu_centered.x..menu_centered.x + menu_centered.width {
+            let row_right = menu_centered.x.saturating_add(menu_centered.width);
+            for x in menu_centered.x..row_right {
                 if let Some(cell) = buf.cell_mut((x, y)) {
                     cell.set_style(hover_bg);
                 }
@@ -94,12 +116,14 @@ pub fn render_menu(
         } else {
             label_style
         };
-        buf.set_span(
-            menu_centered.x,
-            y,
-            &Span::styled(&*label, lstyle),
-            label_len,
-        );
+        if label_len > 0 {
+            buf.set_span_safe(
+                menu_centered.x,
+                y,
+                &Span::styled(&*label, lstyle),
+                label_len,
+            );
+        }
 
         // Key shortcut flush with the right edge of the menu column.
         let kstyle = if is_selected {
@@ -107,17 +131,21 @@ pub fn render_menu(
         } else {
             key_style
         };
-        buf.set_span(
-            menu_centered.x + menu_centered.width - key_width,
-            y,
-            &Span::styled(*key, kstyle),
-            key_width,
-        );
+        if key_drawn_width > 0 {
+            buf.set_span_safe(
+                key_x,
+                y,
+                &Span::styled(key_drawn.as_str(), kstyle),
+                key_drawn_width,
+            );
+        }
 
-        // Restyle the [x] dismiss control (for the import row)
-        if let Some(x_offset) = key.rfind("[x]") {
-            let key_x_start = menu_centered.x + menu_centered.width - key_width;
-            let dismiss_start = key_x_start + x_offset as u16;
+        // Restyle the [x] dismiss control (for the import row). A clipped key no longer holds it.
+        if key_room == key_width
+            && let Some(x_offset) = key.rfind("[x]")
+        {
+            let key_x_start = key_x;
+            let dismiss_start = key_x_start.saturating_add(x_offset as u16);
             let dismiss_end = dismiss_start + 3;
             let mouse_on_dismiss = mouse_pos
                 .is_some_and(|(mx, my)| my == y && mx >= dismiss_start && mx < dismiss_end);
@@ -152,7 +180,7 @@ pub fn render_menu(
             buf.set_style(row_rect, Style::default().add_modifier(Modifier::REVERSED));
         }
 
-        y += 1;
+        y = y.saturating_add(1);
     }
 
     rects

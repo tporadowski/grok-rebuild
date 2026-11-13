@@ -27,6 +27,7 @@ mod hero_box;
 pub(crate) mod logo;
 mod menu;
 mod prompt;
+mod short;
 mod toast;
 mod top_bar;
 #[cfg(feature = "local-workspace")]
@@ -764,8 +765,16 @@ pub fn render_welcome(
     prompt: &mut PromptWidget,
     session_picker_state: &mut crate::views::picker::PickerState,
 ) -> WelcomeRenderResult {
+    // One and two rows cannot pay for a top bar and a logo. Paint the action
+    // into the rows that exist.
+    if area.height <= 2 {
+        return short::render_welcome_short(area, buf, params, prompt, session_picker_state);
+    }
     let theme = Theme::current();
-    let h_margin = if params.compact {
+    // Below eight columns a margin of two consumes the row, so the body has nothing left to paint.
+    let h_margin = if area.width < 8 {
+        0
+    } else if params.compact {
         H_MARGIN_COMPACT
     } else {
         H_MARGIN
@@ -783,13 +792,16 @@ pub fn render_welcome(
     ])
     .areas(area);
 
-    let top_bar_inner = Rect {
-        x: top_bar_area.x + h_margin,
-        y: top_bar_area.y,
-        width: top_bar_area.width.saturating_sub(h_margin * 2),
-        height: 1,
-    };
-    render_top_bar(top_bar_inner, buf, &theme, None);
+    // A collapsed split can report the top bar at the buffer's bottom edge. Skip that row.
+    if top_bar_area.height > 0 && top_bar_area.y < buf.area().bottom() {
+        let top_bar_inner = Rect {
+            x: top_bar_area.x.saturating_add(h_margin),
+            y: top_bar_area.y,
+            width: top_bar_area.width.saturating_sub(h_margin.saturating_mul(2)),
+            height: top_bar_area.height,
+        };
+        render_top_bar(top_bar_inner, buf, &theme, None);
+    }
 
     let mut result = match params.auth_state {
         AuthState::Pending { error } => {
@@ -1600,12 +1612,30 @@ fn render_welcome_authenticating(
 }
 
 /// Shrink a rect by `inset` columns on the left and right (clamped at 0).
+///
+/// Below eight columns the inset is the whole row, so the menu and the prompt would paint nothing.
 fn inset_horizontal(rect: Rect, inset: u16) -> Rect {
+    let inset = if rect.width < 8 {
+        0
+    } else {
+        inset.min(rect.width / 2)
+    };
     Rect {
-        x: rect.x + inset,
-        width: rect.width.saturating_sub(inset * 2),
+        x: rect.x.saturating_add(inset),
+        width: rect.width.saturating_sub(inset.saturating_mul(2)),
         ..rect
     }
+}
+
+/// True when `row` is one real line inside both `parent` and the buffer.
+fn welcome_row_fits(row: Rect, parent: Rect, buf: &Buffer) -> bool {
+    let area = buf.area();
+    !row.is_empty()
+        && row.y >= parent.y
+        && row.bottom() <= parent.bottom()
+        && row.y >= area.y
+        && row.bottom() <= area.bottom()
+        && row.x < area.right()
 }
 
 /// Render the changelog section (header and bullets), centered to the menu width.
@@ -1923,7 +1953,11 @@ fn render_welcome_done(
 
     #[cfg(feature = "local-workspace")]
     let mut workspace_mode_rects = WorkspaceModeHitRects::default();
-    let (menu_rects, picker_close_button) = if show_picker {
+    let (menu_rects, picker_close_button) = if show_picker && content_area.width < 8 {
+        // The bordered resume frame needs ten columns. Below eight, paint a plain column.
+        short::paint_narrow_session_list(content_area, buf, theme, p, session_picker_state);
+        (vec![], None)
+    } else if show_picker {
         // Use the full area since logo/menu are hidden and shortcuts are now rendered inside the picker content area
         let picker_area = Rect {
             x: content_area.x,
@@ -2102,16 +2136,20 @@ fn render_welcome_done(
             height: 1,
             ..centered
         };
-        Paragraph::new(tier_line).render(tier_area, buf);
+        // Forcing height 1 onto a row past the buffer is the one-row gate panic.
+        if welcome_row_fits(tier_area, centered, buf) {
+            Paragraph::new(tier_line).render(tier_area, buf);
 
-        // Compute the click rect for "[Refresh]" within the centered line.
-        let line_start_x = tier_area.x + tier_area.width.saturating_sub(total_width as u16) / 2;
-        refresh_hit_rect = Some(Rect {
-            x: line_start_x + tier_prefix.len() as u16,
-            y: tier_area.y,
-            width: refresh_text.len() as u16,
-            height: 1,
-        });
+            // Compute the click rect for "[Refresh]" within the centered line.
+            let line_start_x =
+                tier_area.x + tier_area.width.saturating_sub(total_width as u16) / 2;
+            refresh_hit_rect = Some(Rect {
+                x: line_start_x + tier_prefix.len() as u16,
+                y: tier_area.y,
+                width: refresh_text.len() as u16,
+                height: 1,
+            });
+        }
 
         let gate_text = p
             .gate
@@ -2122,43 +2160,45 @@ fn render_welcome_done(
             Style::default().fg(theme.gray_bright),
         ))
         .alignment(Alignment::Center);
-        Paragraph::new(msg).render(
-            Rect {
-                y: centered.y + 1,
-                height: 1,
-                ..centered
-            },
-            buf,
-        );
+        let msg_area = Rect {
+            y: centered.y.saturating_add(1),
+            height: 1,
+            ..centered
+        };
+        if welcome_row_fits(msg_area, centered, buf) {
+            Paragraph::new(msg).render(msg_area, buf);
+        }
 
         if centered.height > 2 {
             let url_area = Rect {
-                y: centered.y + 2,
+                y: centered.y.saturating_add(2),
                 height: 1,
                 ..centered
             };
-            let gate_link = p
-                .gate
-                .and_then(|g| g.url.as_deref())
-                .unwrap_or("https://grok.com/supergrok?referrer=grok-build");
-            let url = Line::from(Span::styled(
-                gate_link,
-                Style::default()
-                    .fg(theme.accent_user)
-                    .add_modifier(Modifier::UNDERLINED),
-            ))
-            .alignment(Alignment::Center);
-            Paragraph::new(url).render(url_area, buf);
+            if welcome_row_fits(url_area, centered, buf) {
+                let gate_link = p
+                    .gate
+                    .and_then(|g| g.url.as_deref())
+                    .unwrap_or("https://grok.com/supergrok?referrer=grok-build");
+                let url = Line::from(Span::styled(
+                    gate_link,
+                    Style::default()
+                        .fg(theme.accent_user)
+                        .add_modifier(Modifier::UNDERLINED),
+                ))
+                .alignment(Alignment::Center);
+                Paragraph::new(url).render(url_area, buf);
 
-            // Compute click rect for the gate URL text (centered within url_area).
-            let link_width = gate_link.len() as u16;
-            let link_x = url_area.x + url_area.width.saturating_sub(link_width) / 2;
-            gate_url_hit_rect = Some(Rect {
-                x: link_x,
-                y: url_area.y,
-                width: link_width.min(url_area.width),
-                height: 1,
-            });
+                // Compute click rect for the gate URL text (centered within url_area).
+                let link_width = gate_link.len() as u16;
+                let link_x = url_area.x + url_area.width.saturating_sub(link_width) / 2;
+                gate_url_hit_rect = Some(Rect {
+                    x: link_x,
+                    y: url_area.y,
+                    width: link_width.min(url_area.width),
+                    height: 1,
+                });
+            }
         }
 
         render_version_badge(
@@ -3017,6 +3057,316 @@ mod tests {
         let mut picker = PickerState::default();
         render_welcome(area, &mut buf, params, &mut prompt, &mut picker);
         buffer_text(&buf)
+    }
+
+    fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+        payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+            .unwrap_or_else(|| "non-string panic".to_string())
+    }
+
+    struct TinyPaint {
+        name: String,
+        text: String,
+        menu_len: usize,
+        illegible: bool,
+    }
+
+    fn tiny_welcome_text(width: u16, height: u16, arm: u8) -> Result<TinyPaint, String> {
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let pending = AuthState::Pending {
+                error: Some("sign-in failed".into()),
+            };
+            let command = AuthState::Authenticating {
+                request_seq: 1,
+                handle: None,
+                auth_url: Some("https://example.com/auth".into()),
+                mode: AuthMode::Command,
+            };
+            let loopback = AuthState::Authenticating {
+                request_seq: 1,
+                handle: None,
+                auth_url: Some("https://example.com/auth".into()),
+                mode: AuthMode::Loopback,
+            };
+            let device = AuthState::Authenticating {
+                request_seq: 1,
+                handle: None,
+                auth_url: Some("https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH".into()),
+                mode: AuthMode::Device,
+            };
+            let done = AuthState::Done;
+            let trust_done = TrustState::Done;
+            let trust_pending = TrustState::Pending {
+                workspace: std::path::PathBuf::from("/repo/app"),
+            };
+            let notice = crate::app::consent::ConsentNotice {
+                id: "n".into(),
+                version: 1,
+                title: "Privacy notice".into(),
+                segments: vec![crate::app::consent::ConsentSegment::Text(
+                    "Please accept to continue.".into(),
+                )],
+                links: Vec::new(),
+                accept_label: "Accept".into(),
+            };
+            let consent_pending = ConsentState::Pending {
+                notice,
+                legibility: Default::default(),
+                painted_at: None,
+            };
+            let consent_done = ConsentState::Done;
+            let (name, auth, trust, consent, access, zdr): (
+                &str,
+                &AuthState,
+                &TrustState,
+                &ConsentState,
+                bool,
+                bool,
+            ) = match arm {
+                0 => ("login", &pending, &trust_done, &consent_done, true, false),
+                1 => (
+                    "command",
+                    &command,
+                    &trust_done,
+                    &consent_done,
+                    true,
+                    false,
+                ),
+                2 => (
+                    "loopback",
+                    &loopback,
+                    &trust_done,
+                    &consent_done,
+                    true,
+                    false,
+                ),
+                3 => ("device", &device, &trust_done, &consent_done, true, false),
+                4 => ("zdr", &done, &trust_done, &consent_done, true, true),
+                5 => (
+                    "consent",
+                    &done,
+                    &trust_done,
+                    &consent_pending,
+                    true,
+                    false,
+                ),
+                6 => (
+                    "trust",
+                    &done,
+                    &trust_pending,
+                    &consent_done,
+                    true,
+                    false,
+                ),
+                7 => ("home", &done, &trust_done, &consent_done, true, false),
+                _ => ("gate", &done, &trust_done, &consent_done, false, false),
+            };
+            let mut params = render_params(auth, trust, None);
+            params.consent_state = consent;
+            params.has_access = access;
+            params.is_zdr_blocked = zdr;
+            params.selected = Some(0);
+            let area = Rect::new(0, 0, width, height);
+            let mut buf = Buffer::empty(area);
+            let mut prompt = PromptWidget::new();
+            let mut picker = PickerState::default();
+            let rendered = render_welcome(area, &mut buf, &params, &mut prompt, &mut picker);
+            TinyPaint {
+                name: name.to_string(),
+                text: buffer_text(&buf),
+                menu_len: rendered.menu_rects.len(),
+                illegible: matches!(
+                    rendered.consent_legibility,
+                    Some(crate::app::consent::ConsentLegibility::Illegible)
+                ),
+            }
+        }));
+        match caught {
+            Ok(paint) => Ok(paint),
+            Err(payload) => Err(panic_message(payload)),
+        }
+    }
+
+    fn flat_welcome(text: &str) -> String {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn welcome_action_visible(name: &str, flat: &str) -> bool {
+        let lower = flat.to_ascii_lowercase();
+        match name {
+            "login" => flat.contains("Login") || flat.contains("Quit"),
+            "zdr" => flat.contains("Switch") || flat.contains("Quit"),
+            "trust" => flat.contains("Yes") || flat.contains("No"),
+            "home" => {
+                flat.contains("Resume")
+                    || flat.contains('\u{276F}')
+                    || flat.contains('>')
+            }
+            "consent" => flat.contains("Window") || flat.contains("Quit"),
+            "gate" => {
+                flat.contains("Super")
+                    || flat.contains("Quit")
+                    || flat.contains("Upgrade")
+                    || flat.contains("Tier")
+                    || flat.contains("Logout")
+            }
+            "command" | "loopback" | "device" => {
+                lower.contains("ctrl")
+                    || lower.contains("quit")
+                    || lower.contains("waiting")
+                    || lower.contains("connecting")
+                    || lower.contains("abcd")
+            }
+            _ => !flat.is_empty(),
+        }
+    }
+
+    fn paint_resume_list(width: u16, height: u16, loading: bool) -> Result<String, String> {
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let done = AuthState::Done;
+            let trust = TrustState::Done;
+            let entry = make_entry("s1", "Port notes", "repo");
+            let sessions = [entry];
+            let mut params = render_params(
+                &done,
+                &trust,
+                if loading { None } else { Some(&sessions) },
+            );
+            params.session_picker_loading = loading;
+            params.selected = Some(0);
+            let area = Rect::new(0, 0, width, height);
+            let mut buf = Buffer::empty(area);
+            let mut prompt = PromptWidget::new();
+            let mut picker = PickerState::default();
+            render_welcome(area, &mut buf, &params, &mut prompt, &mut picker);
+            buffer_text(&buf)
+        }));
+        match caught {
+            Ok(text) => Ok(text),
+            Err(payload) => Err(panic_message(payload)),
+        }
+    }
+
+    /// One- and two-row welcomes, and welcomes narrower than eight columns, keep a visible action.
+    #[test]
+    fn tiny_welcome_screens_stay_visible() {
+        let sizes = [
+            (1u16, 1u16),
+            (1, 2),
+            (7, 1),
+            (7, 2),
+            (8, 2),
+            (80, 1),
+            (80, 2),
+            (1, 24),
+            (7, 24),
+            (80, 24),
+        ];
+        let mut report = String::new();
+        for (width, height) in sizes {
+            for arm in 0u8..9 {
+                let handle = std::thread::spawn(move || tiny_welcome_text(width, height, arm));
+                match handle.join() {
+                    Ok(Ok(paint)) => {
+                        let flat = flat_welcome(&paint.text);
+                        if flat.is_empty() {
+                            report.push_str(&format!(
+                                "BLANK {width}x{height} {}\n",
+                                paint.name
+                            ));
+                            continue;
+                        }
+                        if height == 2
+                            && width >= 8
+                            && !welcome_action_visible(paint.name.as_str(), &flat)
+                        {
+                            report.push_str(&format!(
+                                "ACTION {width}x{height} {}: {flat}\n",
+                                paint.name
+                            ));
+                        }
+                        if paint.name == "home"
+                            && height <= 2
+                            && width >= 2
+                            && !paint.text.contains('\u{276F}')
+                            && !paint.text.contains('>')
+                        {
+                            report.push_str(&format!(
+                                "ARROW {width}x{height} home: {flat}\n"
+                            ));
+                        }
+                        if paint.name == "home"
+                            && width == 80
+                            && height == 24
+                            && !flat.contains("Resume session")
+                        {
+                            report.push_str(&format!("HOME {flat}\n"));
+                        }
+                        if height <= 2 {
+                            let expected = match paint.name.as_str() {
+                                "login" | "trust" | "zdr" => Some(2),
+                                "consent" => Some(1),
+                                "gate" => Some(3),
+                                "command" | "loopback" | "device" => Some(0),
+                                _ => None,
+                            };
+                            if expected.is_some_and(|len| paint.menu_len != len) {
+                                report.push_str(&format!(
+                                    "MENU {width}x{height} {} len {}\n",
+                                    paint.name, paint.menu_len
+                                ));
+                            }
+                            if paint.name == "consent" && !paint.illegible {
+                                report.push_str(&format!(
+                                    "LEGIBLE {width}x{height} consent: {flat}\n"
+                                ));
+                            }
+                            if paint.name == "consent" && flat.contains("Accept") {
+                                report.push_str(&format!(
+                                    "ACCEPT {width}x{height} consent: {flat}\n"
+                                ));
+                            }
+                        }
+                    }
+                    Ok(Err(message)) => {
+                        report.push_str(&format!("PANIC {width}x{height} arm{arm}: {message}\n"));
+                    }
+                    Err(_) => {
+                        report.push_str(&format!("PANIC {width}x{height} arm{arm}: thread\n"));
+                    }
+                }
+            }
+        }
+        for (width, height, loading) in [(80u16, 2u16, false), (7, 24, false), (80, 2, true)] {
+            let handle = std::thread::spawn(move || paint_resume_list(width, height, loading));
+            match handle.join() {
+                Ok(Ok(text)) => {
+                    let flat = flat_welcome(&text);
+                    let ok = if loading {
+                        flat.contains("Loading")
+                    } else {
+                        flat.contains("Resume") || flat.contains("Port")
+                    };
+                    if !ok {
+                        report.push_str(&format!(
+                            "PICKER {width}x{height} loading={loading}: {flat}\n"
+                        ));
+                    }
+                }
+                Ok(Err(message)) => {
+                    report.push_str(&format!(
+                        "PANIC picker {width}x{height}: {message}\n"
+                    ));
+                }
+                Err(_) => {
+                    report.push_str(&format!("PANIC picker {width}x{height}: thread\n"));
+                }
+            }
+        }
+        assert!(report.is_empty(), "{report}");
     }
 
     #[test]

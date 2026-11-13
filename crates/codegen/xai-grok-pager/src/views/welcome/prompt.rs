@@ -1,6 +1,10 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
+use ratatui::text::Span;
 
+use crate::render::SafeBuf;
+use crate::theme::Theme;
 use crate::views::prompt_widget::{PromptInfo, PromptStyle, PromptWidget};
 
 use super::WelcomePromptFocus;
@@ -65,17 +69,63 @@ pub fn render_prompt(
 ) {
     let style = prompt_style(focus, compact);
 
-    let inset = prompt_area_inset(compact);
+    // A two-column inset on a row narrower than eight leaves the composer below its draw floor.
+    let mut inset = prompt_area_inset(compact);
+    if area.height > 0 && area.width.saturating_sub(inset.saturating_mul(2)) < 4 {
+        inset = 0;
+    }
     let inset_area = Rect {
-        x: area.x + inset,
+        x: area.x.saturating_add(inset),
         y: area.y,
-        width: area.width.saturating_sub(inset * 2),
+        width: area.width.saturating_sub(inset.saturating_mul(2)),
         height: area.height,
     };
+
+    // The shared composer draws nothing below four columns. Welcome still paints a sliver.
+    if inset_area.height > 0 && inset_area.width < 4 {
+        paint_prompt_sliver(inset_area, buf, prompt);
+        return (None, None);
+    }
 
     let result = prompt.draw(buf, inset_area, None, &style, Some(info), None);
 
     (result.cursor_pos, result.post_flush_escapes.map(Into::into))
+}
+
+/// One row of the welcome prompt when the composer would refuse the area.
+/// The arrow fits in two columns; a one-column row keeps its first character.
+pub(super) fn paint_prompt_sliver(area: Rect, buf: &mut Buffer, prompt: &PromptWidget) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let theme = Theme::current();
+    let style = Style::default().fg(theme.text_primary);
+    let arrow = crate::glyphs::prompt_arrow();
+    let arrow_w = crate::glyphs::PROMPT_ARROW_WIDTH;
+    if area.width >= arrow_w {
+        buf.set_span_safe(area.x, area.y, &Span::styled(arrow, style), arrow_w);
+        let room = area.width.saturating_sub(arrow_w);
+        if room == 0 {
+            return;
+        }
+        let x = area.x.saturating_add(arrow_w);
+        let draft = prompt.text();
+        let body = if draft.trim().is_empty() {
+            "Type a message..."
+        } else {
+            draft
+        };
+        let body = body.lines().next().unwrap_or("");
+        let clipped = crate::render::line_utils::truncate_str(body, room as usize);
+        if clipped.is_empty() {
+            return;
+        }
+        let drawn = unicode_width::UnicodeWidthStr::width(clipped.as_str()) as u16;
+        buf.set_span_safe(x, area.y, &Span::styled(clipped, style), drawn.min(room));
+    } else {
+        let first = arrow.chars().next().unwrap_or('>');
+        buf.set_span_safe(area.x, area.y, &Span::styled(first.to_string(), style), 1);
+    }
 }
 
 #[cfg(test)]
