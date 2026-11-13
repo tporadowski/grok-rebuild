@@ -58,17 +58,43 @@ fn draft_row_preview<'a>(title: &'a str, details: &'a str) -> &'a str {
         .unwrap_or("")
 }
 
-/// One drafts-list row. The title is last, so a narrow dialog used to clip it.
-fn draft_row_text(draft: &super::FeedbackDraft, selected: bool) -> String {
-    let marker = if selected { "❯" } else { " " };
-    let preview = draft_row_preview(&draft.title, &draft.details);
+/// Classification, then the title. The title is last, so a narrow dialog used to clip it.
+fn draft_row_parts(draft: &super::FeedbackDraft) -> (String, String) {
+    let preview = draft_row_preview(&draft.title, &draft.details).to_string();
     let failure = draft
         .failure_mode
         .map(|value| format!(" · {}", value.label()))
         .unwrap_or_default();
     let r#type = draft.r#type.map_or("Unclassified", |value| value.label());
     let task = draft.task_category.map_or("Other", |value| value.label());
-    format!("{marker} {type} · {task}{failure} · {preview}")
+    (format!("{type} · {task}{failure}"), preview)
+}
+
+/// One drafts-list row, same characters `draft_row_line` paints.
+fn draft_row_text(draft: &super::FeedbackDraft, selected: bool) -> String {
+    let marker = if selected { "❯" } else { " " };
+    let (meta, preview) = draft_row_parts(draft);
+    format!("{marker} {meta} · {preview}")
+}
+
+/// Metadata stays secondary. The title stays primary and bold. The band, not a recolor, is the selection.
+fn draft_row_line(
+    draft: &super::FeedbackDraft,
+    selected: bool,
+    theme: &Theme,
+) -> ratatui::text::Line<'static> {
+    let marker = if selected { "❯ " } else { "  " };
+    let (meta, preview) = draft_row_parts(draft);
+    let secondary = ratatui::style::Style::default().fg(theme.text_secondary);
+    let title = ratatui::style::Style::default()
+        .fg(theme.text_primary)
+        .add_modifier(ratatui::style::Modifier::BOLD);
+    ratatui::text::Line::from(vec![
+        ratatui::text::Span::styled(marker.to_string(), secondary),
+        ratatui::text::Span::styled(meta, secondary),
+        ratatui::text::Span::styled(" · ".to_string(), secondary),
+        ratatui::text::Span::styled(preview, title),
+    ])
 }
 
 fn draft_row_height(draft: &super::FeedbackDraft, width: u16) -> usize {
@@ -443,24 +469,25 @@ impl FeedbackModalState {
                     // A model draft stores its title separately from the
                     // structured details, which start at "What happened:".
                     // The title is last on the row, so wrap instead of clipping it.
-                    let style = if is_selected {
-                        ratatui::style::Style::default()
-                            .fg(theme.text_primary)
-                            .add_modifier(ratatui::style::Modifier::BOLD)
-                    } else {
-                        normal
-                    };
-                    let text = draft_row_text(&draft, is_selected);
-                    let styled = ratatui::text::Line::styled(text, style);
+                    let line = draft_row_line(&draft, is_selected, theme);
                     let row_top = y;
                     let mut painted = 0u16;
                     for wrapped_line in
-                        crate::render::wrapping::word_wrap_line(&styled, usize::from(content.width))
+                        crate::render::wrapping::word_wrap_line(&line, usize::from(content.width))
                     {
                         if y >= content.bottom() {
                             break;
                         }
                         buf.set_line(content.x, y, &wrapped_line, content.width);
+                        if is_selected {
+                            // Modal-list band (`bg_highlight`, reverse when bandless) after the
+                            // text, so padding cells get it. Spans omit a background, so the
+                            // title stays bold primary and the classification stays secondary.
+                            buf.set_style(
+                                Rect::new(content.x, y, content.width, 1),
+                                crate::views::modal_list::highlight(theme),
+                            );
+                        }
                         y += 1;
                         painted += 1;
                     }

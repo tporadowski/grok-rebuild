@@ -2046,3 +2046,159 @@ fn cancel_deletes_staged_temp_files_of_owned_images() {
     assert!(agent.feedback_modal.is_none());
     assert!(!staged.exists(), "cancel must delete the staged temp file");
 }
+
+fn drafts_highlight_modal() -> FeedbackModalState {
+    let mut modal = FeedbackModalState::new(OpenFeedbackModal::default());
+    modal.window.active_tab = FeedbackTab::Drafts.index();
+    let mut selected = draft("zebra", "ignored", FeedbackTaxonomy::default());
+    selected.title =
+        "Zebra title wraps past the drafts row width onto the next line for the highlight band"
+            .to_owned();
+    let mut other = draft("plain", "ignored", FeedbackTaxonomy::default());
+    other.title = "Plain title".to_owned();
+    modal.drafts = DraftsState::Browse {
+        rows: vec![selected, other],
+        selected_id: Some("zebra".to_owned().into()),
+        query: LineEditor::default(),
+        search_focused: false,
+        error: None,
+    };
+    modal
+}
+
+fn render_drafts_theme(modal: &mut FeedbackModalState, theme: &Theme) -> Buffer {
+    let area = Rect::new(0, 0, 64, 36);
+    let mut buf = Buffer::empty(area);
+    modal
+        .render(&mut buf, area, theme, false)
+        .expect("drafts dialog renders");
+    buf
+}
+
+fn draft_row_rect(modal: &FeedbackModalState, id: &str) -> Rect {
+    modal
+        .draft_row_areas
+        .iter()
+        .find(|(row_id, _)| row_id.as_str() == id)
+        .map(|(_, row)| *row)
+        .unwrap_or_else(|| panic!("{id} draft row"))
+}
+
+fn cell_in_row<'a>(buf: &'a Buffer, row: Rect, symbol: &str) -> &'a ratatui::buffer::Cell {
+    for y in row.y..row.bottom() {
+        for x in row.x..row.right() {
+            if let Some(cell) = buf.cell((x, y))
+                && cell.symbol() == symbol
+            {
+                return cell;
+            }
+        }
+    }
+    panic!("{symbol:?} missing in {row:?}\n{}", buffer_text(buf));
+}
+
+fn first_glyph_on<'a>(buf: &'a Buffer, row: Rect, y: u16) -> &'a ratatui::buffer::Cell {
+    for x in row.x..row.right() {
+        if let Some(cell) = buf.cell((x, y))
+            && cell.symbol() != " "
+        {
+            return cell;
+        }
+    }
+    panic!("row {y} in {row:?} is blank\n{}", buffer_text(buf));
+}
+
+#[test]
+fn selected_draft_row_uses_the_list_highlight_band() {
+    let _pinned = crate::theme::cache::pin_theme();
+    let theme = Theme::groknight();
+    let mut modal = drafts_highlight_modal();
+    let buf = render_drafts_theme(&mut modal, &theme);
+    let selected = draft_row_rect(&modal, "zebra");
+    let other = draft_row_rect(&modal, "plain");
+    assert!(
+        selected.height > 1,
+        "the title has to wrap so the band covers a second line: {selected:?}"
+    );
+
+    for y in selected.y..selected.bottom() {
+        for x in selected.x..selected.right() {
+            let cell = buf.cell((x, y)).expect("selected cell");
+            assert_eq!(
+                cell.bg,
+                theme.bg_highlight,
+                "selected ({x},{y}) {:?} should use the list band",
+                cell.symbol()
+            );
+        }
+    }
+    let bug = cell_in_row(&buf, selected, "B");
+    assert_eq!(bug.fg, theme.text_secondary);
+    assert!(
+        !bug.modifier.contains(ratatui::style::Modifier::BOLD),
+        "classification stays secondary on the selected row"
+    );
+    let title = cell_in_row(&buf, selected, "Z");
+    assert_eq!(title.fg, theme.text_primary);
+    assert!(title.modifier.contains(ratatui::style::Modifier::BOLD));
+    let wrapped = first_glyph_on(&buf, selected, selected.bottom() - 1);
+    assert_eq!(wrapped.fg, theme.text_primary);
+    assert!(wrapped.modifier.contains(ratatui::style::Modifier::BOLD));
+    assert_eq!(wrapped.bg, theme.bg_highlight);
+
+    for y in other.y..other.bottom() {
+        for x in other.x..other.right() {
+            let cell = buf.cell((x, y)).expect("unselected cell");
+            assert_eq!(cell.bg, theme.bg_base, "unselected ({x},{y})");
+        }
+    }
+    let plain = cell_in_row(&buf, other, "P");
+    assert_eq!(plain.fg, theme.text_primary);
+    assert!(plain.modifier.contains(ratatui::style::Modifier::BOLD));
+    let other_bug = cell_in_row(&buf, other, "B");
+    assert_eq!(other_bug.fg, theme.text_secondary);
+    assert!(!other_bug.modifier.contains(ratatui::style::Modifier::BOLD));
+    let marker = cell_in_row(&buf, selected, "❯");
+    assert_eq!(marker.fg, theme.text_secondary);
+    assert!(!marker.modifier.contains(ratatui::style::Modifier::BOLD));
+}
+
+#[test]
+fn selected_draft_row_reverses_when_the_theme_has_no_band() {
+    let _pinned = crate::theme::cache::pin_theme();
+    let theme = Theme::terminal();
+    let mut modal = drafts_highlight_modal();
+    let buf = render_drafts_theme(&mut modal, &theme);
+    let selected = draft_row_rect(&modal, "zebra");
+    let other = draft_row_rect(&modal, "plain");
+
+    for y in selected.y..selected.bottom() {
+        for x in selected.x..selected.right() {
+            let cell = buf.cell((x, y)).expect("selected cell");
+            assert!(
+                cell.modifier.contains(ratatui::style::Modifier::REVERSED),
+                "selected ({x},{y}) {:?} should reverse",
+                cell.symbol()
+            );
+        }
+    }
+    let bug = cell_in_row(&buf, selected, "B");
+    assert!(!bug.modifier.contains(ratatui::style::Modifier::BOLD));
+    assert!(bug.modifier.contains(ratatui::style::Modifier::REVERSED));
+    let title = cell_in_row(&buf, selected, "Z");
+    assert!(title.modifier.contains(ratatui::style::Modifier::BOLD));
+    assert!(title.modifier.contains(ratatui::style::Modifier::REVERSED));
+
+    for y in other.y..other.bottom() {
+        for x in other.x..other.right() {
+            let cell = buf.cell((x, y)).expect("unselected cell");
+            assert!(
+                !cell.modifier.contains(ratatui::style::Modifier::REVERSED),
+                "unselected ({x},{y})"
+            );
+        }
+    }
+    let plain = cell_in_row(&buf, other, "P");
+    assert!(plain.modifier.contains(ratatui::style::Modifier::BOLD));
+    assert!(!plain.modifier.contains(ratatui::style::Modifier::REVERSED));
+}
