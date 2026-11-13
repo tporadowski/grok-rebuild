@@ -899,6 +899,16 @@ pub(crate) fn footer_lines_with_tip_gap(
         .max(2)
 }
 
+/// Glyph for a foldable modal row. Collapsed is the right chevron; open is the down chevron,
+/// so an expanded group is not the same diamond a leaf row uses.
+pub fn fold_indicator_glyph(collapsed: bool) -> &'static str {
+    if collapsed {
+        crate::glyphs::chevron()
+    } else {
+        crate::glyphs::chevron_down()
+    }
+}
+
 /// Render a fold indicator glyph at position `(x, y)`.
 pub fn fold_indicator_span(
     collapsed: bool,
@@ -906,11 +916,7 @@ pub fn fold_indicator_span(
     bg: Option<ratatui::style::Color>,
     theme: &Theme,
 ) -> Span<'static> {
-    let glyph = if collapsed {
-        format!("{} ", crate::glyphs::chevron())
-    } else {
-        format!("{} ", crate::glyphs::diamond_filled())
-    };
+    let glyph = format!("{} ", fold_indicator_glyph(collapsed));
     let fg = if hovered {
         theme.text_primary
     } else {

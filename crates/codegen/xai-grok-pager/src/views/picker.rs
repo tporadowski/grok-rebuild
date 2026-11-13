@@ -76,8 +76,8 @@ pub struct PickerRow<'a> {
     /// Color for the badge text. If `None`, uses `gray`.
     pub badge_color: Option<ratatui::style::Color>,
     /// Whether this row is a collapsible group header.
-    /// When true, the ›/◆ fold indicator is shown even if `fields` and `description_lines` are empty.
-    /// The `expanded` field controls which glyph is rendered.
+    /// When true, the fold indicator is shown even if `fields` and `description_lines` are empty.
+    /// Collapsed draws the right chevron; open draws the down chevron.
     pub collapsible: bool,
     /// Underline the final description line (when expanded) so it reads as a clickable link.
     /// Used for the Managed connectors URL.
@@ -925,11 +925,11 @@ pub fn render_picker_row(
     } else {
         String::new()
     };
-    // Show the ›/◆ fold indicator for expandable rows (those with fields or description lines); non-expandable rows show a ◆ diamond
+    // Expandable rows show › collapsed and the down chevron when open. A leaf row keeps the ◆ diamond.
     // Selection is indicated by the bg_hover/bg_visual row highlight (no ❯ cursor glyph), matching the import-claude modal's style
     let is_expandable =
         row.collapsible || !row.fields.is_empty() || !row.description_lines.is_empty();
-    let fold_width: u16 = 2; // "› " or "◆ "
+    let fold_width: u16 = 2; // glyph plus the following space
     let label_style = if row.selected {
         Style::default()
             .fg(embed.map_or(theme.text_primary, |e| e.fg(theme.text_primary)))
@@ -978,11 +978,10 @@ pub fn render_picker_row(
     }
     if is_expandable {
         if embed.is_some_and(|e| e.selected) {
-            let glyph = if row.expanded {
-                format!("{} ", crate::glyphs::diamond_filled())
-            } else {
-                format!("{} ", crate::glyphs::chevron())
-            };
+            let glyph = format!(
+                "{} ",
+                crate::views::modal_window::fold_indicator_glyph(!row.expanded)
+            );
             buf.set_span(
                 cur_x,
                 y,
@@ -991,11 +990,10 @@ pub fn render_picker_row(
             );
             cur_x += fold_width;
         } else if reversed_row {
-            let glyph = if row.expanded {
-                format!("{} ", crate::glyphs::diamond_filled())
-            } else {
-                format!("{} ", crate::glyphs::chevron())
-            };
+            let glyph = format!(
+                "{} ",
+                crate::views::modal_window::fold_indicator_glyph(!row.expanded)
+            );
             buf.set_span(
                 cur_x,
                 y,
@@ -3496,6 +3494,76 @@ mod tests {
                 .expect("just-fit counter preserves one caret cell");
             assert!(cursor_x < fit_layout.render_width);
         }
+    }
+
+    /// An open foldable row uses the down chevron. A leaf row keeps the diamond, including
+    /// the selected reverse-video path and the embedded selected path.
+    #[test]
+    #[serial_test::serial]
+    fn open_foldable_row_shows_a_down_chevron_and_a_leaf_keeps_the_diamond() {
+        struct ResetEmbedded;
+        impl Drop for ResetEmbedded {
+            fn drop(&mut self) {
+                crate::views::modal_window::set_embedded(false);
+            }
+        }
+        let _reset = ResetEmbedded;
+        crate::views::modal_window::set_embedded(false);
+        let _theme_pin = crate::theme::cache::pin_theme();
+
+        let row = |expanded: bool, collapsible: bool, selected: bool| PickerRow {
+            label: "Group",
+            right_label: "",
+            selected,
+            expanded,
+            fields: &[],
+            description_lines: &[],
+            summary_lines: &[],
+            dimmed: false,
+            indent: 0,
+            badge: "",
+            badge_color: None,
+            collapsible,
+            underline_last_desc: false,
+        };
+        let first_symbol = |theme: &Theme, row: &PickerRow| {
+            let area = Rect::new(0, 0, 24, 1);
+            let mut buf = Buffer::empty(area);
+            render_picker_row(&mut buf, 0, 0, area.width, theme, row, false, None, 1);
+            buf.cell((0, 0)).expect("glyph cell").symbol().to_string()
+        };
+
+        let theme = Theme::groknight();
+        assert_eq!(
+            first_symbol(&theme, &row(true, true, false)),
+            crate::glyphs::chevron_down()
+        );
+        assert_eq!(
+            first_symbol(&theme, &row(false, true, false)),
+            crate::glyphs::chevron()
+        );
+        assert_eq!(
+            first_symbol(&theme, &row(false, false, false)),
+            crate::glyphs::diamond_filled()
+        );
+        assert_ne!(
+            crate::glyphs::chevron_down(),
+            crate::glyphs::diamond_filled()
+        );
+
+        let terminal = Theme::terminal();
+        assert_eq!(
+            first_symbol(&terminal, &row(true, true, true)),
+            crate::glyphs::chevron_down(),
+            "selected bandless row"
+        );
+
+        crate::views::modal_window::set_embedded(true);
+        assert_eq!(
+            first_symbol(&theme, &row(true, true, true)),
+            crate::glyphs::chevron_down(),
+            "embedded selected row"
+        );
     }
 
     #[test]
