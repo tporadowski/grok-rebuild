@@ -479,6 +479,26 @@ fn edit_copy_hint_names_the_patch_that_copy_text_returns() {
     assert_eq!(meta, path);
 }
 
+/// The web-fetch hint names the abbreviation in the same uppercase the rest of the UI uses.
+#[test]
+fn web_fetch_copy_hint_says_copy_url() {
+    let fetch = crate::scrollback::blocks::tool::WebFetchToolCallBlock::new(
+        "https://example.com/docs",
+    );
+    let entry = ScrollbackEntry::new(RenderBlock::ToolCall(ToolCallBlock::WebFetch(fetch)));
+    assert_eq!(entry.block.copy_meta_label(), Some("copy URL"));
+    assert_eq!(
+        entry.block.copy_meta().as_deref(),
+        Some("https://example.com/docs")
+    );
+    let pane = BlockViewerPane::for_web_fetch(entry.id, &entry).expect("web fetch viewer");
+    let hints = pane.shortcuts_hints();
+    assert!(
+        hints.iter().any(|hint| hint.label == "copy URL"),
+        "Y hint must name the URL, got {hints:?}"
+    );
+}
+
 #[test]
 fn shift_y_in_the_markdown_viewer_copies_the_code_block_under_the_cursor() {
     let md = concat!(

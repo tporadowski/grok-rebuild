@@ -136,7 +136,7 @@ pub(crate) fn render_managed_connectors_wait(
     let btn = if wait.url_copied {
         "[copied]"
     } else {
-        "[copy the url]"
+        "[copy the URL]"
     };
     // Chunks borrow a local handle so the paint loop below can still record rects on `wait`.
     let url = Arc::clone(&wait.url);

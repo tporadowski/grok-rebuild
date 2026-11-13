@@ -1097,7 +1097,7 @@ impl RenderBlock {
             RenderBlock::ToolCall(ToolCallBlock::Execute(_)) => Some("copy cmd"),
             RenderBlock::ToolCall(ToolCallBlock::Read(_)) => Some("copy path"),
             RenderBlock::ToolCall(ToolCallBlock::Edit(_)) => Some("copy path"),
-            RenderBlock::ToolCall(ToolCallBlock::WebFetch(_)) => Some("copy url"),
+            RenderBlock::ToolCall(ToolCallBlock::WebFetch(_)) => Some("copy URL"),
             RenderBlock::ToolCall(ToolCallBlock::WebSearch(_)) => Some("copy query"),
             RenderBlock::ToolCall(ToolCallBlock::Search(_)) => Some("copy pattern"),
             RenderBlock::Subagent(b) if !b.child_session_id.is_empty() => Some("copy session"),

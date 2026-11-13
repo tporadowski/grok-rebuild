@@ -2754,9 +2754,9 @@ fn component_categories(
             ComponentCategory::Skills => "skills",
             ComponentCategory::Commands => "commands",
             ComponentCategory::Agents => "agents",
-            ComponentCategory::McpServers => "mcp servers",
+            ComponentCategory::McpServers => "MCP servers",
             ComponentCategory::Hooks => "hooks",
-            ComponentCategory::LspServers => "lsp servers",
+            ComponentCategory::LspServers => "LSP servers",
         };
         (label, items)
     })
@@ -7053,9 +7053,9 @@ mod tests {
                 "skills",
                 "commands",
                 "agents",
-                "mcp servers",
+                "MCP servers",
                 "hooks",
-                "lsp servers"
+                "LSP servers"
             ]
         );
     }
@@ -7660,7 +7660,7 @@ mod tests {
             "wait must tell the user to refresh"
         );
         assert_eq!(
-            buffer_count(&buf, "[copy the url]"),
+            buffer_count(&buf, "[copy the URL]"),
             1,
             "wait must show a copy button"
         );

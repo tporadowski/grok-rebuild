@@ -1068,7 +1068,7 @@ impl BlockViewerPane {
                 hints.push(HintItem::new(crate::key!('Y'), "copy path"));
             }
             ViewerKind::WebFetch => {
-                hints.push(HintItem::new(crate::key!('Y'), "copy url"));
+                hints.push(HintItem::new(crate::key!('Y'), "copy URL"));
             }
             ViewerKind::WebSearch => {
                 hints.push(HintItem::new(crate::key!('Y'), "copy query"));
