@@ -223,6 +223,10 @@ pub struct WorkflowsViewState {
     /// `→` or a click moves the keys onto this phase's agents (`v72-f05`).
     pub roster_focused: bool,
     pub selected_agent_id: Option<String>,
+    /// One paint after focus or ↑/↓ brings the selected agent on screen.
+    /// That paint rewrites the top-row anchor, so the next frame does not jump
+    /// back (`v81-x18`). Wheel scrolling clears this so a pan is not undone.
+    pub roster_follow_selection: bool,
     /// Run list row under the pointer. The list is the collapsed form of a run.
     pub hovered_run_id: Option<String>,
 }
@@ -421,6 +425,7 @@ impl WorkflowsViewState {
     /// or the last agent when none are running (`v72-f05`).
     pub fn focus_agent_list(&mut self, run: &WorkflowRunSnapshot) {
         self.roster_focused = true;
+        self.roster_follow_selection = true;
         let rows = self.roster_rows(run);
         let still_listed = self
             .selected_agent_id
@@ -438,10 +443,12 @@ impl WorkflowsViewState {
 
     pub fn select_roster_agent(&mut self, agent_id: impl Into<String>) {
         self.roster_focused = true;
+        self.roster_follow_selection = true;
         self.selected_agent_id = Some(agent_id.into());
     }
 
     pub fn move_roster_selection(&mut self, run: &WorkflowRunSnapshot, delta: i32) {
+        self.roster_follow_selection = true;
         let rows = self.roster_rows(run);
         if rows.is_empty() {
             self.selected_agent_id = None;
@@ -534,7 +541,9 @@ impl WorkflowsViewState {
                 }
                 // The next render anchors on whatever row is now at the top.
                 // Keeping the previous anchor snaps a wheel-down back to it (`v61-x02`).
+                // A pending focus-follow would undo this pan on the next paint (`v81-x18`).
                 self.roster_top_agent_id = None;
+                self.roster_follow_selection = false;
             }
             Some(_) => {}
         }
@@ -547,6 +556,41 @@ impl WorkflowsViewState {
         let id = self.detail_run_id.as_ref()?;
         runs.iter().copied().find(|run| &run.run_id == id)
     }
+}
+
+/// Scroll just enough to put the selected agent in the window, once.
+///
+/// Runs after the top-row anchor is restored. Clearing the anchor here lets
+/// the paint that follows record the new top, so the next frame agrees with
+/// this one instead of snapping backward (`v81-x18`).
+fn reveal_roster_selection(
+    state: &mut WorkflowsViewState,
+    agents: &[&WorkflowAgentRowView],
+    visible_rows: usize,
+    overflow: usize,
+) {
+    if !state.roster_follow_selection {
+        return;
+    }
+    state.roster_follow_selection = false;
+    if visible_rows == 0 {
+        return;
+    }
+    let Some(idx) = state
+        .selected_agent_id
+        .as_deref()
+        .and_then(|id| agents.iter().position(|agent| agent.agent_id == id))
+    else {
+        return;
+    };
+    let mut skip = overflow.saturating_sub(state.roster_scroll.min(overflow));
+    if idx < skip {
+        skip = idx;
+    } else if idx >= skip.saturating_add(visible_rows) {
+        skip = idx.saturating_add(1).saturating_sub(visible_rows);
+    }
+    state.roster_scroll = overflow.saturating_sub(skip.min(overflow));
+    state.roster_top_agent_id = None;
 }
 
 fn ensure_selection_visible(
@@ -716,6 +760,92 @@ fn plural(n: usize, noun: &str) -> String {
 
 fn strip_control(text: &str) -> String {
     strip_control_chars(text, false)
+}
+
+fn column_width(text: &str) -> usize {
+    unicode_width::UnicodeWidthStr::width(text)
+}
+
+/// Blank or whitespace-only activity is not a message. A real one keeps the
+/// middle dot the roster already uses (`v81-x18`).
+fn agent_status_message(activity: Option<&str>) -> Option<String> {
+    let text = strip_control(activity.unwrap_or(""));
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(format!("· {text}"))
+    }
+}
+
+fn agent_row_meta(
+    agent: &WorkflowAgentRowView,
+    live_status: Option<&WorkflowAgentLiveStatus>,
+    budget: usize,
+) -> String {
+    let running = agent.state == "running";
+    let elapsed_ms = if running {
+        live_status.and_then(|status| status.elapsed_ms).unwrap_or(0)
+    } else {
+        agent.duration_ms
+    };
+    let mut meta_parts: Vec<String> = Vec::new();
+    if let Some((context_tokens, context_window_tokens)) = live_status.and_then(|status| {
+        status
+            .context_tokens
+            .zip(status.context_window_tokens.filter(|&window| window > 0))
+    }) {
+        meta_parts.push(format!(
+            "{} / {} context",
+            format_tokens_compact(i64::try_from(context_tokens).unwrap_or(i64::MAX)),
+            format_tokens_compact(i64::try_from(context_window_tokens).unwrap_or(i64::MAX)),
+        ));
+    }
+    if elapsed_ms > 0 {
+        meta_parts.push(format_elapsed(elapsed_ms));
+    }
+    truncate_to_width(&meta_parts.join(" · "), budget)
+}
+
+/// Shared label, model, and message columns for one phase roster.
+///
+/// The model column is reserved when any agent has a model, so a row with no
+/// model still starts its message in the same place (`v81-x18`).
+fn aligned_message_columns(
+    agents: &[&WorkflowAgentRowView],
+    label_x: u16,
+    shared_meta_x: u16,
+) -> (usize, usize, u16) {
+    let avail = usize::from(shared_meta_x.saturating_sub(label_x));
+    let max_label = agents
+        .iter()
+        .map(|agent| column_width(&strip_control(&agent.label)))
+        .max()
+        .unwrap_or(0);
+    let label_col = max_label.min(avail.min(28));
+    let max_model = agents
+        .iter()
+        .map(|agent| match agent.model.as_deref() {
+            Some(model) if !model.is_empty() => column_width(model),
+            _ => 0,
+        })
+        .max()
+        .unwrap_or(0);
+    let model_room = avail.saturating_sub(label_col).saturating_sub(2);
+    let model_col = if max_model > 0 {
+        max_model.min(model_room)
+    } else {
+        0
+    };
+    let mut used_cols = label_col;
+    if model_col > 0 {
+        used_cols = used_cols.saturating_add(2).saturating_add(model_col);
+    }
+    if used_cols > 0 {
+        used_cols = used_cols.saturating_add(2);
+    }
+    let message_x = label_x.saturating_add(used_cols.min(avail) as u16);
+    (label_col, model_col, message_x)
 }
 
 pub fn render_workflows(
@@ -1134,6 +1264,9 @@ fn render_detail(
     if state.roster_scroll == 0 {
         state.roster_top_agent_id = None;
     }
+    // After the anchor restore, so a focus scroll is not snapped back, and
+    // before the title, so the ↑ count matches the rows on this same paint.
+    reveal_roster_selection(state, &roster_agents, visible_rows, overflow);
     let roster_title = if state.roster_scroll > 0 {
         format!(
             "{} · {} · ↑{}",
@@ -1158,9 +1291,10 @@ fn render_detail(
     );
 
     if roster_agents.is_empty() {
+        // Same column as an agent label, which starts two cells in from the glyph.
         span_at(
             buf,
-            roster_inner.x,
+            roster_inner.x.saturating_add(2),
             roster_inner.y,
             "No agents in this phase yet.",
             Style::default().fg(theme.gray_dim),
@@ -1171,6 +1305,27 @@ fn render_detail(
     state.roster_top_agent_id = (state.roster_scroll > 0)
         .then(|| roster_agents.get(skip).map(|agent| agent.agent_id.clone()))
         .flatten();
+    let meta_budget = usize::from(roster_inner.width.saturating_sub(6));
+    // Whole phase, not just the visible window, so scrolling does not reflow columns.
+    let metas: Vec<String> = roster_agents
+        .iter()
+        .map(|agent| agent_row_meta(agent, live.get(&agent.agent_id), meta_budget))
+        .collect();
+    let label_x = roster_inner.x.saturating_add(2);
+    let aligned = show_live_status.then(|| {
+        let widest = metas
+            .iter()
+            .map(|meta| column_width(meta))
+            .max()
+            .unwrap_or(0) as u16;
+        let shared_meta_x = roster_inner
+            .right()
+            .saturating_sub(widest.saturating_add(1))
+            .max(roster_inner.x.saturating_add(4));
+        let (label_col, model_col, message_x) =
+            aligned_message_columns(&roster_agents, label_x, shared_meta_x);
+        (shared_meta_x, label_col, model_col, message_x)
+    });
     for (row, agent) in roster_agents.iter().skip(skip).enumerate() {
         let y = roster_inner.y + row as u16;
         if y >= roster_inner.bottom() {
@@ -1186,36 +1341,15 @@ fn render_detail(
         } else {
             agent_glyph_and_style(&agent.state, theme)
         };
-        let live_status = live.get(&agent.agent_id);
-        let elapsed_ms = if running {
-            live_status.and_then(|l| l.elapsed_ms).unwrap_or(0)
-        } else {
-            agent.duration_ms
-        };
-        let mut meta_parts: Vec<String> = Vec::new();
-        if let Some((context_tokens, context_window_tokens)) = live_status.and_then(|status| {
-            status
-                .context_tokens
-                .zip(status.context_window_tokens.filter(|&window| window > 0))
-        }) {
-            meta_parts.push(format!(
-                "{} / {} context",
-                format_tokens_compact(i64::try_from(context_tokens).unwrap_or(i64::MAX)),
-                format_tokens_compact(i64::try_from(context_window_tokens).unwrap_or(i64::MAX)),
-            ));
-        }
-        if elapsed_ms > 0 {
-            meta_parts.push(format_elapsed(elapsed_ms));
-        }
-        let meta = truncate_to_width(
-            &meta_parts.join(" · "),
-            roster_inner.width.saturating_sub(6) as usize,
-        );
-        let meta_w = unicode_width::UnicodeWidthStr::width(meta.as_str()) as u16;
+        let meta = metas
+            .get(skip.saturating_add(row))
+            .cloned()
+            .unwrap_or_default();
+        let meta_w = column_width(&meta) as u16;
         let meta_x = roster_inner
             .right()
-            .saturating_sub(meta_w + 1)
-            .max(roster_inner.x + 4);
+            .saturating_sub(meta_w.saturating_add(1))
+            .max(roster_inner.x.saturating_add(4));
 
         span_at(
             buf,
@@ -1227,12 +1361,6 @@ fn render_detail(
         );
         let selected_agent = state.roster_focused
             && state.selected_agent_id.as_deref() == Some(agent.agent_id.as_str());
-        let label_budget = if show_live_status {
-            (roster_inner.width as usize).saturating_sub(4).min(28)
-        } else {
-            meta_x.saturating_sub(roster_inner.x.saturating_add(2)) as usize
-        };
-        let label = truncate_to_width(&strip_control(&agent.label), label_budget);
         let label_style = if selected_agent {
             Style::default()
                 .fg(theme.text_primary)
@@ -1240,35 +1368,64 @@ fn render_detail(
         } else {
             Style::default().fg(theme.text_primary)
         };
-        span_at(buf, roster_inner.x + 2, y, &label, label_style, meta_x);
-        let label_w = unicode_width::UnicodeWidthStr::width(label.as_str()) as u16;
-        let mut trail_x = roster_inner.x + 2 + label_w + 2;
-        if let Some(model) = agent.model.as_deref() {
-            let model_txt = truncate_to_width(model, meta_x.saturating_sub(trail_x + 1) as usize);
-            span_at(
-                buf,
-                trail_x,
-                y,
-                &model_txt,
-                Style::default().fg(theme.gray),
-                meta_x,
-            );
-            trail_x += unicode_width::UnicodeWidthStr::width(model_txt.as_str()) as u16 + 2;
-        }
-        if show_live_status && let Some(activity) = live_status.and_then(|l| l.activity.as_deref())
-        {
-            let activity_txt = truncate_to_width(
-                &format!("· {}", strip_control(activity)),
-                meta_x.saturating_sub(trail_x + 1) as usize,
-            );
-            span_at(
-                buf,
-                trail_x,
-                y,
-                &activity_txt,
-                Style::default().fg(theme.gray_dim),
-                meta_x,
-            );
+        if let Some((shared_meta_x, label_col, model_col, message_x)) = aligned {
+            let label = truncate_to_width(&strip_control(&agent.label), label_col);
+            let model_x = label_x.saturating_add(label_col as u16).saturating_add(2);
+            let label_clip = if model_col > 0 { model_x } else { message_x }.min(meta_x);
+            span_at(buf, label_x, y, &label, label_style, label_clip);
+            if model_col > 0
+                && let Some(model) = agent.model.as_deref().filter(|model| !model.is_empty())
+            {
+                let model_txt = truncate_to_width(model, model_col);
+                span_at(
+                    buf,
+                    model_x,
+                    y,
+                    &model_txt,
+                    Style::default().fg(theme.gray),
+                    message_x.min(meta_x),
+                );
+            }
+            if message_x < shared_meta_x
+                && let Some(message) = agent_status_message(
+                    live.get(&agent.agent_id)
+                        .and_then(|status| status.activity.as_deref()),
+                )
+            {
+                let activity_txt = truncate_to_width(
+                    &message,
+                    usize::from(shared_meta_x.saturating_sub(message_x)),
+                );
+                span_at(
+                    buf,
+                    message_x,
+                    y,
+                    &activity_txt,
+                    Style::default().fg(theme.gray_dim),
+                    shared_meta_x,
+                );
+            }
+        } else {
+            // Narrow rosters keep a per-row name budget and hide the live message (`v63-x06`).
+            let label_budget = usize::from(meta_x.saturating_sub(label_x));
+            let label = truncate_to_width(&strip_control(&agent.label), label_budget);
+            span_at(buf, label_x, y, &label, label_style, meta_x);
+            let label_w = column_width(&label) as u16;
+            let trail_x = label_x.saturating_add(label_w).saturating_add(2);
+            if let Some(model) = agent.model.as_deref() {
+                let model_txt = truncate_to_width(
+                    model,
+                    usize::from(meta_x.saturating_sub(trail_x.saturating_add(1))),
+                );
+                span_at(
+                    buf,
+                    trail_x,
+                    y,
+                    &model_txt,
+                    Style::default().fg(theme.gray),
+                    meta_x,
+                );
+            }
         }
         span_at(
             buf,
@@ -2321,6 +2478,280 @@ mod tests {
             narrow_text.contains("alphabetical"),
             "the agent name stays on the narrow row: {narrow_text}"
         );
+    }
+
+    fn cell_row(buf: &Buffer, y: u16, width: u16) -> String {
+        let mut out = String::new();
+        for x in 0..width {
+            if let Some(cell) = buf.cell((x, y)) {
+                out.push_str(cell.symbol());
+            }
+        }
+        out
+    }
+
+    /// Column where `needle` starts. Cell symbols can be more than one byte, so
+    /// a byte `find` on the joined row is not a column.
+    fn column_of(buf: &Buffer, y: u16, width: u16, needle: &str) -> usize {
+        let row = cell_row(buf, y, width);
+        let byte = row.find(needle).unwrap_or_else(|| {
+            panic!("missing {needle} on row {y}: {row}");
+        });
+        let mut acc = 0usize;
+        for x in 0..width {
+            let sym = buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or("");
+            if acc == byte {
+                return usize::from(x);
+            }
+            acc += sym.len();
+        }
+        panic!("byte {byte} of {needle} was not a cell boundary");
+    }
+
+    fn column_of_needle(buf: &Buffer, area: Rect, needle: &str) -> usize {
+        for y in area.y..area.bottom() {
+            if cell_row(buf, y, area.width).contains(needle) {
+                return column_of(buf, y, area.width, needle);
+            }
+        }
+        panic!("missing {needle}");
+    }
+
+    #[test]
+    fn focusing_a_visible_agent_does_not_move_the_roster() {
+        let run = make_run("wf_1", "deep-research", "active");
+        let runs = vec![&run];
+        let area = Rect::new(0, 0, 100, 30);
+        let mut state = WorkflowsViewState::default();
+        state.normalize(&runs);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        let scroll = state.roster_scroll;
+        let first = state.agent_hits.first().map(|hit| hit.1.clone());
+        let text = buf_text(&buf, area);
+        assert!(first.is_some(), "the research agent should already be visible");
+
+        state.focus_agent_list(&run);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        assert_eq!(state.roster_scroll, scroll);
+        assert_eq!(state.agent_hits.first().map(|hit| hit.1.clone()), first);
+        assert_eq!(buf_text(&buf, area), text);
+        assert!(!state.roster_follow_selection);
+    }
+
+    #[test]
+    fn focusing_an_offscreen_agent_scrolls_once_and_stays() {
+        let mut run = make_run("wf_big", "fanout", "active");
+        run.phases.clear();
+        run.current_phase = None;
+        run.agents = (0..30)
+            .map(|i| {
+                let mut row = agent_row(
+                    &format!("a{i:02}"),
+                    &format!("agent-{i:02}"),
+                    None,
+                    "done",
+                );
+                if i == 0 {
+                    row.state = "running".to_owned();
+                }
+                row
+            })
+            .collect();
+        let runs = vec![&run];
+        let area = Rect::new(0, 0, 100, 30);
+        let mut state = WorkflowsViewState::default();
+        state.normalize(&runs);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        let visible = state.agent_hits.len();
+        assert!(visible > 0 && visible < 30, "fixture must overflow");
+        assert_ne!(
+            state.agent_hits.first().map(|hit| hit.1.as_str()),
+            Some("a00"),
+            "bottom anchor hides the oldest agent"
+        );
+
+        state.focus_agent_list(&run);
+        assert_eq!(state.selected_agent_id.as_deref(), Some("a00"));
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        assert_eq!(
+            state.agent_hits.first().map(|hit| hit.1.as_str()),
+            Some("a00")
+        );
+        let scroll = state.roster_scroll;
+        let top = state.roster_top_agent_id.clone();
+        assert!(scroll > 0);
+        assert_eq!(top.as_deref(), Some("a00"));
+        assert!(!state.roster_follow_selection);
+
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        assert_eq!(state.roster_scroll, scroll);
+        assert_eq!(state.roster_top_agent_id, top);
+        assert_eq!(
+            state.agent_hits.first().map(|hit| hit.1.as_str()),
+            Some("a00"),
+            "the next frame must not snap back"
+        );
+
+        let roster = state.roster_area.expect("roster area");
+        state.handle_scroll(3, roster.x, roster.y, &runs);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        assert!(state.roster_scroll < scroll);
+        assert_ne!(
+            state.agent_hits.first().map(|hit| hit.1.as_str()),
+            Some("a00"),
+            "a wheel after focus keeps the pan"
+        );
+    }
+
+    #[test]
+    fn empty_status_messages_share_the_message_column() {
+        let mut run = make_run("wf_1", "align", "active");
+        run.phases.clear();
+        run.current_phase = None;
+        let row = |id: &str, label: &str, model: Option<&str>| WorkflowAgentRowView {
+            agent_id: id.to_owned(),
+            label: label.to_owned(),
+            phase: None,
+            model: model.map(str::to_owned),
+            state: "done".to_owned(),
+            tokens_used: 0,
+            duration_ms: 0,
+        };
+        run.agents = vec![
+            row("aa", "aa", None),
+            row("long", "longer-name", Some("grok-4")),
+            row("bb", "bb", None),
+        ];
+        let runs = vec![&run];
+        let mut live = WorkflowAgentLiveMap::default();
+        for id in ["aa", "bb"] {
+            live.insert(
+                id.to_owned(),
+                WorkflowAgentLiveStatus {
+                    activity: Some("reading notes".to_owned()),
+                    ..Default::default()
+                },
+            );
+        }
+        live.insert(
+            "long".to_owned(),
+            WorkflowAgentLiveStatus {
+                activity: Some(String::new()),
+                ..Default::default()
+            },
+        );
+        let area = Rect::new(0, 0, 140, 30);
+        let mut state = WorkflowsViewState::default();
+        state.normalize(&runs);
+        let mut buf = Buffer::empty(area);
+        render_workflows(&mut buf, area, &runs, &mut state, 0, &live);
+        let roster = state.roster_area.expect("roster area");
+        assert!(roster.width >= LIVE_STATUS_MIN_WIDTH);
+
+        let y_of = |id: &str| -> u16 {
+            state
+                .agent_hits
+                .iter()
+                .find(|(_, hit)| hit == id)
+                .map(|(rect, _)| rect.y)
+                .unwrap_or_else(|| panic!("missing {id}"))
+        };
+        let aa_col = column_of(&buf, y_of("aa"), area.width, "reading notes");
+        let bb_col = column_of(&buf, y_of("bb"), area.width, "reading notes");
+        assert_eq!(aa_col, bb_col, "status messages share a column");
+        let long_y = y_of("long");
+        let model_at = column_of(&buf, long_y, area.width, "grok-4");
+        assert!(
+            aa_col >= model_at + "grok-4".len(),
+            "the message column stays to the right of the reserved model column"
+        );
+        let blank: String = (0.."reading".len())
+            .filter_map(|offset| {
+                let x = u16::try_from(aa_col + offset).ok()?;
+                buf.cell((x, long_y)).map(|cell| cell.symbol().to_owned())
+            })
+            .collect();
+        assert!(
+            blank.chars().all(|ch| ch == ' '),
+            "a blank status stays on the message column instead of drawing beside the name: {blank:?}"
+        );
+        let long_row = cell_row(&buf, long_y, area.width);
+        assert!(
+            !long_row.contains('\u{00B7}'),
+            "a blank activity does not draw a status dot: {long_row}"
+        );
+    }
+
+    #[test]
+    fn empty_phase_message_lines_up_with_agent_names() {
+        let run = make_run("wf_1", "deep-research", "active");
+        let runs = vec![&run];
+        let mut state = WorkflowsViewState::default();
+        state.normalize(&runs);
+        state.select_phase(2, &run);
+        state.normalize(&runs);
+        assert_eq!(state.selected_phase_name.as_deref(), Some("Synthesize"));
+        let area = Rect::new(0, 0, 100, 30);
+        let mut buf = Buffer::empty(area);
+        render_workflows(
+            &mut buf,
+            area,
+            &runs,
+            &mut state,
+            0,
+            &WorkflowAgentLiveMap::default(),
+        );
+        let col = column_of_needle(&buf, area, "No agents");
+        let roster_x = state.roster_area.expect("roster area").x;
+        assert_eq!(col, usize::from(roster_x.saturating_add(2)));
     }
 
     #[test]
