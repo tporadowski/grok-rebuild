@@ -1,5 +1,40 @@
 # Changelog
 
+# 1.0.81 — 2026-11-11
+
+## Bug Fixes
+
+- **Tasks pane** and list panes now correctly align search status and truncate scheduled-task previews when prompts contain wide Unicode characters.
+- Labels for MCP servers, LSP servers and URL copy hints now use consistent uppercase spelling throughout the UI.
+- Foldable rows in modals now show a down chevron when open, making expanded groups easier to distinguish from leaf rows.
+- Send-now and interjection failure toasts now clearly state the original error before noting the requeue; fork refusals use consistent wording.
+- Several one-sentence system notices no longer end with a period, matching the rest of the toast messages.
+- Navigation hints in several modal footers now consistently use arrow keys instead of j/k.
+- Plan approval and revision notices are now single-sentence without trailing periods.
+- Key hints throughout the UI now use consistent Ctrl+ notation and Title-case key names.
+- Collapsible rows now use the same disclosure glyphs everywhere and fall back correctly on legacy consoles.
+- Contextual tips for SSH wrap, word selection and context usage now match the style of other tips.
+- Long pasted content previews now show an ellipsis that renders correctly on all terminals.
+- Selected rows in the feedback Drafts list now show the same highlight band used elsewhere; other text colors are consistent.
+- Plan approval status now reads "Waiting for plan approval" and the empty command-pattern field uses sentence case.
+- One-sentence slash errors and modal messages no longer end with periods.
+- Various labels throughout settings, goal details and titles now use consistent sentence case.
+- **Terminal window titles** now correctly truncate CJK, emoji, and Windows paths instead of overflowing.
+- **CLI success messages** now consistently omit trailing periods to match the rest of the tool.
+- **Workflows view** no longer jitters when focus moves into the agent list and empty messages align correctly.
+- **Resume picker** error messages now use consistent wording and punctuation.
+- **UI labels** now correctly say "1 page", "1 hook", etc. instead of always using the plural.
+- **Tasks pane** empty state and tool-usage pane title now match surrounding UI wording.
+- **MCP elicitation** prompts now read "MCP server …" to match the rest of the UI.
+- **CLI tables** and progress messages now use the same ellipsis style and no longer overflow with wide text.
+- Focused prompt border is now visibly brighter than a selected scrollback entry in Rose Pine Moon and Oscura themes.
+- Empty pickers now say what is empty ("No sessions in this directory", "No subfolders") and never overflow the border.
+- MCP elicitation cards no longer crash when drawn in very narrow or short terminal areas.
+- Goal budget meters now always show both brackets and the percentage even in narrow terminals.
+- Three one-line notices no longer end with a period, matching the style of other status messages.
+- The density preview in Settings now appears at the same narrow widths as the other preview in the same modal.
+
+
 # 1.0.80 — 2026-11-09
 
 ## Bug Fixes
