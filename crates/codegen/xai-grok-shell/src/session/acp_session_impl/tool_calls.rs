@@ -80,6 +80,15 @@ fn should_flush_held_queue_before_wait(
 ) -> bool {
     has_interruptible_wait && steer && !goal_loop_active
 }
+/// A rejected or cancelled permission ends the turn. Queued follow-ups must stay
+/// in the queue for the next turn. Injecting them here drops them into a turn
+/// the model will not continue.
+fn batch_end_keeps_queued_follow_ups(final_result: &Option<ToolLoop>) -> bool {
+    matches!(
+        final_result,
+        Some(ToolLoop::PermissionReject { .. } | ToolLoop::Cancelled)
+    )
+}
 use crate::tools::tool_context::BlockingWaitGuard;
 /// Clears `awaiting_plan_approval` (and re-persists) when the [`SessionActor::request_plan_approval`] await resolves or is dropped.
 /// Resolve means a decision came back; drop means the model turn was cancelled, so a cancelled in-session approval can never strand the bit `true`.
@@ -323,6 +332,17 @@ impl SessionActor {
         )
         .and_then(|v| v.as_object().cloned())
     }
+    /// Drain queued follow-ups into the running turn, unless this batch is ending
+    /// because a permission prompt was rejected or cancelled.
+    pub(super) async fn drain_follow_ups_after_tool_batch(
+        &self,
+        final_result: &Option<ToolLoop>,
+    ) -> bool {
+        if batch_end_keeps_queued_follow_ups(final_result) {
+            return false;
+        }
+        self.drain_interjections_at_safe_point().await
+    }
     #[tracing::instrument(
         name = "tools.execute",
         skip_all,
@@ -391,7 +411,9 @@ impl SessionActor {
                 self.chat_state_handle.push_user_message(chat);
             }
         }
-        self.drain_interjections_at_safe_point().await;
+        // A rejected or cancelled permission ends this turn. Leave queued
+        // follow-ups for the next turn instead of injecting them here.
+        self.drain_follow_ups_after_tool_batch(&final_result).await;
         self.flush_pending_skill_reminders().await;
         if let Some(final_result) = final_result {
             return Ok(final_result);
@@ -3890,7 +3912,7 @@ mod plan_approval_helper_tests {
 #[cfg(test)]
 mod wait_interrupt_tests {
     use super::{
-        BlockingWaitGuard, WaitInterruptCause, is_interruptible_wait_tool,
+        BlockingWaitGuard, ToolLoop, WaitInterruptCause, is_interruptible_wait_tool,
         should_flush_held_queue_before_wait,
     };
     #[test]
@@ -3916,6 +3938,30 @@ mod wait_interrupt_tests {
             "an active goal wait is not sendable; promoting would abort it immediately"
         );
         assert!(!should_flush_held_queue_before_wait(false, true, false));
+    }
+    #[test]
+    fn permission_reject_or_cancel_keeps_queued_follow_ups() {
+        let reject = Some(ToolLoop::PermissionReject {
+            tool_name: "bash".into(),
+            reason: "no".into(),
+        });
+        assert!(super::batch_end_keeps_queued_follow_ups(&reject));
+        assert!(super::batch_end_keeps_queued_follow_ups(&Some(
+            ToolLoop::Cancelled
+        )));
+        assert!(!super::batch_end_keeps_queued_follow_ups(&None));
+        assert!(!super::batch_end_keeps_queued_follow_ups(&Some(
+            ToolLoop::Continue
+        )));
+        assert!(!super::batch_end_keeps_queued_follow_ups(&Some(
+            ToolLoop::FollowupMessage("try another path".into())
+        )));
+        assert!(!super::batch_end_keeps_queued_follow_ups(&Some(
+            ToolLoop::HookDenied {
+                hook_name: "guard".into(),
+                stop_turn: true,
+            }
+        )));
     }
     #[test]
     fn interruptible_wait_tool_only_when_timeout_positive() {

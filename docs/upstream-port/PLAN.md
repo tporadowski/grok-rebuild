@@ -1064,7 +1064,7 @@ Refresh these numbers at the end of a session.
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 0 | 0 | 8 | 0 | 0 |
-| W3 | Permissions, sandbox, and config | 1 | 0 | 12 | 12 | 7 |
+| W3 | Permissions, sandbox, and config | 0 | 0 | 13 | 12 | 7 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 0 | 0 | 27 | 6 | 0 |
@@ -1080,9 +1080,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 5. Skipped: 9. Done: 533. Already: 110. Deferred: 27.
+Catalog rows: 684. Pending: 4. Skipped: 9. Done: 534. Already: 110. Deferred: 27.
 
-**Next:** `v84-x08`
+**Next:** `v84-x05`
 
 ## Waves
 
@@ -1096,7 +1096,7 @@ Pending: 0. Done: 8. Look first: Clap structs in `crates/codegen/xai-grok-pager-
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 1. Done: 12. Already: 12. Deferred: 7 (D-026, D-224). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode.
+Pending: 0. Done: 13. Already: 12. Deferred: 7 (D-026, D-224). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
 
 ### W6 — Memory
 
@@ -1199,7 +1199,7 @@ id | status | wave | kind | flag | covered | note
 - v82-f04 | deferred | W3 | Features |  |  | **New `minimal` sandbox profile** and `workspace_write` option let custom profiles control launch-folder writes.
 - v82-x03 | already | W3 | Bug Fixes |  |  | **Folder trust prompt** no longer accepts keystrokes typed before the question appears on screen.
 - v82-x09 | already | W3 | Bug Fixes |  |  | **Windows** Git helpers now use the bundled MinGit binary.
-- v84-x08 | pending | W3 | Bug Fixes |  |  | Queued follow-ups are no longer lost when a permission prompt is rejected or cancelled.
+- v84-x08 | done | W3 | Bug Fixes |  |  | Queued follow-ups are no longer lost when a permission prompt is rejected or cancelled.
 - v50-x22 | done | W6 | Bug Fixes |  |  | **web_fetch** no longer downloads huge files into memory before rejecting them.
 - v50-x23 | done | W6 | Bug Fixes |  |  | **memory_get** no longer returns huge files that exceed the read limit.
 - v50-x25 | done | W6 | Bug Fixes |  |  | **memory_search** now finds Japanese, Chinese, and Korean words inside longer notes.

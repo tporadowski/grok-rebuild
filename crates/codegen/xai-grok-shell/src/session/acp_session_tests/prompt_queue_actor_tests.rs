@@ -1820,6 +1820,95 @@ async fn drain_at_safe_point_with_steer_on_promotes_and_drains_held_row() {
         .await;
 }
 
+/// Rejecting or cancelling a permission ends the turn. Steer must leave the
+/// queued follow-up in place. A typed reject still drains, because that turn continues.
+#[tokio::test]
+#[serial_test::serial(follow_up_steer_cache)]
+async fn permission_end_keeps_queued_follow_ups() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            crate::util::config::set_follow_up_steer_cache(true);
+
+            let reject = Some(ToolLoop::PermissionReject {
+                tool_name: "bash".into(),
+                reason: "no".into(),
+            });
+            let (actor, _rx) = build_actor().await;
+            {
+                let mut state = actor.state.lock().await;
+                state.pending_inputs.push_back(user_item("running", "A"));
+                state.pending_inputs.push_back(user_item("held", "A"));
+                state.running_task = Some(running_task_stub("running"));
+            }
+            assert!(
+                !actor.drain_follow_ups_after_tool_batch(&reject).await,
+                "a rejected permission must not drain the queued follow-up"
+            );
+            let state = actor.state.lock().await;
+            let order: Vec<&str> = state
+                .pending_inputs
+                .iter()
+                .map(|i| i.prompt_id.as_str())
+                .collect();
+            assert_eq!(order, vec!["running", "held"]);
+            drop(state);
+            assert!(
+                actor.pending_interjections.is_empty(),
+                "a rejected permission must not move the follow-up into the interjection buffer"
+            );
+
+            let (actor, _rx) = build_actor().await;
+            {
+                let mut state = actor.state.lock().await;
+                state.pending_inputs.push_back(user_item("running", "A"));
+                state.pending_inputs.push_back(user_item("held", "A"));
+                state.running_task = Some(running_task_stub("running"));
+            }
+            assert!(
+                !actor
+                    .drain_follow_ups_after_tool_batch(&Some(ToolLoop::Cancelled))
+                    .await,
+                "a cancelled permission must not drain the queued follow-up"
+            );
+            let state = actor.state.lock().await;
+            let order: Vec<&str> = state
+                .pending_inputs
+                .iter()
+                .map(|i| i.prompt_id.as_str())
+                .collect();
+            assert_eq!(order, vec!["running", "held"]);
+            drop(state);
+            assert!(actor.pending_interjections.is_empty());
+
+            let (actor, _rx) = build_actor().await;
+            {
+                let mut state = actor.state.lock().await;
+                state.pending_inputs.push_back(user_item("running", "A"));
+                state.pending_inputs.push_back(user_item("held", "A"));
+                state.running_task = Some(running_task_stub("running"));
+            }
+            assert!(
+                actor
+                    .drain_follow_ups_after_tool_batch(&Some(ToolLoop::FollowupMessage(
+                        "try another path".into()
+                    )))
+                    .await,
+                "a follow-up message continues the turn, so Steer still drains"
+            );
+            let state = actor.state.lock().await;
+            let order: Vec<&str> = state
+                .pending_inputs
+                .iter()
+                .map(|i| i.prompt_id.as_str())
+                .collect();
+            assert_eq!(order, vec!["running"]);
+            drop(state);
+            assert!(actor.pending_interjections.is_empty());
+        })
+        .await;
+}
+
 /// Leader multi-client: only promote rows owned by the *running* client.
 /// Another client's "I'll go next" row stops the FIFO prefix (not skipped).
 #[tokio::test]
