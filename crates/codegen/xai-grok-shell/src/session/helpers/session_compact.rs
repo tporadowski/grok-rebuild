@@ -50,7 +50,7 @@ pub(crate) enum CompactFailure {
     Cancelled,
 }
 
-/// Stable cancel payload; the pager matches it to route manual `/compact` to "Compaction cancelled." instead of a failure.
+/// Stable cancel payload; the pager matches it to route manual `/compact` to "Compaction cancelled" instead of a failure.
 pub const COMPACT_CANCELLED_MSG: &str = "compact cancelled";
 
 /// Stamped on every compaction failure payload; the user-facing normalizer strips it.

@@ -389,30 +389,30 @@ impl SessionEvent {
     /// Format the event as a human-readable string.
     pub fn message(&self) -> String {
         match self {
-            // Deliberately period-less: don't re-punctuate
+            // One-sentence markers stay unpunctuated, same as the timed "Worked for" line.
             SessionEvent::TurnCompleted {
                 elapsed: Some(elapsed),
             } => {
                 format!("Worked for {}", format_duration(*elapsed))
             }
-            SessionEvent::TurnCompleted { elapsed: None } => "Turn completed.".to_string(),
+            SessionEvent::TurnCompleted { elapsed: None } => "Turn completed".to_string(),
             SessionEvent::TurnCancelled {
                 elapsed: Some(elapsed),
                 cause,
             } => {
-                format!("{} in {}.", cause.phrase(), format_duration(*elapsed))
+                format!("{} in {}", cause.phrase(), format_duration(*elapsed))
             }
             SessionEvent::TurnCancelled {
                 elapsed: None,
                 cause,
-            } => format!("{}.", cause.phrase()),
+            } => cause.phrase().to_string(),
             SessionEvent::TurnBlockedByHook {
                 elapsed: Some(elapsed),
             } => {
-                format!("Turn blocked by a hook in {}.", format_duration(*elapsed))
+                format!("Turn blocked by a hook in {}", format_duration(*elapsed))
             }
             SessionEvent::TurnBlockedByHook { elapsed: None } => {
-                "Turn blocked by a hook.".to_string()
+                "Turn blocked by a hook".to_string()
             }
             SessionEvent::TurnHalted { elapsed } => {
                 format!(
@@ -468,13 +468,13 @@ impl SessionEvent {
             }
             SessionEvent::CompactionFailed { error } => {
                 if error.trim().is_empty() {
-                    "Compaction failed.".to_string()
+                    "Compaction failed".to_string()
                 } else {
                     // Multi-line errors (guidance and detail) split in `output`; old one-line replays render unchanged
                     format!("Compaction failed - {error}")
                 }
             }
-            SessionEvent::CompactionCancelled => "Compaction cancelled.".to_string(),
+            SessionEvent::CompactionCancelled => "Compaction cancelled".to_string(),
             SessionEvent::RetryFailed { error, error_type } => {
                 use crate::app::error_display::WireErrorType;
                 if WireErrorType::parse(error_type.as_deref())
@@ -515,7 +515,7 @@ impl SessionEvent {
             // No "Context N% full." prefix; that phrasing is the auto marker's
             SessionEvent::CompactStarted => "Compacting conversation…".to_string(),
             SessionEvent::CompactCompleted { elapsed } => {
-                format!("Compaction completed in {}.", format_duration(*elapsed))
+                format!("Compaction completed in {}", format_duration(*elapsed))
             }
             SessionEvent::MemoryCommandStarted { command } => command.started_text().to_string(),
             SessionEvent::MemoryCommandCompleted {
@@ -551,7 +551,7 @@ impl SessionEvent {
                 format!("Memory saved ({trigger}) \u{2192} {short_path}  \u{00b7}  /memory to view")
             }
             SessionEvent::GoalCompleted { elapsed } => {
-                format!("Goal complete in {} end-to-end.", format_duration(*elapsed))
+                format!("Goal complete in {} end-to-end", format_duration(*elapsed))
             }
             SessionEvent::Recap { summary, auto: _ } => {
                 // Always "Recap:" (manual `/recap` and auto return-from-away).
@@ -854,6 +854,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn one_sentence_notices_do_not_end_with_a_period() {
+        let notices = [
+            SessionEvent::TurnCompleted { elapsed: None }.message(),
+            SessionEvent::TurnBlockedByHook { elapsed: None }.message(),
+            SessionEvent::CompactionCancelled.message(),
+            SessionEvent::CompactCompleted {
+                elapsed: Duration::from_secs(2),
+            }
+            .message(),
+            SessionEvent::GoalCompleted {
+                elapsed: Duration::from_secs(2),
+            }
+            .message(),
+        ];
+        for notice in notices {
+            assert!(!notice.ends_with('.'), "{notice}");
+        }
+    }
+
+    #[test]
     fn turn_completed_message() {
         let event = SessionEvent::TurnCompleted {
             elapsed: Some(Duration::from_secs(125)),
@@ -867,7 +887,7 @@ mod tests {
             elapsed: Some(Duration::from_secs(10)),
             cause: crate::scrollback::blocks::CancelledBy::User,
         };
-        assert_eq!(event.message(), "Turn cancelled by user in 10s.");
+        assert_eq!(event.message(), "Turn cancelled by user in 10s");
     }
 
     #[test]
@@ -878,13 +898,13 @@ mod tests {
         };
         assert_eq!(
             event.message(),
-            "Turn cancelled because the session closed in 10s."
+            "Turn cancelled because the session closed in 10s"
         );
         let event = SessionEvent::TurnCancelled {
             elapsed: Some(Duration::from_secs(4)),
             cause: crate::scrollback::blocks::CancelledBy::Unspecified,
         };
-        assert_eq!(event.message(), "Turn cancelled in 4.0s.");
+        assert_eq!(event.message(), "Turn cancelled in 4.0s");
     }
 
     #[test]
@@ -892,7 +912,7 @@ mod tests {
         let event = SessionEvent::GoalCompleted {
             elapsed: Duration::from_secs(619),
         };
-        assert_eq!(event.message(), "Goal complete in 10m19s end-to-end.");
+        assert_eq!(event.message(), "Goal complete in 10m19s end-to-end");
     }
 
     #[test]
@@ -1165,7 +1185,7 @@ mod tests {
         let event = SessionEvent::CompactionFailed {
             error: String::new(),
         };
-        assert_eq!(event.message(), "Compaction failed.");
+        assert_eq!(event.message(), "Compaction failed");
     }
 
     #[test]

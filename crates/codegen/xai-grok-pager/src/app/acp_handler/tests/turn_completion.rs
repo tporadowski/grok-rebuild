@@ -1462,7 +1462,7 @@
         let agent = app.agents.get(&AgentId(0)).unwrap();
         match last_session_event(&agent.scrollback) {
             Some(ev @ SessionEvent::TurnCompleted { elapsed: None }) => {
-                assert_eq!(ev.message(), "Turn completed.");
+                assert_eq!(ev.message(), "Turn completed");
             }
             other => panic!("expected markerless-elapsed completed, got {other:?}"),
         }
@@ -1513,7 +1513,7 @@
             Some(ev @ SessionEvent::TurnCancelled { .. }) => {
                 assert_eq!(
                     ev.message(),
-                    "Turn cancelled because the session closed in 0.8s."
+                    "Turn cancelled because the session closed in 0.8s"
                 );
             }
             other => panic!("expected named session-close cancel, got {other:?}"),
@@ -2552,7 +2552,7 @@
         let child = app.agents.get(&AgentId(0)).unwrap().subagent_views.get(child_sid).unwrap();
         match last_session_event(&child.scrollback) {
             Some(ev @ SessionEvent::TurnCancelled { elapsed: None, .. }) => {
-                assert_eq!(ev.message(), "Turn cancelled.");
+                assert_eq!(ev.message(), "Turn cancelled");
                 assert!(!ev.message().contains("0.0s"));
             }
             other => panic!("unset clock must not render 0.0s, got {other:?}"),

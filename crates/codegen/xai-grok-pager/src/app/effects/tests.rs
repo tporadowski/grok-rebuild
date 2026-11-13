@@ -3163,7 +3163,7 @@ fn compact_error_message_empty_data_renders_terse_and_no_data_uses_display() {
     assert_eq!(empty, "");
     assert_eq!(
             crate::scrollback::blocks::SessionEvent::CompactionFailed { error: empty }.message(),
-            "Compaction failed."
+            "Compaction failed"
         );
     assert_eq!(
             compact_error_message(&acp::Error::internal_error()),

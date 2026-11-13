@@ -731,7 +731,7 @@ fn cancelled_turn_event_picks_marker_by_category() {
     ));
     assert_eq!(
         cancelled_turn_event(None, Some(HOOK_DENIED_CATEGORY), Some(d)).message(),
-        "Turn blocked by a hook in 0.7s."
+        "Turn blocked by a hook in 0.7s"
     );
 }
 
@@ -743,58 +743,58 @@ fn cancelled_turn_event_names_passive_causes() {
     };
     assert_eq!(
         banner(Some("ctrl_c"), None),
-        "Turn cancelled by user in 10s."
+        "Turn cancelled by user in 10s"
     );
     assert_eq!(
         banner(Some("mouse"), None),
-        "Turn cancelled by user in 10s."
+        "Turn cancelled by user in 10s"
     );
     assert_eq!(
         banner(Some("dashboard_stop"), None),
-        "Turn cancelled by user in 10s."
+        "Turn cancelled by user in 10s"
     );
     assert_eq!(
         banner(Some("session_close"), None),
-        "Turn cancelled because the session closed in 10s."
+        "Turn cancelled because the session closed in 10s"
     );
     assert_eq!(
         banner(Some("session_delete"), None),
-        "Turn cancelled because the session closed in 10s."
+        "Turn cancelled because the session closed in 10s"
     );
     assert_eq!(
         banner(Some("shutdown"), None),
-        "Turn cancelled because the session shut down in 10s."
+        "Turn cancelled because the session shut down in 10s"
     );
     assert_eq!(
         banner(
             None,
             Some(xai_grok_shell::session::commands::MAX_TURNS_REACHED_CATEGORY)
         ),
-        "Turn cancelled after reaching the turn limit in 10s."
+        "Turn cancelled after reaching the turn limit in 10s"
     );
     assert_eq!(
         banner(
             None,
             Some(xai_grok_shell::session::commands::PERMISSION_REJECTED_CATEGORY)
         ),
-        "Turn cancelled because a permission was denied in 10s."
+        "Turn cancelled because a permission was denied in 10s"
     );
     assert_eq!(
         banner(
             None,
             Some(xai_grok_shell::session::commands::PERMISSION_CANCELLED_CATEGORY)
         ),
-        "Turn cancelled because a permission prompt was dismissed in 10s."
+        "Turn cancelled because a permission prompt was dismissed in 10s"
     );
     assert_eq!(
         banner(Some("host_interrupt"), None),
-        "Turn cancelled by the agent host in 10s."
+        "Turn cancelled by the agent host in 10s"
     );
-    assert_eq!(banner(None, None), "Turn cancelled in 10s.");
-    assert_eq!(banner(None, Some("MidTurnAbort")), "Turn cancelled in 10s.");
+    assert_eq!(banner(None, None), "Turn cancelled in 10s");
+    assert_eq!(banner(None, Some("MidTurnAbort")), "Turn cancelled in 10s");
     assert_eq!(
         banner(Some("gateway_cancel"), None),
-        "Turn cancelled in 10s."
+        "Turn cancelled in 10s"
     );
 }
 
@@ -1474,7 +1474,7 @@ fn classifier_cancelled_missing_elapsed_is_unset() {
     input.elapsed_ms = None;
     match terminal_marker(input) {
         Some(ev @ SessionEvent::TurnCancelled { elapsed: None, .. }) => {
-            assert_eq!(ev.message(), "Turn cancelled.");
+            assert_eq!(ev.message(), "Turn cancelled");
             assert!(!ev.message().contains("0.0s"));
         }
         other => panic!("expected cancelled without a fake duration, got {other:?}"),
