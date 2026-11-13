@@ -2483,8 +2483,21 @@ impl PromptWidget {
     }
 
     /// Attempt to send the prompt text. Empty/whitespace rejection: returns None.
+    /// A `\` immediately before the cursor is a continuation: it becomes a newline
+    /// and this returns None. Multiline Shift+Enter uses
+    /// [`Self::try_send_keeping_backslash`].
     pub fn try_send(&mut self) -> Option<String> {
-        if self.apply_backslash_continuation() {
+        self.try_send_inner(true)
+    }
+
+    /// Send the draft and keep a `\` before the cursor in the text.
+    /// Multiline Shift+Enter and Alt+Enter are send, so that character is not a continuation.
+    pub fn try_send_keeping_backslash(&mut self) -> Option<String> {
+        self.try_send_inner(false)
+    }
+
+    fn try_send_inner(&mut self, continue_on_backslash: bool) -> Option<String> {
+        if continue_on_backslash && self.apply_backslash_continuation() {
             return None;
         }
 
@@ -2512,6 +2525,12 @@ impl PromptWidget {
             return false;
         }
         true
+    }
+
+    /// Whether multiline Shift+Enter / Alt+Enter would send.
+    /// A `\` before the cursor is part of the text on that chord.
+    pub fn can_send_keeping_backslash(&self) -> bool {
+        !self.textarea.text().trim().is_empty()
     }
 
     /// Handle a mouse event.

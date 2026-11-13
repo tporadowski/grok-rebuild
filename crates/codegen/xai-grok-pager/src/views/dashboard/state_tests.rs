@@ -2979,6 +2979,28 @@ fn multiline_mode_swaps_enter_and_shift_enter() {
     }
 }
 
+/// Multiline Shift+Enter and Alt+Enter dispatch a line that ends with a backslash.
+#[test]
+fn dashboard_multiline_shift_enter_sends_trailing_backslash() {
+    use crate::app::actions::Action;
+    let reg = crate::actions::ActionRegistry::defaults();
+    for mods in [KeyModifiers::SHIFT, KeyModifiers::ALT] {
+        let mut state = make_state_with_selection();
+        state.multiline_mode = true;
+        state.dispatch.set_text("hello\\");
+        let outcome = state.handle_key(&KeyEvent::new(KeyCode::Enter, mods), &reg);
+        match outcome {
+            InputOutcome::Action(Action::DashboardDispatch {
+                text,
+                attach: false,
+            }) => {
+                assert_eq!(text, "hello\\", "{mods:?}");
+            }
+            other => panic!("{mods:?} must send the backslash, got {other:?}"),
+        }
+    }
+}
+
 /// Multiline empty bare Enter inserts a newline (strict swap); Shift+Enter
 /// open/create/attach.
 #[test]

@@ -772,6 +772,32 @@
     }
 
     #[test]
+    fn try_send_keeping_backslash_sends_the_character() {
+        let mut pw = PromptWidget::new();
+        pw.textarea.insert_str("hello\\");
+        assert_eq!(pw.try_send_keeping_backslash(), Some("hello\\".into()));
+        assert_eq!(pw.textarea.text(), "hello\\");
+    }
+
+    #[test]
+    fn try_send_keeping_backslash_still_rejects_blank() {
+        let mut pw = PromptWidget::new();
+        assert_eq!(pw.try_send_keeping_backslash(), None);
+        pw.textarea.insert_str("   ");
+        assert_eq!(pw.try_send_keeping_backslash(), None);
+        assert_eq!(pw.textarea.text(), "   ");
+    }
+
+    #[test]
+    fn can_send_keeping_backslash_counts_the_character() {
+        let mut pw = PromptWidget::new();
+        assert!(!pw.can_send_keeping_backslash());
+        pw.textarea.insert_str("hello\\");
+        assert!(pw.can_send_keeping_backslash());
+        assert!(!pw.can_send());
+    }
+
+    #[test]
     fn paste_single_line_inline() {
         let mut pw = PromptWidget::new();
         assert_eq!(pw.handle_paste("hello world"), PromptEvent::Edited);

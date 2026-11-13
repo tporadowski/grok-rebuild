@@ -508,8 +508,10 @@ impl AgentView {
         // 2. Multiline mode: Shift+Enter (or Alt+Enter) sends.
         //    This must come BEFORE the action registry lookup so that Shift+Enter triggers send instead of inserting a newline
         //    Apple Terminal: bare Enter may actually be Cmd/Opt+Enter.
+        //    A `\` before the cursor stays in the text. Bare Enter outside multiline
+        //    mode still turns that character into a newline.
         if self.multiline_mode && crate::input::is_mod_enter(key) {
-            if let Some(text) = self.prompt.try_send() {
+            if let Some(text) = self.prompt.try_send_keeping_backslash() {
                 let action = self.prompt_input_mode.send_action(text);
                 self.prompt_input_mode = PromptInputMode::Normal;
                 return InputOutcome::Action(action);
@@ -1465,6 +1467,77 @@ mod delivered_super_enter_tests {
             "multiline SUPER+Enter must not send, got {outcome:?}"
         );
         assert_eq!(agent.prompt.text(), "hello\n");
+    }
+}
+
+#[cfg(test)]
+mod multiline_backslash_send_tests {
+    use super::*;
+    use crate::app::app_view::InputOutcome;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn agent_ending_in_backslash(multiline: bool) -> super::AgentView {
+        let mut agent = super::test_fixtures::make_agent();
+        agent.multiline_mode = multiline;
+        agent.prompt.set_text("");
+        agent.prompt.textarea.insert_str("hello\\");
+        agent
+    }
+
+    /// Shift+Enter and Alt+Enter in multiline mode send the line, backslash included.
+    #[test]
+    fn multiline_mod_enter_sends_line_ending_in_backslash() {
+        for mods in [KeyModifiers::SHIFT, KeyModifiers::ALT] {
+            let mut agent = agent_ending_in_backslash(true);
+            let outcome = agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Enter, mods));
+            assert!(
+                matches!(
+                    outcome,
+                    InputOutcome::Action(Action::SendPrompt(ref text)) if text == "hello\\"
+                ),
+                "{mods:?} must send the backslash, got {outcome:?}"
+            );
+            assert_eq!(agent.prompt.text(), "hello\\");
+        }
+    }
+
+    /// Multiline bare Enter inserts a newline and keeps the backslash.
+    #[test]
+    fn multiline_bare_enter_keeps_backslash_and_inserts_newline() {
+        let mut agent = agent_ending_in_backslash(true);
+        let outcome =
+            agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "multiline bare Enter must not send, got {outcome:?}"
+        );
+        assert_eq!(agent.prompt.text(), "hello\\\n");
+    }
+
+    /// Bare Enter outside multiline mode still replaces the backslash with a newline.
+    #[test]
+    fn single_line_enter_still_continues_trailing_backslash() {
+        let mut agent = agent_ending_in_backslash(false);
+        let outcome =
+            agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "bare Enter must continue, got {outcome:?}"
+        );
+        assert_eq!(agent.prompt.text(), "hello\n");
+    }
+
+    /// Outside multiline mode, Shift+Enter inserts a newline and keeps the backslash.
+    #[test]
+    fn single_line_shift_enter_keeps_backslash_and_inserts_newline() {
+        let mut agent = agent_ending_in_backslash(false);
+        let outcome =
+            agent.handle_prompt_key_for_test(&KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "Shift+Enter outside multiline must not send, got {outcome:?}"
+        );
+        assert_eq!(agent.prompt.text(), "hello\\\n");
     }
 }
 

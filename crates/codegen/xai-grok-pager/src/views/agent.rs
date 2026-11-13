@@ -805,7 +805,7 @@ pub(crate) fn build_hints(
             if let Some(key) = registry.key_for(ActionId::SendPrompt) {
                 if prompt.paste_element_at_cursor().is_some() {
                     hints.push(HintItem::new(key, "expand"));
-                } else if multiline_mode && prompt.can_send() {
+                } else if multiline_mode && prompt.can_send_keeping_backslash() {
                     hints.push(HintItem::new(newline_key, submit_label));
                 } else if prompt.can_send() {
                     hints.push(HintItem::new(key, submit_label));
