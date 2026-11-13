@@ -658,6 +658,7 @@ pub struct PagerArgs {
     #[arg(short = 's', long = "session-id", value_name = "SESSION_ID")]
     pub session_id: Option<String>,
     /// When resuming (`--resume` / `--continue`), create a new session ID instead of reusing the original (optionally set via `--session-id`).
+    /// Without a session to resume, this starts a new session.
     #[arg(long = "fork-session")]
     pub fork_session: bool,
     /// Start the session in a new git worktree, optionally named.

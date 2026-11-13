@@ -23,7 +23,7 @@ Grok processes the prompt, runs any necessary tools, and prints the result to st
 | `-p, --single <PROMPT>` | The prompt to send (or use `--prompt-json` / `--prompt-file`) |
 | `-m, --model <MODEL>`   | Model to use (e.g., `grok-4.6`)              |
 | `-s, --session-id <ID>` | Create a **new** session with this **UUID** (errors if invalid UUID or already in use under the target session directory; does not resume, use `-r`/`-c`) |
-| `--fork-session`        | With `-r`/`-c`, fork into a new session ID instead of appending to the original |
+| `--fork-session`        | With `-r`/`-c`, fork into a new session ID instead of appending to the original. Alone, it starts a new session |
 | `-r, --resume <ID_OR_TITLE>` | Resume an existing session by ID, or by title for the current directory, ignoring letter case (a sole manually renamed match wins among duplicates; remaining duplicates error with their IDs; UUID-shaped values always take the ID path; scripts should prefer IDs) |
 | `-c, --continue`        | Continue the most recent session in current directory  |
 | `--cwd <PATH>`          | Set working directory                                 |

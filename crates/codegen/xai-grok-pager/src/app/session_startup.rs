@@ -204,8 +204,6 @@ pub enum SessionStartupIntent {
 pub enum StartupFlagError {
     /// `--session-id` with resume, continue, or load without `--fork-session`.
     SessionIdRequiresFork,
-    /// `--fork-session` without resume, continue, or load.
-    ForkRequiresResumeOrContinue,
     /// `--fork-session` with `--worktree` (not supported yet).
     ForkWithWorktree,
 }
@@ -217,9 +215,6 @@ impl std::fmt::Display for StartupFlagError {
                     f,
                     "Error: --session-id can only be used with --continue or --resume if --fork-session is also specified."
                 )
-            }
-            Self::ForkRequiresResumeOrContinue => {
-                write!(f, "Error: --fork-session requires --resume or --continue.")
             }
             Self::ForkWithWorktree => {
                 write!(
@@ -254,8 +249,14 @@ pub fn session_startup_intent_from_flags(
     if f.fork_session && f.has_worktree {
         return Err(StartupFlagError::ForkWithWorktree);
     }
+    // No session to copy. The flag used to fail; it starts a new session.
     if f.fork_session && !has_resume_or_continue {
-        return Err(StartupFlagError::ForkRequiresResumeOrContinue);
+        return Ok(match f.session_id {
+            Some(sid) => SessionStartupIntent::NewWithId {
+                session_id: sid.to_owned(),
+            },
+            None => SessionStartupIntent::NewAuto,
+        });
     }
     if let Some(sid) = f.session_id {
         if has_resume_or_continue && !f.fork_session {
@@ -1608,11 +1609,24 @@ mod tests {
         );
     }
     #[test]
-    fn intent_fork_alone_errors() {
-        let err = parse(&["grok", "--fork-session"])
-            .session_startup_intent()
-            .unwrap_err();
-        assert_eq!(err, StartupFlagError::ForkRequiresResumeOrContinue);
+    fn intent_fork_alone_starts_a_new_session() {
+        assert_eq!(
+            parse(&["grok", "--fork-session"])
+                .session_startup_intent()
+                .unwrap(),
+            SessionStartupIntent::NewAuto
+        );
+    }
+    #[test]
+    fn intent_fork_with_only_a_session_id_starts_that_new_session() {
+        assert_eq!(
+            parse(&["grok", "--fork-session", "-s", "new"])
+                .session_startup_intent()
+                .unwrap(),
+            SessionStartupIntent::NewWithId {
+                session_id: "new".into(),
+            }
+        );
     }
     #[test]
     fn intent_fork_with_worktree_errors() {
