@@ -989,7 +989,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 1 | 0 | 24 | 10 | 2 |
 | W5 | Workflows and goals | 0 | 0 | 27 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 1 | 0 | 42 | 11 | 1 |
+| W8 | Sessions, resume, and dashboard | 0 | 0 | 43 | 11 | 1 |
 | W9 | Prompt, mentions, and keyboard | 3 | 0 | 39 | 6 | 0 |
 | W10 | Transcript, density, and copy | 2 | 0 | 45 | 4 | 0 |
 | W11 | Headless mode and tools | 2 | 0 | 36 | 7 | 0 |
@@ -1000,9 +1000,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 684. Pending: 44. Skipped: 9. Done: 498. Already: 109. Deferred: 24.
+Catalog rows: 684. Pending: 43. Skipped: 9. Done: 499. Already: 109. Deferred: 24.
 
-**Next:** `v81-x25`
+**Next:** `v81-x02`
 
 ## Waves
 
@@ -1036,7 +1036,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 1. Done: 42 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 11 (`v68-x02`, D-114; `v72-x04`, D-117). Deferred: 1 (`v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228).
+Pending: 0. Done: 43 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 11 (`v68-x02`, D-114; `v72-x04`, D-117). Deferred: 1 (`v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -1290,7 +1290,7 @@ id | status | wave | kind | flag | covered | note
 - v80-x08 | already | W8 | Bug Fixes |  |  | **Dashboard peek** now shows all options and keeps input visible on narrow terminals.
 - v80-x10 | already | W8 | Bug Fixes |  |  | Dashboard now uses compact session rows on narrow terminals (40-43 columns).
 - v81-x19 | deferred | W8 | Bug Fixes |  |  | **Resume picker** error messages now use consistent wording and punctuation.
-- v81-x25 | pending | W8 | Bug Fixes |  |  | Empty pickers now say what is empty ("No sessions in this directory", "No subfolders") and never overflow the border.
+- v81-x25 | done | W8 | Bug Fixes |  |  | Empty pickers now say what is empty ("No sessions in this directory", "No subfolders") and never overflow the border.
 - v82-x04 | already | W8 | Bug Fixes |  |  | **Queued prompt edits** keep your composer draft when the queued row disappears under an open question.
 - v84-x06 | already | W8 | Bug Fixes |  |  | **Send-now** and double-Enter no longer cancel a turn that the first press just started.
 - v50-f05 | done | W9 | Features |  |  | **Compact mode** now hides the dock (or tasks pane) the same way Ctrl+G does.

@@ -171,6 +171,10 @@ pub fn compute_scroll_offset(
 const SEARCH_BAR_LABEL: &str = " search: ";
 const SEARCH_BAR_TRAILING_GAP: u16 = 1;
 
+/// Generic empty-list line. Two leading spaces keep the old row indent.
+/// Hosts that know what is empty replace [`PickerState::empty_label`] before paint (`v81-x25`).
+pub(crate) const PICKER_EMPTY_LABEL: &str = "  No matches";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SearchBarLayout {
     render_width: u16,
@@ -1508,6 +1512,8 @@ pub struct PickerState {
     /// Selectable rows that fit in the last painted list area.
     /// Page Up/Page Down step this many entries. `0` until the first paint, which steps one row.
     pub visible_rows: usize,
+    /// Line drawn when the entry list is empty. Clipped to the content width so it cannot paint the border.
+    pub empty_label: &'static str,
 }
 
 impl Default for PickerState {
@@ -1529,6 +1535,7 @@ impl Default for PickerState {
             tabs_focused: false,
             selection_hidden: false,
             visible_rows: 0,
+            empty_label: PICKER_EMPTY_LABEL,
         }
     }
 }
@@ -1903,6 +1910,29 @@ pub fn render_picker_in_modal_inner(
     });
 }
 
+/// Paint `message` on the first content row, truncated to `area.width` display columns.
+fn paint_empty_picker_line(
+    buf: &mut Buffer,
+    area: Rect,
+    theme: &Theme,
+    bg: Option<ratatui::style::Color>,
+    message: &str,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let msg_style = Style::default()
+        .fg(theme.gray_dim)
+        .bg(picker_base_bg(bg, theme));
+    let shown = truncate_str(message, area.width as usize);
+    buf.set_span(
+        area.x,
+        area.y,
+        &Span::styled(shown.as_str(), msg_style),
+        area.width,
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_picker_content_inner(
     buf: &mut Buffer,
@@ -1946,12 +1976,9 @@ fn render_picker_content_inner(
         return empty_hit;
     }
 
-    // Empty state.
+    // Empty state. Clip to the content width: `set_string` would paint through the border (`v81-x25`).
     if entries.is_empty() {
-        let msg_style = Style::default()
-            .fg(theme.gray_dim)
-            .bg(picker_base_bg(bg, theme));
-        buf.set_string(content_area.x, content_area.y, "  No matches", msg_style);
+        paint_empty_picker_line(buf, content_area, theme, bg, state.empty_label);
         return empty_hit;
     }
 
@@ -3749,6 +3776,93 @@ mod tests {
             collapsible: false,
             underline_last_desc: false,
         }
+    }
+
+    /// An empty line longer than the content rect is cut at that rect. Cells outside it stay put,
+    /// which is the border when the rect is the modal interior (`v81-x25`).
+    #[test]
+    fn empty_picker_line_stays_inside_the_content_width() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        fn row_symbols(buf: &Buffer, y: u16, from: u16, to: u16) -> String {
+            (from..to).fold(String::new(), |mut text, x| {
+                if let Some(cell) = buf.cell((x, y)) {
+                    text.push_str(cell.symbol());
+                }
+                text
+            })
+        }
+
+        let theme = Theme::current();
+        let paint = |label: &'static str, width: u16| -> (String, String) {
+            let buf_area = Rect::new(0, 0, 40, 3);
+            let mut buf = Buffer::empty(buf_area);
+            let sentinel = "│".repeat(buf_area.width as usize);
+            buf.set_string(0, 1, &sentinel, ratatui::style::Style::default());
+            let content = Rect::new(2, 1, width, 1);
+            let mut state = PickerState::default();
+            state.empty_label = label;
+            render_picker_content(
+                &mut buf,
+                content,
+                &theme,
+                &mut state,
+                &[],
+                &[],
+                &[],
+                None,
+                false,
+            );
+            let inside = row_symbols(&buf, 1, 2, 2 + width);
+            let outside = row_symbols(&buf, 1, 2 + width, buf_area.width);
+            let left = row_symbols(&buf, 1, 0, 2);
+            assert_eq!(left, "││", "{label}");
+            assert!(
+                outside.chars().all(|ch| ch == '│'),
+                "{label} painted past the content width: outside={outside:?} inside={inside:?}"
+            );
+            (inside, outside)
+        };
+
+        let (sessions, _) = paint("No sessions in this directory", 10);
+        assert!(
+            sessions.starts_with("No sess"),
+            "narrow session line: {sessions:?}"
+        );
+        assert!(
+            sessions.contains('\u{2026}'),
+            "a clipped line keeps an ellipsis: {sessions:?}"
+        );
+        assert_eq!(unicode_width::UnicodeWidthStr::width(sessions.as_str()), 10);
+
+        let (folders, _) = paint("No subfolders", 8);
+        assert!(
+            folders.starts_with("No sub"),
+            "narrow subfolder line: {folders:?}"
+        );
+        assert!(folders.contains('\u{2026}'), "{folders:?}");
+        assert_eq!(unicode_width::UnicodeWidthStr::width(folders.as_str()), 8);
+
+        let wide = Rect::new(0, 0, 40, 2);
+        let mut buf = Buffer::empty(wide);
+        let mut state = PickerState::default();
+        render_picker_content(
+            &mut buf,
+            wide,
+            &theme,
+            &mut state,
+            &[],
+            &[],
+            &[],
+            None,
+            false,
+        );
+        let text = row_symbols(&buf, 0, 0, wide.width);
+        assert!(
+            text.contains("No matches"),
+            "other empty pickers keep the generic line, got {text:?}"
+        );
     }
 
     #[test]

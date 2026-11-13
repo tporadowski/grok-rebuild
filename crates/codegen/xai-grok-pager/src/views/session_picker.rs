@@ -3,7 +3,9 @@
 //! Centralises data types, entry building, and index-mapping logic used by both the welcome-screen session picker
 //! (`welcome/mod.rs` and `app_view.rs`) and the modal session picker (`ActiveModal::SessionPicker` in `agent_view.rs`).
 use crate::app::app_view::SessionPickerEntry;
-use crate::views::picker::{PickerEntry, PickerField, PickerRow, PickerState};
+use crate::views::picker::{
+    PICKER_EMPTY_LABEL, PickerEntry, PickerField, PickerRow, PickerState,
+};
 use indexmap::IndexMap;
 use std::collections::HashSet;
 /// Offset added to content-hit indices in the picker `expanded` set so they don't collide with fuzzy-entry indices.
@@ -190,6 +192,23 @@ pub(crate) fn loading_spinner_active(
                     && source_filter.matches(&entry.source, entry.session_kind.as_deref())
             })
         })
+}
+
+/// Empty-list line for a session picker (`v81-x25`).
+///
+/// A browse that loaded nothing says the directory is empty. A server search that came back
+/// empty, or a local filter over rows that do exist, keeps the generic miss line.
+pub(crate) fn session_picker_empty_label(
+    sessions: Option<&[SessionPickerEntry]>,
+    entries_query: Option<&str>,
+) -> &'static str {
+    let list_empty = sessions.is_none_or(|sessions| sessions.is_empty());
+    let server_search = entries_query.is_some_and(|query| !query.trim().is_empty());
+    if list_empty && !server_search {
+        "No sessions in this directory"
+    } else {
+        PICKER_EMPTY_LABEL
+    }
 }
 /// Filter session entries by native, headless, remote, or external source. Default is
 /// [`Self::Grok`]: native Grok sessions only (local / remote / conversation).
@@ -1276,6 +1295,125 @@ mod tests {
             "the resume modal must show how many sessions are loaded, got {painted}"
         );
     }
+
+    fn paint_resume(
+        area: ratatui::layout::Rect,
+        sessions: Option<&[SessionPickerEntry]>,
+        query: &str,
+        entries_query: Option<&str>,
+    ) -> (ratatui::buffer::Buffer, String) {
+        use ratatui::buffer::Buffer;
+        let mut buf = Buffer::empty(area);
+        let theme = crate::theme::Theme::default();
+        let mut state = PickerState::default();
+        if !query.is_empty() {
+            state.set_query(query);
+        }
+        let mut window = crate::views::modal_window::ModalWindowState::new();
+        let mut ctx = crate::views::session_picker_surface::SessionPickerRenderCtx {
+            state: &mut state,
+            sessions,
+            cwd: std::path::Path::new("/repo"),
+            loading: false,
+            pending_hint: None,
+            shortcuts_area: None,
+            content_results: None,
+            content_loading: false,
+            entries_query,
+            tick: 0,
+            grouped: false,
+            source_filter: SourceFilter::Grok,
+            pending_delete: false,
+            chat_mode: false,
+        };
+        let _ = crate::views::session_picker_surface::render_session_picker(
+            area,
+            &mut buf,
+            &theme,
+            crate::views::session_picker_surface::SessionPickerRenderMode::Modal {
+                window: &mut window,
+                title: "Resume session",
+            },
+            &mut ctx,
+        );
+        let painted: String = (area.top()..area.bottom())
+            .map(|y| {
+                (area.left()..area.right())
+                    .filter_map(|x| buf.cell((x, y)))
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        (buf, painted)
+    }
+
+    /// An empty resume list names the directory. A search miss does not. A narrow box keeps the border (`v81-x25`).
+    #[test]
+    fn empty_resume_picker_names_the_directory_and_stays_inside_the_border() {
+        use ratatui::layout::Rect;
+        let wide = Rect::new(0, 0, 100, 30);
+        let (_, empty) = paint_resume(wide, None, "", None);
+        assert!(
+            empty.contains("No sessions in this directory"),
+            "empty browse must name the directory, got {empty}"
+        );
+        assert!(
+            !empty.contains("No matches"),
+            "an empty directory is not a search miss, got {empty}"
+        );
+
+        let sessions = vec![make_entry("alpha", "repo")];
+        let (_, missed) = paint_resume(wide, Some(&sessions), "zzzz-absent", None);
+        assert!(
+            missed.contains("No matches"),
+            "a query over real rows stays a miss, got {missed}"
+        );
+        assert!(
+            !missed.contains("No sessions in this directory"),
+            "a filtered list must not claim the directory is empty, got {missed}"
+        );
+
+        let none: &[SessionPickerEntry] = &[];
+        let (_, searched) = paint_resume(wide, Some(none), "", Some("roadmap"));
+        assert!(
+            searched.contains("No matches"),
+            "a server search that returned nothing stays a miss, got {searched}"
+        );
+        assert!(!searched.contains("No sessions in this directory"), "{searched}");
+
+        let narrow = Rect::new(0, 0, 30, 20);
+        let (buf, text) = paint_resume(narrow, None, "", None);
+        assert!(
+            text.contains("No sessions"),
+            "the narrow line still says sessions, got {text}"
+        );
+        assert!(
+            !text.contains("No sessions in this directory"),
+            "the full sentence does not fit this box, got {text}"
+        );
+        assert!(
+            text.contains('\u{2026}'),
+            "the clipped line keeps an ellipsis, got {text}"
+        );
+        let right = narrow.width.saturating_sub(1);
+        let msg_y = (narrow.top()..narrow.bottom()).find(|&y| {
+            let row: String = (narrow.left()..narrow.right())
+                .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol().to_string()))
+                .collect();
+            row.contains("No sess")
+        });
+        let msg_y = msg_y.unwrap_or_else(|| panic!("message row missing:\n{text}"));
+        let border = buf
+            .cell((right, msg_y))
+            .map(|cell| cell.symbol())
+            .unwrap_or("");
+        assert_eq!(
+            border, "│",
+            "row {msg_y} painted over the right border ({border:?}):\n{text}"
+        );
+    }
+
     fn make_entry(id: &str, repo: &str) -> SessionPickerEntry {
         SessionPickerEntry {
             id: id.into(),

@@ -873,6 +873,17 @@ impl LocationPickerState {
         self.picker.scroll_offset = None;
     }
 
+    /// Empty-list line. A directory that was listed and has no children says so.
+    /// A prefix that matches nothing, or the recents list, keeps the generic miss line (`v81-x25`).
+    pub(crate) fn empty_label(&self) -> &'static str {
+        if self.query_is_path() && self.dir_listing_parent.is_some() && self.dir_listing.is_empty()
+        {
+            "No subfolders"
+        } else {
+            crate::views::picker::PICKER_EMPTY_LABEL
+        }
+    }
+
     /// The effective list shown and selected from, given the current query. In path mode, the cached
     /// subdirs prefix-matched against the partial (dot-directories hidden unless the partial starts
     /// with `.`); in recents mode, the static list fuzzy-filtered by substring.

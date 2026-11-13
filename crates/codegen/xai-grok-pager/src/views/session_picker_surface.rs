@@ -103,6 +103,10 @@ pub(crate) fn render_session_picker(
     mode: SessionPickerRenderMode<'_>,
     ctx: &mut SessionPickerRenderCtx<'_>,
 ) -> crate::views::picker::PickerHitAreas {
+    ctx.state.empty_label = crate::views::session_picker::session_picker_empty_label(
+        ctx.sessions,
+        ctx.entries_query,
+    );
     match mode {
         SessionPickerRenderMode::Fullscreen => {
             crate::views::welcome::render_session_picker_body(area, buf, theme, ctx)

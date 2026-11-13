@@ -3773,6 +3773,71 @@ fn render_location_picker_echoes_typed_path() {
     );
 }
 
+struct RemoveDir(std::path::PathBuf);
+
+impl Drop for RemoveDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn scratch_dir(name: &str) -> RemoveDir {
+    let dir = std::env::temp_dir().join(format!("grok-v81-x25-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    RemoveDir(dir)
+}
+
+/// A listed directory with no children says "No subfolders". A prefix miss stays "No matches" (`v81-x25`).
+#[test]
+fn location_picker_names_an_empty_subfolder_list() {
+    use super::super::state::LocationPickerState;
+    let theme = Theme::current();
+    let area = Rect::new(0, 0, 80, 24);
+
+    let empty = scratch_dir("empty");
+    let mut modal = LocationPickerState::new(
+        vec![],
+        empty.0.clone(),
+        std::collections::HashMap::new(),
+    );
+    modal.picker.set_query(format!("{}/", empty.0.display()));
+    modal.refresh_suggestions();
+    assert_eq!(modal.empty_label(), "No subfolders");
+    let mut buf = Buffer::empty(area);
+    render_location_picker(&mut buf, area, &theme, &mut modal);
+    let content = buf_to_text(&buf);
+    assert!(
+        content.contains("No subfolders"),
+        "an empty directory must say so, got: {content}"
+    );
+    assert!(
+        !content.contains("No matches"),
+        "an empty directory is not a search miss, got: {content}"
+    );
+
+    let parent = scratch_dir("prefix");
+    std::fs::create_dir_all(parent.0.join("alpha")).expect("child dir");
+    let mut modal = LocationPickerState::new(
+        vec![],
+        parent.0.clone(),
+        std::collections::HashMap::new(),
+    );
+    modal.picker.set_query(format!("{}/zzz", parent.0.display()));
+    modal.refresh_suggestions();
+    let mut buf = Buffer::empty(area);
+    render_location_picker(&mut buf, area, &theme, &mut modal);
+    let content = buf_to_text(&buf);
+    assert!(
+        content.contains("No matches"),
+        "a prefix with no child must stay a miss, got: {content}"
+    );
+    assert!(
+        !content.contains("No subfolders"),
+        "the directory has children, got: {content}"
+    );
+}
+
 /// Footer chips use the shared `ShortcutsBar` styling (`Key:label` separated by ` │ `).
 #[test]
 fn render_footer_uses_shared_shortcuts_bar_styling() {

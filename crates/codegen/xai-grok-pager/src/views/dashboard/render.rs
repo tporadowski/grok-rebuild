@@ -744,6 +744,8 @@ fn render_location_picker(
         })
         .collect();
 
+    let empty_label = modal.empty_label();
+    modal.picker.empty_label = empty_label;
     let hits = render_picker_content(
         buf,
         content_area,

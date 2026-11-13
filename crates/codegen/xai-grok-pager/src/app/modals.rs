@@ -2143,6 +2143,10 @@ impl AgentView {
                         entries_area.y += 1;
                         entries_area.height -= 1;
                     }
+                    state.empty_label = crate::views::session_picker::session_picker_empty_label(
+                        entries.as_deref(),
+                        entries_query.as_deref(),
+                    );
                     let content_hit = picker::render_picker_content_with_scrollbar_x(
                         buf,
                         entries_area,
