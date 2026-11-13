@@ -1,5 +1,25 @@
 # Changelog
 
+# 1.0.84 — 2026-11-12
+
+## Features
+
+- **Open /model and /context-window dropdowns** now update their rows and markers immediately when the session's model list changes.
+- **Model picker** now updates its list live when your account models change or another client switches the model.
+
+## Bug Fixes
+
+- **Fixed setting save ordering** so a newer pick is not overwritten by a delayed older write.
+- **grok update** now explains when it ran from a different copy and what to do next.
+- **API-key model note** now appears only in the first list the user actually sees and does not reappear under modals.
+- **Fixed a bug** where pressing Ctrl+N on a mid-session sign-in screen could open an extra session after you later signed in.
+- **Shift+Enter** (or Alt+Enter) in multiline mode now correctly sends a line that ends with a backslash.
+- **Send-now** and double-Enter no longer cancel a turn that the first press just started.
+- Fixed a crash when typing long answers on short terminals.
+- Queued follow-ups are no longer lost when a permission prompt is rejected or cancelled.
+- **Double-tapping Ctrl+O** in minimal mode on Apple Terminal no longer cancels the just-sent prompt.
+
+
 # 1.0.83 — 2026-11-11
 
 ## Bug Fixes
