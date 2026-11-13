@@ -1062,7 +1062,7 @@ impl TasksPane {
                     let line = Line::from(vec![
                         Span::styled("No running tasks. Press ", muted),
                         Span::styled("h", key_style),
-                        Span::styled(" to show all.", muted),
+                        Span::styled(" to show done.", muted),
                     ]);
                     buf.set_line(inner.x, inner.y, &line, inner.width);
                 }
@@ -2923,5 +2923,56 @@ mod tests {
             }
             _ => panic!("expected a workflow entry"),
         }
+    }
+
+    fn row_text(buf: &Buffer, y: u16) -> String {
+        let mut row = String::new();
+        for x in 0..buf.area.width {
+            if let Some(cell) = buf.cell((x, y)) {
+                row.push_str(cell.symbol());
+            }
+        }
+        row
+    }
+
+    #[test]
+    fn empty_tasks_pane_says_show_done() {
+        let _theme = crate::theme::cache::pin_theme();
+        let mut pane = TasksPane::new();
+        let area = Rect::new(0, 0, 80, 3);
+        let layout = crate::appearance::LayoutConfig::default();
+        let mut buf = Buffer::empty(area);
+        pane.render(
+            area,
+            &mut buf,
+            false,
+            &layout,
+            &BTreeMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let running = row_text(&buf, 0);
+        assert!(
+            running.contains("No running tasks. Press h to show done."),
+            "{running:?}"
+        );
+        assert!(!running.contains("show all"), "{running:?}");
+        let h_at = running.find('h').expect("the h key");
+        let cell = buf.cell((h_at as u16, 0)).expect("h cell");
+        assert!(cell.modifier.contains(Modifier::BOLD), "the h key stays bold");
+
+        pane.show_done = true;
+        let mut buf = Buffer::empty(area);
+        pane.render(
+            area,
+            &mut buf,
+            false,
+            &layout,
+            &BTreeMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let done = row_text(&buf, 0);
+        assert!(done.contains("No tasks or agents."), "{done:?}");
     }
 }
