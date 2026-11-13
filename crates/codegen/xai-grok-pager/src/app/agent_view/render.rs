@@ -4854,14 +4854,14 @@ mod overlay_cycle_hint_tests {
     #[test]
     fn settled_workspace_overlay_advertises_archive() {
         let text = draw_overlay_footer(false, true, false, true);
-        assert!(text.contains("Ctrl+x:archive"), "{text}");
-        assert!(!text.contains("Ctrl+x:stop"), "{text}");
+        assert!(text.contains("Ctrl+X:archive"), "{text}");
+        assert!(!text.contains("Ctrl+X:stop"), "{text}");
     }
     #[test]
     fn unbound_workspace_overlay_advertises_close() {
         let text = draw_overlay_footer(false, true, false, false);
-        assert!(text.contains("Ctrl+x:close"), "{text}");
-        assert!(!text.contains("Ctrl+x:archive"), "{text}");
+        assert!(text.contains("Ctrl+X:close"), "{text}");
+        assert!(!text.contains("Ctrl+X:archive"), "{text}");
     }
     #[test]
     fn workspace_cheatsheet_uses_the_same_ctrl_x_action_as_the_footer() {
@@ -4922,8 +4922,8 @@ mod overlay_cycle_hint_tests {
                 .join("\n")
         };
         let text = render(None);
-        assert!(text.contains("Ctrl+x:archive"), "{text}");
-        assert!(!text.contains("Ctrl+x:stop"), "{text}");
+        assert!(text.contains("Ctrl+X:archive"), "{text}");
+        assert!(!text.contains("Ctrl+X:stop"), "{text}");
         let confirming = render(Some(crate::views::shortcuts_bar::PendingHint {
             shortcut: crate::key!('x', CONTROL),
             label: "archive",
@@ -4936,9 +4936,9 @@ mod overlay_cycle_hint_tests {
     #[test]
     fn busy_workspace_overlay_and_v1_keep_stop_copy() {
         let busy_v2 = draw_overlay_footer(false, true, true, true);
-        assert!(busy_v2.contains("Ctrl+x:stop"), "{busy_v2}");
+        assert!(busy_v2.contains("Ctrl+X:stop"), "{busy_v2}");
         let settled_v1 = draw_overlay_footer(false, false, false, true);
-        assert!(settled_v1.contains("Ctrl+x:stop"), "{settled_v1}");
+        assert!(settled_v1.contains("Ctrl+X:stop"), "{settled_v1}");
     }
 }
 #[cfg(test)]

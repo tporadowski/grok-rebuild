@@ -89,7 +89,7 @@ async fn bash_full_output_double_click_fold_pty() {
     // 2. Double-click folds; a second double-click restores the full output.
     harness.inject_keys(b"\t").expect("focus scrollback");
     harness
-        .wait_for_text("Ctrl+e:", Duration::from_secs(10))
+        .wait_for_text("Ctrl+E:", Duration::from_secs(10))
         .expect("scrollback owns keys");
     // Retry the fold gesture: a single SGR burst can miss under load
     // The header cell may have moved between locate and inject, or multi-click state from an earlier accidental click may still be open

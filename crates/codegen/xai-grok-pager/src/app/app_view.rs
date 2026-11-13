@@ -4306,7 +4306,7 @@ fn dispatch_menu_action(
         has_claude_import,
         hide_worktree,
         show_changelog_action,
-        "ctrl+q",
+        "Ctrl+Q",
     );
     match rows.get(index).map(|(_, label)| *label) {
         Some("Import Claude settings") => InputOutcome::Action(Action::ImportClaudeSettings),

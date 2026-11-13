@@ -109,7 +109,7 @@ fn build_entries_lists_prompt_stash_with_ctrl_s_and_alt_s() {
         .expect("StashPrompt must be listed in the shortcuts window");
 
     assert!(!dimmed, "stash must be lit while the prompt is focused");
-    assert_eq!(hint_key_pretty(item), format!("Ctrl+s / {alt}+s"));
+    assert_eq!(hint_key_pretty(item), format!("Ctrl+S / {alt}+S"));
 }
 
 #[test]
@@ -1858,7 +1858,13 @@ fn build_entries_surfaces_interject_ctrl_i_fallback() {
     let registry = ActionRegistry::defaults();
     let entries = build_entries(&all_contexts(), &registry, true);
     // Action label is compact "send now" wording (interject under the hood).
-    assert_cheatsheet_row_has_key(&entries, "send now", "Ctrl+i");
+    // VS Code-family embeds advertise Ctrl+L only. Other hosts keep Ctrl+I as the alt.
+    let expected = if crate::terminal::terminal_context().brand.is_vscode_family() {
+        "Ctrl+L"
+    } else {
+        "Ctrl+I"
+    };
+    assert_cheatsheet_row_has_key(&entries, "send now", expected);
 }
 
 #[test]

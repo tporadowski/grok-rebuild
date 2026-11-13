@@ -131,7 +131,7 @@ async fn verb_group_fold_expand_collapse_pty() {
     // scrollback owns keys.
     harness.inject_keys(b"\t").expect("focus scrollback");
     harness
-        .wait_for_text("Ctrl+e:", Duration::from_secs(10))
+        .wait_for_text("Ctrl+E:", Duration::from_secs(10))
         .unwrap_or_else(|_| {
             panic!(
                 "scrollback must own keys before mouse interaction; got:\n{}",
@@ -194,7 +194,7 @@ async fn verb_group_fold_expand_collapse_pty() {
     // Prove the scrollback owns keys, then Right: it must open MEMBER 0's own block (not re-toggle the group)
     // Opening drops member 0 from the run, so the group dissolves while its body is on show
     harness
-        .wait_for_text("Ctrl+e:", Duration::from_secs(10))
+        .wait_for_text("Ctrl+E:", Duration::from_secs(10))
         .unwrap_or_else(|_| {
             panic!(
                 "scrollback must own keys before Right; got:\n{}",

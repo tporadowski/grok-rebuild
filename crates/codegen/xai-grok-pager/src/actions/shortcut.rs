@@ -10,7 +10,7 @@ use crate::input::key::KeyShortcut;
 use crate::key;
 
 /// Shown in Settings and accepted (any case) as "restore the compiled default".
-pub const COPY_MARKDOWN_SHORTCUT_DEFAULT: &str = "Ctrl+Shift+y";
+pub const COPY_MARKDOWN_SHORTCUT_DEFAULT: &str = "Ctrl+Shift+Y";
 
 /// What a config / settings value means for the copy-markdown chord.
 #[derive(Debug, Clone, PartialEq, Eq)]

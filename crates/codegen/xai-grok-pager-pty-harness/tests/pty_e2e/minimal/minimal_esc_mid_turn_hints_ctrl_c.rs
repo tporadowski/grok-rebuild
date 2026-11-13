@@ -31,7 +31,7 @@ async fn minimal_esc_mid_turn_hints_ctrl_c() {
 
     // The hint may be committed above the pinned viewport, so check the full text, not just the screen
     harness
-        .wait_for_full_text("Press Ctrl+c to cancel the turn", Duration::from_secs(10))
+        .wait_for_full_text("Press Ctrl+C to cancel the turn", Duration::from_secs(10))
         .expect("mid-turn Esc must commit the Ctrl+C hint");
     harness.update(Duration::from_millis(600));
     assert!(

@@ -68,7 +68,7 @@ async fn agent_execute_full_output_double_click_fold_pty() {
 
     harness.inject_keys(b"\t").expect("focus scrollback");
     harness
-        .wait_for_text("Ctrl+e:", Duration::from_secs(10))
+        .wait_for_text("Ctrl+E:", Duration::from_secs(10))
         .expect("scrollback owns keys");
     double_click_text(&mut harness, DESCRIPTION);
     harness

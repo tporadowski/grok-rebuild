@@ -1772,13 +1772,13 @@ pub fn render_question_scrollbar(
     None
 }
 
-/// Render a truncation indicator line: `... Ctrl-F to expand`.
+/// Render a truncation indicator line: `... Ctrl+F to expand`.
 fn render_truncation_indicator(buf: &mut Buffer, x: u16, y: u16, width: u16, theme: &Theme) {
     let style = Style::default().fg(theme.gray).bg(theme.bg_light);
     let indicator = Line::from(vec![
         Span::styled("... ", style),
         Span::styled(
-            "Ctrl-F",
+            "Ctrl+F",
             Style::default().fg(theme.accent_user).bg(theme.bg_light),
         ),
         Span::styled(" to expand", style),

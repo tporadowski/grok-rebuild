@@ -4361,7 +4361,7 @@ fn esc_mid_turn_hints_ctrl_c_instead_of_cancelling() {
             );
         } else {
             assert_eq!(
-                Some("Press Ctrl+c to cancel the turn"),
+                Some("Press Ctrl+C to cancel the turn"),
                 app.agents
                     .get(&id)
                     .unwrap_or_else(|| panic!("missing map entry"))
@@ -4405,7 +4405,7 @@ fn esc_during_compact_or_wake_turn_hints_instead_of_cancelling() {
             .is_compact_running()
     );
     assert_eq!(
-        Some("Press Ctrl+c to cancel the turn"),
+        Some("Press Ctrl+C to cancel the turn"),
         app.agents
             .get(&id)
             .unwrap_or_else(|| panic!("missing map entry"))
@@ -4446,7 +4446,7 @@ fn esc_during_compact_or_wake_turn_hints_instead_of_cancelling() {
         "the wake turn keeps streaming"
     );
     assert_eq!(
-        Some("Press Ctrl+c to cancel the turn"),
+        Some("Press Ctrl+C to cancel the turn"),
         app.agents
             .get(&id)
             .unwrap_or_else(|| panic!("missing map entry"))
@@ -7144,7 +7144,7 @@ fn overlay_esc_running_turn_non_vim_hints_not_backout() {
             .is_none()
     );
     assert_eq!(
-        Some("Press Ctrl+c to cancel the turn"),
+        Some("Press Ctrl+C to cancel the turn"),
         app.agents
             .get(&id)
             .unwrap_or_else(|| panic!("missing map entry"))

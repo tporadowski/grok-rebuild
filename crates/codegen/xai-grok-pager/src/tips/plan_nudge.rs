@@ -31,13 +31,11 @@ const PLANNING_KEYWORDS: &[&str] = &[
     "strategy",
 ];
 
-/// Plan-mode chord for the tip copy: always `shift+tab`.
+/// Plan-mode chord for the tip copy: always `Shift+Tab`.
 /// Derived from the real `CycleMode` binding (not a literal), so it can't drift.
 /// `shift_tab_keys()[0]` is one of the encodings [`crate::input::key::is_shift_tab`] accepts.
 fn plan_chord_label() -> String {
-    crate::input::key::shift_tab_keys()[0]
-        .display()
-        .to_ascii_lowercase()
+    crate::input::key::shift_tab_keys()[0].display()
 }
 
 /// Build the "Planning? Check out plan mode via {chord}" tip, capped at [`PLAN_NUDGE_SEEN_CAP`] shows per session (in-memory).
@@ -391,8 +389,8 @@ mod tests {
 
     #[test]
     fn plan_nudge_chord_is_shift_tab() {
-        // Always shift+tab; derived from the real binding so it can't drift
-        assert_eq!(plan_chord_label(), "shift+tab");
+        // Always Shift+Tab; derived from the real binding so it can't drift
+        assert_eq!(plan_chord_label(), "Shift+Tab");
         // The advertised chord is genuinely one is_shift_tab accepts.
         assert!(crate::input::key::is_shift_tab(
             &crossterm::event::KeyEvent::new(

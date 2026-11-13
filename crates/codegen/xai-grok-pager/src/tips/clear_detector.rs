@@ -28,13 +28,11 @@ pub(crate) fn bounded_draft_len(text: &str) -> usize {
     text.chars().take(FIRE_PEAK_LEN.saturating_add(1)).count()
 }
 
-/// Undo chord for the tip copy: always `ctrl+z`.
+/// Undo chord for the tip copy: always `Ctrl+Z`.
 /// Most macOS terminals capture Cmd by default and don't forward Cmd+Z to a raw-mode TUI, so Ctrl+Z is the chord delivered on every platform.
 /// The label is still derived from the real binding (not a literal): [`crate::input::key::is_undo_key`] accepts it, so it can't drift.
 fn undo_chord_label() -> String {
-    KeyShortcut::new(KeyCode::Char('z'), KeyModifiers::CONTROL)
-        .display()
-        .to_ascii_lowercase()
+    KeyShortcut::new(KeyCode::Char('z'), KeyModifiers::CONTROL).display()
 }
 
 /// Build the "Input cleared · {chord} to undo" tip; it stops showing after [`UNDO_TIP_SEEN_CAP`] shows in a session (counted in memory).
@@ -176,8 +174,8 @@ mod tests {
 
     #[test]
     fn undo_tip_chord_is_ctrl_z() {
-        // The label pins ctrl+z, the chord terminals actually deliver on every platform
-        assert_eq!(undo_chord_label(), "ctrl+z");
+        // The label pins Ctrl+Z, the chord terminals actually deliver on every platform
+        assert_eq!(undo_chord_label(), "Ctrl+Z");
         // The advertised chord is one is_undo_key accepts, so the label can't drift from the binding it documents
         assert!(crate::input::key::is_undo_key(
             &crossterm::event::KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL,)

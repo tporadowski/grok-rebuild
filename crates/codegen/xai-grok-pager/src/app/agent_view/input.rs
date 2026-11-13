@@ -2385,7 +2385,7 @@ mod mid_turn_esc_hint_tests {
                 matches!(
                     agent.scrollback.entry(i).map(|e| &e.block),
                     Some(RenderBlock::System(system))
-                        if system.text == "Press Ctrl+c to cancel the turn"
+                        if system.text == "Press Ctrl+C to cancel the turn"
                 )
             })
             .count()
@@ -2431,7 +2431,7 @@ mod mid_turn_esc_hint_tests {
                 );
             } else {
                 assert_eq!(
-                    Some("Press Ctrl+c to cancel the turn"),
+                    Some("Press Ctrl+C to cancel the turn"),
                     agent.active_toast_message(),
                     "vim={vim_mode} pane={pane:?}"
                 );

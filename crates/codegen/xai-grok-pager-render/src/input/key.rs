@@ -136,10 +136,19 @@ impl KeyShortcut {
         Ok(())
     }
 
+    /// A modified letter is title case (`Ctrl+C`). A bare letter stays lowercase (`q`, `j`).
+    fn letter_for_display(&self, c: char) -> char {
+        if c.is_ascii_alphabetic() && !self.modifiers.is_empty() {
+            c.to_ascii_uppercase()
+        } else {
+            c.to_ascii_lowercase()
+        }
+    }
+
     fn write_code_display(&self, f: &mut impl fmt::Write) -> fmt::Result {
         match self.code {
             KeyCode::Char(' ') => f.write_str("Space"),
-            KeyCode::Char(c) => write!(f, "{}", c.to_ascii_lowercase()),
+            KeyCode::Char(c) => write!(f, "{}", self.letter_for_display(c)),
             KeyCode::Enter => f.write_str("Enter"),
             KeyCode::Esc => f.write_str("Esc"),
             KeyCode::Tab => f.write_str("Tab"),
@@ -196,7 +205,7 @@ impl KeyShortcut {
         }
         parts.push(match self.code {
             KeyCode::Char(' ') => "Space".into(),
-            KeyCode::Char(c) => c.to_ascii_lowercase().to_string(),
+            KeyCode::Char(c) => self.letter_for_display(c).to_string(),
             KeyCode::Enter => "Enter".into(),
             KeyCode::Esc => "Esc".into(),
             KeyCode::Tab | KeyCode::BackTab => "Tab".into(),
@@ -654,16 +663,16 @@ mod tests {
     #[test]
     fn display_formatting() {
         assert_eq!(key!('q').to_string(), "q");
-        assert_eq!(key!('c', CONTROL).to_string(), "Ctrl+c");
+        assert_eq!(key!('c', CONTROL).to_string(), "Ctrl+C");
         assert_eq!(key!(Enter).to_string(), "Enter");
         if cfg!(target_os = "macos") {
-            assert_eq!(key!('x', ALT).to_string(), "Opt+x");
+            assert_eq!(key!('x', ALT).to_string(), "Opt+X");
         } else {
-            assert_eq!(key!('x', ALT).to_string(), "Alt+x");
+            assert_eq!(key!('x', ALT).to_string(), "Alt+X");
         }
-        assert_eq!(key!('n', CONTROL | SHIFT).to_string(), "Ctrl+Shift+n");
-        assert_eq!(key!('h', CONTROL | SHIFT).to_string(), "Ctrl+Shift+h");
-        assert_eq!(key!('g', SHIFT).to_string(), "Shift+g");
+        assert_eq!(key!('n', CONTROL | SHIFT).to_string(), "Ctrl+Shift+N");
+        assert_eq!(key!('h', CONTROL | SHIFT).to_string(), "Ctrl+Shift+H");
+        assert_eq!(key!('g', SHIFT).to_string(), "Shift+G");
 
         // SUPER is spelled per-platform like Opt/Alt: Cmd on macOS, Super elsewhere, in both the compact and pretty forms
         if cfg!(target_os = "macos") {
@@ -674,9 +683,11 @@ mod tests {
             assert_eq!(key!(',', SUPER).display_pretty(), "Super+,");
         }
 
-        // Pretty (cheatsheet) also spells "Shift" with a lowercase letter
-        assert_eq!(key!('n', CONTROL | SHIFT).display_pretty(), "Ctrl+Shift+n");
-        assert_eq!(key!('h', CONTROL | SHIFT).display_pretty(), "Ctrl+Shift+h");
+        // Pretty (cheatsheet) title-cases a letter that has a modifier.
+        assert_eq!(key!('n', CONTROL | SHIFT).display_pretty(), "Ctrl+Shift+N");
+        assert_eq!(key!('h', CONTROL | SHIFT).display_pretty(), "Ctrl+Shift+H");
+        assert_eq!(key!(Up).display_pretty(), "\u{2191}");
+        assert_eq!(key!(Up).display_telemetry(), "Up");
     }
 
     #[test]

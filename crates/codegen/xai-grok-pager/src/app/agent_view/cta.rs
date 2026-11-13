@@ -164,7 +164,7 @@ impl AgentView {
 
         use unicode_width::UnicodeWidthStr;
         let dismiss_label = "[x]";
-        const KEY_HINT: &str = " ctrl+/";
+        const KEY_HINT: &str = " Ctrl+/";
         const CTA_HINT_MIN_LEFT: u16 = 12;
         let short_buttons_w = match connect_label {
             Some(label) => label.width() as u16 + 1 + dismiss_label.width() as u16,
@@ -974,7 +974,7 @@ mod plugin_cta_notify_tests {
 
         let row = cta_row_text(&buf, area);
         assert!(row.contains("Install figma plugin?"), "row = {row:?}");
-        assert!(row.contains("[Install ctrl+/]"), "row = {row:?}");
+        assert!(row.contains("[Install Ctrl+/]"), "row = {row:?}");
         assert!(row.contains("[x]"), "row = {row:?}");
         assert!(agent.plugin_cta.hit_connect.rect.is_some());
         assert!(agent.plugin_cta.hit_dismiss.rect.is_some());
@@ -1028,7 +1028,7 @@ mod plugin_cta_notify_tests {
 
         let row = cta_row_text(&buf, area);
         assert!(row.contains("Couldn't install figma"), "row = {row:?}");
-        assert!(row.contains("[Retry ctrl+/]"), "row = {row:?}");
+        assert!(row.contains("[Retry Ctrl+/]"), "row = {row:?}");
         assert!(row.contains("[x]"), "row = {row:?}");
         assert!(agent.plugin_cta.hit_connect.rect.is_some());
         assert!(agent.plugin_cta.hit_dismiss.rect.is_some());
@@ -1047,9 +1047,9 @@ mod plugin_cta_notify_tests {
         agent.draw_plugin_cta(&mut buf, area, &crate::theme::Theme::current());
 
         let row = cta_row_text(&buf, area);
-        assert!(row.contains("[Install ctrl+/]"), "row = {row:?}");
+        assert!(row.contains("[Install Ctrl+/]"), "row = {row:?}");
         let rect = agent.plugin_cta.hit_connect.rect.unwrap();
-        assert_eq!(rect.width, "[Install ctrl+/]".len() as u16);
+        assert_eq!(rect.width, "[Install Ctrl+/]".len() as u16);
     }
 
     #[test]
@@ -1067,7 +1067,7 @@ mod plugin_cta_notify_tests {
         let row = cta_row_text(&buf, area);
         assert!(row.contains("[Install]"), "row = {row:?}");
         assert!(row.contains("[x]"), "row = {row:?}");
-        assert!(!row.contains("ctrl+/"), "row = {row:?}");
+        assert!(!row.contains("Ctrl+/"), "row = {row:?}");
         assert!(agent.plugin_cta.hit_connect.rect.is_some());
         assert!(agent.plugin_cta.hit_dismiss.rect.is_some());
     }
@@ -1085,7 +1085,7 @@ mod plugin_cta_notify_tests {
         agent.draw_plugin_cta(&mut buf, area, &crate::theme::Theme::current());
 
         let row = cta_row_text(&buf, area);
-        assert!(!row.contains("ctrl+/"), "row = {row:?}");
+        assert!(!row.contains("Ctrl+/"), "row = {row:?}");
         assert!(row.contains("[Install]"), "row = {row:?}");
         assert!(row.contains("Install figma"), "row = {row:?}");
     }

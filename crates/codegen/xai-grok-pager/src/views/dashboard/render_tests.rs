@@ -4204,7 +4204,7 @@ fn render_footer_peek_mode_shows_peek_hints() {
     );
 }
 
-/// Peek footer flips to send affordances once the reply has text and is focused: `enter:send · ctrl+s:send+open · esc:back`.
+/// Peek footer flips to send affordances once the reply has text and is focused: `Enter:send · Ctrl+S:send+open · Esc:back`.
 #[test]
 fn render_footer_peek_with_reply_text_shows_send() {
     crate::appearance::cache::set_vim_mode(false);

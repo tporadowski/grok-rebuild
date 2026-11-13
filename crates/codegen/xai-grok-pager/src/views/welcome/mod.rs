@@ -54,9 +54,9 @@ fn welcome_in_vscode_family() -> bool {
 /// Build the quit hint spans used in Authenticating sub-screens.
 fn quit_hint_spans(theme: &Theme) -> Vec<Span<'static>> {
     let key = if welcome_in_vscode_family() {
-        "ctrl+d"
+        "Ctrl+D"
     } else {
-        "ctrl+q"
+        "Ctrl+Q"
     };
     vec![
         Span::styled(
@@ -112,7 +112,7 @@ const H_MARGIN: u16 = 2;
 const H_MARGIN_COMPACT: u16 = 1;
 
 /// Minimum width for the menu and changelog sections so they don't resize when the import row toggles.
-/// Derivation: "[ " (2) + import-claude label (22) + gap (4) + "ctrl+i  [x]" (11) + " ]" (2) = 41.
+/// Derivation: "[ " (2) + import-claude label (22) + gap (4) + "Ctrl+I  [x]" (11) + " ]" (2) = 41.
 /// The extra 10 columns leave breathing room.
 const MENU_MIN_WIDTH: u16 = 51;
 
@@ -709,7 +709,7 @@ pub struct WelcomeRenderParams<'a> {
     pub pending_hint: Option<crate::views::shortcuts_bar::PendingHint>,
     pub startup_warnings: &'a [StartupWarning],
     pub pending_update_version: Option<&'a str>,
-    /// Recent foreign session offered on ctrl+u, suppressed by a pending update.
+    /// Recent foreign session offered on Ctrl+U, suppressed by a pending update.
     pub foreign_resume_hint: Option<&'a xai_grok_foreign_sessions::RecentForeignSession>,
     pub is_api_key_auth: bool,
     pub session_picker_content_results:
@@ -1296,7 +1296,7 @@ fn render_raw_url_mode(
 
     let hint_spans = vec![
         Span::styled(
-            "ctrl+q",
+            "Ctrl+Q",
             Style::default()
                 .fg(theme.accent_user)
                 .add_modifier(Modifier::BOLD),
@@ -1726,7 +1726,7 @@ fn render_announcement_section(
 }
 
 /// Rows of the signed-in Welcome menu.
-/// Order: optional Import, Resume session (`ctrl+r`), optional New worktree (`ctrl+w`), optional Changelog, Quit.
+/// Order: optional Import, Resume session (`Ctrl+R`), optional New worktree (`Ctrl+W`), optional Changelog, Quit.
 pub(crate) fn session_menu_rows(
     has_claude_import: bool,
     hide_worktree: bool,
@@ -1738,11 +1738,11 @@ pub(crate) fn session_menu_rows(
         // The trailing "[x]" is a clickable dismiss control.
         // The welcome screen mouse handler treats clicks on the rightmost 3 cells of this row as dismiss instead of open. Keyboard: ctrl-shift-i.
         // The key string is right-aligned by render_menu, so [x] sits at the very end of the row.
-        items.push(("ctrl+i  [x]", "Import Claude settings"));
+        items.push(("Ctrl+I  [x]", "Import Claude settings"));
     }
-    items.push(("ctrl+r", "Resume session"));
+    items.push(("Ctrl+R", "Resume session"));
     if !hide_worktree {
-        items.push(("ctrl+w", "New worktree"));
+        items.push(("Ctrl+W", "New worktree"));
     }
     if show_changelog {
         items.push(("", "Changelog"));
@@ -1772,9 +1772,9 @@ fn render_welcome_done(
         .unwrap_or("Upgrade Subscription");
     let in_vscode_family = welcome_in_vscode_family();
     let (key_g, key_l, key_q) = (
-        "ctrl+g",
-        "ctrl+l",
-        if in_vscode_family { "ctrl+d" } else { "ctrl+q" },
+        "Ctrl+G",
+        "Ctrl+L",
+        if in_vscode_family { "Ctrl+D" } else { "Ctrl+Q" },
     );
 
     // Heights that don't depend on the menu, computed first so the menu builder can probe the layout to decide whether to add a Changelog row
@@ -1810,7 +1810,7 @@ fn render_welcome_done(
     } else {
         0
     };
-    // Changelog is reachable via this menu row (ctrl+l). Show from the first frame so the menu doesn't shift while the CDN fetch completes.
+    // Changelog is reachable via this menu row (Ctrl+L). Show from the first frame so the menu doesn't shift while the CDN fetch completes.
     let show_changelog_action = p.has_access && !show_picker;
 
     let gate_menu;
@@ -2213,7 +2213,7 @@ fn render_welcome_done(
                 width: tip_centered.width.saturating_sub(inset * 2),
                 height: tip_centered.height,
             };
-            let key_name = "ctrl+u";
+            let key_name = "Ctrl+U";
             let line = Line::from(vec![
                 Span::styled(
                     "Update: ",
@@ -2231,7 +2231,7 @@ fn render_welcome_done(
                 .render(tip_inset, buf);
         }
 
-        // Recent foreign session: offer a one-click resume in the tip area (only when no update is pending; the update shares ctrl+u and wins)
+        // Recent foreign session: offer a one-click resume in the tip area (only when no update is pending; the update shares Ctrl+U and wins)
         if !p.privacy_banner
             && p.pending_update_version.is_none()
             && let Some(hint) = p.foreign_resume_hint
@@ -2264,7 +2264,7 @@ fn render_welcome_done(
                 Span::styled("Coming from ", accent),
                 Span::styled(tool, accent_bold),
                 Span::styled(format!("? Resume your session from {when} using "), accent),
-                Span::styled("ctrl+u", accent_bold),
+                Span::styled("Ctrl+U", accent_bold),
             ]);
             Paragraph::new(line)
                 .style(Style::default().bg(theme.bg_base))
@@ -2518,7 +2518,7 @@ pub(crate) fn render_session_picker_body(
     };
 
     // Build shortcuts for fullscreen mode. Chat mode drops the worktree / deep-search / filter hints (local-Build-row actions).
-    let worktree_shortcut: &'static str = "ctrl+w";
+    let worktree_shortcut: &'static str = "Ctrl+W";
     use crate::views::shortcuts_bar::HintItem;
     let mut default_shortcuts: Vec<HintItem> = vec![
         HintItem::new(crate::key!(Esc), "back"),
@@ -2747,24 +2747,24 @@ mod tests {
 
     #[test]
     fn welcome_menu_lists_resume_above_new_worktree() {
-        let rows = session_menu_rows(false, false, true, "ctrl+q");
+        let rows = session_menu_rows(false, false, true, "Ctrl+Q");
         let labels: Vec<&str> = rows.iter().map(|(_, label)| *label).collect();
         assert_eq!(
             labels,
             vec!["Resume session", "New worktree", "Changelog", "Quit"]
         );
-        assert_eq!(rows[0].0, "ctrl+r");
-        assert_eq!(rows[1].0, "ctrl+w");
+        assert_eq!(rows[0].0, "Ctrl+R");
+        assert_eq!(rows[1].0, "Ctrl+W");
 
-        let with_import = session_menu_rows(true, false, false, "ctrl+q");
+        let with_import = session_menu_rows(true, false, false, "Ctrl+Q");
         assert_eq!(with_import[0].1, "Import Claude settings");
         assert_eq!(with_import[1].1, "Resume session");
         assert_eq!(with_import[2].1, "New worktree");
 
-        let hidden = session_menu_rows(false, true, false, "ctrl+d");
+        let hidden = session_menu_rows(false, true, false, "Ctrl+D");
         assert_eq!(
             hidden,
-            vec![("ctrl+r", "Resume session"), ("ctrl+d", "Quit")]
+            vec![("Ctrl+R", "Resume session"), ("Ctrl+D", "Quit")]
         );
     }
     use crate::views::picker::PickerState;
@@ -3040,7 +3040,7 @@ mod tests {
             let text = render_done_text(&params);
             assert!(text.contains(&format!("Coming from {label}?")), "{text}");
             assert!(text.contains("2m ago"), "{text}");
-            assert!(text.contains("ctrl+u"), "{text}");
+            assert!(text.contains("Ctrl+U"), "{text}");
         }
     }
 

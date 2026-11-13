@@ -51,7 +51,7 @@ pub(crate) fn unified_log_path(content: &ContentController) -> PathBuf {
 
 // ── Undo-tip e2e helpers ────────────────────────────────────────────────
 
-/// Suffix of the undo-tip banner, now "Input cleared · ctrl+z to undo" on all platforms (terminals don't forward Cmd+Z to a raw-mode TUI).
+/// Suffix of the undo-tip banner, now "Input cleared · Ctrl+Z to undo" on all platforms (terminals don't forward Cmd+Z to a raw-mode TUI).
 /// Asserting only the suffix keeps the check independent of which chord the banner names.
 pub(crate) const UNDO_TIP_SENTINEL: &str = "to undo";
 
@@ -419,7 +419,7 @@ pub(crate) const CTRL_O: &[u8] = b"\x0f";
 
 /// Sticky banner shown while mouse reporting is off (must match pager copy).
 pub(crate) const MOUSE_OFF_STICKY: &str =
-    "Ctrl+r to enable mouse reporting and restore TUI features";
+    "Ctrl+R to enable mouse reporting and restore TUI features";
 
 /// Prompt-focused form of the same sticky (swap at render time in `active_toast_message`).
 pub(crate) const MOUSE_OFF_HINT_PROMPT: &str =

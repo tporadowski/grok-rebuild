@@ -91,7 +91,7 @@ pub fn draw_live(app: &mut AppView, terminal: &mut PagerTerminal, ctx: &Terminal
     );
     let pending_hint = minimal_pending_hint(&app.pending_action);
     let transcript_hint = if minimal_api::minimal_ctrl_o_opens_transcript(app) {
-        "ctrl+o transcript"
+        "Ctrl+O transcript"
     } else {
         "/transcript"
     };
@@ -733,7 +733,7 @@ fn render_prompt_info(
     }
     buf.set_line(area.x, area.y, &Line::from(spans), area.width);
 }
-/// The double-press confirmation hint to show under the prompt (e.g. "press Ctrl+q again to quit").
+/// The double-press confirmation hint to show under the prompt (e.g. "press Ctrl+Q again to quit").
 /// `None` when nothing is pending, the hint expired, or the pending action has no label (silent).
 /// Mirrors the full-TUI shortcuts-bar `PendingHint`, which minimal does not render.
 fn minimal_pending_hint(
@@ -1062,7 +1062,7 @@ mod tests {
         let theme = Theme::current();
         let area = Rect::new(0, 0, 80, 1);
         let mut buf = Buffer::empty(area);
-        render_prompt_info(&mut buf, area, &a, 3, "ctrl+o transcript", &theme);
+        render_prompt_info(&mut buf, area, &a, 3, "Ctrl+O transcript", &theme);
         let text: String = (0..area.width)
             .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol().to_string()))
             .collect();
@@ -1071,7 +1071,7 @@ mod tests {
         assert!(text.contains('%'), "percentage: {text:?}");
         assert!(text.contains("3 queued"), "queued count: {text:?}");
         assert!(
-            text.trim_end().ends_with("ctrl+o transcript"),
+            text.trim_end().ends_with("Ctrl+O transcript"),
             "trailing transcript hint: {text:?}"
         );
     }
@@ -1088,7 +1088,7 @@ mod tests {
         let theme = Theme::current();
         let area = Rect::new(0, 0, 80, 1);
         let mut buf = Buffer::empty(area);
-        render_prompt_info(&mut buf, area, &a, 2, "ctrl+o transcript", &theme);
+        render_prompt_info(&mut buf, area, &a, 2, "Ctrl+O transcript", &theme);
         let text: String = (0..area.width)
             .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol().to_string()))
             .collect();
@@ -1102,7 +1102,7 @@ mod tests {
         );
         assert!(text.contains("2 queued"), "queued still shown: {text:?}");
         assert!(
-            text.trim_end().ends_with("ctrl+o transcript"),
+            text.trim_end().ends_with("Ctrl+O transcript"),
             "transcript hint still trails: {text:?}"
         );
     }
@@ -1118,7 +1118,7 @@ mod tests {
             .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol().to_string()))
             .collect();
         assert!(text.contains("/transcript"), "fallback hint: {text:?}");
-        assert!(!text.contains("ctrl+o"), "no dead chord: {text:?}");
+        assert!(!text.contains("Ctrl+O"), "no dead chord: {text:?}");
     }
     #[test]
     fn prompt_info_starts_with_the_vim_mode_and_bolds_normal() {
@@ -1135,7 +1135,7 @@ mod tests {
         let area = Rect::new(0, 0, 80, 1);
         let paint = |a: &xai_grok_pager::app::agent_view::AgentView| {
             let mut buf = Buffer::empty(area);
-            render_prompt_info(&mut buf, area, a, 0, "ctrl+o transcript", &theme);
+            render_prompt_info(&mut buf, area, a, 0, "Ctrl+O transcript", &theme);
             buf
         };
         let text_of = |buf: &Buffer| -> String {
@@ -1197,7 +1197,7 @@ mod tests {
         };
         let render = |a: &xai_grok_pager::app::agent_view::AgentView| -> String {
             let mut buf = Buffer::empty(area);
-            render_prompt_info(&mut buf, area, a, 0, "ctrl+o transcript", &theme);
+            render_prompt_info(&mut buf, area, a, 0, "Ctrl+O transcript", &theme);
             read(&buf)
         };
         let mut a = agent();
@@ -1227,7 +1227,7 @@ mod tests {
         let pending = Some(PendingAction::new(Action::Quit, shortcut, "quit"));
         assert_eq!(
             minimal_pending_hint(&pending).as_deref(),
-            Some("press Ctrl+q again to quit")
+            Some("press Ctrl+Q again to quit")
         );
         let silent = Some(PendingAction::with_ttl(
             Action::Quit,

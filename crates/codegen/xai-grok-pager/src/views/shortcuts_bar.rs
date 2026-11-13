@@ -577,7 +577,7 @@ mod tests {
 
         crate::theme::cache::set(crate::theme::ThemeKind::Terminal);
         let buf = render_hints(&hints);
-        // "Ctrl+x:send" — key cell at col 0, label cell after the colon.
+        // "Ctrl+X:send" — key cell at col 0, label cell after the colon.
         let text = leading_text(&buf, 12);
         let label_x = text.find(":send").expect("label rendered") as u16 + 1;
         let key = buf.cell((0, 0)).unwrap().style();
@@ -813,7 +813,7 @@ mod tests {
         ShortcutsBar::new(&hints).render(area, &mut buf);
         let text = row_text(&buf, area.width);
         assert!(
-            text.starts_with("Ctrl+x:"),
+            text.starts_with("Ctrl+X:"),
             "the key stays whole: {text:?}"
         );
         assert!(text.contains('\u{2026}'), "the label is shortened: {text:?}");
@@ -851,7 +851,7 @@ mod tests {
             .render(area, &mut buf);
         let text = row_text(&buf, area.width);
         assert!(
-            text.starts_with("Ctrl+x:send"),
+            text.starts_with("Ctrl+X:send"),
             "the hint is not overwritten: {text:?}"
         );
         assert!(

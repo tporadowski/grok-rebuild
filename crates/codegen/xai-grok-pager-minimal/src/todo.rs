@@ -124,7 +124,7 @@ pub(super) fn todo_panel_lines(
         let label = if force {
             format!("\u{2026} +{remaining} more")
         } else {
-            format!("\u{2026} +{remaining} more \u{00b7} ctrl+t to expand")
+            format!("\u{2026} +{remaining} more \u{00b7} Ctrl+T to expand")
         };
         lines.push(Line::from(Span::styled(label, theme.dim())));
     }
@@ -254,7 +254,7 @@ mod tests {
             line_text(overflow)
         );
         assert!(
-            line_text(overflow).contains("ctrl+t"),
+            line_text(overflow).contains("Ctrl+T"),
             "overflow row advertises the expand chord: {:?}",
             line_text(overflow)
         );

@@ -206,7 +206,7 @@ pub struct WorkspaceModeHitRects {
 pub const WORKSPACE_MODE_MENU_ROWS: u16 = 2;
 
 /// Paint the segmented workspace control into `area`. Layout: `Workspace [ Sandbox ] [ Local
-/// workspace ] ctrl+e` or when locked: `Workspace [ Local workspace ] locked by CLI`.
+/// workspace ] Ctrl+E` or when locked: `Workspace [ Local workspace ] locked by CLI`.
 pub fn render_workspace_mode_picker(
     area: Rect,
     buf: &mut Buffer,
@@ -302,7 +302,7 @@ pub fn render_workspace_mode_picker(
     } else if startup_locked {
         "  locked by CLI"
     } else {
-        "  ctrl+e"
+        "  Ctrl+E"
     };
     let trailing_style = if ack_pending {
         Style::default()

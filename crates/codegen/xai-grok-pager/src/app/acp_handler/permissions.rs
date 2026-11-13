@@ -619,7 +619,7 @@ mod auto_review_card_tests {
                 "explanation stays closed until Ctrl+F:\n{closed}"
             );
             assert!(
-                closed.contains("ctrl+f") && closed.contains("explanation"),
+                closed.contains("Ctrl+F") && closed.contains("explanation"),
                 "Ctrl+F hint missing:\n{closed}"
             );
             crate::views::permission_view::permission_view_height(card, 40, 80)

@@ -536,8 +536,8 @@ mod tests {
     fn shortcut_display() {
         assert_eq!(key!('q').display(), "q");
         assert_eq!(key!(Enter).display(), "Enter");
-        assert_eq!(key!('c', CONTROL).display(), "Ctrl+c");
-        assert_eq!(key!('l', CONTROL).display(), "Ctrl+l");
+        assert_eq!(key!('c', CONTROL).display(), "Ctrl+C");
+        assert_eq!(key!('l', CONTROL).display(), "Ctrl+L");
     }
 
     #[test]
@@ -560,8 +560,8 @@ mod tests {
     fn telemetry_chord_is_platform_stable() {
         let ctrl_l = key!('l', CONTROL);
         assert_eq!(ctrl_l.display_telemetry(), "Ctrl+L");
-        // UI pretty form lowercases the letter; telemetry must not.
-        assert_eq!(ctrl_l.display_pretty(), "Ctrl+l");
+        // A modified letter matches telemetry. Arrows and PageUp still differ.
+        assert_eq!(ctrl_l.display_pretty(), "Ctrl+L");
         assert_eq!(key!('o', CONTROL).display_telemetry(), "Ctrl+O");
         assert_eq!(key!(Enter, CONTROL).display_telemetry(), "Ctrl+Enter");
     }

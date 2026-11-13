@@ -295,7 +295,7 @@ pub fn footer_shortcuts(
             id: 0,
         });
         s.push(Shortcut {
-            label: "enter open",
+            label: "Enter open",
             clickable: true,
             id: shortcut_ids::OPEN,
         });
@@ -308,7 +308,7 @@ pub fn footer_shortcuts(
         }
     }
     s.push(Shortcut {
-        label: "esc close",
+        label: "Esc close",
         clickable: false,
         id: 0,
     });
@@ -1768,7 +1768,7 @@ mod tests {
         );
         assert!(!text.contains("128"), "budget cap is not shown: {text}");
         assert!(!text.contains(" · out "), "{text}");
-        assert!(text.contains("enter open"), "{text}");
+        assert!(text.contains("Enter open"), "{text}");
     }
 
     #[test]

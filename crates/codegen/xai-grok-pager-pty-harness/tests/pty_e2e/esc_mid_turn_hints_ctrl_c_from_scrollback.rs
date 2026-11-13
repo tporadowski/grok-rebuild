@@ -39,7 +39,7 @@ async fn esc_mid_turn_hints_ctrl_c_from_scrollback() {
 
     harness.inject_keys(keys::ESC).expect("press esc");
     harness
-        .wait_for_text("Press Ctrl+c to cancel the turn", Duration::from_secs(10))
+        .wait_for_text("Press Ctrl+C to cancel the turn", Duration::from_secs(10))
         .expect("mid-turn Esc from scrollback must show the Ctrl+C hint");
 
     harness.update(Duration::from_millis(600));

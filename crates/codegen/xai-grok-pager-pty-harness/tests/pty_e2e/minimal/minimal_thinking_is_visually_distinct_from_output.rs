@@ -193,7 +193,7 @@ async fn minimal_collapse_thinking_toggle_folds_and_ctrl_e_reopens() {
     let Turn { mut harness, .. } = run_reasoning_turn(true).await;
 
     harness
-        .wait_for_full_text("ctrl+e to expand", Duration::from_secs(10))
+        .wait_for_full_text("Ctrl+E to expand", Duration::from_secs(10))
         .unwrap_or_else(|e| {
             panic!(
                 "collapsed reasoning must advertise the expand key: {e}\nfull:\n{}",

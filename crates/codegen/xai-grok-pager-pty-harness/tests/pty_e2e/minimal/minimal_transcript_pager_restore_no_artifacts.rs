@@ -93,7 +93,7 @@ async fn minimal_transcript_pager_restore_no_artifacts() {
         "exactly one idle status row after the pager round trip\nscreen:\n{screen}"
     );
     assert_eq!(
-        screen.matches("ctrl+o transcript").count(),
+        screen.matches("Ctrl+O transcript").count(),
         1,
         "exactly one info row after the pager round trip\nscreen:\n{screen}"
     );

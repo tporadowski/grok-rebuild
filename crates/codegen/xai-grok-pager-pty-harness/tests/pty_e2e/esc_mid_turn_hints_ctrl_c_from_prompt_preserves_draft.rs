@@ -2,7 +2,7 @@
 #[allow(unused_imports)]
 use super::common::*;
 
-/// A bare Esc from the prompt pane never cancels a running turn: it shows the "Press Ctrl+c to cancel the turn" toast, leaves the stream running, and preserves a non-empty draft.
+/// A bare Esc from the prompt pane never cancels a running turn: it shows the "Press Ctrl+C to cancel the turn" toast, leaves the stream running, and preserves a non-empty draft.
 /// Ctrl+C then remains the cancel gesture (clear-first with a draft, cancel on the empty prompt).
 /// Proves the real binary routes a bare Esc through `try_handle_esc_policy`'s turn-running branch (hint, not cancel) before the idle clear and rewind branches.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -43,7 +43,7 @@ async fn esc_mid_turn_hints_ctrl_c_from_prompt_preserves_draft() {
 
     harness.inject_keys(keys::ESC).expect("press esc");
     harness
-        .wait_for_text("Press Ctrl+c to cancel the turn", Duration::from_secs(10))
+        .wait_for_text("Press Ctrl+C to cancel the turn", Duration::from_secs(10))
         .expect("mid-turn Esc must show the Ctrl+C hint");
 
     harness.update(Duration::from_millis(600));

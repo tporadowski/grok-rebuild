@@ -376,7 +376,7 @@ mod voice_gate_tests {
 /// `Ctrl+R` only works from scrollback, so the prompt-focused variant points at `/toggle-mouse-reporting` (which toggles from any pane).
 /// The banner is stored in the scrollback form; `AgentView::active_toast_message` swaps to the prompt form at render time when the prompt is focused.
 pub(crate) const MOUSE_OFF_HINT_SCROLLBACK: &str =
-    "Ctrl+r to enable mouse reporting and restore TUI features";
+    "Ctrl+R to enable mouse reporting and restore TUI features";
 pub(crate) const MOUSE_OFF_HINT_PROMPT: &str =
     "/toggle-mouse-reporting to enable mouse reporting and restore TUI features";
 /// Uses [`xai_ratatui_inline::Terminal`] instead of stock `ratatui::Terminal`: our `flush()` returns a `bool` saying whether any cells changed.

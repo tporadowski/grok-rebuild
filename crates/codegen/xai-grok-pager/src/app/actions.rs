@@ -205,10 +205,10 @@ pub enum Action {
     VoiceStop,
     /// Send a direct bash command (bypasses agent loop).
     SendBashCommand(String),
-    /// The user wiped a substantial prompt draft: show the seen-gated "ctrl+z to undo" ephemeral tip on the active agent.
+    /// The user wiped a substantial prompt draft: show the seen-gated "Ctrl+Z to undo" ephemeral tip on the active agent.
     /// Gated by the per-tip `contextual_hints.undo` gate.
     ShowUndoTip,
-    /// The user typed a planning keyword into the prompt: show the seen-gated "Planning? Check out plan mode via shift+tab" ephemeral tip.
+    /// The user typed a planning keyword into the prompt: show the seen-gated "Planning? Check out plan mode via Shift+Tab" ephemeral tip.
     /// Gated by the per-tip `contextual_hints.plan_mode` gate.
     ShowPlanNudge,
     /// The user double-clicked scrollback while Text selection is fold/nav:

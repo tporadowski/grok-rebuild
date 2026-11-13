@@ -1523,7 +1523,7 @@ pub fn default_settings() -> Vec<SettingMeta> {
             owner: SettingOwner::Shell,
             label: "Copy markdown shortcut",
             description: "Chord that copies an assistant message's markdown source, \
-                          not the rendered text. Examples: Ctrl+Shift+y, F6, Alt+y. \
+                          not the rendered text. Examples: Ctrl+Shift+Y, F6, Alt+Y. \
                           off unbinds it. Empty restores the default.",
             keywords: &[
                 "copy",

@@ -457,7 +457,7 @@ pub(super) fn dispatch_open_history_search(app: &mut AppView) -> Vec<Effect> {
     vec![]
 }
 
-/// Show the "ctrl+z to undo" hint after the user wiped a substantial draft.
+/// Show the "Ctrl+Z to undo" hint after the user wiped a substantial draft.
 /// Gated by the per-tip `contextual_hints.undo` gate (default ON).
 /// The ephemeral-tip seen gate caps it at `UNDO_TIP_SEEN_CAP` shows per session (in-memory `app.tip_seen_counts`); nothing is persisted to disk.
 pub(super) fn dispatch_show_undo_tip(app: &mut AppView) -> Vec<Effect> {

@@ -925,7 +925,7 @@ pub(super) fn default_actions(
             category: Category::Panels,
             context: When::ScrollbackFocused,
             hint_priority: None,
-            hint_key_display: Some("Ctrl+r"),
+            hint_key_display: Some("Ctrl+R"),
             requires_confirmation: false,
             long_help: None,
         });
@@ -1161,7 +1161,7 @@ pub(super) fn default_actions(
             category: Category::Dashboard,
             context: When::DashboardFocused,
             hint_priority: None,
-            hint_key_display: Some("Ctrl+l"),
+            hint_key_display: Some("Ctrl+L"),
             requires_confirmation: false,
             long_help: Some(
                 "Opens a picker to set the working directory that newly dispatched dashboard agents run in.\nLaunch agents against a different repo or folder without leaving the dashboard.\nAffects new dispatches only, not agents already running.",
@@ -1178,7 +1178,7 @@ pub(super) fn default_actions(
             category: Category::Dashboard,
             context: When::DashboardFocused,
             hint_priority: None,
-            hint_key_display: Some("Ctrl+w"),
+            hint_key_display: Some("Ctrl+W"),
             requires_confirmation: false,
             long_help: Some(
                 "Arms the next dashboard-dispatched agent to spawn in a fresh git worktree, isolating its work on a separate checkout.\nOnly applies when the working directory is a git repo.\nAffects newly dispatched agents, not ones already running.",
@@ -1242,7 +1242,7 @@ pub(super) fn default_actions(
             category: Category::Dashboard,
             context: When::DashboardOverlay,
             hint_priority: None,
-            hint_key_display: Some("Ctrl+x"),
+            hint_key_display: Some("Ctrl+X"),
             requires_confirmation: true,
             long_help: Some(
                 "Inside a session overlay, stops the attached agent and closes it, returning you to the dashboard list.\nRequires confirmation: press Ctrl+X twice.\nCtrl+. still opens the cheatsheet here; only Ctrl+X is taken over by stop.",

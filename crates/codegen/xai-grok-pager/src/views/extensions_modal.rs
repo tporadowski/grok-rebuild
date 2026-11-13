@@ -1083,14 +1083,14 @@ pub const MCP_SERVERS_ACTION_KEYS: &[(char, &str)] = &[
 ];
 
 /// Footer label for the MCP tab Ctrl+O shortcut (not in [`MCP_SERVERS_ACTION_KEYS`]).
-pub const MCP_SERVERS_OPEN_CONNECTORS_FOOTER: &str = "ctrl-o open";
+pub const MCP_SERVERS_OPEN_CONNECTORS_FOOTER: &str = "Ctrl+O open";
 
 /// Map an action key character to its display string for shortcut hints. Single source of truth
 /// shared by [`render_extensions_modal`] (footer shortcuts) and
 /// [`crate::views::picker::render_picker`] (hint bar). Returns `""` for unmapped characters.
 pub fn action_key_display(ch: char) -> &'static str {
     match ch {
-        ' ' => "space",
+        ' ' => "Space",
         'a' => "a",
         'd' => "d",
         'e' => "e",
@@ -3707,7 +3707,7 @@ pub fn render_extensions_modal(
             id: 0,
         });
         shortcuts.push(Shortcut {
-            label: "esc back",
+            label: "Esc back",
             clickable: true,
             id: WAIT_BACK_SHORTCUT_ID,
         });
@@ -4825,13 +4825,13 @@ mod tests {
         render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
         assert_eq!(buffer_count(&buf, "[blocked by policy]"), 1);
         assert_eq!(buffer_count(&buf, "[disabled]"), 1);
-        assert_eq!(buffer_count(&buf, "space enable"), 0);
+        assert_eq!(buffer_count(&buf, "Space enable"), 0);
 
         // The plain disabled row keeps the hint.
         state.picker_state.selected = 2;
         let mut buf = Buffer::empty(area);
         render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
-        assert_eq!(buffer_count(&buf, "space enable"), 1);
+        assert_eq!(buffer_count(&buf, "Space enable"), 1);
     }
 
     /// Expanding a blocked or disabled row must name the actual cause, not speculate about connection state.
@@ -7685,9 +7685,9 @@ mod tests {
             "wait footer must offer c to copy the sign-in url"
         );
         assert_eq!(
-            buffer_count(&buf, "esc back"),
+            buffer_count(&buf, "Esc back"),
             1,
-            "wait footer must paint esc back via modal shortcuts"
+            "wait footer must paint Esc back via modal shortcuts"
         );
         assert_eq!(
             buffer_count(&buf, MCP_SERVERS_OPEN_CONNECTORS_FOOTER),

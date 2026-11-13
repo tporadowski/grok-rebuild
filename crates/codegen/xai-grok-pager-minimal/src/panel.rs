@@ -128,10 +128,10 @@ fn render_dim_line(buf: &mut Buffer, row: Rect, theme: &Theme, text: &str) {
 }
 
 /// `/resume` session picker: Enter picks a session.
-const RESUME_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} enter confirm \u{00b7} esc cancel";
+const RESUME_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} Enter confirm \u{00b7} Esc cancel";
 
 /// `/mcps` list: Enter expands tools; reconnect is space (off then on); `r` re-lists status.
-const MCPS_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} space enable/disable \u{00b7} r refresh \u{00b7} enter expand \u{00b7} esc cancel";
+const MCPS_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} Space enable/disable \u{00b7} r refresh \u{00b7} Enter expand \u{00b7} Esc cancel";
 
 fn render_footer(buf: &mut Buffer, row: Rect, theme: &Theme, text: &str) {
     render_dim_line(buf, row, theme, text);
@@ -674,11 +674,11 @@ mod tests {
         assert!(text.contains("2 servers"), "subtitle:\n{text}");
         assert!(text.contains("alpha"), "server row:\n{text}");
         assert!(text.contains("bravo"), "server row:\n{text}");
-        assert!(text.contains("space enable/disable"), "footer:\n{text}");
+        assert!(text.contains("Space enable/disable"), "footer:\n{text}");
         assert!(text.contains("r refresh"), "footer:\n{text}");
-        assert!(text.contains("enter expand"), "footer:\n{text}");
+        assert!(text.contains("Enter expand"), "footer:\n{text}");
         assert!(
-            !text.contains("enter confirm"),
+            !text.contains("Enter confirm"),
             "MCP footer must not reuse resume confirm copy:\n{text}"
         );
 
@@ -740,7 +740,7 @@ mod tests {
         let text = crate::buffer_text(&buf);
         assert!(text.contains("Resume session"), "title:\n{text}");
         assert!(text.contains("first task"), "session row:\n{text}");
-        assert!(text.contains("enter confirm"), "resume footer:\n{text}");
+        assert!(text.contains("Enter confirm"), "resume footer:\n{text}");
         assert!(
             !text.contains("r refresh"),
             "resume footer must stay session-picker copy:\n{text}"

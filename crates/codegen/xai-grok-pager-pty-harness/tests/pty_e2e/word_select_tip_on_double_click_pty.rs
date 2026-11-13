@@ -55,7 +55,7 @@ async fn word_select_tip_shows_and_ctrl_y_accepts() {
 
     harness.inject_keys(b"\t").expect("focus scrollback");
     harness
-        .wait_for_text("Ctrl+e:", Duration::from_secs(10))
+        .wait_for_text("Ctrl+E:", Duration::from_secs(10))
         .expect("scrollback owns keys");
 
     let screen = harness.screen_contents();
@@ -166,7 +166,7 @@ async fn word_select_tip_skipped_when_mode_is_word_select() {
 
     harness.inject_keys(b"\t").expect("focus scrollback");
     harness
-        .wait_for_text("Ctrl+e:", Duration::from_secs(10))
+        .wait_for_text("Ctrl+E:", Duration::from_secs(10))
         .expect("scrollback owns keys");
 
     let screen = harness.screen_contents();
@@ -246,7 +246,7 @@ async fn word_select_tip_skipped_when_contextual_hint_disabled() {
 
     harness.inject_keys(b"\t").expect("focus scrollback");
     harness
-        .wait_for_text("Ctrl+e:", Duration::from_secs(10))
+        .wait_for_text("Ctrl+E:", Duration::from_secs(10))
         .expect("scrollback owns keys");
 
     let screen = harness.screen_contents();

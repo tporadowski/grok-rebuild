@@ -38,18 +38,18 @@ fn dump_screen(label: &str, harness: &PtyHarness) {
 }
 
 /// True when the screen shows the Space footer verb we asked for.
-/// `space enable` is a substring of the fallback `space enable/disable`, so a naive contains check passes while the hint is still the combined form.
+/// `Space enable` is a substring of the fallback `Space enable/disable`, so a naive contains check passes while the hint is still the combined form.
 fn screen_has_space_verb(screen: &str, verb: &str) -> bool {
     match verb {
-        "enable/disable" => screen.contains("space enable/disable"),
-        "enable" => screen.contains("space enable") && !screen.contains("space enable/disable"),
-        "disable" => screen.contains("space disable"),
-        _ => screen.contains(&format!("space {verb}")),
+        "enable/disable" => screen.contains("Space enable/disable"),
+        "enable" => screen.contains("Space enable") && !screen.contains("Space enable/disable"),
+        "disable" => screen.contains("Space disable"),
+        _ => screen.contains(&format!("Space {verb}")),
     }
 }
 
 fn wait_for_space_verb(harness: &mut PtyHarness, verb: &str) {
-    let needle = format!("space {verb}");
+    let needle = format!("Space {verb}");
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if screen_has_space_verb(&harness.screen_contents(), verb) {
@@ -112,8 +112,8 @@ async fn extensions_modal_copy_hints_pty() {
         harness.screen_contents()
     );
     assert!(
-        !harness.contains_text("space toggle"),
-        "Plugins tab must not show legacy `space toggle`\nscreen:\n{}",
+        !harness.contains_text("Space toggle"),
+        "Plugins tab must not show legacy `Space toggle`\nscreen:\n{}",
         harness.screen_contents()
     );
 

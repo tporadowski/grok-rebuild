@@ -125,7 +125,7 @@ async fn verb_group_thinking_fold_pty() {
     // Expand the group: Tab focuses scrollback (scrollback-only footer hint proves key ownership), then a double-click on the header toggles it
     harness.inject_keys(b"\t").expect("focus scrollback");
     harness
-        .wait_for_text("Ctrl+e:", Duration::from_secs(10))
+        .wait_for_text("Ctrl+E:", Duration::from_secs(10))
         .unwrap_or_else(|_| {
             panic!(
                 "scrollback must own keys before mouse interaction; got:\n{}",

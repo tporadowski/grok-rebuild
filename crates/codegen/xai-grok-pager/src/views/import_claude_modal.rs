@@ -586,7 +586,7 @@ pub fn render_import_claude_modal(
             id: SHORTCUT_ID_HINT,
         },
         Shortcut {
-            label: "space toggle",
+            label: "Space toggle",
             clickable: false,
             id: SHORTCUT_ID_HINT,
         },

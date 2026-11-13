@@ -33,13 +33,11 @@ const POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// Minimum spacing between fires, so copy-heavy workflows aren't nagged on every new image.
 const FIRE_COOLDOWN: Duration = Duration::from_secs(30);
 
-/// Paste chord for the tip copy: always `ctrl+v`.
+/// Paste chord for the tip copy: always `Ctrl+V`.
 /// Most macOS terminal emulators capture Cmd by default and don't forward Cmd+V to a raw-mode TUI, so Ctrl+V is the chord actually delivered.
 /// Derived from the real binding (not a literal), Ctrl+V being one of the two chords [`crate::input::key::is_paste_key`] accepts, so it can't drift.
 fn paste_label() -> String {
-    KeyShortcut::new(KeyCode::Char('v'), KeyModifiers::CONTROL)
-        .display()
-        .to_ascii_lowercase()
+    KeyShortcut::new(KeyCode::Char('v'), KeyModifiers::CONTROL).display()
 }
 
 /// Build the "Image in clipboard · {chord} to paste" tip.
@@ -194,8 +192,8 @@ mod tests {
 
     #[test]
     fn paste_chord_is_ctrl_v() {
-        // Always ctrl+v (the chord terminals actually deliver), derived from the real binding so the label can't drift
-        assert_eq!(paste_label(), "ctrl+v");
+        // Always Ctrl+V (the chord terminals actually deliver), derived from the real binding so the label can't drift
+        assert_eq!(paste_label(), "Ctrl+V");
         assert!(crate::input::key::is_paste_key(
             &crossterm::event::KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)
         ));

@@ -529,7 +529,7 @@ pub fn render_permission_view(
                         .add_modifier(Modifier::DIM);
                     let key_style = Style::default().fg(theme.accent_user);
                     Line::from(vec![
-                        Span::styled("ctrl+f", key_style),
+                        Span::styled("Ctrl+F", key_style),
                         Span::styled("  explanation", dim),
                     ])
                 };
@@ -1456,7 +1456,7 @@ fn truncation_indicator_line(theme: &Theme, offer_ctrl_f: bool) -> Line<'static>
     Line::from(vec![
         Span::styled("... ", style),
         Span::styled(
-            "Ctrl-F",
+            "Ctrl+F",
             Style::default().fg(theme.accent_user).bg(theme.bg_light),
         ),
         Span::styled(" to expand", style),
@@ -2178,7 +2178,7 @@ mod tests {
             "5th row must be the indicator:\n{text}"
         );
         assert!(
-            text.contains("... Ctrl-F to expand"),
+            text.contains("... Ctrl+F to expand"),
             "indicator missing:\n{text}"
         );
         assert!(text.contains("Yes"), "options row missing:\n{text}");
@@ -2190,7 +2190,7 @@ mod tests {
         state.args_expanded = true;
         let text = render_to_text(&state, Rect::new(0, 0, 80, 12));
         assert!(
-            !text.contains("Ctrl-F to expand"),
+            !text.contains("Ctrl+F to expand"),
             "no indicator when expanded:\n{text}"
         );
         assert!(text.contains("Yes"), "options row missing:\n{text}");
@@ -2304,7 +2304,7 @@ mod tests {
             "5th row must be the indicator:\n{text}"
         );
         assert!(
-            text.contains("... Ctrl-F to expand"),
+            text.contains("... Ctrl+F to expand"),
             "indicator missing:\n{text}"
         );
         assert!(
@@ -2323,7 +2323,7 @@ mod tests {
             "full short script must render:\n{text}"
         );
         assert!(
-            !text.contains("Ctrl-F to expand"),
+            !text.contains("Ctrl+F to expand"),
             "no indicator within the budget:\n{text}"
         );
     }
@@ -2334,7 +2334,7 @@ mod tests {
         state.args_expanded = true;
         let text = render_to_text(&state, Rect::new(0, 0, 80, 30));
         assert!(
-            !text.contains("Ctrl-F to expand"),
+            !text.contains("Ctrl+F to expand"),
             "no indicator when expanded:\n{text}"
         );
         assert!(
