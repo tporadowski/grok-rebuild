@@ -51,12 +51,21 @@ fn tag_suffix_width(row: &SuggestionRow) -> usize {
     row.tag.as_ref().map(|t| t.width() + 3).unwrap_or(0)
 }
 
-/// Clamped name+tag per row, then the 60% budget. A short sibling cannot collapse an overlong name.
+/// Columns used by ` hint` after the command name (0 when the row has no hint).
+fn arg_hint_columns(row: &SuggestionRow) -> usize {
+    row.arg_hint
+        .as_deref()
+        .filter(|hint| !hint.is_empty())
+        .map(|hint| 1 + hint.width())
+        .unwrap_or(0)
+}
+
+/// Clamped name+hint+tag per row, then the 60% budget. A short sibling cannot collapse an overlong name.
 fn compute_label_column_w(items: &[SuggestionRow], content_w: usize) -> usize {
     let budget = (content_w * 3 / 5).min(LABEL_CAP);
     items
         .iter()
-        .map(|r| (r.display.width() + tag_suffix_width(r)).min(LABEL_CAP))
+        .map(|r| (r.display.width() + arg_hint_columns(r) + tag_suffix_width(r)).min(LABEL_CAP))
         .max()
         .unwrap_or(0)
         .min(budget)
@@ -339,9 +348,28 @@ fn build_item_lines(
     let tag_text = tag_suffix(item).map(|s| truncate_str(&s, label_col_w));
     let tag_w = tag_text.as_deref().map(|s| s.width()).unwrap_or(0);
 
-    let label = truncate_str(&item.display, label_col_w.saturating_sub(tag_w));
+    let name_room = label_col_w.saturating_sub(tag_w);
+    let label = truncate_str(&item.display, name_room);
     let label_w = label.width();
-    let padding = label_col_w.saturating_sub(label_w + tag_w);
+    // The hint sits immediately after the name. The name keeps the column first; a hint that does not fit is cut.
+    let hint_room = name_room.saturating_sub(label_w);
+    let hint_text = item
+        .arg_hint
+        .as_deref()
+        .filter(|hint| !hint.is_empty())
+        .and_then(|hint| {
+            if hint_room <= 1 {
+                return None;
+            }
+            let shown = truncate_str(hint, hint_room - 1);
+            if shown.is_empty() {
+                None
+            } else {
+                Some(format!(" {shown}"))
+            }
+        });
+    let hint_w = hint_text.as_deref().map(|s| s.width()).unwrap_or(0);
+    let padding = label_col_w.saturating_sub(label_w + hint_w + tag_w);
 
     let label_spans = build_highlighted_spans(&label, &item.indices, normal_style, match_style);
 
@@ -359,6 +387,9 @@ fn build_item_lines(
     {
         let mut spans = vec![prefix_span];
         spans.extend(label_spans);
+        if let Some(hint_text) = hint_text {
+            spans.push(Span::styled(hint_text, desc_style));
+        }
         if padding > 0 {
             spans.push(Span::styled(" ".repeat(padding), bg_style));
         }
@@ -513,6 +544,7 @@ mod tests {
                 indices: vec![],
                 tag: None,
                 provenance: None,
+                arg_hint: None,
             })
             .collect();
         assert_eq!(desired_item_rows(&matches, 80), MAX_DROPDOWN_ROWS);
@@ -535,6 +567,7 @@ mod tests {
                 indices: vec![],
                 tag: None,
                 provenance: None,
+                arg_hint: None,
             })
             .collect();
         let snap = SlashSnapshot {
@@ -579,6 +612,7 @@ mod tests {
                 indices: vec![],
                 tag: None,
                 provenance: Some(CommandProvenance::Builtin),
+                arg_hint: None,
             },
             SuggestionRow {
                 display: "/acme:login".into(),
@@ -589,6 +623,7 @@ mod tests {
                 provenance: Some(CommandProvenance::Skill {
                     source: "acme".to_string(),
                 }),
+                arg_hint: None,
             },
         ];
         let snap = SlashSnapshot {
@@ -626,6 +661,7 @@ mod tests {
             indices: vec![],
             tag: None,
             provenance: None,
+            arg_hint: None,
         }
     }
 

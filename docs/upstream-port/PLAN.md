@@ -1096,7 +1096,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 28 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 48 | 13 | 1 |
-| W9 | Prompt, mentions, and keyboard | 6 | 0 | 42 | 6 | 0 |
+| W9 | Prompt, mentions, and keyboard | 5 | 0 | 43 | 6 | 0 |
 | W10 | Transcript, density, and copy | 5 | 0 | 47 | 4 | 0 |
 | W11 | Headless mode and tools | 5 | 0 | 38 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 46 | 13 | 9 |
@@ -1106,9 +1106,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 719. Pending: 24. Skipped: 9. Done: 545. Already: 112. Deferred: 29.
+Catalog rows: 719. Pending: 23. Skipped: 9. Done: 546. Already: 112. Deferred: 29.
 
-**Next:** v85-f04
+**Next:** v85-x04
 
 ## Waves
 
@@ -1146,7 +1146,7 @@ Pending: 0. Done: 48 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 6. Done: 42 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153; `v77-f01`, D-154; `v77-x03`, D-155; `v78-f01`, D-156; `v78-f03`, D-157; `v79-f03`; `v79-f04`; `v79-f06`; `v79-x06`; `v79-x14`; `v79-x15`; `v82-f05`, D-233; `v82-x10`; `v84-x05`). Already: 6 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`. Ctrl+O copies the latest assistant reply, the markdown `/copy` writes for the newest message, including when an older assistant message is selected. Send-now, the minimal transcript opener, and a pinned upgrade prompt still take that key. Ctrl+Shift+Y and F6 stay the markdown-source copy. Session always-approve is Shift+Tab and `/always-approve`. Dashboard Ctrl+O still toggles the selected row (`v82-f05`, D-233). Up on the top line of a question's text answer moves to the previous option, and a lower line still moves the caret (`v82-x10`). Shift+Enter or Alt+Enter in multiline mode sends a line that ends with a backslash, and that character stays in the text, while bare Enter outside multiline mode still turns it into a newline (`v84-x05`).
+Pending: 5. Done: 43 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153; `v77-f01`, D-154; `v77-x03`, D-155; `v78-f01`, D-156; `v78-f03`, D-157; `v79-f03`; `v79-f04`; `v79-f06`; `v79-x06`; `v79-x14`; `v79-x15`; `v82-f05`, D-233; `v82-x10`; `v84-x05`). Already: 6 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`. Ctrl+O copies the latest assistant reply, the markdown `/copy` writes for the newest message, including when an older assistant message is selected. Send-now, the minimal transcript opener, and a pinned upgrade prompt still take that key. Ctrl+Shift+Y and F6 stay the markdown-source copy. Session always-approve is Shift+Tab and `/always-approve`. Dashboard Ctrl+O still toggles the selected row (`v82-f05`, D-233). Up on the top line of a question's text answer moves to the previous option, and a lower line still moves the caret (`v82-x10`). Shift+Enter or Alt+Enter in multiline mode sends a line that ends with a backslash, and that character stays in the text, while bare Enter outside multiline mode still turns it into a newline (`v84-x05`).
 
 ### W10 — Transcript, density, and copy
 
@@ -1458,7 +1458,7 @@ id | status | wave | kind | flag | covered | note
 - v82-x10 | done | W9 | Bug Fixes |  |  | **Up arrow** in a question's text answer moves to the previous option when at the top line.
 - v84-x05 | done | W9 | Bug Fixes |  |  | **Shift+Enter** (or Alt+Enter) in multiline mode now correctly sends a line that ends with a backslash.
 - v84-x09 | already | W9 | Bug Fixes |  |  | **Double-tapping Ctrl+O** in minimal mode on Apple Terminal no longer cancels the just-sent prompt.
-- v85-f04 | pending | W9 | Features |  |  | **Slash command autocomplete** now shows each command's argument hint after the name.
+- v85-f04 | done | W9 | Features |  |  | **Slash command autocomplete** now shows each command's argument hint after the name.
 - v85-x04 | pending | W9 | Bug Fixes |  |  | **Typing a full skill name in the slash menu** now reliably selects the exact match.
 - v85-x10 | pending | W9 | Bug Fixes |  |  | **A second Ctrl+C** within one second now arms quit instead of cancelling the next queued prompt.
 - v85-x11 | pending | W9 | Bug Fixes |  |  | **Clicks** on a hidden question-card answer no longer move the caret.

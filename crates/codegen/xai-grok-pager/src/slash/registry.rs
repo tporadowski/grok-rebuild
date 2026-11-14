@@ -53,6 +53,8 @@ pub struct CommandTrigger {
     pub description: String,
     /// Usage string.
     pub usage: String,
+    /// Argument hint shown after the name in autocomplete (`<title>`, `[filename]`).
+    pub arg_hint: Option<String>,
     /// Whether this command takes arguments.
     pub takes_args: bool,
     /// Whether arguments are required (only meaningful when `takes_args` is true).
@@ -80,6 +82,11 @@ impl CommandTrigger {
             match_text: key.to_string(),
             description: command.description().to_string(),
             usage: command.usage().to_string(),
+            arg_hint: command
+                .arg_placeholder()
+                .map(str::trim)
+                .filter(|hint| !hint.is_empty())
+                .map(str::to_string),
             takes_args: command.takes_args(),
             args_required: command.args_required(),
             command_index,
@@ -207,7 +214,10 @@ impl CommandRegistry {
             .iter()
             .find(|cmd| {
                 cmd.name().eq_ignore_ascii_case(key)
-                    || cmd.aliases().iter().any(|alias| alias.eq_ignore_ascii_case(key))
+                    || cmd
+                        .aliases()
+                        .iter()
+                        .any(|alias| alias.eq_ignore_ascii_case(key))
             })
             .map_or(ModeSupport::Both, |cmd| cmd.mode_support())
     }
@@ -468,11 +478,8 @@ impl CommandRegistry {
             .iter()
             .filter(|cmd| !cmd.required_tools().is_empty())
             .flat_map(|cmd| {
-                std::iter::once(cmd.name().to_ascii_lowercase()).chain(
-                    cmd.aliases()
-                        .iter()
-                        .map(|alias| alias.to_ascii_lowercase()),
-                )
+                std::iter::once(cmd.name().to_ascii_lowercase())
+                    .chain(cmd.aliases().iter().map(|alias| alias.to_ascii_lowercase()))
             })
             .collect();
 
@@ -486,10 +493,9 @@ impl CommandRegistry {
         let mut duplicate: Vec<String> = Vec::new();
         for acp_cmd in commands {
             let name = acp_cmd.name.to_lowercase();
-            let skill_stand_in = matches!(
-                SkillMeta::parse(acp_cmd.meta.as_ref()),
-                SkillMeta::Skill(_)
-            ) && tool_gated_names.contains(&name);
+            let skill_stand_in =
+                matches!(SkillMeta::parse(acp_cmd.meta.as_ref()), SkillMeta::Skill(_))
+                    && tool_gated_names.contains(&name);
             if is_reserved(&name) && !skill_stand_in {
                 if is_skill_or_workflow(acp_cmd) {
                     reserved.push(name);
@@ -585,8 +591,7 @@ impl CommandRegistry {
             // Execution is blocked by `get()`'s `restricted_match` filter; invoking one shows the SuperGrok upsell instead
 
             // Insert canonical key. Lookup folds case, so `/COMPACT` and `/compact` hit the same row.
-            self.key_to_index
-                .insert(folded_command_key(canonical), idx);
+            self.key_to_index.insert(folded_command_key(canonical), idx);
             if !menu_only {
                 let trigger = CommandTrigger::new(command, None, canonical, idx, source);
                 self.triggers.extend(trigger.bare_suffix_sibling());

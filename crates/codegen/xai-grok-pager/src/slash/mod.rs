@@ -112,6 +112,8 @@ pub struct SuggestionRow {
     pub tag: Option<String>,
     /// Provenance badge; `Some` only on rows in a builtin/skill name collision.
     pub provenance: Option<CommandProvenance>,
+    /// Argument hint rendered after the command name. `None` on arg rows and commands with no hint.
+    pub arg_hint: Option<String>,
 }
 
 impl SuggestionRow {
@@ -131,6 +133,7 @@ impl SuggestionRow {
             indices: Vec::new(),
             tag: None,
             provenance: collides_with_builtin_or_skill.then(|| trigger.provenance.clone()),
+            arg_hint: trigger.arg_hint.clone(),
         }
     }
 
@@ -142,6 +145,7 @@ impl SuggestionRow {
             indices: Vec::new(),
             tag: None,
             provenance: None,
+            arg_hint: None,
         }
     }
 
@@ -1868,10 +1872,11 @@ mod tests {
 
         ctrl.note_menu_dismissed("/", 1);
         state.close();
-        ctrl.registry_mut().set_acp_commands(&[acp::AvailableCommand::new(
-            "startup-cmd",
-            "Arrived after startup",
-        )]);
+        ctrl.registry_mut()
+            .set_acp_commands(&[acp::AvailableCommand::new(
+                "startup-cmd",
+                "Arrived after startup",
+            )]);
         ctrl.refresh(&state, "/", 1, &models);
         assert!(
             !state.snapshot().open,
@@ -1904,10 +1909,7 @@ mod tests {
 
         let typed = "see /exi";
         ctrl.refresh(&state, typed, typed.len(), &models);
-        assert!(
-            state.snapshot().open,
-            "editing the token reopens the menu"
-        );
+        assert!(state.snapshot().open, "editing the token reopens the menu");
     }
 
     #[test]
@@ -1993,6 +1995,85 @@ mod tests {
         assert!(
             snapshot.matches.iter().any(|row| row.display == "/model"),
             "expected /model in matches"
+        );
+    }
+
+    /// The menu lists the hint beside the name. The composer placeholder only appears after the command is already chosen.
+    #[test]
+    fn autocomplete_shows_each_commands_argument_hint_after_the_name() {
+        let mut ctrl = SlashController::with_builtins(std::path::PathBuf::from("."));
+        ctrl.registry_mut()
+            .set_acp_commands(&[acp::AvailableCommand::new(
+                "search".to_string(),
+                "Search codebase".to_string(),
+            )
+            .input(Some(acp::AvailableCommandInput::Unstructured(
+                acp::UnstructuredCommandInput::new("<query>".to_string()),
+            )))]);
+
+        let state = SlashState::default();
+        let models = ModelState::default();
+
+        ctrl.refresh(&state, "/bt", 3, &models);
+        let btw = state
+            .snapshot()
+            .matches
+            .into_iter()
+            .find(|row| row.display == "/btw")
+            .expect("/btw");
+        assert_eq!(btw.arg_hint.as_deref(), Some("<question>"));
+        assert_eq!(btw.command_name(), "btw");
+
+        ctrl.refresh(&state, "/sea", 4, &models);
+        let search_snap = state.snapshot();
+        let search = search_snap
+            .matches
+            .iter()
+            .find(|row| row.display == "/search")
+            .expect("/search");
+        assert_eq!(search.arg_hint.as_deref(), Some("<query>"));
+
+        ctrl.refresh(&state, "/help", 5, &models);
+        let help_snap = state.snapshot();
+        let help = help_snap
+            .matches
+            .iter()
+            .find(|row| row.display == "/help")
+            .expect("/help");
+        assert!(
+            help.arg_hint.is_none(),
+            "a command with no hint stays bare, got {:?}",
+            help.arg_hint
+        );
+
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+        let rendered = SlashSnapshot {
+            open: true,
+            matches: vec![btw],
+            selected: 0,
+            ..SlashSnapshot::default()
+        };
+        let area = Rect::new(0, 0, 80, 2);
+        let mut buf = Buffer::empty(area);
+        crate::views::slash_dropdown::render_dropdown(
+            &mut buf,
+            area,
+            &rendered,
+            None,
+            &crate::theme::Theme::current(),
+        );
+        let line: String = (0..80)
+            .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+            .collect();
+        let name_at = line.find("/btw").unwrap_or_else(|| panic!("{line}"));
+        let hint_at = line.find("<question>").unwrap_or_else(|| panic!("{line}"));
+        let desc_at = line
+            .find("Ask a side question")
+            .unwrap_or_else(|| panic!("{line}"));
+        assert!(
+            name_at < hint_at && hint_at < desc_at,
+            "hint must sit between the name and the description: {line}"
         );
     }
 
@@ -2668,6 +2749,7 @@ mod tests {
             indices: Vec::new(),
             tag: None,
             provenance: None,
+            arg_hint: None,
         };
         // Without smart-case, starts_with("p") fails on "Privacy" and the ghost disappears
         // The dropdown would still highlight the row via CaseMatching::Smart
