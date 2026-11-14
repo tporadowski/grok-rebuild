@@ -170,6 +170,58 @@ pub fn title_source_text(user_message: &str) -> String {
     display
 }
 
+/// Tokens reserved for the title text. Reasoning that shares this cap needs more.
+const TITLE_VISIBLE_OUTPUT_TOKENS: u32 = 100;
+
+/// Output cap for a title call. Models that bill reasoning against `max_output_tokens`
+/// would otherwise spend the visible budget before any title text is written.
+pub(crate) fn title_output_token_cap() -> u32 {
+    crate::util::config::prompt_suggest_reasoning_budget(TITLE_VISIBLE_OUTPUT_TOKENS, true)
+}
+
+/// The first-prompt title request. The cap includes reasoning headroom.
+pub(crate) fn initial_title_request(clean_message: &str, model: &str) -> ConversationRequest {
+    ConversationRequest::from_items(vec![
+        ConversationItem::system(
+            r#"You are tasked with generating the session title. The user is asking almost always software engineering related questions on their codebase.
+We describe the session title below
+# Session Title
+A short and distinctive 5-10 word descriptive title for the session. Super info dense, no filler.
+
+You will be given the user query below encapsulated in <user_query></user_query>.
+
+Just generate the session_title and nothing else"#,
+        ),
+        ConversationItem::user(format!(
+            r#"<user_query>
+{}
+</user_query>"#,
+            clean_message
+        )),
+    ])
+    .with_model(model)
+    .with_tools(vec![ToolSpec {
+        name: "session_title".to_owned(),
+        description: Some(
+            "Generate the session_title which we use for the user_message".to_owned(),
+        ),
+        parameters: serde_json::json!({
+            "type": "object",
+            "required": ["session_title"],
+            "properties": {
+                "session_title": {
+                    "type": "string",
+                    "description": "Final session title, just 5-10 word descriptive title for the session. Super info dense, no filler."
+                }
+            },
+            "additionalProperties": false
+        }),
+    }])
+    .with_max_output_tokens(title_output_token_cap())
+    .with_temperature(1.0)
+    .with_tool_choice(ConversationToolChoice::Function("session_title".to_owned()))
+}
+
 /// The deterministic first-ten-words fallback shared by every initial-title path.
 pub fn title_fallback_from_user_text(user_message: &str) -> String {
     let text = title_source_text(user_message);
@@ -193,43 +245,7 @@ pub async fn generate_session_summary(
     model: &str,
 ) -> String {
     let clean_message = title_source_text(&user_message);
-    let request = ConversationRequest::from_items(vec![
-        ConversationItem::system(
-            r#"You are tasked with generating the session title. The user is asking almost always software engineering related questions on their codebase.
-We describe the session title below
-# Session Title
-A short and distinctive 5-10 word descriptive title for the session. Super info dense, no filler.
-
-You will be given the user query below encapsulated in <user_query></user_query>.
-
-Just generate the session_title and nothing else"#,
-        ),
-        ConversationItem::user(format!(
-            r#"<user_query>
-{}
-</user_query>"#,
-            clean_message
-        )),
-    ])
-    .with_model(model)
-    .with_tools(vec![ToolSpec {
-        name: "session_title".to_owned(),
-        description: Some("Generate the session_title which we use for the user_message".to_owned()),
-        parameters: serde_json::json!({
-            "type": "object",
-            "required": ["session_title"],
-            "properties": {
-                "session_title": {
-                    "type": "string",
-                    "description": "Final session title, just 5-10 word descriptive title for the session. Super info dense, no filler."
-                }
-            },
-            "additionalProperties": false
-        }),
-    }])
-    .with_max_output_tokens(100)
-    .with_temperature(1.0)
-    .with_tool_choice(ConversationToolChoice::Function("session_title".to_owned()));
+    let request = initial_title_request(&clean_message, model);
 
     match client.conversation_collect(request).await {
         Ok(response) => {
@@ -286,8 +302,9 @@ pub(crate) fn clean_title_text(raw: &str) -> String {
 mod tests {
     use super::{
         DirectSessionTitleRoute, TITLE_SOURCE_MAX_BYTES, clean_title_text,
-        direct_session_title_sampling_config, strip_system_reminder_blocks,
-        title_fallback_from_user_text, title_refresh_instruction, title_source_text,
+        direct_session_title_sampling_config, initial_title_request, strip_system_reminder_blocks,
+        title_fallback_from_user_text, title_output_token_cap, title_refresh_instruction,
+        title_source_text,
     };
 
     #[test]
@@ -350,6 +367,26 @@ mod tests {
         assert_eq!(initial_title_refresh_idx(None, true, 5), frozen);
         // Unmanaged with the feature off: frozen even when brand new
         assert_eq!(initial_title_refresh_idx(None, false, 0), frozen);
+    }
+
+    /// Models that bill reasoning against `max_output_tokens` need headroom past the
+    /// 100 visible title tokens, or the `session_title` tool call never lands.
+    #[test]
+    fn initial_title_request_reserves_output_for_reasoning() {
+        let request = initial_title_request("fix the login", "grok");
+        let cap = title_output_token_cap();
+        assert_eq!(request.max_output_tokens, Some(cap));
+        assert!(
+            cap > 100,
+            "title cap {cap} must leave room past the visible title text"
+        );
+        assert!(
+            request
+                .tools
+                .iter()
+                .any(|tool| tool.name == "session_title"),
+            "the reserved cap belongs on the session_title request"
+        );
     }
 
     #[test]

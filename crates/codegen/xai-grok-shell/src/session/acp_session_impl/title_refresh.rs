@@ -131,7 +131,7 @@ impl SessionActor {
         // Deliberately tool-free: unlike the turn summary, the request carries no tools
         // The model then can't spend the call on a tool invocation that would leave empty text and burn the checkpoint
         // (The conversation prefix still shares the parent prompt-cache key.)
-        let request = self.parent_cached_request(AuxCall {
+        let mut request = self.parent_cached_request(AuxCall {
             items,
             tools: Vec::new(),
             hosted_tools: Vec::new(),
@@ -141,6 +141,7 @@ impl SessionActor {
             conv_id: format!("title-refresh-{}", uuid::Uuid::new_v4()),
             req_id: format!("xai-title-refresh-{}", uuid::Uuid::new_v4()),
         });
+        request.max_output_tokens = Some(session_summary::title_output_token_cap());
 
         let response = match tokio::time::timeout(
             TITLE_REFRESH_MODEL_TIMEOUT,
