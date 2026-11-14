@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-265 — CLI punctuation and path quoting is not a named rule
+
+`v86-x21`. The note says several CLI subcommand messages use consistent punctuation and path quoting. It names neither the subcommands, the punctuation, nor the quote style. CLI success messages already omit a trailing period (`v81-x17`). `--agent-profile` quotes a missing path in single quotes and prints a path that is not a file bare (`resolve_agent_profile_path` in `xai-grok-pager-bin/src/main.rs`). A span profile and a crash report print `path.display()` with no quotes. Worker and workspace errors wrap command names in backticks and disagree on a final period. `v86-x32` owns the `grok -p --resume` flag errors. Rewriting these strings would invent the copy.
+
 ### D-264 — Alpha 1.0.86
 
 On 14 November 2026, after 1.0.85 was stamped, alpha pointed at 1.0.86 and stable was still 1.0.77. `1.0.86.external.md` and `.external.json` both returned 200. JSON and markdown list the same 48 bullets. Order differs: JSON leads with fixes and places the pretty-mode feature and the tasks-pane performance note ahead of later fixes. Ids follow the markdown order. 48 new rows, all pending.
@@ -1165,7 +1169,7 @@ Refresh these numbers at the end of a session.
 | Wave | Name | Pending | Skipped | Done | Already | Deferred |
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
-| W2 | CLI surface | 2 | 0 | 10 | 0 | 0 |
+| W2 | CLI surface | 1 | 0 | 10 | 0 | 1 |
 | W3 | Permissions, sandbox, and config | 1 | 0 | 13 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
@@ -1182,9 +1186,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 48. Skipped: 9. Done: 568. Already: 113. Deferred: 29.
+Catalog rows: 767. Pending: 47. Skipped: 9. Done: 568. Already: 113. Deferred: 30.
 
-**Next:** v86-x21
+**Next:** v86-x32
 
 ## Waves
 
@@ -1194,7 +1198,7 @@ Pending: 0. Done: 5. Deferred: 1 (`v51-b01`, D-020). Look first: Share: `crates/
 
 ### W2 — CLI surface
 
-Pending: 2. Done: 10. Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
+Pending: 1. Done: 10. Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
 
 ### W3 — Permissions, sandbox, and config
 
@@ -1960,7 +1964,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x18 | pending | W8 | Bug Fixes |  |  | **Update notices** on the welcome screen align consistently.
 - v86-x19 | pending | W14 | Bug Fixes |  |  | Error messages for failed actions include the reason in a single sentence.
 - v86-x20 | pending | W14 | Bug Fixes |  |  | The cancel-turn panel uses the correct text color and ellipsis when narrow.
-- v86-x21 | pending | W2 | Bug Fixes |  |  | Several CLI subcommand messages use consistent punctuation and path quoting.
+- v86-x21 | deferred | W2 | Bug Fixes |  |  | Several CLI subcommand messages use consistent punctuation and path quoting.
 - v86-x22 | pending | W3 | Bug Fixes |  |  | Key hints in permission cards are no longer cut off mid-word on narrow terminals.
 - v86-x23 | pending | W9 | Bug Fixes |  |  | The file-search and prompt-history panels no longer crash on very short terminals.
 - v86-x24 | pending | W14 | Bug Fixes |  |  | Plan approval text in minimal mode matches the fullscreen version.
