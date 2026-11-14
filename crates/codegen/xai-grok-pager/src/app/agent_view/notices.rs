@@ -19,11 +19,18 @@ impl AgentView {
     /// Extra tick margin past the quiet window, so the draw that repaints the preview runs *after* [`Self::resize_hides_prompt_preview`] flips — ticking exactly to the boundary would leave the preview hidden until some unrelated event triggered a draw.
     const ITERM2_RESIZE_TICK_MARGIN: std::time::Duration = std::time::Duration::from_millis(100);
 
+    /// How long a transient message stays up, in animation ticks (~3s at 30fps).
+    /// Extension result notices use the same count.
+    pub(crate) const TOAST_TICKS: u8 = 90;
+
     /// Show a brief toast message (e.g., "Copied!").
     /// Displayed for ~3 seconds (90 ticks at 30fps).
     /// A previous transient toast is replaced; [`Self::sticky_toast`] is preserved and returns after this expires or is dismissed.
     pub fn show_toast(&mut self, msg: &str) {
-        self.toast = Some((crate::glyphs::sanitize_toast_message(msg).into_owned(), 90));
+        self.toast = Some((
+            crate::glyphs::sanitize_toast_message(msg).into_owned(),
+            Self::TOAST_TICKS,
+        ));
     }
 
     /// Show an ephemeral tip in the banner row above the prompt, gated by the app-level per-session `seen_counts` map (`AppView::tip_seen_counts`).

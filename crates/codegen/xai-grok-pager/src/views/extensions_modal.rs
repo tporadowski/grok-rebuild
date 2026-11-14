@@ -1117,8 +1117,9 @@ pub struct ActionResultNotice {
     pub ticks_remaining: u16,
 }
 
-/// How long a result notice stays on screen, in animation ticks (~2.5s at 30fps).
-pub const RESULT_NOTICE_TICKS: u16 = 75;
+/// How long a result notice stays on screen. Same tick count as a toast.
+pub const RESULT_NOTICE_TICKS: u16 =
+    crate::app::agent_view::AgentView::TOAST_TICKS as u16;
 
 /// Single source of truth for the McpServers tab action keys.
 /// Consumed by the renderer (hint bar), the picker (`PickerConfig::action_keys`), and `resolve_key` (must have a matching arm for every entry).
@@ -6833,6 +6834,15 @@ mod tests {
                 "Plugins action key ('{ch}', \"{label}\") has no resolve_key arm"
             );
         }
+    }
+
+    #[test]
+    fn result_notice_lasts_as_long_as_a_toast() {
+        assert_eq!(
+            RESULT_NOTICE_TICKS,
+            u16::from(crate::app::agent_view::AgentView::TOAST_TICKS),
+            "an extension result should stay up as long as other messages"
+        );
     }
 
     #[test]
