@@ -3,7 +3,8 @@ use super::*;
 use crate::session::SessionThread;
 use super::spawn::{
     inject_subagent_completed_prompt, join_worker_task, present_child_completion,
-    should_auto_wake_subagent, will_wake_for, AutoWakeInputs, InjectParams,
+    returned_subagent_output, should_auto_wake_subagent, will_wake_for, AutoWakeInputs,
+    InjectParams,
 };
 use super::prompt_turn_receipt::{
     PromptTurnReceiptDisposition, PromptTurnSettlementInput,
@@ -659,6 +660,57 @@ async fn emit_subagent_notification_stamps_one_event_id_on_both_paths() {
     };
     assert_eq!(persisted_id, broadcast_id);
 }
+#[test]
+fn max_turns_returns_the_work_and_can_wake_the_parent() {
+    use super::prompt_turn_result::{
+        PromptTurnResultInput, PromptTurnResultMode, PromptTurnResultSummaries,
+        reduce_prompt_turn_result,
+    };
+    use crate::session::commands::{PromptCompletionKind, PromptTurnOk};
+
+    let summary = || "summary".to_string();
+    let max_turns = |limit| format!("max turns: {limit}");
+    let output = reduce_prompt_turn_result(PromptTurnResultInput {
+        result: SubagentResult::default(),
+        turn_result: Ok(Ok(PromptTurnOk {
+            stop_reason: agent_client_protocol::StopReason::EndTurn,
+            total_tokens: 0,
+            turn_snapshot: None,
+            completion_kind: PromptCompletionKind::MaxTurnsReached { limit: 3 },
+            structured_output: None,
+            usage: None,
+            tool_overrides: None,
+        })),
+        mode: PromptTurnResultMode::Initial {
+            requires_structured_output: false,
+        },
+        final_text: "the parser change".to_string(),
+        was_cancelled: false,
+        summaries: PromptTurnResultSummaries {
+            success: &summary,
+            max_turns: &max_turns,
+            cancelled: &summary,
+        },
+        result_tokens: 1,
+    });
+    assert!(!output.result.success);
+    assert!(!output.result.cancelled);
+    assert_eq!(output.result.output.as_ref(), "the parser change");
+    assert_eq!(
+        returned_subagent_output(&output.result).as_deref(),
+        Some("the parser change")
+    );
+    assert!(should_auto_wake_subagent(AutoWakeInputs {
+        run_in_background: true,
+        cancelled: output.result.cancelled,
+        auto_wake_enabled: true,
+        block_waited: false,
+        explicitly_killed: false,
+        goal_loop_active: false,
+        parent_channel_open: true,
+    }));
+}
+
 #[test]
 fn subagent_max_turns_definition_wins_else_inherits_parent() {
     assert_eq!(super::resolve_subagent_max_turns(Some(2), Some(5)), Some(2));

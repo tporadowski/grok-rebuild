@@ -385,6 +385,16 @@ pub(crate) fn spawn_subagent_coordinator(
         coordinator::SubagentCoordinator::from_channel(rx, runner, config).run(),
     );
 }
+/// Work handed back to the parent. A user cancel does not. A turn-limit
+/// stop is not a cancel, so the text the child already wrote is returned.
+pub(crate) fn returned_subagent_output(result: &SubagentResult) -> Option<String> {
+    if result.cancelled || result.output.is_empty() {
+        None
+    } else {
+        Some(result.output.to_string())
+    }
+}
+
 /// Whether this completion will inject an auto-wake prompt; decided on the coordinator thread in `on_completed`.
 pub(crate) fn will_wake_for(completion: &ChildCompletion<ShellCompletionData>) -> bool {
     should_auto_wake_subagent(AutoWakeInputs::from_completion(completion))
@@ -416,7 +426,7 @@ pub(crate) fn present_child_completion(
                 turns: result.turns,
                 duration_ms: result.duration_ms,
                 tokens_used: completion_data.telemetry_tokens(),
-                output: result.success.then(|| result.output.to_string()),
+                output: returned_subagent_output(&result),
                 will_wake,
             },
             completion_data.parent_cmd_tx.as_ref(),

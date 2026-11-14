@@ -273,7 +273,7 @@ fn every_completion_kind_maps_to_the_terminal_contract() {
             PromptCompletionKind::MaxTurnsReached { limit: 4 },
             (
                 false,
-                true,
+                false,
                 Some("max turns reached (limit: 4)"),
                 true,
                 false,

@@ -137,8 +137,10 @@ pub(super) fn reduce_prompt_turn_result(
                 cancellation_may_hide_usage = true;
             }
             PromptCompletionKind::MaxTurnsReached { limit } => {
+                // Not a user cancel: the child keeps the text it already wrote,
+                // and the parent is woken with that work.
                 result.success = false;
-                result.cancelled = true;
+                result.cancelled = false;
                 result.error = Some(format!("max turns reached (limit: {limit})"));
                 result.output = text_or_summary(&final_text, || (summaries.max_turns)(limit));
                 result.output_usage_incomplete = true;
