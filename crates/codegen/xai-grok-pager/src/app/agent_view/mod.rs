@@ -542,9 +542,9 @@ pub(super) fn is_text_selection_on_double_click() -> bool {
     crate::appearance::cache::load_keep_text_selection().selects_word()
 }
 
-/// Thinking text selects on double-click even when the setting still folds other blocks.
+/// A thinking block folds on double-click. Other blocks select text only in word-select mode.
 pub(super) fn double_click_selects_text_for_block(is_thinking: bool) -> bool {
-    is_thinking || is_text_selection_on_double_click()
+    !is_thinking && is_text_selection_on_double_click()
 }
 /// A driver-side turn-end broadcast awaiting its `session/prompt` RPC
 /// response. See [`AgentView::pending_turn_end_reconcile`].

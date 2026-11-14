@@ -1303,11 +1303,8 @@ impl AgentView {
             }
             2 if feedback_open.is_some() => {}
             2 => {
-                let thinking = self
-                    .scrollback
-                    .entry(idx)
-                    .is_some_and(|entry| entry.block.is_thinking());
-                if foldable && !thinking {
+                // Thinking blocks fold and expand on double-click again (`v86-x33`).
+                if foldable {
                     self.scrollback.toggle_fold_selected();
                 }
             }
@@ -2213,7 +2210,7 @@ mod tests {
     }
 
     #[test]
-    fn double_click_does_not_fold_a_thought_with_no_text() {
+    fn double_click_folds_a_thought_and_leaves_blank_thoughts() {
         use crate::scrollback::block::RenderBlock;
         use crate::scrollback::types::DisplayMode;
 
@@ -2238,11 +2235,11 @@ mod tests {
             Instant::now() + Duration::from_secs(2),
             2,
         );
-        assert_eq!(
+        assert_ne!(
             mode(&agent, 2), before,
-            "a double-click on thinking text must not fold or expand it"
+            "a double-click on a thinking block folds or expands it"
         );
-        assert!(super::super::double_click_selects_text_for_block(true));
+        assert!(!super::super::double_click_selects_text_for_block(true));
         assert!(!super::super::double_click_selects_text_for_block(false));
     }
 

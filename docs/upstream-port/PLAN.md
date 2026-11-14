@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-278 — Double-click folds a thinking block again
+
+`v86-x33` replaces `v85-x02`. Double-click on a thinking block selects text today, including when word-select is off. It folds or expands the block again. A blank thought still does not fold. Other blocks still select a word only in word-select mode.
+
 ### D-277 — Pretty mode renders a reference link like an inline link
 
 `v86-f01`. Pretty mode already turns `[text](url)` into `text (url)`. A reference link `[text][id]` stayed as source. When the id resolves, pretty mode now rewrites that span the same way. The definition line is still the source line under the paragraph.
@@ -1225,18 +1229,18 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 54 | 14 | 2 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 50 | 7 | 0 |
-| W10 | Transcript, density, and copy | 5 | 0 | 53 | 4 | 0 |
+| W10 | Transcript, density, and copy | 4 | 0 | 53 | 4 | 0 |
 | W11 | Headless mode and tools | 1 | 0 | 43 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 1 | 0 | 46 | 13 | 9 |
 | W13 | Update, install, and sign-in | 1 | 0 | 29 | 11 | 0 |
 | W14 | Pager and remaining bug fixes | 22 | 1 | 159 | 20 | 5 |
 | W15 | Performance | 1 | 0 | 20 | 6 | 2 |
-| SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
+| SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 31. Skipped: 9. Done: 582. Already: 114. Deferred: 31.
+Catalog rows: 767. Pending: 30. Skipped: 10. Done: 582. Already: 114. Deferred: 31.
 
-**Next:** v86-x33
+**Next:** v86-x39
 
 ## Waves
 
@@ -1278,7 +1282,7 @@ Pending: 0. Done: 50 (`v86-x37`, D-276; `v86-x34`, D-275; `v86-x23`, D-274; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 5. Done: 53 (`v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
+Pending: 4. Done: 53 (`v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
 
 ### W11 — Headless mode and tools
 
@@ -1643,7 +1647,7 @@ id | status | wave | kind | flag | covered | note
 - v82-f02 | done | W10 | Features |  |  | **Enter** (or `Ctrl+F`) expands or collapses long user messages directly in the transcript.
 - v82-x07 | already | W10 | Bug Fixes |  |  | **Drag selection** from transcript text now autoscrolls immediately at the pane edge.
 - v82-x12 | done | W10 | Bug Fixes |  |  | **Copied text** from tables, question cards and the fullscreen viewer now includes backticks around inline code.
-- v85-x02 | done | W10 | Bug Fixes |  |  | **Double-clicking a thinking block** now selects text instead of folding or expanding it.
+- v85-x02 | skipped | SKIP | Bug Fixes | skip-superseded | v86-x33 | **Double-clicking a thinking block** now selects text instead of folding or expanding it.
 - v85-x23 | done | W10 | Bug Fixes |  |  | **Replies** now preserve single newlines as line breaks instead of joining them into one paragraph.
 - v85-x25 | done | W10 | Bug Fixes |  |  | **Skill reads** now show the skill's advertised name instead of its folder name in the scrollback and shell titles.
 - v85-x26 | done | W10 | Bug Fixes |  |  | **Tool search rows** now start with Search, matching file-search rows.
@@ -2024,7 +2028,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x30 | pending | W14 | Bug Fixes |  |  | Overflow messages correctly pluralize and show exact counts.
 - v86-x31 | done | W5 | Bug Fixes |  |  | Goal status labels are consistent between the status bar and the goal modal.
 - v86-x32 | done | W2 | Bug Fixes |  |  | Error messages for `grok -p --resume` when other flags are present are clearer.
-- v86-x33 | pending | W10 | Bug Fixes |  |  | **Double-click** on a thinking block folds or expands it again.
+- v86-x33 | done | W10 | Bug Fixes |  |  | **Double-click** on a thinking block folds or expands it again.
 - v86-x34 | done | W9 | Bug Fixes |  |  | **Change directory picker** keeps the folder name visible when a path is too long.
 - v86-x35 | pending | W14 | Bug Fixes |  |  | **Persona Source path** keeps the filename visible when the full path is too long.
 - v86-x36 | pending | W14 | Bug Fixes |  |  | **How-to Guides tip** keeps the last folder name visible when the path is too long.
