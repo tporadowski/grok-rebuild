@@ -32,7 +32,7 @@ fn prompt_style(focus: WelcomePromptFocus, compact: bool) -> PromptStyle {
         chrome: true,
         chrome_pad_left: CHROME_PAD,
         chrome_pad_right: CHROME_PAD,
-        placeholder_override: Some("Type a message..."),
+        placeholder_override: Some("Type a message\u{2026}"),
         ..PromptStyle::default()
     }
 }
@@ -111,7 +111,7 @@ pub(super) fn paint_prompt_sliver(area: Rect, buf: &mut Buffer, prompt: &PromptW
         let x = area.x.saturating_add(arrow_w);
         let draft = prompt.text();
         let body = if draft.trim().is_empty() {
-            "Type a message..."
+            "Type a message\u{2026}"
         } else {
             draft
         };

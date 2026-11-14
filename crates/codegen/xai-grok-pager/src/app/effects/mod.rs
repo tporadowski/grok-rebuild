@@ -1149,7 +1149,7 @@ pub(crate) fn execute(
                             Box::new(move |event| {
                                 let msg = match (event.phase, event.step) {
                                     (RestorePhase::Download, PhaseStep::Start) => {
-                                        Some("Downloading session archives...".to_string())
+                                        Some("Downloading session archives\u{2026}".to_string())
                                     }
                                     (RestorePhase::Download, PhaseStep::End) => {
                                         Some(
@@ -1160,7 +1160,7 @@ pub(crate) fn execute(
                                         )
                                     }
                                     (RestorePhase::Codebase, PhaseStep::Start) => {
-                                        Some("Restoring code...".to_string())
+                                        Some("Restoring code\u{2026}".to_string())
                                     }
                                     (RestorePhase::Codebase, PhaseStep::End) => {
                                         event
@@ -1169,10 +1169,10 @@ pub(crate) fn execute(
                                             .map(|detail| format!("Code restored ({detail})."))
                                     }
                                     (RestorePhase::Memory, PhaseStep::Start) => {
-                                        Some("Restoring memory...".to_string())
+                                        Some("Restoring memory\u{2026}".to_string())
                                     }
                                     (RestorePhase::SessionState, PhaseStep::Start) => {
-                                        Some("Restoring session state...".to_string())
+                                        Some("Restoring session state\u{2026}".to_string())
                                     }
                                     (RestorePhase::SessionState, PhaseStep::End) => {
                                         event

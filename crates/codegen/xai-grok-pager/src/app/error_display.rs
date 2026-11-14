@@ -107,7 +107,7 @@ impl FormattedRequestFailure {
 
 #[derive(Clone, Copy)]
 pub(crate) enum RetryLabelStyle {
-    /// Composer / turn-status: `Retrying (attempt N)...`
+    /// Composer / turn-status: `Retrying (attempt N)…`
     Status,
     /// Title bar and subagent activity: `Retrying (N/M)`
     Compact,
@@ -131,7 +131,7 @@ pub(crate) fn format_retry_activity_label(
 pub(crate) fn retry_clause(attempt: u32, max_retries: u32, style: RetryLabelStyle) -> String {
     // Longer headline plus U+2026 wraps this status row into the prompt.
     match style {
-        RetryLabelStyle::Status => format!("Retrying (attempt {attempt})..."),
+        RetryLabelStyle::Status => format!("Retrying (attempt {attempt})\u{2026}"),
         RetryLabelStyle::Compact => format!("Retrying ({attempt}/{max_retries})"),
     }
 }
@@ -1017,7 +1017,7 @@ mod tests {
         let dns = "request error: error sending request for url (https://api.x.ai/v1/responses): client error (Connect): dns error: failed to lookup address information: Temporary failure in name resolution";
         assert_eq!(
             format_retry_activity_label(8, 10, dns, None, RetryLabelStyle::Status),
-            "Connection failed | Retrying (attempt 8)..."
+            "Connection failed | Retrying (attempt 8)\u{2026}"
         );
         assert!(
             !format_retry_activity_label(8, 10, dns, None, RetryLabelStyle::Status)
@@ -1035,7 +1035,7 @@ mod tests {
         );
         assert_eq!(
             format_retry_activity_label(2, 5, "", None, RetryLabelStyle::Status),
-            "Retrying (attempt 2)..."
+            "Retrying (attempt 2)\u{2026}"
         );
         assert_eq!(
             format_retry_activity_label(
@@ -1045,11 +1045,11 @@ mod tests {
                 None,
                 RetryLabelStyle::Status
             ),
-            "Retrying (attempt 1)..."
+            "Retrying (attempt 1)\u{2026}"
         );
         assert_eq!(
             format_retry_activity_label(3, 5, "weird dump", Some("http"), RetryLabelStyle::Status),
-            "Connection failed | Retrying (attempt 3)..."
+            "Connection failed | Retrying (attempt 3)\u{2026}"
         );
         assert_eq!(
             format_retry_activity_label(
@@ -1063,7 +1063,7 @@ mod tests {
         );
         assert_eq!(
             format_retry_activity_label(1, 3, dns, Some("a_future_kind"), RetryLabelStyle::Status),
-            "Retrying (attempt 1)..."
+            "Retrying (attempt 1)\u{2026}"
         );
         assert_eq!(
             format_request_failure(

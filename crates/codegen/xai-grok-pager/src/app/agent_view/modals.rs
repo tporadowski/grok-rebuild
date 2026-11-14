@@ -1756,13 +1756,13 @@ impl AgentView {
                     state.modal_message = None;
                     if matches!(hooks_action, xai_hooks_plugins_types::HooksAction::Reload) {
                         // Reload rebuilds the entire plugin registry; show tab-level "Loading..." instead of a single-entry badge
-                        state.pending_action = Some("Reloading...".into());
+                        state.pending_action = Some("Reloading\u{2026}".into());
                         state.pending_entry_index = None;
                         state.hooks_data = TabDataState::Loading;
                         state.plugins_data = TabDataState::Loading;
                         state.marketplace_data = TabDataState::Loading;
                     } else {
-                        state.pending_action = Some("Processing...".into());
+                        state.pending_action = Some("Processing\u{2026}".into());
                         state.pending_entry_index = Some(state.picker_state.selected);
                     }
                 }
@@ -1777,7 +1777,7 @@ impl AgentView {
                         xai_hooks_plugins_types::PluginsAction::Reload
                     ) {
                         // Reload rebuilds the entire plugin registry; show tab-level "Loading..." instead of a single-entry badge
-                        state.pending_action = Some("Reloading...".into());
+                        state.pending_action = Some("Reloading\u{2026}".into());
                         state.pending_entry_index = None;
                         state.plugins_data = TabDataState::Loading;
                         state.marketplace_data = TabDataState::Loading;
@@ -1789,9 +1789,9 @@ impl AgentView {
                             plugins_action,
                             xai_hooks_plugins_types::PluginsAction::Update { .. }
                         ) {
-                            "Updating..."
+                            "Updating\u{2026}"
                         } else {
-                            "Processing..."
+                            "Processing\u{2026}"
                         };
                         state.pending_action = Some(label.into());
                         state.pending_entry_index = Some(state.picker_state.selected);
@@ -1947,7 +1947,7 @@ impl AgentView {
                             state.pending_entry_index = Some(state.picker_state.selected);
                         }
                         _ => {
-                            state.pending_action = Some("Processing...".into());
+                            state.pending_action = Some("Processing\u{2026}".into());
                             state.pending_entry_index = Some(state.picker_state.selected);
                         }
                     }
@@ -2287,7 +2287,7 @@ impl AgentView {
             }
             ButtonAction::InstallSelectedMarketplacePlugin => self
                 .execute_selected_marketplace_plugin_action(
-                    "Installing...",
+                    "Installing\u{2026}",
                     ActionVerb::Install,
                     |plugin| xai_hooks_plugins_types::MarketplaceAction::Install {
                         source_url_or_path: plugin.source_url_or_path,
@@ -2296,7 +2296,7 @@ impl AgentView {
                 ),
             ButtonAction::UpdateSelectedMarketplacePlugin => self
                 .execute_selected_marketplace_plugin_action(
-                    "Updating...",
+                    "Updating\u{2026}",
                     ActionVerb::Update,
                     |plugin| xai_hooks_plugins_types::MarketplaceAction::Update {
                         source_url_or_path: plugin.source_url_or_path,
@@ -2592,7 +2592,7 @@ mod marketplace_modal_action_tests {
             .extensions_modal
             .as_ref()
             .expect("modal should remain open");
-        assert_eq!(state.pending_action.as_deref(), Some("Updating..."));
+        assert_eq!(state.pending_action.as_deref(), Some("Updating\u{2026}"));
         assert_eq!(state.pending_entry_index, Some(1));
     }
 
@@ -2749,7 +2749,7 @@ mod extensions_action_target_tests {
             other => panic!("expected marketplace install dispatch, got {other:?}"),
         }
         let state = agent.extensions_modal.as_ref().unwrap();
-        assert_eq!(state.pending_action.as_deref(), Some("Installing..."));
+        assert_eq!(state.pending_action.as_deref(), Some("Installing\u{2026}"));
         assert_eq!(state.picker_state.query(), "");
     }
 
@@ -2861,7 +2861,7 @@ mod extensions_action_target_tests {
             other => panic!("expected plugins update dispatch, got {other:?}"),
         }
         let state = agent.extensions_modal.as_ref().unwrap();
-        assert_eq!(state.pending_action.as_deref(), Some("Updating..."));
+        assert_eq!(state.pending_action.as_deref(), Some("Updating\u{2026}"));
     }
 
     /// A boundary Down leaves the tab bar focused with the row still selected; action keys
@@ -3249,7 +3249,7 @@ mod extensions_action_target_tests {
             other => panic!("expected plugins update action, got {other:?}"),
         }
         let state = agent.extensions_modal.as_ref().expect("modal stays open");
-        assert_eq!(state.pending_action.as_deref(), Some("Updating..."));
+        assert_eq!(state.pending_action.as_deref(), Some("Updating\u{2026}"));
         assert_eq!(state.pending_entry_index, Some(0));
     }
 
@@ -3285,7 +3285,7 @@ mod extensions_action_target_tests {
                 other => panic!("enabled={enabled}: expected plugins toggle, got {other:?}"),
             }
             let state = agent.extensions_modal.as_ref().expect("modal stays open");
-            assert_eq!(state.pending_action.as_deref(), Some("Processing..."));
+            assert_eq!(state.pending_action.as_deref(), Some("Processing\u{2026}"));
             assert_eq!(state.pending_entry_index, Some(1));
             assert_eq!(state.modal_message, None);
         }
@@ -3672,7 +3672,7 @@ mod extensions_action_target_tests {
                 ),
             };
             let state = agent.extensions_modal.as_ref().expect("modal stays open");
-            assert_eq!(state.pending_action.as_deref(), Some("Processing..."));
+            assert_eq!(state.pending_action.as_deref(), Some("Processing\u{2026}"));
             assert_eq!(state.pending_entry_index, Some(1));
             assert_eq!(state.modal_message, None);
             action

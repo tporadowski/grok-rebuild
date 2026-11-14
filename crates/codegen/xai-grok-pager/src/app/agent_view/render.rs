@@ -3218,7 +3218,7 @@ impl AgentView {
                     let msg_y = top_border_y + 1;
                     if msg_y < bottom_border_y {
                         let message = if self.prompt_history_loading() {
-                            "  Loading..."
+                            "  Loading\u{2026}"
                         } else {
                             "  no matching history"
                         };
@@ -3637,7 +3637,7 @@ impl AgentView {
                 let dim_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
                 let border_style = Style::default().fg(theme.gray_dim).bg(theme.bg_base);
                 let title_spans: Vec<ratatui::text::Span> = if viewer.loading {
-                    let name = viewer.title.as_deref().unwrap_or("Loading...");
+                    let name = viewer.title.as_deref().unwrap_or("Loading\u{2026}");
                     vec![
                         ratatui::text::Span::styled("\u{2500} ", border_style),
                         ratatui::text::Span::styled(name.to_owned(), title_style),
@@ -3691,7 +3691,7 @@ impl AgentView {
                                 .copied()
                                 .unwrap_or(""),
                         };
-                        let loading = format!("{} Loading...", frame);
+                        let loading = format!("{} Loading\u{2026}", frame);
                         let lw = loading.width() as u16;
                         let lx = popup_rect.x + 1 + inner_cols.saturating_sub(lw) / 2;
                         let ly = popup_rect.y + 1 + inner_rows / 2;
@@ -3739,8 +3739,8 @@ impl AgentView {
                                 .style(Style::default().fg(theme.gray_dim).bg(theme.bg_base))
                                 .render(inner_rect, buf);
                         } else {
-                            let loading = "Loading...";
-                            let lw = loading.len() as u16;
+                            let loading = "Loading\u{2026}";
+                            let lw = unicode_width::UnicodeWidthStr::width(loading) as u16;
                             let lx = inner_rect.x + inner_cols.saturating_sub(lw) / 2;
                             let ly = inner_rect.y + inner_rows / 2;
                             buf.set_span_safe(
@@ -4213,10 +4213,10 @@ impl AgentView {
                             0 => "",
                             n => spinner_frames.get(tick % n).copied().unwrap_or(""),
                         };
-                        let label = format!("{spinner} Loading...");
+                        let label = format!("{spinner} Loading\u{2026}");
                         let cy = rect.y + rect.height / 2;
                         buf.set_string_safe(
-                            center_x(label.len()),
+                            center_x(unicode_width::UnicodeWidthStr::width(label.as_str())),
                             cy,
                             &label,
                             Style::default().fg(theme.gray_dim),

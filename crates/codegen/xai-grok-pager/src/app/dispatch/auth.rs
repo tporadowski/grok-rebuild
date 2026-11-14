@@ -521,7 +521,7 @@ pub(super) fn handle_mcp_setup_submit_done(
             ));
             return vec![];
         }
-        modal.pending_action = Some(format!("Authenticating {server_name}..."));
+        modal.pending_action = Some(format!("Authenticating {server_name}\u{2026}"));
         modal.pending_entry_index = None;
     }
     let Some(session_id) = agent.session.session_id.clone() else {

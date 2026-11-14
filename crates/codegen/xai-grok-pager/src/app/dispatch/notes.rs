@@ -812,7 +812,7 @@ pub(super) fn dispatch_save_remember_note_from_modal(app: &mut AppView) -> Vec<E
     agent.active_modal = None;
     agent
         .scrollback
-        .push_block(RenderBlock::system("Saving memory note...".to_string()));
+        .push_block(RenderBlock::system("Saving memory note\u{2026}".to_string()));
 
     vec![Effect::SaveMemoryNote {
         agent_id: id,

@@ -29,7 +29,7 @@ use agent_client_protocol as acp;
 use xai_grok_telemetry::session_ctx::log_event;
 
 /// Shared by every submit guard that refuses while the session reconnects.
-pub(super) const RECONNECTING_NOTICE: &str = "Reconnecting, please wait...";
+pub(super) const RECONNECTING_NOTICE: &str = "Reconnecting, please wait\u{2026}";
 
 /// `None` when `cwd` is a directory. A missing path is not created.
 pub(super) fn missing_session_cwd_notice(cwd: &std::path::Path) -> Option<String> {

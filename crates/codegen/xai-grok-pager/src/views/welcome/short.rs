@@ -346,11 +346,11 @@ fn paint_authenticating(
     auth_url: Option<&str>,
 ) -> WelcomeRenderResult {
     let status_text = match mode {
-        AuthMode::Pending => "Connecting...".to_string(),
+        AuthMode::Pending => "Connecting\u{2026}".to_string(),
         AuthMode::Device => super::extract_user_code(auth_url.unwrap_or(""))
             .map(str::to_string)
-            .unwrap_or_else(|| "Waiting for approval...".to_string()),
-        AuthMode::Command | AuthMode::Loopback => "Waiting for login to complete...".to_string(),
+            .unwrap_or_else(|| "Waiting for approval\u{2026}".to_string()),
+        AuthMode::Command | AuthMode::Loopback => "Waiting for login to complete\u{2026}".to_string(),
     };
     let hint = quit_hint();
     let (status, action) = split_short(area);

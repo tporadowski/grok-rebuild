@@ -1160,7 +1160,7 @@ async fn restore_session_from_remote(
     emit_pre_tui_restore_line(
         progress_on_stdout,
         &format!(
-            "Session {:?} not found locally, restoring conversation from remote...",
+            "Session {:?} not found locally, restoring conversation from remote\u{2026}",
             session_id
         ),
     );

@@ -148,7 +148,7 @@ impl Lifecycle {
     pub(crate) fn plain_message(&self) -> String {
         match self {
             Lifecycle::CompactStarted { percentage } => {
-                format!("Auto-compacting conversation ({percentage}% full)...")
+                format!("Auto-compacting conversation ({percentage}% full)\u{2026}")
             }
             Lifecycle::CompactCompleted { .. } => "Conversation compacted.".to_string(),
             Lifecycle::CompactFailed { error } if error.trim().is_empty() => {

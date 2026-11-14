@@ -1354,10 +1354,10 @@ fn render_browser_status_arm(
 
     // Device also parses the user code from the verification URL.
     let (header, waiting_text, user_code) = match kind {
-        BrowserStatusKind::Command => (AUTH_HEADER, "Waiting for login to complete...", None),
+        BrowserStatusKind::Command => (AUTH_HEADER, "Waiting for login to complete\u{2026}", None),
         BrowserStatusKind::Device => (
             DEVICE_AUTH_HEADER,
-            "Waiting for approval...",
+            "Waiting for approval\u{2026}",
             auth_url.and_then(extract_user_code),
         ),
     };
@@ -1506,7 +1506,7 @@ fn render_welcome_authenticating(
             } else {
                 lines.push(
                     Line::from(Span::styled(
-                        "Waiting for auth URL...",
+                        "Waiting for auth URL\u{2026}",
                         Style::default().fg(theme.gray),
                     ))
                     .alignment(Alignment::Center),
@@ -1597,7 +1597,7 @@ fn render_welcome_authenticating(
             render_logo(logo_area, buf, theme, content_area.height);
 
             let msg = Line::from(Span::styled(
-                "Connecting...",
+                "Connecting\u{2026}",
                 Style::default().fg(theme.gray_bright),
             ))
             .alignment(Alignment::Center);
@@ -2766,7 +2766,7 @@ fn build_masked_auth_token(input: &str, cursor_byte: usize) -> MaskedAuthToken {
 
 fn masked_auth_token_view(input: &str, cursor_byte: usize, width: usize) -> (String, usize) {
     if input.is_empty() {
-        return ("Paste your token here...".to_string(), 0);
+        return ("Paste your token here\u{2026}".to_string(), 0);
     }
     let masked = build_masked_auth_token(input, cursor_byte);
     let buffer =
@@ -2895,7 +2895,7 @@ mod tests {
     fn masked_auth_token_preserves_reveal_policy() {
         assert_eq!(
             masked_auth_token_view("", 0, 24),
-            ("Paste your token here...".to_string(), 0)
+            ("Paste your token here\u{2026}".to_string(), 0)
         );
         assert_eq!(build_masked_auth_token("12345678", 8).display, "12345678");
         assert_eq!(build_masked_auth_token("123456789", 9).display, "•••••6789");
@@ -4991,6 +4991,96 @@ mod tests {
         assert!(
             fallback_rect.is_some(),
             "command arm must expose a show-full-URL hit-rect"
+        );
+    }
+
+    #[test]
+    fn loading_messages_and_the_prompt_placeholder_use_the_unicode_ellipsis() {
+        let ellipsis = '\u{2026}';
+        let trust = TrustState::Done;
+        let area = Rect::new(0, 0, 100, 40);
+        let mut picker = PickerState::default();
+
+        let mut paint = |auth: &AuthState| {
+            let params = render_params(auth, &trust, None);
+            let mut buf = Buffer::empty(area);
+            let mut prompt = PromptWidget::new();
+            let _ = render_welcome(area, &mut buf, &params, &mut prompt, &mut picker);
+            buffer_text(&buf)
+        };
+
+        let connecting = AuthState::Authenticating {
+            request_seq: 1,
+            handle: None,
+            auth_url: None,
+            mode: AuthMode::Pending,
+        };
+        let text = paint(&connecting);
+        assert!(
+            text.contains(&format!("Connecting{ellipsis}")),
+            "connecting must use the unicode ellipsis, got:\n{text}"
+        );
+        assert!(
+            !text.contains("Connecting..."),
+            "connecting still uses three dots:\n{text}"
+        );
+
+        let login = AuthState::Authenticating {
+            request_seq: 1,
+            handle: None,
+            auth_url: Some("https://accounts.x.ai/oauth2/authorize".into()),
+            mode: AuthMode::Command,
+        };
+        let text = paint(&login);
+        assert!(
+            text.contains(&format!("Waiting for login to complete{ellipsis}")),
+            "login wait must use the unicode ellipsis, got:\n{text}"
+        );
+
+        let approval = AuthState::Authenticating {
+            request_seq: 1,
+            handle: None,
+            auth_url: None,
+            mode: AuthMode::Device,
+        };
+        let text = paint(&approval);
+        assert!(
+            text.contains(&format!("Waiting for approval{ellipsis}")),
+            "approval wait must use the unicode ellipsis, got:\n{text}"
+        );
+
+        let url_wait = AuthState::Authenticating {
+            request_seq: 1,
+            handle: None,
+            auth_url: None,
+            mode: AuthMode::Loopback,
+        };
+        let text = paint(&url_wait);
+        assert!(
+            text.contains(&format!("Waiting for auth URL{ellipsis}")),
+            "auth URL wait must use the unicode ellipsis, got:\n{text}"
+        );
+        assert!(
+            text.contains(&format!("Paste your token here{ellipsis}")),
+            "token placeholder must use the unicode ellipsis, got:\n{text}"
+        );
+
+        let home = AuthState::Done;
+        let text = paint(&home);
+        assert!(
+            text.contains(&format!("Type a message{ellipsis}")),
+            "prompt placeholder must use the unicode ellipsis, got:\n{text}"
+        );
+
+        let short_area = Rect::new(0, 0, 80, 2);
+        let params = render_params(&connecting, &trust, None);
+        let mut buf = Buffer::empty(short_area);
+        let mut prompt = PromptWidget::new();
+        let _ = render_welcome(short_area, &mut buf, &params, &mut prompt, &mut picker);
+        let text = buffer_text(&buf);
+        assert!(
+            text.contains(&format!("Connecting{ellipsis}")),
+            "the one-row welcome must use the same ellipsis, got:\n{text}"
         );
     }
 

@@ -2830,9 +2830,9 @@ pub(crate) async fn run(
                         reconnect_abort_handle = Some(join_handle.abort_handle());
 
                         app.show_toast(if any_reload {
-                            "Reconnected. Reloading session..."
+                            "Reconnected. Reloading session\u{2026}"
                         } else {
-                            "Reconnected. Re-initializing..."
+                            "Reconnected. Re-initializing\u{2026}"
                         });
                         presenter.request(false);
                     }

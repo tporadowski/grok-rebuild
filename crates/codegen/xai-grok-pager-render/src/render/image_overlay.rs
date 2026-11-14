@@ -187,8 +187,8 @@ fn render_image_overlay_inner(
 
     if image_inner.width > 0 && image_inner.height > 0 {
         use crate::render::SafeBuf;
-        let loading = "Loading...";
-        let lw = loading.len() as u16;
+        let loading = "Loading\u{2026}";
+        let lw = unicode_width::UnicodeWidthStr::width(loading) as u16;
         let lx = image_inner.x + image_inner.width.saturating_sub(lw) / 2;
         let ly = image_inner.y + image_inner.height / 2;
         buf.set_span_safe(

@@ -175,9 +175,9 @@ fn dispatch_load_session_ungated(
     scrollback.set_appearance(app.appearance.clone());
     scrollback.set_max_thoughts_width(app.current_ui.max_thoughts_width);
     let loading_msg = if matches!(app.restore_code, Some(true)) {
-        format!("Restoring code for session {}...", &session_id)
+        format!("Restoring code for session {}\u{2026}", &session_id)
     } else {
-        format!("Loading session {}...", &session_id)
+        format!("Loading session {}\u{2026}", &session_id)
     };
     let loading_placeholder_id = scrollback.push_block(RenderBlock::system(loading_msg));
     let agent = AgentView::from_app(
@@ -437,7 +437,7 @@ pub(in crate::app::dispatch) fn dispatch_pick_session(
             }
             return vec![];
         }
-        app.show_toast("Restoring session from remote...");
+        app.show_toast("Restoring session from remote\u{2026}");
         dispatch_load_session_with_restore(app, session_id, cwd)
     } else {
         #[cfg(feature = "local-workspace")]
@@ -1072,7 +1072,7 @@ pub(in crate::app::dispatch) fn dispatch_pick_content_session(
     if focus_if_session_already_open(app, &session_id, false).is_some() {
         return vec![];
     }
-    app.show_toast("Restoring session from remote...");
+    app.show_toast("Restoring session from remote\u{2026}");
     dispatch_load_session_with_restore(app, session_id, cwd)
 }
 /// Create a placeholder agent and restore a remote session before loading.
@@ -1607,7 +1607,7 @@ pub(in crate::app::dispatch) fn handle_session_restored(
         }
         agent.apply_credit_balance(app.credit_balance.clone(), app.auto_topup.clone());
         agent.scrollback.push_block(RenderBlock::system(format!(
-            "Session restored. Loading {local_session_id}..."
+            "Session restored. Loading {local_session_id}\u{2026}"
         )));
     }
     identity_rebind.apply(app);

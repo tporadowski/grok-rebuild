@@ -158,7 +158,7 @@ pub(super) fn dispatch_send_prompt_now(
                     crate::app::agent::QueueEntryKind::Prompt,
                 )
             });
-        agent.show_toast("Reconnecting, please wait...");
+        agent.show_toast("Reconnecting, please wait\u{2026}");
         return vec![];
     }
 

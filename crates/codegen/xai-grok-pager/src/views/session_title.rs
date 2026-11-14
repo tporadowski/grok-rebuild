@@ -4,7 +4,7 @@
 //! 1. `AgentView::display_name` if set (post-rename),
 //! 2. else `AgentView::generated_session_title` (LLM title or from disk on resume),
 //! 3. else the trimmed first ~60 chars of the first user-prompt block in scrollback,
-//! 4. else `"session abc12345"` (or `"loading..."` when no session id
+//! 4. else `"session abc12345"` (or `"loading…"` when no session id
 //!    is established yet).
 
 use std::borrow::Cow;
@@ -28,7 +28,7 @@ pub fn entry_title(agent: &AgentView) -> String {
             let short: String = sid.0.chars().take(8).collect();
             format!("session {short}")
         }
-        None => "loading...".to_string(),
+        None => "loading\u{2026}".to_string(),
     }
 }
 

@@ -1072,7 +1072,7 @@ fn entry_title_loading_when_no_session_id() {
         a.session.session_id = None;
     }
     let title = entry_title(expect_agent(&app, AgentId(0)));
-    assert_eq!(title, "loading...");
+    assert_eq!(title, "loading\u{2026}");
 }
 /// Regression: SessionLoaded must clear stale running entries from replay.
 /// Without the finish_turn call, Execute blocks that were InProgress when the session was last active stay orphaned as "running" forever.

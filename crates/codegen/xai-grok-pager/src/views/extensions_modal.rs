@@ -3642,7 +3642,7 @@ pub fn render_extensions_modal(
         && let Some(ref pending_text) = state.pending_action
     {
         if let Some(badge) = entry_badge_text.get_mut(pending_idx) {
-            *badge = format!("[{}]", pending_text.trim_end_matches("..."));
+            *badge = format!("[{}]", pending_text.trim_end_matches(['.', '\u{2026}']));
         }
         if let Some(color) = entry_badge_color.get_mut(pending_idx) {
             *color = Some(theme.warning);
@@ -4121,7 +4121,7 @@ pub fn render_extensions_modal(
             popup_rect.y + popup_rect.height.saturating_sub(1),
         )
     {
-        let label = state.pending_action.as_deref().unwrap_or("Processing...");
+        let label = state.pending_action.as_deref().unwrap_or("Processing\u{2026}");
         let frames = crate::glyphs::braille_spinner_frames();
         let frame_idx = (tick / SPINNER_DIVISOR) as usize % frames.len();
         let display = format!("{} {label}", frames.get(frame_idx).copied().unwrap_or(""));

@@ -1064,9 +1064,9 @@ fn render_file_list(buf: &mut Buffer, area: Rect, state: &mut MemoryModalState, 
     let viewport = state.query.viewport(area.width as usize);
     if state.query().is_empty() {
         let placeholder = if filter_focused {
-            "type to filter..."
+            "type to filter\u{2026}"
         } else {
-            "/ to filter..."
+            "/ to filter\u{2026}"
         };
         buf.set_span(
             area.x,
