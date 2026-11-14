@@ -3776,9 +3776,9 @@ fn render_location_picker_tags_worktree() {
     );
 }
 
-/// Truncation priority: the directory name (label) is shown in full and the path (right label) is truncated first.
+/// A long path keeps the folder name. The row label stays whole, and the path loses its front.
 #[test]
-fn render_location_picker_truncates_path_not_label() {
+fn render_location_picker_keeps_the_folder_name() {
     let theme = Theme::current();
     let area = Rect::new(0, 0, 54, 20);
     let mut buf = Buffer::empty(area);
@@ -3799,8 +3799,12 @@ fn render_location_picker_truncates_path_not_label() {
         "full label must be shown, got: {content:?}",
     );
     assert!(
-        !content.contains("UNIQUETAIL"),
-        "long path must be truncated, got: {content:?}",
+        content.contains("UNIQUETAIL"),
+        "the folder name stays on a long path, got: {content:?}",
+    );
+    assert!(
+        content.contains('\u{2026}'),
+        "the path is still shortened, got: {content:?}",
     );
 }
 

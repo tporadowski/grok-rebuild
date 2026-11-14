@@ -16,7 +16,7 @@ use super::state::{
 use crate::app::actions::PermissionLabel;
 use crate::app::agent::AgentId;
 use crate::app::agent_view::AgentView;
-use crate::render::line_utils::truncate_str;
+use crate::render::line_utils::{shorten_path, truncate_str};
 use crate::theme::Theme;
 use crate::util::format_time_ago;
 use crate::views::dashboard::row_title::RowTitle;
@@ -698,10 +698,11 @@ fn render_location_picker(
             None => String::new(),
         })
         .collect();
-    // Truncation priority: the directory name (label) is shown in full whenever it fits; the path
-    // (right label) is truncated first.
+    // The directory name (label) stays whole. A path that does not fit keeps its last folder.
     let details: Vec<String> = {
-        const PREFIX: u16 = 2;
+        // Same right-column cap as `render_picker_row`: half of the row after the fold glyph,
+        // the trailing pad, and the gap. A wider string is cut from the end and loses the folder.
+        const FOLD: u16 = 2;
         const GAP: u16 = 2;
         const TRAILING: u16 = 1;
         let row_w = content_area.width.saturating_sub(1);
@@ -714,9 +715,9 @@ fn render_location_picker(
                 } else {
                     badge.width() as u16 + 1
                 };
-                let reserved = PREFIX + c.label.width() as u16 + badge_w + GAP + TRAILING;
-                let budget = row_w.saturating_sub(reserved) as usize;
-                truncate_str(&c.detail, budget)
+                let usable = row_w.saturating_sub(FOLD + TRAILING + GAP + badge_w);
+                let budget = (usable / 2) as usize;
+                shorten_path(&c.detail, budget)
             })
             .collect()
     };
