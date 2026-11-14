@@ -384,21 +384,29 @@ impl GoalDisplayStatus {
             _ => Self::UserPaused,
         }
     }
-    /// Short user-facing label for the status chip, the modal status row, and the modal paused-state hint line.
-    /// Single source of truth so the three displays cannot drift.
-    /// Returns the empty string for non-paused variants; they render through their own labels (e.g. `"Budget"`, `"Done"`) elsewhere.
-    pub fn pause_label(&self) -> &'static str {
+    /// The word the status bar and the goal modal both show for this status.
+    /// Active goals still append the live phase beside this word in the modal, and the bar shows that phase instead.
+    pub fn status_word(&self) -> &'static str {
         match self {
+            Self::Active => "Active",
             Self::UserPaused => "Paused",
             Self::BackOffPaused => "Paused (back-off)",
             Self::NoProgressPaused => "Paused (no progress)",
             Self::InfraPaused => "Paused (error)",
             Self::Blocked => "Paused (verification blocked)",
-            Self::Active
-            | Self::Failed
-            | Self::Interrupted
-            | Self::BudgetLimited
-            | Self::Complete => "",
+            Self::Failed => "Failed",
+            Self::Interrupted => "Interrupted",
+            Self::BudgetLimited => "Budget",
+            Self::Complete => "Done",
+        }
+    }
+    /// Short user-facing label for a paused goal. Empty for every other status.
+    /// The paused words are [`Self::status_word`].
+    pub fn pause_label(&self) -> &'static str {
+        if self.is_paused() {
+            self.status_word()
+        } else {
+            ""
         }
     }
     /// True for any paused variant; the modal uses this cause-agnostic check to decide whether to append the `/goal resume` hint.

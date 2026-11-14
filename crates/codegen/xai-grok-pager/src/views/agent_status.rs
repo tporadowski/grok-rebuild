@@ -249,17 +249,10 @@ fn format_elapsed_compact(ms: u64) -> String {
 /// Paused variants render their `pause_label()`, Budget renders "Budget", Done renders "Done".
 /// An Active goal uses the shared [`active_phase_label`] suffix.
 fn goal_phase_label(goal: &GoalDisplayState) -> String {
-    match goal.status {
-        GoalDisplayStatus::UserPaused
-        | GoalDisplayStatus::BackOffPaused
-        | GoalDisplayStatus::NoProgressPaused
-        | GoalDisplayStatus::InfraPaused
-        | GoalDisplayStatus::Blocked => goal.status.pause_label().into(),
-        GoalDisplayStatus::Failed => "Failed".into(),
-        GoalDisplayStatus::Interrupted => "Interrupted".into(),
-        GoalDisplayStatus::BudgetLimited => "Budget".into(),
-        GoalDisplayStatus::Complete => "Done".into(),
-        GoalDisplayStatus::Active => active_phase_label(goal),
+    if matches!(goal.status, GoalDisplayStatus::Active) {
+        active_phase_label(goal)
+    } else {
+        goal.status.status_word().into()
     }
 }
 

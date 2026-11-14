@@ -64,18 +64,24 @@ pub(crate) fn format_elapsed(ms: u64) -> String {
 
 fn status_label(goal: &GoalDisplayState) -> (&'static str, Color, String) {
     let theme = Theme::current();
-    match goal.status {
-        GoalDisplayStatus::Active => ("Active", theme.accent_success, active_phase_label(goal)),
+    let word = goal.status.status_word();
+    let color = match goal.status {
+        GoalDisplayStatus::Active | GoalDisplayStatus::Complete => theme.accent_success,
+        GoalDisplayStatus::Failed
+        | GoalDisplayStatus::Interrupted
+        | GoalDisplayStatus::BudgetLimited => theme.accent_error,
         GoalDisplayStatus::UserPaused
         | GoalDisplayStatus::BackOffPaused
         | GoalDisplayStatus::NoProgressPaused
         | GoalDisplayStatus::InfraPaused
-        | GoalDisplayStatus::Blocked => (goal.status.pause_label(), theme.warning, String::new()),
-        GoalDisplayStatus::Failed => ("Failed", theme.accent_error, String::new()),
-        GoalDisplayStatus::Interrupted => ("Interrupted", theme.accent_error, String::new()),
-        GoalDisplayStatus::BudgetLimited => ("Budget limited", theme.accent_error, String::new()),
-        GoalDisplayStatus::Complete => ("Complete", theme.accent_success, String::new()),
-    }
+        | GoalDisplayStatus::Blocked => theme.warning,
+    };
+    let phase = if matches!(goal.status, GoalDisplayStatus::Active) {
+        active_phase_label(goal)
+    } else {
+        String::new()
+    };
+    (word, color, phase)
 }
 
 /// Wrap a string into rows of at most `width` terminal columns. `width` of zero or one returns a
@@ -1610,11 +1616,31 @@ mod tests {
 
         goal.status = GoalDisplayStatus::BudgetLimited;
         let (s, _, _) = status_label(&goal);
-        assert_eq!(s, "Budget limited");
+        assert_eq!(s, "Budget");
 
         goal.status = GoalDisplayStatus::Complete;
         let (s, _, _) = status_label(&goal);
-        assert_eq!(s, "Complete");
+        assert_eq!(s, "Done");
+    }
+
+    #[test]
+    fn goal_status_words_match_the_status_bar() {
+        let mut goal = make_goal();
+        for status in [
+            GoalDisplayStatus::UserPaused,
+            GoalDisplayStatus::BackOffPaused,
+            GoalDisplayStatus::NoProgressPaused,
+            GoalDisplayStatus::InfraPaused,
+            GoalDisplayStatus::Blocked,
+            GoalDisplayStatus::Failed,
+            GoalDisplayStatus::Interrupted,
+            GoalDisplayStatus::BudgetLimited,
+            GoalDisplayStatus::Complete,
+        ] {
+            goal.status = status;
+            let (modal, _, _) = status_label(&goal);
+            assert_eq!(modal, status.status_word(), "{status:?}");
+        }
     }
 
     /// Walk the buffer and collect every cell's symbol into a single string, joining rows with `\n`.

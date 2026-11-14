@@ -1181,7 +1181,7 @@ Refresh these numbers at the end of a session.
 | W3 | Permissions, sandbox, and config | 0 | 0 | 14 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
-| W5 | Workflows and goals | 1 | 0 | 29 | 6 | 0 |
+| W5 | Workflows and goals | 0 | 0 | 30 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 8 | 0 | 48 | 13 | 1 |
 | W9 | Prompt, mentions, and keyboard | 3 | 0 | 47 | 7 | 0 |
@@ -1194,9 +1194,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 44. Skipped: 9. Done: 571. Already: 113. Deferred: 30.
+Catalog rows: 767. Pending: 43. Skipped: 9. Done: 572. Already: 113. Deferred: 30.
 
-**Next:** v86-x31
+**Next:** v86-x02
 
 ## Waves
 
@@ -1222,7 +1222,7 @@ Pending: 0. Done: 24. Already: 10. Deferred: 3 (`v51-x37`, `v52-x17`, D-041; `v8
 
 ### W5 — Workflows and goals
 
-Pending: 1. Done: 29. Already: 6. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046). A pasted image on `/pr-workflow` is sent with the skill line (`v51-f27`, D-047). Reopening a chat keeps an active goal running (`v51-f30`, D-048). Quit names a running workflow and confirms with a second press (`v53-f05`, D-049). A headless goal that already completed does not print a later `Goal paused.` line (`v51-x92`, D-050). Inline tags stay on the sentence line, and `/workflow stop` prefers the live run (`v52-x23`, D-051). A finished workflow line ends with the run's result, `/tasks` shows the scheduled time, and an unknown task poll keeps an error row (`v74-x19`, D-052). Workflow running marks and a starting MCP server use `theme.running` (`v74-x31`, D-053). The question Enter button, the session popup `[✗]`, and a collapsed workflow row highlight under the pointer (`v75-x11`, D-054). A background subagent or an active workflow keeps the dashboard row Working, and stopping the row ends that work (`v75-x16`, D-055). Phase numbers and tool-search rows share a column once the list reaches 10, and a copied description lines up under the action (`v80-x06`). Plan review buttons wrap onto extra footer rows on a narrow terminal and stay clickable, including a label clipped to the popup (`v80-x11`). Focusing the agent list keeps the roster window still, and a blank status message stays in the same column as the other agents' messages (`v81-x18`). Goal budget meters keep both brackets and the percentage on a narrow terminal (`v81-x27`).
+Pending: 0. Done: 30. Already: 6. Look first: `xai-workflow` and the `/workflow` slash command. `/goal` already exists; the three-continuation pause is the new behavior. The goal chip opens the goal panel while workflow runs exist (`v47-x02`, D-042). The run roster lists agents outside a declared phase, counts only finished agents as done, and focuses an agent with Right or a click (`v53-x10`, `v72-f05`, D-045). Ctrl+C pauses an active goal, a disabled `/goal` line is a normal prompt, and a corrupt bundle manifest is refreshed (`v51-f28`, `v51-x110`, `v74-x01`, D-046). A pasted image on `/pr-workflow` is sent with the skill line (`v51-f27`, D-047). Reopening a chat keeps an active goal running (`v51-f30`, D-048). Quit names a running workflow and confirms with a second press (`v53-f05`, D-049). A headless goal that already completed does not print a later `Goal paused.` line (`v51-x92`, D-050). Inline tags stay on the sentence line, and `/workflow stop` prefers the live run (`v52-x23`, D-051). A finished workflow line ends with the run's result, `/tasks` shows the scheduled time, and an unknown task poll keeps an error row (`v74-x19`, D-052). Workflow running marks and a starting MCP server use `theme.running` (`v74-x31`, D-053). The question Enter button, the session popup `[✗]`, and a collapsed workflow row highlight under the pointer (`v75-x11`, D-054). A background subagent or an active workflow keeps the dashboard row Working, and stopping the row ends that work (`v75-x16`, D-055). Phase numbers and tool-search rows share a column once the list reaches 10, and a copied description lines up under the action (`v80-x06`). Plan review buttons wrap onto extra footer rows on a narrow terminal and stay clickable, including a label clipped to the popup (`v80-x11`). Focusing the agent list keeps the roster window still, and a blank status message stays in the same column as the other agents' messages (`v81-x18`). Goal budget meters keep both brackets and the percentage on a narrow terminal (`v81-x27`).
 
 ### W7 — Worktrees
 
@@ -1982,7 +1982,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x28 | pending | W8 | Bug Fixes |  |  | The dashboard footer is padded evenly and the location caption brightens on hover.
 - v86-x29 | pending | W8 | Bug Fixes |  |  | Content-search results in the resume picker appear under a shorter heading.
 - v86-x30 | pending | W14 | Bug Fixes |  |  | Overflow messages correctly pluralize and show exact counts.
-- v86-x31 | pending | W5 | Bug Fixes |  |  | Goal status labels are consistent between the status bar and the goal modal.
+- v86-x31 | done | W5 | Bug Fixes |  |  | Goal status labels are consistent between the status bar and the goal modal.
 - v86-x32 | done | W2 | Bug Fixes |  |  | Error messages for `grok -p --resume` when other flags are present are clearer.
 - v86-x33 | pending | W10 | Bug Fixes |  |  | **Double-click** on a thinking block folds or expands it again.
 - v86-x34 | pending | W9 | Bug Fixes |  |  | **Change directory picker** keeps the folder name visible when a path is too long.
