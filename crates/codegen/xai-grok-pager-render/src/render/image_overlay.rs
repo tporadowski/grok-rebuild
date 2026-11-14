@@ -146,7 +146,7 @@ fn render_image_overlay_inner(
             format_mime(&image.mime_type)
         )));
         if let Some((w, h)) = image.preview_dimensions() {
-            lines.push(Line::from(format!("Dimensions: {} x {}", w, h)));
+            lines.push(Line::from(format!("Dimensions: {} \u{00d7} {}", w, h)));
         }
         let status = if image.preview.is_failed() {
             Some("Preview unavailable")

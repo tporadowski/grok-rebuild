@@ -35,7 +35,7 @@ pub(super) fn build_meta_line(image: &PastedImage, display_path: Option<&Path>) 
     let mut parts = Vec::with_capacity(4);
     parts.push(format_mime(&image.mime_type));
     if let Some((width, height)) = image.preview_dimensions() {
-        parts.push(format!("{}x{}", width, height));
+        parts.push(format!("{}\u{00d7}{}", width, height));
     }
     parts.push(format_bytes(image.byte_len as u64));
     if let Some(path) = display_path

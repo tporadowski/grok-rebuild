@@ -199,9 +199,22 @@ fn paint_metadata_with_path_shows_all_fields() {
     );
     assert!(render.unwrap().image_placement.is_none());
     assert!(text.contains("Format: PNG"));
-    assert!(text.contains("Dimensions: 640 x 480"));
+    assert!(
+        text.contains("Dimensions: 640 \u{00d7} 480"),
+        "dimensions use the multiplication sign, got {text}"
+    );
     assert!(text.contains("Path:"));
     assert!(text.contains("logo.png"));
+}
+
+#[test]
+fn overlay_title_dimensions_use_the_multiplication_sign() {
+    let image = sample_image(Some("/tmp/logo.png"), false);
+    let meta = content::build_meta_line(&image, Some(Path::new("/tmp/logo.png")));
+    assert!(
+        meta.contains("640\u{00d7}480"),
+        "title dimensions use the multiplication sign, got {meta}"
+    );
 }
 
 #[test]
