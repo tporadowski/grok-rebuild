@@ -130,10 +130,45 @@ pub fn launch_is_headless(
 /// Headless `--resume` must name a session. A blank value is not a new session.
 /// Interactive `grok --resume` with no value still means most recent (`headless: false`).
 pub fn refuse_blank_headless_resume(headless: bool, resume: Option<&str>) -> anyhow::Result<()> {
+    refuse_headless_resume(headless, resume, false)
+}
+
+/// Same as [`refuse_blank_headless_resume`]. `flag_follows_resume` is true when the
+/// next argv token after `--resume`/`-r` is itself a flag, so the session id was
+/// omitted rather than rejected.
+pub fn refuse_headless_resume(
+    headless: bool,
+    resume: Option<&str>,
+    flag_follows_resume: bool,
+) -> anyhow::Result<()> {
     if headless && resume.is_some_and(|value| value.trim().is_empty()) {
+        if flag_follows_resume && resume.is_some_and(|value| value.is_empty()) {
+            anyhow::bail!(
+                "--resume needs a session id or title before other flags. \
+                 A flag after --resume is not the session: \
+                 grok -p \"PROMPT\" --resume SESSION"
+            );
+        }
         anyhow::bail!("--resume requires a valid session ID.");
     }
     Ok(())
+}
+
+/// True when `--resume` or `-r` is immediately followed by another flag.
+/// That flag is not the session id (`num_args = 0..=1` leaves the resume value empty).
+pub fn flag_follows_resume_token(argv: &[&str]) -> bool {
+    let mut args = argv.iter();
+    while let Some(arg) = args.next() {
+        if *arg == "--resume" || *arg == "-r" {
+            return args.next().is_some_and(|next| {
+                next.starts_with('-') && *next != "-" && !next.starts_with("--resume")
+            });
+        }
+        if let Some(rest) = arg.strip_prefix("--resume=") {
+            return rest.is_empty();
+        }
+    }
+    false
 }
 
 /// Parse ACP content blocks from an array (`[...]`) or typed wrapper (`{"type":"acp","content":[...]}`).
@@ -333,6 +368,34 @@ mod tests {
             .expect("flag prompt");
         assert_eq!(reads.get(), 0, "an explicit prompt must not read stdin");
         assert_eq!(text_of(prompt), "from the flag");
+    }
+
+    #[test]
+    fn p_resume_flag_before_another_flag_names_the_session() {
+        let argv = ["grok", "-p", "hello", "--resume", "--model", "m"];
+        assert!(super::flag_follows_resume_token(&argv));
+        let err = super::refuse_headless_resume(true, Some(""), true)
+            .expect_err("a following flag is not a session id");
+        let message = err.to_string();
+        assert!(message.contains("before other flags"), "{message}");
+        assert!(message.contains("not the session"), "{message}");
+        assert!(!message.contains("valid session ID"), "{message}");
+        assert!(
+            super::refuse_headless_resume(true, Some("sess"), true).is_ok(),
+            "a real id still resumes"
+        );
+    }
+
+    #[test]
+    fn p_resume_flag_blank_without_a_follower_stays() {
+        let argv = ["grok", "-p", "hello", "--resume"];
+        assert!(!super::flag_follows_resume_token(&argv));
+        let err = super::refuse_blank_headless_resume(true, Some(""))
+            .expect_err("an omitted id is still refused");
+        assert!(err.to_string().contains("valid session ID"), "{err}");
+        assert!(!super::flag_follows_resume_token(&[
+            "grok", "-p", "hello", "--model", "m", "--resume"
+        ]));
     }
 
     #[test]

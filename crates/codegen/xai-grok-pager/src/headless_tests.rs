@@ -814,6 +814,30 @@ fn load_error(message: &str, detail: Option<&str>) -> acp::Error {
     err
 }
 
+/// `--session-id` or `--fork-session` with `grok -p --resume` is one sentence.
+/// JSON mode, before the session opens, puts that sentence in one error object.
+#[test]
+fn p_resume_flag_conflict_is_one_json_error() {
+    use crate::app::session_startup::StartupFlagError;
+
+    let message = StartupFlagError::SessionIdRequiresFork.to_string();
+    assert_eq!(
+        message,
+        "--session-id with --resume or --continue needs --fork-session. It names the new session"
+    );
+    let emitter = HeadlessEmitter::new(OutputFormat::Json, false);
+    assert!(emitter.reports_single_json_error());
+    let reported = emitter.json_error(&message);
+    let object = reported.as_object().expect("one JSON object");
+    assert_eq!(object.len(), 2, "one error object, got {reported}");
+    assert_eq!(reported["type"], "error");
+    assert_eq!(reported["message"], message);
+    assert!(reported.get("worktreePath").is_none());
+
+    let plain = HeadlessEmitter::new(OutputFormat::Plain, false);
+    assert!(!plain.reports_single_json_error());
+}
+
 /// A resumed load reports the ACP reason. An empty error stays "Session does not exist".
 /// JSON mode, before the session opens, is one error object and has no worktree folder.
 #[test]

@@ -213,13 +213,13 @@ impl std::fmt::Display for StartupFlagError {
             Self::SessionIdRequiresFork => {
                 write!(
                     f,
-                    "Error: --session-id can only be used with --continue or --resume if --fork-session is also specified."
+                    "--session-id with --resume or --continue needs --fork-session. It names the new session"
                 )
             }
             Self::ForkWithWorktree => {
                 write!(
                     f,
-                    "Error: --fork-session cannot be combined with --worktree."
+                    "--fork-session cannot be combined with --worktree"
                 )
             }
         }
@@ -1581,6 +1581,30 @@ mod tests {
             .session_startup_intent()
             .unwrap_err();
         assert_eq!(err, StartupFlagError::SessionIdRequiresFork);
+    }
+    #[test]
+    fn p_resume_flag_session_id_needs_fork() {
+        let err = parse(&["grok", "-p", "hello", "--resume", "sess", "-s", "new"])
+            .session_startup_intent()
+            .unwrap_err();
+        let printed = format!("Error: {err}");
+        assert_eq!(
+            printed,
+            "Error: --session-id with --resume or --continue needs --fork-session. It names the new session"
+        );
+        assert_eq!(printed.matches("Error:").count(), 1, "{printed}");
+    }
+    #[test]
+    fn p_resume_flag_fork_worktree_is_one_sentence() {
+        let err = parse(&["grok", "-p", "hello", "--resume", "sess", "--fork-session", "-w"])
+            .session_startup_intent()
+            .unwrap_err();
+        let printed = format!("Error: {err}");
+        assert_eq!(
+            printed,
+            "Error: --fork-session cannot be combined with --worktree"
+        );
+        assert_eq!(printed.matches("Error:").count(), 1, "{printed}");
     }
     #[test]
     fn intent_fork_with_resume() {

@@ -2292,7 +2292,10 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
     });
     schedule_startup_prewarm();
     // Blank headless `--resume` fails before session lookup.
-    xai_grok_pager::headless::refuse_blank_headless_resume(
+    // A flag in the next argv slot is not the session id.
+    let resume_argv: Vec<String> = std::env::args().collect();
+    let resume_argv_refs: Vec<&str> = resume_argv.iter().map(String::as_str).collect();
+    xai_grok_pager::headless::refuse_headless_resume(
         xai_grok_pager::headless::launch_is_headless(
             args.command.is_none(),
             args.single.is_some() || args.prompt_json.is_some() || args.prompt_file.is_some(),
@@ -2302,6 +2305,7 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
         args.resume_session
             .as_deref()
             .or(args.load_session.as_deref()),
+        xai_grok_pager::headless::flag_follows_resume_token(&resume_argv_refs),
     )?;
     args.pin_local_resume_target()?;
     let saved_profile = args.saved_resume_profile();

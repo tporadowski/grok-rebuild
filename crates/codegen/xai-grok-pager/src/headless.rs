@@ -49,8 +49,8 @@ use signals::HeadlessSignals;
 mod cli;
 pub(crate) use cli::parse_comma_list;
 pub use cli::{
-    HeadlessPrompt, OutputFormat, launch_is_headless, parse_json_schema,
-    parse_permission_rules_lenient, refuse_blank_headless_resume,
+    HeadlessPrompt, OutputFormat, flag_follows_resume_token, launch_is_headless, parse_json_schema,
+    parse_permission_rules_lenient, refuse_blank_headless_resume, refuse_headless_resume,
 };
 pub(crate) use cli::{ResolvedAgent, resolve_agent_arg};
 use cli::{apply_agent_flag, parse_cli_agents, parse_permission_rules_strict};
@@ -1272,18 +1272,24 @@ pub async fn run_single_turn(
     let resume_most_recent = options.resume.as_deref() == Some("");
     let worktree =
         WorktreeSpec::from_cli(options.worktree.as_deref(), options.worktree_ref.as_deref());
-    let intent = session_startup::session_startup_intent_from_flags(SessionStartupFlags {
+    let intent = match session_startup::session_startup_intent_from_flags(SessionStartupFlags {
         session_id: options.session_id.as_deref(),
         resume_session_id: has_resume_id,
         resume_most_recent,
         continue_last_session: options.continue_last_session,
         fork_session: options.fork_session,
         has_worktree: worktree.is_some(),
-    })
-    .map_err(|e| anyhow::anyhow!("{e}"))
-    .inspect_err(|_| {
-        PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Error);
-    })?;
+    }) {
+        Ok(intent) => intent,
+        Err(err) => {
+            PendingStartup::finish_held(&mut pending_startup, crate::acp::StartupOutcome::Error);
+            let message = err.to_string();
+            if emitter.reports_single_json_error() {
+                return Err(emitter.fail_json_before_open(&message));
+            }
+            return Err(anyhow::anyhow!(message));
+        }
+    };
     let cwd_str = cwd.to_string_lossy().to_string();
     let materialized = match session_startup::materialize_startup_for_cwd(
         headless_materialize_ctx(

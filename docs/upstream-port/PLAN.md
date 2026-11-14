@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-266 — grok -p --resume names the other flag
+
+`v86-x32`. `grok -p --resume SESSION` with no prompt was reported as a missing `--single` value. `--resume` immediately followed by another flag left the session id empty and then said the id was invalid. `--resume` with `--continue` reprinted a usage line that still showed both flags. `--session-id` with `--resume` and no `--fork-session` was printed as `Error: Error:` plus a sentence that read as if `--session-id` were only legal with `--resume`. Those four cases now name the flags (`clearer_p_resume_error`, `refuse_headless_resume`, `StartupFlagError`). A headless JSON run writes the flag conflict as one error object. A blank `--resume` with no following flag still says it needs a valid session id (`v82-x06`).
+
 ### D-265 — CLI punctuation and path quoting is not a named rule
 
 `v86-x21`. The note says several CLI subcommand messages use consistent punctuation and path quoting. It names neither the subcommands, the punctuation, nor the quote style. CLI success messages already omit a trailing period (`v81-x17`). `--agent-profile` quotes a missing path in single quotes and prints a path that is not a file bare (`resolve_agent_profile_path` in `xai-grok-pager-bin/src/main.rs`). A span profile and a crash report print `path.display()` with no quotes. Worker and workspace errors wrap command names in backticks and disagree on a final period. `v86-x32` owns the `grok -p --resume` flag errors. Rewriting these strings would invent the copy.
@@ -1169,7 +1173,7 @@ Refresh these numbers at the end of a session.
 | Wave | Name | Pending | Skipped | Done | Already | Deferred |
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
-| W2 | CLI surface | 1 | 0 | 10 | 0 | 1 |
+| W2 | CLI surface | 0 | 0 | 11 | 0 | 1 |
 | W3 | Permissions, sandbox, and config | 1 | 0 | 13 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
@@ -1186,9 +1190,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 47. Skipped: 9. Done: 568. Already: 113. Deferred: 30.
+Catalog rows: 767. Pending: 46. Skipped: 9. Done: 569. Already: 113. Deferred: 30.
 
-**Next:** v86-x32
+**Next:** v86-x22
 
 ## Waves
 
@@ -1198,7 +1202,7 @@ Pending: 0. Done: 5. Deferred: 1 (`v51-b01`, D-020). Look first: Share: `crates/
 
 ### W2 — CLI surface
 
-Pending: 1. Done: 10. Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
+Pending: 0. Done: 11. Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. `grok -p --resume` with another flag names that flag (`v86-x32`, D-266). Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
 
 ### W3 — Permissions, sandbox, and config
 
@@ -1975,7 +1979,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x29 | pending | W8 | Bug Fixes |  |  | Content-search results in the resume picker appear under a shorter heading.
 - v86-x30 | pending | W14 | Bug Fixes |  |  | Overflow messages correctly pluralize and show exact counts.
 - v86-x31 | pending | W5 | Bug Fixes |  |  | Goal status labels are consistent between the status bar and the goal modal.
-- v86-x32 | pending | W2 | Bug Fixes |  |  | Error messages for `grok -p --resume` when other flags are present are clearer.
+- v86-x32 | done | W2 | Bug Fixes |  |  | Error messages for `grok -p --resume` when other flags are present are clearer.
 - v86-x33 | pending | W10 | Bug Fixes |  |  | **Double-click** on a thinking block folds or expands it again.
 - v86-x34 | pending | W9 | Bug Fixes |  |  | **Change directory picker** keeps the folder name visible when a path is too long.
 - v86-x35 | pending | W14 | Bug Fixes |  |  | **Persona Source path** keeps the filename visible when the full path is too long.

@@ -877,6 +877,40 @@ fn anchor_to_launch_dir(path: PathBuf, launch_dir: Option<&std::path::Path>) -> 
         strip_cur_dir(path)
     }
 }
+/// Clap's wording for `grok -p --resume` plus other flags.
+/// A missing `-p` value is reported as `--single`, and a `--continue` conflict
+/// reprints a usage line that still shows the flags that cannot combine.
+pub(crate) fn clearer_p_resume_error(
+    argv: &[std::ffi::OsString],
+    rendered: &str,
+) -> Option<&'static str> {
+    let owned: Vec<&str> = argv.iter().filter_map(|arg| arg.to_str()).collect();
+    clearer_p_resume_error_str(&owned, rendered)
+}
+
+pub(crate) fn clearer_p_resume_error_str(argv: &[&str], rendered: &str) -> Option<&'static str> {
+    let has_print = argv
+        .iter()
+        .any(|arg| matches!(*arg, "-p" | "--single" | "--print"));
+    let has_resume = argv.iter().any(|arg| {
+        *arg == "-r" || *arg == "--resume" || arg.starts_with("--resume=")
+    });
+    if !has_print || !has_resume {
+        return None;
+    }
+    if rendered.contains("a value is required for '--single <PROMPT>'") {
+        return Some(
+            "-p needs a prompt before other flags. --resume is not the prompt: grok -p \"PROMPT\" --resume SESSION",
+        );
+    }
+    if rendered.contains("cannot be used with '--continue'")
+        || rendered.contains("cannot be used with '--resume")
+    {
+        return Some("--resume and --continue cannot be used together");
+    }
+    None
+}
+
 fn first_summary_line(text: &str) -> Option<String> {
     let line = text.lines().next()?.trim();
     if line.is_empty() {
@@ -939,7 +973,14 @@ impl PagerArgs {
     pub fn parse_cli() -> Self {
         match Self::try_parse_os(std::env::args_os()) {
             Ok(args) => args,
-            Err(err) => err.exit(),
+            Err(err) => {
+                let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+                if let Some(line) = clearer_p_resume_error(&argv, &err.to_string()) {
+                    eprintln!("error: {line}");
+                    std::process::exit(err.exit_code());
+                }
+                err.exit()
+            }
         }
     }
     fn try_parse_os<I>(argv: I) -> Result<Self, clap::Error>
@@ -1765,6 +1806,42 @@ mod tests {
             })) if session_id == "sess-1"
         ));
     }
+    #[test]
+    fn p_resume_flag_missing_prompt_names_resume() {
+        let argv = ["grok", "-p", "--resume", "sess", "--model", "m"];
+        let err = PagerArgs::try_parse_from(argv).expect_err("a flag is not the -p prompt");
+        let line = clearer_p_resume_error_str(&argv, &err.to_string())
+            .expect("this combination has a clearer line");
+        assert!(line.contains("-p needs a prompt"), "{line}");
+        assert!(line.contains("--resume"), "{line}");
+        assert!(!line.contains("--single"), "{line}");
+    }
+
+    #[test]
+    fn p_resume_flag_continue_conflict_is_one_sentence() {
+        let argv = ["grok", "-p", "hello", "--resume", "sess", "--continue"];
+        let err = PagerArgs::try_parse_from(argv).expect_err("resume and continue conflict");
+        let line = clearer_p_resume_error_str(&argv, &err.to_string()).expect("clearer line");
+        assert_eq!(line, "--resume and --continue cannot be used together");
+        let flipped = ["grok", "-p", "hello", "--continue", "--resume", "sess"];
+        let err = PagerArgs::try_parse_from(flipped).expect_err("continue and resume conflict");
+        let line = clearer_p_resume_error_str(&flipped, &err.to_string()).expect("clearer line");
+        assert_eq!(line, "--resume and --continue cannot be used together");
+    }
+
+    #[test]
+    fn p_resume_flag_other_conflicts_stay_claps() {
+        let argv = ["grok", "--minimal", "--fullscreen"];
+        let err = PagerArgs::try_parse_from(argv).expect_err("screen modes conflict");
+        assert!(clearer_p_resume_error_str(&argv, &err.to_string()).is_none());
+        let interactive = ["grok", "--resume", "sess", "--continue"];
+        let err = PagerArgs::try_parse_from(interactive).expect_err("conflict without -p");
+        assert!(
+            clearer_p_resume_error_str(&interactive, &err.to_string()).is_none(),
+            "only grok -p --resume gets the shorter line"
+        );
+    }
+
     #[test]
     fn positional_prompt_conflicts_with_headless_single() {
         let err = PagerArgs::try_parse_from(["grok", "-p", "headless", "interactive"])
