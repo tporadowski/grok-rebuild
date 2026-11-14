@@ -279,6 +279,7 @@ pub fn render_modal_window(
         state.close_button_rect = None;
         state.shortcut_hits.clear();
         state.tab_rects.clear();
+        paint_too_small_esc_hint(buf, area, theme);
         return None;
     }
 
@@ -584,6 +585,30 @@ fn render_tab_bar(
     }
 
     num_rows
+}
+
+/// A terminal too small for the frame still says how to leave.
+fn paint_too_small_esc_hint(buf: &mut Buffer, area: Rect, theme: &Theme) {
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    const FULL: &str = "(terminal too small: Esc to close)";
+    const SHORT: &str = "Esc to close";
+    let width = area.width as usize;
+    let hint = if FULL.width() <= width {
+        FULL.to_string()
+    } else {
+        crate::render::line_utils::truncate_str(SHORT, width)
+    };
+    if hint.is_empty() {
+        return;
+    }
+    buf.set_string(
+        area.x,
+        area.y + area.height / 2,
+        hint,
+        theme.dim(),
+    );
 }
 
 /// Predict footer shortcut row count at the given area and sizing.

@@ -13,6 +13,23 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent::new(code, modifiers)
 }
 
+#[test]
+fn tiny_terminal_shows_an_esc_hint() {
+    let mut state = FeedbackModalState::new(OpenFeedbackModal::default());
+    let theme = Theme::current();
+    let area = Rect::new(0, 0, 24, 4);
+    let mut buf = Buffer::empty(area);
+    state.render(&mut buf, area, &theme, false);
+    let text: String = (0..area.height)
+        .flat_map(|y| (0..area.width).map(move |x| (x, y)))
+        .filter_map(|(x, y)| buf.cell((x, y)).map(|cell| cell.symbol().to_string()))
+        .collect();
+    assert!(
+        text.contains("Esc"),
+        "a feedback modal that cannot open still says how to leave: {text:?}"
+    );
+}
+
 fn open_with_text(text: &str) -> FeedbackModalState {
     FeedbackModalState::new(OpenFeedbackModal {
         text: Some(text.to_string()),

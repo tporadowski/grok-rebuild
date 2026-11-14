@@ -26,6 +26,22 @@ fn make_state() -> SettingsModalState {
     )
 }
 
+#[test]
+fn tiny_terminal_shows_an_esc_hint() {
+    let mut state = make_state();
+    let area = Rect::new(0, 0, 24, 4);
+    let mut buf = Buffer::empty(area);
+    render_settings_modal(&mut buf, area, &mut state, false, None);
+    let text: String = (0..area.height)
+        .flat_map(|y| (0..area.width).map(move |x| (x, y)))
+        .filter_map(|(x, y)| buf.cell((x, y)).map(|cell| cell.symbol().to_string()))
+        .collect();
+    assert!(
+        text.contains("Esc"),
+        "a settings modal that cannot open still says how to leave: {text:?}"
+    );
+}
+
 /// The contextual-hints group renders as a single top-level row (children hidden).
 /// Enter opens the sub-sheet, Space there toggles the focused child via the typed action, and Esc returns to Browse.
 #[test]
