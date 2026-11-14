@@ -177,12 +177,26 @@ fn render_fuzzy_item(
         .add_modifier(bold);
     let normal_style = Style::default().fg(text_fg).bg(row_bg).add_modifier(bold);
 
-    // Render path characters after prefix, with match highlighting.
-    let mut indices = item.indices.as_slice();
+    // A row that cannot hold the path keeps the file name and shortens the front.
+    // Match indices address the original path, so they only apply when nothing was shortened.
     let mut col = x + PREFIX_WIDTH;
     let max_col = x + width;
+    let text_budget = max_col.saturating_sub(col) as usize;
+    let fits = unicode_width::UnicodeWidthStr::width(path) <= text_budget;
+    let shown_owned;
+    let shown: &str = if fits {
+        path
+    } else {
+        shown_owned = crate::render::line_utils::shorten_path(path, text_budget);
+        &shown_owned
+    };
+    let mut indices = if fits {
+        item.indices.as_slice()
+    } else {
+        &[]
+    };
 
-    for (char_idx, (byte_idx, ch)) in path.char_indices().enumerate() {
+    for (char_idx, (byte_idx, ch)) in shown.char_indices().enumerate() {
         let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
         if col + ch_width > max_col {
             // Truncation: replace last visible char with '…'
@@ -202,7 +216,7 @@ fn render_fuzzy_item(
         let style = if is_match { match_style } else { normal_style };
 
         // Write the character.
-        let Some(ch_str) = path.get(byte_idx..byte_idx + ch.len_utf8()) else {
+        let Some(ch_str) = shown.get(byte_idx..byte_idx + ch.len_utf8()) else {
             break;
         };
         if let Some(cell) = buf.cell_mut((col, y)) {
@@ -243,5 +257,44 @@ fn render_fuzzy_item(
         } else if is_hovered {
             buf.set_style(row_rect, theme.hover_overlay());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn narrow_file_row_keeps_the_file_name() {
+        let ctx = crate::views::file_search::context::detect("@src", 4).expect("context");
+        let mut state = FileSearchState::new(std::path::Path::new("/tmp"));
+        state.set_test_state(
+            ctx,
+            vec![FuzzyMatchResult {
+                path: nucleo::Utf32String::from(
+                    "crates/codegen/xai-grok-pager/src/views/UNIQUEFILE.rs",
+                ),
+                score: 1,
+                indices: Vec::new(),
+                is_dir: false,
+            }],
+            0,
+        );
+        let area = Rect::new(0, 0, 24, 1);
+        let mut buf = Buffer::empty(area);
+        render_dropdown(&mut buf, area, &state, &Theme::current());
+        let text: String = (0..area.width)
+            .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+            .collect();
+        assert!(
+            text.contains("UNIQUEFILE.rs"),
+            "the file name stays on a narrow row, got {text:?}"
+        );
+        assert!(
+            text.contains('\u{2026}'),
+            "the row is still shortened, got {text:?}"
+        );
     }
 }

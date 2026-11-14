@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-276 — An @-file row keeps the file name
+
+`v86-x37`. A narrow file-search row painted the path from the left and put `…` on the last cell, so the file name was the part that disappeared. The row now shortens with `shorten_path`, which keeps the file name. Match highlights stay on a path that still fits. A shortened path drops them, because those indexes address the original string.
+
 ### D-275 — The change-directory path keeps its last folder
 
 `v86-x34`. The picker row cuts a right-hand label from the end, and that column is only half the row. The directory path is now shortened to that column with `shorten_path`, so the last folder stays and the front of the path is what gives way. The row's own name stays whole.
@@ -1216,7 +1220,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 30 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 54 | 14 | 2 |
-| W9 | Prompt, mentions, and keyboard | 1 | 0 | 49 | 7 | 0 |
+| W9 | Prompt, mentions, and keyboard | 0 | 0 | 50 | 7 | 0 |
 | W10 | Transcript, density, and copy | 6 | 0 | 52 | 4 | 0 |
 | W11 | Headless mode and tools | 1 | 0 | 43 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 1 | 0 | 46 | 13 | 9 |
@@ -1226,9 +1230,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 33. Skipped: 9. Done: 580. Already: 114. Deferred: 31.
+Catalog rows: 767. Pending: 32. Skipped: 9. Done: 581. Already: 114. Deferred: 31.
 
-**Next:** v86-x37
+**Next:** v86-f01
 
 ## Waves
 
@@ -1266,7 +1270,7 @@ Pending: 0. Done: 54 (`v86-x46`, D-273; `v86-x29`, D-271; `v86-x28`, D-270; `v86
 
 ### W9 — Prompt, mentions, and keyboard
 
-Pending: 1. Done: 49 (`v86-x34`, D-275; `v86-x23`, D-274; `v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153; `v77-f01`, D-154; `v77-x03`, D-155; `v78-f01`, D-156; `v78-f03`, D-157; `v79-f03`; `v79-f04`; `v79-f06`; `v79-x06`; `v79-x14`; `v79-x15`; `v82-f05`, D-233; `v82-x10`; `v84-x05`). Already: 7 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132; `v85-x12`, D-246). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`. Ctrl+O copies the latest assistant reply, the markdown `/copy` writes for the newest message, including when an older assistant message is selected. Send-now, the minimal transcript opener, and a pinned upgrade prompt still take that key. Ctrl+Shift+Y and F6 stay the markdown-source copy. Session always-approve is Shift+Tab and `/always-approve`. Dashboard Ctrl+O still toggles the selected row (`v82-f05`, D-233). Up on the top line of a question's text answer moves to the previous option, and a lower line still moves the caret (`v82-x10`). Shift+Enter or Alt+Enter in multiline mode sends a line that ends with a backslash, and that character stays in the text, while bare Enter outside multiline mode still turns it into a newline (`v84-x05`).
+Pending: 0. Done: 50 (`v86-x37`, D-276; `v86-x34`, D-275; `v86-x23`, D-274; `v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50-x36`, D-127; `v51-x14`, D-130; `v51-x19`, D-131; `v51-x62`, D-133; `v51-x78`, D-134; `v52-f02`, D-135; `v54-x14`, D-136; `v63-x01`, D-137; `v63-f01`, D-138; `v67-f02`, D-139; `v68-f02`, D-140; `v71-f01`, D-141; `v71-f05`, D-142; `v71-f10`, D-143; `v71-f11`, D-144; `v73-x05`, D-145; `v74-f02`, D-146; `v74-f05`, D-147; `v74-x02`, D-148; `v74-x27`, D-149; `v75-f02`, D-150; `v75-f03`, D-151; `v75-f09`, D-152; `v75-x10`; `v75-x14`; `v76-f01`, D-153; `v77-f01`, D-154; `v77-x03`, D-155; `v78-f01`, D-156; `v78-f03`, D-157; `v79-f03`; `v79-f04`; `v79-f06`; `v79-x06`; `v79-x14`; `v79-x15`; `v82-f05`, D-233; `v82-x10`; `v84-x05`). Already: 7 (`v51-f12`, D-128; `v51-x11`, D-129; `v51-x29`, D-132; `v85-x12`, D-246). Look first: `[ui].vim_mode` and `/vim-mode` already exist (`xai-grok-shared/src/ui_config.rs`, `xai-grok-pager-render/src/appearance/cache.rs`). Kitty protocol code is `xai-grok-pager-render/src/terminal/kitty_keyboard.rs`. Final vim setting is `[keys] vim = "off" | "nav" | "all"`, and the old boolean still loads. `@` picking lives in the pager prompt. `v63-f01` is the Rex OSC 7501 status (D-008); do not also build the skipped single-status `v52-f01`. Ctrl+O copies the latest assistant reply, the markdown `/copy` writes for the newest message, including when an older assistant message is selected. Send-now, the minimal transcript opener, and a pinned upgrade prompt still take that key. Ctrl+Shift+Y and F6 stay the markdown-source copy. Session always-approve is Shift+Tab and `/always-approve`. Dashboard Ctrl+O still toggles the selected row (`v82-f05`, D-233). Up on the top line of a question's text answer moves to the previous option, and a lower line still moves the caret (`v82-x10`). Shift+Enter or Alt+Enter in multiline mode sends a line that ends with a backslash, and that character stays in the text, while bare Enter outside multiline mode still turns it into a newline (`v84-x05`).
 
 ### W10 — Transcript, density, and copy
 
@@ -2020,7 +2024,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x34 | done | W9 | Bug Fixes |  |  | **Change directory picker** keeps the folder name visible when a path is too long.
 - v86-x35 | pending | W14 | Bug Fixes |  |  | **Persona Source path** keeps the filename visible when the full path is too long.
 - v86-x36 | pending | W14 | Bug Fixes |  |  | **How-to Guides tip** keeps the last folder name visible when the path is too long.
-- v86-x37 | pending | W9 | Bug Fixes |  |  | **@-file search** keeps the filename visible when a path is too long for the row.
+- v86-x37 | done | W9 | Bug Fixes |  |  | **@-file search** keeps the filename visible when a path is too long for the row.
 - v86-x38 | pending | W13 | Bug Fixes |  |  | **Sign-in copy messages** read "Copied!", "Copy sent: verify paste", and "Copy failed".
 - v86-x39 | pending | W10 | Bug Fixes |  |  | **URLs typed in user messages** appear as styled clickable links matching assistant links.
 - v86-x40 | pending | W10 | Bug Fixes |  |  | **Cmd or Ctrl+click** opens links even when the confirmation card is visible.
