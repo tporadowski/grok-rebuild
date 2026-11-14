@@ -1100,6 +1100,25 @@ fn list_agents(
         .collect()
 }
 
+/// MCP servers this plugin contributes. A config file with no inline value stays one entry.
+/// Inline servers use the same parse as startup, so a bad entry is not counted.
+fn provided_mcp_servers(plugin: &xai_grok_agent::plugins::DiscoveredPlugin) -> usize {
+    if plugin.manifest.inline_mcp_servers().is_none() {
+        return usize::from(plugin.mcp_config_path.is_some());
+    }
+    xai_grok_config::mcp_servers::plugin_setup_server_configs(
+        &xai_grok_config::mcp_servers::PluginMcpServers {
+            plugin_name: plugin.manifest.name.clone(),
+            root: plugin.root.clone(),
+            data_dir: plugin.root.clone(),
+            scope: xai_grok_config::mcp_servers::McpServerScope::from(plugin.scope),
+            mcp_config_path: plugin.mcp_config_path.clone(),
+            inline_mcp_servers: plugin.manifest.inline_mcp_servers().cloned(),
+        },
+    )
+    .len()
+}
+
 /// Maps pre-discovered plugins (from `discover_plugins`) to inspect entries.
 fn list_plugins(discovered: &[xai_grok_agent::plugins::DiscoveredPlugin]) -> Vec<PluginEntry> {
     discovered
@@ -1121,8 +1140,8 @@ fn list_plugins(discovered: &[xai_grok_agent::plugins::DiscoveredPlugin]) -> Vec
                     // The reported count then matches what the skills registry loads
                     skills: xai_grok_agent::plugins::registry::skill_md_paths(&p.skill_dirs).len(),
                     agents: p.agent_dirs.len(),
-                    hooks: p.hooks_path.is_some(),
-                    mcp_servers: if p.mcp_config_path.is_some() { 1 } else { 0 },
+                    hooks: p.hooks_path.is_some() || p.manifest.inline_hooks().is_some(),
+                    mcp_servers: provided_mcp_servers(p),
                 },
             }
         })
@@ -1923,6 +1942,70 @@ mod tests {
     use crate::agent::config::PathsConfig;
     use xai_grok_agent::prompt::skills::{SkillInfo, SkillsConfig};
     use xai_grok_tools::implementations::skills::types::SkillScope;
+
+    fn discovered_plugin(
+        manifest: xai_grok_agent::plugins::PluginManifest,
+    ) -> xai_grok_agent::plugins::DiscoveredPlugin {
+        use xai_grok_agent::plugins::discovery::PluginId;
+        use xai_grok_agent::plugins::{PluginOrigin, PluginScope};
+        let root = std::path::PathBuf::from("/plugins").join(&manifest.name);
+        xai_grok_agent::plugins::DiscoveredPlugin {
+            id: PluginId::new(PluginScope::User, &root, &manifest.name),
+            root: root.clone(),
+            canonical_root: root,
+            scope: PluginScope::User,
+            origin: PluginOrigin::UserGrok,
+            trusted: true,
+            skill_dirs: Vec::new(),
+            command_dirs: Vec::new(),
+            agent_dirs: Vec::new(),
+            hooks_path: None,
+            mcp_config_path: None,
+            lsp_config_path: None,
+            conflict: None,
+            manifest,
+        }
+    }
+
+    #[test]
+    fn inline_plugin_hooks_and_mcp_servers_are_counted() {
+        use xai_grok_agent::plugins::manifest::PathOrInline;
+        use xai_grok_agent::plugins::PluginManifest;
+
+        let inline = discovered_plugin(PluginManifest {
+            name: "demo".into(),
+            hooks: Some(PathOrInline::Inline(serde_json::json!({
+                "hooks": {
+                    "PostToolUse": [{"hooks": [{"type": "command", "command": "lint"}]}]
+                }
+            }))),
+            mcp_servers: Some(PathOrInline::Inline(serde_json::json!({
+                "mcpServers": {
+                    "alpha": {"command": "alpha", "args": []},
+                    "beta": {"command": "beta", "args": []},
+                    "broken": "nope"
+                }
+            }))),
+            ..PluginManifest::default()
+        });
+        let inline = list_plugins(&[inline]);
+        let inline = inline.first().expect("inline plugin");
+        assert!(inline.provides.hooks, "inline hooks count as hooks");
+        assert_eq!(
+            inline.provides.mcp_servers, 2,
+            "a broken inline server is not counted"
+        );
+
+        let mut file_only = discovered_plugin(PluginManifest {
+            name: "files".into(),
+            ..PluginManifest::default()
+        });
+        file_only.mcp_config_path = Some(std::path::PathBuf::from("/plugins/files/.mcp.json"));
+        let file_only = list_plugins(&[file_only]);
+        let file_only = file_only.first().expect("file plugin");
+        assert!(!file_only.provides.hooks);
+        assert_eq!(file_only.provides.mcp_servers, 1);
+    }
 
     #[test]
     fn ascii_name_column_keeps_format_width_spacing() {
