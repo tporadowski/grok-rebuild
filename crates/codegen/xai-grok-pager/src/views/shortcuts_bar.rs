@@ -316,6 +316,37 @@ impl Widget for ShortcutsBar<'_> {
 
 const HINT_GAP_WIDTH: u16 = 5;
 
+/// Shorten a key-hint label without ending inside a word.
+/// A label that already fits is unchanged. Otherwise the result is whole words
+/// plus `…`, or only `…` when not even the first word fits beside the mark.
+fn truncate_hint_label(label: &str, budget: usize) -> std::borrow::Cow<'_, str> {
+    if UnicodeWidthStr::width(label) <= budget {
+        return std::borrow::Cow::Borrowed(label);
+    }
+    if budget == 0 {
+        return std::borrow::Cow::Borrowed("");
+    }
+    let mut kept = String::new();
+    let mut kept_w = 0usize;
+    for word in label.split_whitespace() {
+        let word_w = UnicodeWidthStr::width(word);
+        let gap = usize::from(!kept.is_empty());
+        if kept_w + gap + word_w + 1 > budget {
+            break;
+        }
+        if gap == 1 {
+            kept.push(' ');
+        }
+        kept.push_str(word);
+        kept_w += gap + word_w;
+    }
+    if kept.is_empty() {
+        return std::borrow::Cow::Owned("…".to_string());
+    }
+    kept.push('…');
+    std::borrow::Cow::Owned(kept)
+}
+
 /// Paint `key:label`, shortening the label (then the key) so the write stays inside `area`.
 fn paint_fitted_hint(
     buf: &mut Buffer,
@@ -349,7 +380,7 @@ fn paint_fitted_hint(
         buf.set_span(cursor, area.y, &colon, 1);
         cursor = cursor.saturating_add(1);
         let budget = area.right().saturating_sub(cursor) as usize;
-        let short = crate::util::truncate_to_width(label, budget);
+        let short = truncate_hint_label(label, budget);
         let short_width = short.width() as u16;
         let action_span = Span::styled(short.as_ref(), action_style);
         buf.set_span(cursor, area.y, &action_span, short_width);
@@ -803,6 +834,25 @@ mod tests {
         (start..end)
             .filter_map(|x| buf.cell((x, 0)).map(|c| c.symbol()))
             .collect()
+    }
+
+    #[test]
+    fn permission_key_hint_stops_on_a_word() {
+        let hints = [h("edit pattern", key!('e'))];
+        let area = Rect::new(0, 0, 10, 1);
+        let mut buf = Buffer::empty(area);
+        ShortcutsBar::new(&hints).render(area, &mut buf);
+        let text = row_text(&buf, area.width);
+        let shown = text.trim_end();
+        assert_eq!(shown, "e:edit…", "{text:?}");
+        assert!(!shown.contains("pat"), "a word must not be sliced: {text:?}");
+
+        let tighter = Rect::new(0, 0, 6, 1);
+        let mut buf = Buffer::empty(tighter);
+        ShortcutsBar::new(&hints).render(tighter, &mut buf);
+        let text = row_text(&buf, tighter.width);
+        assert_eq!(text.trim_end(), "e:…", "{text:?}");
+        assert!(!text.contains("edi"), "{text:?}");
     }
 
     #[test]

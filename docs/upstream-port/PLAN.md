@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-267 — Permission key hints end on a word
+
+`v86-x22`. A narrow permission card clipped `edit pattern` and `narrow scope` inside the word. The footer label now keeps whole words and uses `…` when something is dropped (`truncate_hint_label` in `views/shortcuts_bar.rs`). The hint on the card itself drops a token that does not fit, including a key whose label word does not fit (`permission_key_hint_line` in `views/permission_view.rs`).
+
 ### D-266 — grok -p --resume names the other flag
 
 `v86-x32`. `grok -p --resume SESSION` with no prompt was reported as a missing `--single` value. `--resume` immediately followed by another flag left the session id empty and then said the id was invalid. `--resume` with `--continue` reprinted a usage line that still showed both flags. `--session-id` with `--resume` and no `--fork-session` was printed as `Error: Error:` plus a sentence that read as if `--session-id` were only legal with `--resume`. Those four cases now name the flags (`clearer_p_resume_error`, `refuse_headless_resume`, `StartupFlagError`). A headless JSON run writes the flag conflict as one error object. A blank `--resume` with no following flag still says it needs a valid session id (`v82-x06`).
@@ -1174,7 +1178,7 @@ Refresh these numbers at the end of a session.
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 0 | 0 | 11 | 0 | 1 |
-| W3 | Permissions, sandbox, and config | 1 | 0 | 13 | 12 | 8 |
+| W3 | Permissions, sandbox, and config | 0 | 0 | 14 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 2 | 0 | 28 | 6 | 0 |
@@ -1190,9 +1194,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 46. Skipped: 9. Done: 569. Already: 113. Deferred: 30.
+Catalog rows: 767. Pending: 45. Skipped: 9. Done: 570. Already: 113. Deferred: 30.
 
-**Next:** v86-x22
+**Next:** v86-x07
 
 ## Waves
 
@@ -1206,7 +1210,7 @@ Pending: 0. Done: 11. Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs i
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 1. Done: 13. Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
+Pending: 0. Done: 14. Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
 
 ### W6 — Memory
 
@@ -1969,7 +1973,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x19 | pending | W14 | Bug Fixes |  |  | Error messages for failed actions include the reason in a single sentence.
 - v86-x20 | pending | W14 | Bug Fixes |  |  | The cancel-turn panel uses the correct text color and ellipsis when narrow.
 - v86-x21 | deferred | W2 | Bug Fixes |  |  | Several CLI subcommand messages use consistent punctuation and path quoting.
-- v86-x22 | pending | W3 | Bug Fixes |  |  | Key hints in permission cards are no longer cut off mid-word on narrow terminals.
+- v86-x22 | done | W3 | Bug Fixes |  |  | Key hints in permission cards are no longer cut off mid-word on narrow terminals.
 - v86-x23 | pending | W9 | Bug Fixes |  |  | The file-search and prompt-history panels no longer crash on very short terminals.
 - v86-x24 | pending | W14 | Bug Fixes |  |  | Plan approval text in minimal mode matches the fullscreen version.
 - v86-x25 | pending | W14 | Bug Fixes |  |  | The extensions modal no longer shrinks narrower than other modals.

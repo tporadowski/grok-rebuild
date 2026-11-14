@@ -620,19 +620,14 @@ pub fn render_permission_view(
             .fg(theme.text_secondary)
             .add_modifier(Modifier::DIM);
         let key_style = Style::default().fg(theme.accent_user);
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        if show_scope_hint {
-            spans.push(Span::styled("\u{2190} \u{2192}", key_style));
-            spans.push(Span::styled(" narrow scope", hint_style));
-        }
-        if show_edit_hint {
-            if show_scope_hint {
-                spans.push(Span::styled("  \u{00b7}  ", hint_style));
-            }
-            spans.push(Span::styled("e", key_style));
-            spans.push(Span::styled(" edit pattern", hint_style));
-        }
-        buf.set_line(content_x, y, &Line::from(spans), content_width);
+        let line = permission_key_hint_line(
+            show_scope_hint,
+            show_edit_hint,
+            content_width as usize,
+            key_style,
+            hint_style,
+        );
+        buf.set_line(content_x, y, &line, content_width);
         y += 1;
     }
 
@@ -766,6 +761,59 @@ pub fn render_permission_view(
     PermissionRenderResult {
         inline_prompt: inline_prompt_result,
     }
+}
+
+/// Key hints on the permission card (`← → narrow scope`, `e edit pattern`).
+/// A narrow row keeps whole words. It does not slice `narrow` or `pattern`.
+fn permission_key_hint_line(
+    show_scope: bool,
+    show_edit: bool,
+    width: usize,
+    key_style: Style,
+    hint_style: Style,
+) -> Line<'static> {
+    let mut tokens: Vec<(&str, Style)> = Vec::new();
+    if show_scope {
+        tokens.push(("\u{2190} \u{2192}", key_style));
+        tokens.push((" narrow", hint_style));
+        tokens.push((" scope", hint_style));
+    }
+    if show_edit {
+        if show_scope {
+            tokens.push(("  \u{00b7}  ", hint_style));
+        }
+        tokens.push(("e", key_style));
+        tokens.push((" edit", hint_style));
+        tokens.push((" pattern", hint_style));
+    }
+    let mut used = 0usize;
+    let mut taken = 0usize;
+    for (i, (text, _)) in tokens.iter().enumerate() {
+        let w = UnicodeWidthStr::width(*text);
+        if used + w > width {
+            break;
+        }
+        used += w;
+        taken = i + 1;
+    }
+    // A key with its label word missing, or a separator with nothing after it, is not a hint.
+    while taken > 0 {
+        let text = tokens[taken - 1].0;
+        let orphan_key = !text.contains(' ') && taken < tokens.len();
+        let dangling_sep = text.contains('\u{00b7}');
+        if orphan_key || dangling_sep {
+            taken -= 1;
+        } else {
+            break;
+        }
+    }
+    Line::from(
+        tokens
+            .into_iter()
+            .take(taken)
+            .map(|(text, style)| Span::styled(text, style))
+            .collect::<Vec<_>>(),
+    )
 }
 
 pub(crate) fn preview_command_text(state: &PermissionViewState) -> String {
@@ -1734,6 +1782,35 @@ mod tests {
         (0..buf.area.width)
             .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
             .collect()
+    }
+
+    fn hint_text(show_scope: bool, show_edit: bool, width: usize) -> String {
+        permission_key_hint_line(show_scope, show_edit, width, Style::default(), Style::default())
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn permission_card_key_hint_keeps_whole_words() {
+        let wide = hint_text(true, true, 80);
+        assert!(wide.contains("narrow scope"), "{wide}");
+        assert!(wide.contains("edit pattern"), "{wide}");
+        assert!(UnicodeWidthStr::width(wide.as_str()) <= 80);
+
+        let scope_only = hint_text(true, true, 12);
+        assert_eq!(scope_only, "\u{2190} \u{2192} narrow");
+        assert!(!scope_only.contains("sco"));
+        assert!(!scope_only.contains('e'));
+
+        let arrows = hint_text(true, true, 8);
+        assert_eq!(arrows, "\u{2190} \u{2192}");
+
+        let edit = hint_text(false, true, 8);
+        assert_eq!(edit, "e edit");
+        assert!(!edit.contains("pat"));
+        assert!(UnicodeWidthStr::width(edit.as_str()) <= 8);
     }
 
     #[test]
