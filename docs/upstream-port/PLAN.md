@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-268 — A clipped resume card value stays on one row
+
+`v86-x02`. An expanded resume card stored a recap already ending in `…`, then the picker wrapped that string. The ellipsis landed on a later row, split from the text. A value that already ends in `…` is painted on the field's own row, clipped to that row (`value_is_clipped` in `views/picker.rs`). A value that is not clipped still wraps.
+
 ### D-267 — Permission key hints end on a word
 
 `v86-x22`. A narrow permission card clipped `edit pattern` and `narrow scope` inside the word. The footer label now keeps whole words and uses `…` when something is dropped (`truncate_hint_label` in `views/shortcuts_bar.rs`). The hint on the card itself drops a token that does not fit, including a key whose label word does not fit (`permission_key_hint_line` in `views/permission_view.rs`).
@@ -1183,7 +1187,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 0 | 0 | 30 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 8 | 0 | 48 | 13 | 1 |
+| W8 | Sessions, resume, and dashboard | 7 | 0 | 49 | 13 | 1 |
 | W9 | Prompt, mentions, and keyboard | 3 | 0 | 47 | 7 | 0 |
 | W10 | Transcript, density, and copy | 6 | 0 | 52 | 4 | 0 |
 | W11 | Headless mode and tools | 1 | 0 | 43 | 7 | 0 |
@@ -1194,9 +1198,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 43. Skipped: 9. Done: 572. Already: 113. Deferred: 30.
+Catalog rows: 767. Pending: 42. Skipped: 9. Done: 573. Already: 113. Deferred: 30.
 
-**Next:** v86-x02
+**Next:** v86-x03
 
 ## Waves
 
@@ -1230,7 +1234,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 8. Done: 48 (`v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 13 (`v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 1 (`v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
+Pending: 7. Done: 49 (`v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 13 (`v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 1 (`v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -1953,7 +1957,7 @@ id | status | wave | kind | flag | covered | note
 - v85-x29 | done | W14 | Bug Fixes |  |  | **Grok** panes in tmux now repaint correctly after certain resize sequences.
 - v86-f01 | pending | W10 | Features |  |  | **Pretty mode** shows reference-style links the same as inline links.
 - v86-x01 | pending | W14 | Bug Fixes |  |  | **Loading messages** and input placeholders use a consistent Unicode ellipsis character.
-- v86-x02 | pending | W8 | Bug Fixes |  |  | **Resume session cards** keep long text and their ellipsis on a single line.
+- v86-x02 | done | W8 | Bug Fixes |  |  | **Resume session cards** keep long text and their ellipsis on a single line.
 - v86-x03 | pending | W8 | Bug Fixes |  |  | **Auth token box** on the welcome screen has rounded corners.
 - v86-x04 | pending | W14 | Bug Fixes |  |  | **Long file paths** shown in narrow columns stay recognizable.
 - v86-x05 | pending | W14 | Bug Fixes |  |  | **Settings toggles** and feedback messages use consistent labels.

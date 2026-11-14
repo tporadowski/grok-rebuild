@@ -860,6 +860,20 @@ fn render_styled_spans(buf: &mut Buffer, spans: &Line<'_>, x: u16, y: u16, max_w
     }
 }
 
+/// A resume-card value already clipped with `…` stays on one row, ellipsis included.
+fn value_is_clipped(value: &str) -> bool {
+    value.ends_with('\u{2026}')
+}
+
+/// Visual rows for an expanded field value. A clipped value is one row.
+fn field_value_rows(value: &str, val_w: usize) -> usize {
+    if val_w == 0 || value_is_clipped(value) || value.width() <= val_w {
+        1
+    } else {
+        value.width().div_ceil(val_w)
+    }
+}
+
 /// Return the byte offset in `s` that covers at most `max_width` display columns.
 fn byte_offset_for_width(s: &str, max_width: usize) -> usize {
     let mut w = 0usize;
@@ -910,12 +924,7 @@ pub fn compute_row_height(row: &PickerRow<'_>, width: u16) -> usize {
     let label_col = 13usize; // "{:<12} "
     let val_w = max_w.saturating_sub(label_col).max(1);
     for field in row.fields {
-        let val_len = field.value.width();
-        rows += if val_len <= val_w {
-            1
-        } else {
-            val_len.div_ceil(val_w)
-        };
+        rows += field_value_rows(field.value, val_w);
     }
     rows
 }
@@ -1171,6 +1180,17 @@ pub fn render_picker_row(
                 let label_text = format!("{:<12} ", field.label);
                 let label_col = label_text.len() as u16;
                 let max_val_w = width.saturating_sub(indent + label_col) as usize;
+                // A clipped card value, including its ellipsis, stays on this row.
+                if value_is_clipped(field.value) {
+                    let shown = truncate_str(field.value, max_val_w);
+                    let line = Line::from(vec![
+                        Span::styled(label_text, field_label_style),
+                        Span::styled(shown, field_value_style),
+                    ]);
+                    buf.set_line(x + indent, fy, &line, width.saturating_sub(indent));
+                    rows += 1;
+                    continue;
+                }
                 // First line: label then the start of the value
                 let val = field.value;
                 let first_chunk_len = byte_offset_for_width(val, max_val_w);
@@ -3543,6 +3563,69 @@ mod tests {
                 .expect("just-fit counter preserves one caret cell");
             assert!(cursor_x < fit_layout.render_width);
         }
+    }
+
+    /// A resume card clips a long recap with an ellipsis on that same row.
+    #[test]
+    fn resume_card_keeps_long_text_and_ellipsis_on_one_line() {
+        let long = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi";
+        let value = truncate_str(long, 48);
+        assert!(
+            value.ends_with('\u{2026}'),
+            "the card clips with an ellipsis, got {value}"
+        );
+        assert!(
+            unicode_width::UnicodeWidthStr::width(value.as_str()) > 23,
+            "the clipped text is wider than the value column"
+        );
+        let field = PickerField {
+            label: "Recap",
+            value: &value,
+        };
+        let row = PickerRow {
+            label: "Session",
+            right_label: "3m",
+            selected: false,
+            expanded: true,
+            fields: std::slice::from_ref(&field),
+            description_lines: &[],
+            summary_lines: &[],
+            dimmed: false,
+            indent: 0,
+            badge: "",
+            badge_color: None,
+            collapsible: true,
+            underline_last_desc: false,
+        };
+        let width = 40u16;
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, width, 6));
+        let theme = crate::theme::Theme::default();
+        let rendered = render_picker_row(&mut buf, 0, 0, width, &theme, &row, false, None, 6);
+        let rows: Vec<String> = (0..rendered.rows.max(4))
+            .map(|y| {
+                (0..width)
+                    .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect()
+            })
+            .collect();
+        let recap = rows
+            .iter()
+            .find(|row| row.contains("Recap"))
+            .unwrap_or_else(|| panic!("recap row missing: {rows:?}"));
+        assert!(
+            recap.contains('\u{2026}'),
+            "ellipsis left the recap row: {rows:?}"
+        );
+        let ellipsis_rows = rows.iter().filter(|row| row.contains('\u{2026}')).count();
+        assert_eq!(
+            ellipsis_rows, 1,
+            "the ellipsis stays on the text line: {rows:?}"
+        );
+        assert_eq!(
+            compute_row_height(&row, width),
+            2,
+            "the card is the title plus one recap line"
+        );
     }
 
     /// An open foldable row uses the down chevron. A leaf row keeps the diamond, including
