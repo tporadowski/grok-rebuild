@@ -1637,6 +1637,9 @@ pub(in crate::app::dispatch) fn handle_session_restore_failed(
         agent.pending_extensions_fetch = false;
         agent.session.loading_replay = false;
         agent.session.prompt_history_loading = false;
+        // A prompt typed on this tab has no session to enter. Refuse it, the same way a failed load does, instead of leaving it queued until a drain drops it.
+        agent.load_failed = true;
+        restore_prompts_held_during_load(agent);
         agent
             .scrollback
             .push_block(RenderBlock::session_event(SessionEvent::TurnFailed {

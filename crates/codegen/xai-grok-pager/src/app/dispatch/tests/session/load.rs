@@ -2813,6 +2813,40 @@ fn current_seq_failed_search_clears_indicator_and_stamp() {
     assert!(app.session_picker_entries.is_none());
     assert!(read_toast(&app).contains("Couldn't load sessions"));
 }
+/// A prompt queued while a tab's session is restoring comes back when that restore fails.
+/// A later send on that tab is refused and the text stays in the composer.
+#[test]
+fn prompt_on_a_failed_restore_is_refused_instead_of_dropped() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.session.loading_replay = true;
+        agent.session.enqueue_prompt("keep this".into());
+    }
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::SessionRestoreFailed {
+            agent_id: id,
+            error: "disk".into(),
+        }),
+        &mut app,
+    );
+    {
+        let agent = app.agents.get(&id).unwrap();
+        assert!(agent.load_failed);
+        assert!(agent.session.pending_prompts.is_empty());
+        assert_eq!(agent.prompt.text(), "keep this");
+    }
+    let _ = dispatch(Action::SendPrompt("keep this".into()), &mut app);
+    let agent = app.agents.get(&id).unwrap();
+    assert_eq!(agent.prompt.text(), "keep this");
+    assert!(
+        read_toast(&app).contains("didn't open"),
+        "the send must say the session did not open, got {:?}",
+        read_toast(&app)
+    );
+}
+
 /// Modal branch of the gated failure clear: a current-seq FAILED search clears the modal's indicator and stamp.
 /// A plain (query-less) failure leaves the modal's deep-search spinner alone.
 #[test]
