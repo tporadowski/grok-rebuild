@@ -506,12 +506,41 @@ fn cap_string(s: String, max_len: usize) -> String {
 
 /// Frontmatter `name` a `SKILL.md` body advertises, after the same slug
 /// normalization as discovery. `None` when the body has no usable name.
-/// Callers that only have a path keep the folder name instead.
+/// A reloaded read often stores the numbered tool text (`1→---`) instead of
+/// the raw file; that form is accepted too. Callers that only have a path
+/// keep the folder name.
 pub fn advertised_skill_name(content: &str) -> Option<String> {
-    parse_skill_frontmatter(content, None)
-        .ok()
-        .map(|parsed| parsed.name)
-        .filter(|name| !name.is_empty())
+    fn name_of(content: &str) -> Option<String> {
+        parse_skill_frontmatter(content, None)
+            .ok()
+            .map(|parsed| parsed.name)
+            .filter(|name| !name.is_empty())
+    }
+    name_of(content).or_else(|| name_of(&without_read_line_markers(content)?))
+}
+
+/// Drop the read tool's `{line}→` markers so frontmatter can be parsed from a
+/// reloaded transcript. Only the first line and every 10th line carry one.
+fn without_read_line_markers(content: &str) -> Option<String> {
+    let mut lines = content.lines();
+    let first = lines.next()?;
+    let first = first.strip_prefix("1→")?;
+    let mut out = String::from(first);
+    for (offset, line) in lines.enumerate() {
+        let line_no = offset + 2;
+        out.push('\n');
+        if line_no.is_multiple_of(10)
+            && let Some(rest) = line.strip_prefix(&format!("{line_no}→"))
+        {
+            out.push_str(rest);
+        } else {
+            out.push_str(line);
+        }
+    }
+    if content.ends_with('\n') {
+        out.push('\n');
+    }
+    Some(out)
 }
 
 pub fn parse_skill_frontmatter(

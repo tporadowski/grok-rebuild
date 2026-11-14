@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-249 — A reloaded skill read keeps the advertised name
+
+`v85-x27`. Replay drops the in-progress title update, so a skill read comes back as numbered tool text (`1→---`) under a path or folder title. `advertised_skill_name` strips those read-tool markers and still reads the frontmatter `name` (`skills/discovery.rs`, applied in `ReadToolCallBlock::with_content`). Loading the skill also reports `SkillInfo::label` as `skill_name`, so the completion title does not switch to the folder (`opencode/skill/mod.rs`). Subagent session ids are unchanged.
+
 ### D-248 — Tool-search rows lead with Search
 
 `v85-x26`. A tool-search row leads with `Search`, the same word as a file-search row. The scrollback header was `Search Tools` (`search_tool.rs`). The shell title was `Search tools: "query"` and is now `Search "query"` (`search_tool_row_title`). Markdown export was `IntegrationSearch (MCP tool discovery)` and is now `Search: {query}`, matching a file search's `Search: {pattern}`. The folded group noun stays `tool search` (`v46-x02`).
@@ -1109,7 +1113,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 48 | 13 | 1 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 47 | 7 | 0 |
-| W10 | Transcript, density, and copy | 1 | 0 | 51 | 4 | 0 |
+| W10 | Transcript, density, and copy | 0 | 0 | 52 | 4 | 0 |
 | W11 | Headless mode and tools | 5 | 0 | 38 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 46 | 13 | 9 |
 | W13 | Update, install, and sign-in | 3 | 0 | 26 | 11 | 0 |
@@ -1118,9 +1122,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 719. Pending: 14. Skipped: 9. Done: 554. Already: 113. Deferred: 29.
+Catalog rows: 719. Pending: 13. Skipped: 9. Done: 555. Already: 113. Deferred: 29.
 
-**Next:** v85-x27
+**Next:** v85-x07
 
 ## Waves
 
@@ -1162,7 +1166,7 @@ Pending: 0. Done: 47 (`v50-f05`, D-124; `v50-f09`, D-125; `v50-x06`, D-126; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 1. Done: 51 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
+Pending: 0. Done: 52 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
 
 ### W11 — Headless mode and tools
 
@@ -1531,7 +1535,7 @@ id | status | wave | kind | flag | covered | note
 - v85-x23 | done | W10 | Bug Fixes |  |  | **Replies** now preserve single newlines as line breaks instead of joining them into one paragraph.
 - v85-x25 | done | W10 | Bug Fixes |  |  | **Skill reads** now show the skill's advertised name instead of its folder name in the scrollback and shell titles.
 - v85-x26 | done | W10 | Bug Fixes |  |  | **Tool search rows** now start with Search, matching file-search rows.
-- v85-x27 | pending | W10 | Bug Fixes |  |  | **Skill-read titles** keep the skill's advertised name after a reload.
+- v85-x27 | done | W10 | Bug Fixes |  |  | **Skill-read titles** keep the skill's advertised name after a reload.
 - v46-x05 | done | W11 | Bug Fixes |  |  | **Context compacted** line now shows the correct token count immediately after compaction instead of at the end of a long turn.
 - v48-x03 | done | W11 | Bug Fixes |  |  | `read_file`, `search_replace`, and `grep` now handle large files, special files, and binary content more reliably and surface better errors.
 - v48-x05 | done | W11 | Bug Fixes |  |  | **Cancelling one tool call** no longer kills commands started by other parallel calls.

@@ -906,6 +906,17 @@ The file is there, but this process cannot read it.";
     }
 
     #[test]
+    fn skill_read_keeps_the_advertised_name_after_a_numbered_reload() {
+        // Replay keeps the read tool's numbered text and a path title. The
+        // in-progress `Skill:` title update is not part of that transcript.
+        let body = "1→---\nname: ship-it\ndescription: Ship the build\n---\n\nDo the thing.\n";
+        let block = ReadToolCallBlock::new("/home/user/.grok/skills/deploy/SKILL.md")
+            .with_advertised_skill_name("deploy")
+            .with_content(body.to_string(), 6);
+        assert_eq!(skill_header_text(&block), "Skill ship-it");
+    }
+
+    #[test]
     fn skill_read_shows_the_shell_title_before_the_file_arrives() {
         let block = ReadToolCallBlock::new("/home/user/.grok/skills/deploy/SKILL.md")
             .with_advertised_skill_name("ship-it");

@@ -311,8 +311,8 @@ impl xai_tool_runtime::Tool for SkillTool {
             Err(e) => {
                 return Ok(SkillOutput {
                     success: false,
-                    tool_result: format!("Failed to load skill '{}': {}", skill.name, e),
-                    skill_name: skill.name.clone(),
+                    tool_result: format!("Failed to load skill '{}': {}", skill.label(), e),
+                    skill_name: skill.label().to_string(),
                     skill_message: None,
                     error: Some(e),
                 });
@@ -334,8 +334,8 @@ impl xai_tool_runtime::Tool for SkillTool {
 
         Ok(SkillOutput {
             success: true,
-            tool_result: format!("Loaded skill: {}", skill.name),
-            skill_name: skill.name.clone(),
+            tool_result: format!("Loaded skill: {}", skill.label()),
+            skill_name: skill.label().to_string(),
             skill_message: Some(output),
             error: None,
         })
@@ -579,6 +579,38 @@ mod tests {
         assert!(msg.contains("Do the thing."));
         assert!(msg.contains("<skill_files>"));
         assert!(msg.contains("</skill_content>"));
+    }
+
+    #[tokio::test]
+    async fn skill_load_reports_the_advertised_name_not_the_folder() {
+        let tmp = TempDir::new().unwrap();
+        let skill_dir = tmp.path().join("deploy");
+        std::fs::create_dir(&skill_dir).unwrap();
+        let skill_path = skill_dir.join("SKILL.md");
+        std::fs::write(
+            &skill_path,
+            "---\nname: ship-it\ndescription: Ship\n---\n\nGo.\n",
+        )
+        .unwrap();
+
+        let mut skill = make_test_skill("deploy", SkillScope::Local, skill_path.to_str().unwrap());
+        skill.display_name = Some("ship-it".to_string());
+        let mut resources = Resources::new();
+        resources.insert(AvailableSkills(vec![skill]));
+
+        let output = xai_tool_runtime::Tool::run(
+            &SkillTool,
+            test_ctx(resources.into_shared()),
+            SkillInput {
+                name: "deploy".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.skill_name, "ship-it");
+        assert_eq!(output.tool_result, "Loaded skill: ship-it");
     }
 
     /// Regression: the OpenCode skill tool's body must reach the model via the
