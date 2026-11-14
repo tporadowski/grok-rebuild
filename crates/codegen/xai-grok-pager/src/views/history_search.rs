@@ -568,6 +568,24 @@ impl HistorySearchState {
     pub fn result_at(&self, idx: usize) -> Option<&HistoryMatchResult> {
         self.snapshot.items.get(idx)
     }
+
+    /// Test-only: open the panel on a fixed result list, without the matcher thread.
+    #[cfg(test)]
+    pub(crate) fn set_matches_for_test(&mut self, texts: &[&str]) {
+        self.active = true;
+        self.snapshot = Snapshot {
+            items: texts
+                .iter()
+                .map(|text| HistoryMatchResult {
+                    text: (*text).to_string(),
+                    indices: Vec::new(),
+                })
+                .collect::<Vec<_>>()
+                .into(),
+            generation: 1,
+        };
+        self.selected = 0;
+    }
 }
 
 #[cfg(test)]

@@ -33,6 +33,31 @@ use ratatui::widgets::Widget;
 use std::collections::HashSet;
 use std::time::Instant;
 
+/// Fit a dropdown above `bottom_border_y`. Returns `(top, panel_height, item_rows)`.
+/// A full file-search or history list is taller than a very short terminal. The panel
+/// shrinks to the rows that exist and is skipped when the anchor is already off-screen.
+fn fit_panel_above(
+    bottom_border_y: u16,
+    area_top: u16,
+    wanted_items: u16,
+    buf_bottom: u16,
+) -> Option<(u16, u16, u16)> {
+    if wanted_items == 0 || bottom_border_y >= buf_bottom {
+        return None;
+    }
+    let mut panel_height = wanted_items.saturating_add(2);
+    let avail = bottom_border_y.saturating_sub(area_top).saturating_add(1);
+    panel_height = panel_height.min(avail);
+    if panel_height < 3 {
+        return None;
+    }
+    let top = bottom_border_y.saturating_sub(panel_height - 1);
+    if top >= bottom_border_y {
+        return None;
+    }
+    Some((top, panel_height, panel_height - 2))
+}
+
 /// OSC 8 spans for one frame of overlay links.
 /// `bare_wraps_only` (Warp) keeps a standard-scheme URL only when its painted
 /// text is the address itself and that address spans more than one row. Warp's
@@ -2973,21 +2998,27 @@ impl AgentView {
         if self.prompt.file_search_visible() {
             use crate::views::file_search::dropdown::{MAX_DROPDOWN_ROWS, render_dropdown};
             let item_count = self.prompt.file_search.result_count();
-            let item_rows = (item_count as u16).min(MAX_DROPDOWN_ROWS);
-            if item_rows > 0 {
-                self.prompt.file_search.ensure_visible(item_rows as usize);
+            let wanted_rows = (item_count as u16).min(MAX_DROPDOWN_ROWS);
+            if wanted_rows > 0 {
                 let bottom_border_y = if let Some(ipa) = self.inline_prompt_area {
                     ipa.y.saturating_sub(1)
                 } else {
                     layout.prompt.y.saturating_sub(1)
                 };
-                let panel_height = item_rows + 2;
-                let top_border_y = bottom_border_y.saturating_sub(panel_height - 1);
                 let panel_x = area.x + layout_cfg.eff_hpad_left(compact);
                 let panel_width = area.width.saturating_sub(
                     layout_cfg.eff_hpad_left(compact) + layout_cfg.eff_hpad_right(compact),
                 );
-                if top_border_y < bottom_border_y && panel_width > 4 {
+                let fitted = fit_panel_above(
+                    bottom_border_y,
+                    area.y,
+                    wanted_rows,
+                    buf.area.bottom(),
+                );
+                if let Some((top_border_y, panel_height, item_rows)) = fitted
+                    && panel_width > 4
+                {
+                    self.prompt.file_search.ensure_visible(item_rows as usize);
                     let panel_area = Rect {
                         x: panel_x,
                         y: top_border_y,
@@ -3121,15 +3152,15 @@ impl AgentView {
             use ratatui::style::Modifier;
             let max_rows: u16 = 8;
             let result_count = self.prompt.history_search.result_count();
-            let item_rows = (result_count as u16).min(max_rows).max(1);
-            let panel_height = item_rows + 2;
+            let wanted_rows = (result_count as u16).min(max_rows).max(1);
             let bottom_border_y = layout.prompt.y.saturating_sub(1);
-            let top_border_y = bottom_border_y.saturating_sub(panel_height - 1);
             let panel_x = area.x + layout_cfg.eff_hpad_left(compact);
             let panel_width = area.width.saturating_sub(
                 layout_cfg.eff_hpad_left(compact) + layout_cfg.eff_hpad_right(compact),
             );
-            if panel_height >= 3 && top_border_y < bottom_border_y && panel_width > 4 {
+            let fitted =
+                fit_panel_above(bottom_border_y, area.y, wanted_rows, buf.area.bottom());
+            if let Some((top_border_y, panel_height, item_rows)) = fitted && panel_width > 4 {
                 let panel_area = Rect {
                     x: panel_x,
                     y: top_border_y,

@@ -192,6 +192,8 @@ mod fuzzy_menu_tests;
 #[cfg(test)]
 mod header_tests;
 #[cfg(test)]
+mod short_panel_tests;
+#[cfg(test)]
 mod model_notice_tests;
 mod rewind;
 mod role;
