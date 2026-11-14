@@ -158,6 +158,7 @@ pub(super) fn dispatch_cancel_turn(app: &mut AppView) -> Vec<Effect> {
             agent.clear_send_now_expectation();
             let cancel_subagents = resolve_cancel_subagents(agent);
             agent.mark_wake_cancel_sent();
+            drop_queued_compact_commands(agent);
             return vec![emit_cancel_turn(
                 agent,
                 session_id,
@@ -270,6 +271,38 @@ pub(super) fn do_cancel_turn(
     cancel_agent_turn(agent, cancel_rewind_enabled, cancel_subagents, origin)
 }
 
+/// A local `/compact` row. Other commands (`/dream`, `/flush`) and prompts stay queued.
+fn queued_compact_command(entry: &crate::app::agent::QueuedPrompt) -> bool {
+    entry.kind == crate::app::agent::QueueEntryKind::Command
+        && crate::slash::parse_invocation(&entry.text)
+            .is_some_and(|invocation| invocation.token.eq_ignore_ascii_case("compact"))
+}
+
+/// Ctrl+C cancels a `/compact` that was queued while another turn was running, so the drain does not start it next.
+fn drop_queued_compact_commands(agent: &mut AgentView) {
+    let editing_local_id = match &agent.prompt_mode {
+        crate::app::agent_view::PromptMode::EditingQueued {
+            id,
+            server_id: None,
+            ..
+        } => Some(*id),
+        _ => None,
+    };
+    agent
+        .session
+        .pending_prompts
+        .retain(|entry| !queued_compact_command(entry));
+    if editing_local_id.is_some_and(|id| {
+        !agent
+            .session
+            .pending_prompts
+            .iter()
+            .any(|entry| entry.id == id)
+    }) {
+        agent.exit_editing_mode();
+    }
+}
+
 fn cancel_agent_turn(
     agent: &mut AgentView,
     cancel_rewind_enabled: bool,
@@ -277,6 +310,7 @@ fn cancel_agent_turn(
     origin: CancelOrigin,
 ) -> Vec<Effect> {
     if agent.session.state.is_compact_running() {
+        drop_queued_compact_commands(agent);
         agent.cancel_and_arm(CancellationScope::Compaction, origin);
         agent.cancel_turn_view = None;
         agent.cancel_turn_buttons.clear();
@@ -297,6 +331,7 @@ fn cancel_agent_turn(
         )];
     }
     if agent.running_wake_turn.is_some() {
+        drop_queued_compact_commands(agent);
         let Some(session_id) = agent.session.session_id.clone() else {
             return vec![];
         };
@@ -312,6 +347,8 @@ fn cancel_agent_turn(
     if !agent.session.state.is_turn_running() {
         return vec![];
     }
+    // Drop before the rewind guard so a compact-only queue does not hold the in-flight prompt.
+    drop_queued_compact_commands(agent);
     // The UI then looks like the user never hit Send
     // Minimal mode prints each committed block once into the terminal's native scrollback, and that print can't be "un-printed"
     // A user-prompt block commits immediately (it is never `is_running`)
@@ -360,7 +397,7 @@ fn cancel_agent_turn(
     // Explicit user cancel supersedes any pending send-now expectation (its marker renders).
     agent.clear_send_now_expectation();
 
-    // On an interactive cancel we only tear down the running turn and let the agent promote the FRONT queued prompt as the next turn
+    // On an interactive cancel we tear down the running turn. A queued `/compact` is already gone; the front remaining prompt still promotes.
     // We do NOT pull any queued prompt back into the input or predict the new queue order client-side
     // `rewinding` mirrors the local rewind on the wire so the shell trims its stored copy too
     vec![emit_cancel_turn(

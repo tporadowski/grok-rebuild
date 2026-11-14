@@ -883,6 +883,101 @@ fn cancel_turn_leaves_shared_queue_for_agent_to_drain() {
     );
 }
 
+/// Ctrl+C while a turn is running cancels a `/compact` that was queued behind it.
+/// A later prompt and a different queued command stay, and the compact does not start when the turn ends.
+#[test]
+fn ctrl_c_cancels_a_compact_queued_during_a_running_turn() {
+    use crate::app::agent::QueueEntryKind;
+
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+
+    dispatch(Action::SendPrompt("running".into()), &mut app);
+    assert!(get_agent(&app, id).session.state.is_turn_running());
+
+    let queued = dispatch(Action::SendPrompt("/compact".into()), &mut app);
+    assert!(
+        queued
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Compact { .. })),
+        "compact must wait behind the running turn, got {queued:?}"
+    );
+    dispatch(Action::SendPrompt("keep this".into()), &mut app);
+    // `/dream` is shell-gated, so the test registry does not run it. The queue row is the same `QueueEntryKind::Command` a real `/dream` enqueue uses.
+    app.agents
+        .get_mut(&id)
+        .unwrap()
+        .session
+        .enqueue_command("/dream".into());
+
+    let rows: Vec<(&str, QueueEntryKind)> = get_agent(&app, id)
+        .session
+        .pending_prompts
+        .iter()
+        .map(|row| (row.text.as_str(), row.kind))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("/compact", QueueEntryKind::Command),
+            ("keep this", QueueEntryKind::Prompt),
+            ("/dream", QueueEntryKind::Command),
+        ]
+    );
+
+    let effects = dispatch(Action::CancelTurn, &mut app);
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::CancelTurn { .. })),
+        "the running turn still cancels, got {effects:?}"
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::QueueRemove { .. })),
+        "a local compact row is not a shared-queue remove"
+    );
+    let rows: Vec<&str> = get_agent(&app, id)
+        .session
+        .pending_prompts
+        .iter()
+        .map(|row| row.text.as_str())
+        .collect();
+    assert_eq!(rows, vec!["keep this", "/dream"]);
+
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::PromptResponse {
+            agent_id: id,
+            result: Ok(acp::PromptResponse::new(acp::StopReason::Cancelled)),
+            http_status: None,
+            prompt_id: None,
+        }),
+        &mut app,
+    );
+    assert!(
+        effects.iter().any(
+            |effect| matches!(effect, Effect::SendPrompt { text, .. } if text == "keep this")
+        ),
+        "the other queued prompt still starts, got {effects:?}"
+    );
+    assert!(
+        effects
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Compact { .. })),
+        "the cancelled compact must not start when the turn ends, got {effects:?}"
+    );
+    assert_eq!(
+        get_agent(&app, id)
+            .session
+            .pending_prompts
+            .front()
+            .map(|row| row.text.as_str()),
+        Some("/dream"),
+        "a different queued command stays behind the prompt"
+    );
+}
+
 #[test]
 fn cancel_turn_with_running_subagents_shows_panel() {
     let mut app = test_app_with_agent();
