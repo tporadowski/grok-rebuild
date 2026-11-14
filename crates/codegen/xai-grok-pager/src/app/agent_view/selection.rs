@@ -486,7 +486,9 @@ impl AgentView {
         } else {
             &self.last_scrollback_selection_model
         };
-        let hit = model.hit_test_selectable_range(mouse.column, mouse.row);
+        // A blank cell on this row used to snap to the nearest glyph and start a text selection.
+        // Fold and unfold live on that blank area, so only a press on the glyphs arms a text drag.
+        let hit = model.hit_test_text_exact(mouse.column, mouse.row);
         tracing::debug!(
             event = "begin_pending_text_drag",
             col = mouse.column,
@@ -594,13 +596,37 @@ impl AgentView {
         self.last_drag_mouse = Some((mouse.column, mouse.row));
     }
 
+    /// True when `row` already has glyphs and `col` is on the blank part of that row.
+    fn press_on_blank_part_of_text_row(
+        model: &ResolvedSelectionModel,
+        col: u16,
+        row: u16,
+    ) -> bool {
+        let row_has_text = model.ranges.iter().any(|range| {
+            range
+                .lines
+                .iter()
+                .any(|line| line.screen_y == row && !line.selectable_cols.is_empty())
+        });
+        row_has_text && model.hit_test_text_exact(col, row).is_none()
+    }
+
     /// One-way deferred-anchor conversion.
     /// A scrollback press with no selectable text under it arms [`AgentView::deferred_text_press`] alongside the normal block-drag latch.
     /// A gesture that never enters text leaves the block drag to run unchanged.
+    /// A press on the blank part of a row that already has text does not convert: that drag must not become a text selection.
     fn convert_deferred_text_press(&mut self, mouse: &MouseEvent) -> bool {
         let Some((press_col, press_row)) = self.deferred_text_press else {
             return false;
         };
+        // The press was on the blank part of a row that already has text. Keep the gesture a click or a block drag.
+        if Self::press_on_blank_part_of_text_row(
+            &self.last_scrollback_selection_model,
+            press_col,
+            press_row,
+        ) {
+            return false;
+        }
         let Some(hit) = self
             .last_scrollback_selection_model
             .hit_test_selectable_range(mouse.column, mouse.row)
@@ -3081,6 +3107,89 @@ mod tests {
         assert_eq!((drag.anchor_entry_idx, drag.head_entry_idx), (0, 0));
         assert!(agent.drag_selection.is_none());
         assert_eq!(agent.deferred_text_press, Some((6, 4)), "latch stays armed");
+    }
+
+    /// Row 5's glyphs occupy columns 0..20. The rest of that row is blank, inside the block.
+    /// Dragging there must not start a text selection. A click there must still fold.
+    #[test]
+    fn blank_row_drag_does_not_select_text_and_click_still_folds() {
+        use crate::scrollback::block::RenderBlock;
+        use crate::scrollback::types::DisplayMode;
+
+        let mut agent = agent_with_chrome_and_gap();
+        let reg = ActionRegistry::defaults();
+
+        let _ = agent.handle_input(&Event::Mouse(mouse_down(30, 5)), &reg);
+        assert!(
+            agent.pending_text_drag.is_none(),
+            "a press on the blank part of a row must not arm a text drag"
+        );
+        assert!(
+            agent.pending_scrollback_click.is_some(),
+            "the press stays a click so a fold can still run"
+        );
+
+        let _ = agent.handle_input(&Event::Mouse(mouse_drag(40, 5)), &reg);
+        assert!(
+            agent.drag_selection.is_none(),
+            "dragging across the blank part of a row must not select text"
+        );
+        let _ = agent.handle_input(&Event::Mouse(mouse_drag(4, 5)), &reg);
+        assert!(
+            agent.drag_selection.is_none(),
+            "moving from the blank area onto the glyphs must not start a text selection"
+        );
+
+        let mut agent = make_agent();
+        agent.pane_areas.scrollback = Rect::new(0, 0, 80, 24);
+        agent.active_pane = AgentPane::Scrollback;
+        agent
+            .scrollback
+            .push_block(RenderBlock::thinking("look at the parser"));
+        agent.scrollback.prepare_layout(80, 24);
+        let (area, _, _) = agent
+            .scrollback
+            .entry_screen_area(0, agent.pane_areas.scrollback)
+            .expect("thinking block is on screen");
+        assert!(area.width > 24, "the row has a blank tail, width {}", area.width);
+        let row = area.y;
+        let blank_col = area.x + 20;
+        let mut model = ResolvedSelectionModel::default();
+        model.push_line(ResolvedSelectableLine {
+            entry_idx: 0,
+            range_id: 0,
+            block_line_idx: 0,
+            screen_y: row,
+            screen_x: area.x,
+            selectable_cols: 0..8,
+            text: "thought".to_string(),
+            painted_region: None,
+            joiner_to_previous: None,
+        });
+        model.visible_blocks.push(VisibleBlockGeometry {
+            entry_idx: 0,
+            area,
+            content_area: area,
+            selection_area: area,
+            content_width: area.width,
+            top_clipped: false,
+            bottom_clipped: false,
+            drag_startable: true,
+        });
+        agent.last_scrollback_selection_model = model;
+        let before = agent.scrollback.get(0).unwrap().display_mode();
+        assert_eq!(before, DisplayMode::Truncated);
+
+        for _ in 0..2 {
+            let _ = agent.handle_input(&Event::Mouse(mouse_down(blank_col, row)), &reg);
+            let _ = agent.handle_input(&Event::Mouse(mouse_up(blank_col, row)), &reg);
+        }
+        assert_ne!(
+            agent.scrollback.get(0).unwrap().display_mode(),
+            before,
+            "a click on the blank part of the row still folds the thought"
+        );
+        assert!(agent.drag_selection.is_none());
     }
 
     /// A chrome press whose drag enters text converts to a text drag anchored at the ENTRY position (not the press, not nearest-to-press).
