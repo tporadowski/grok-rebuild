@@ -923,7 +923,7 @@ pub(crate) fn build_content_entry_data(
         })
         .collect()
 }
-/// Build the content header label (spinner or "Content matches").
+/// Build the content header label (spinner or "Extended search results").
 ///
 /// Returns an empty string when there are no content rows and no loading spinner; the caller should skip rendering the header in that case.
 pub(crate) fn build_content_header_label(
@@ -939,7 +939,7 @@ pub(crate) fn build_content_header_label(
             spinner_frames.get(frame_idx).copied().unwrap_or("")
         )
     } else if has_content_rows {
-        "Extended search results (remote and local sessions)".to_string()
+        "Extended search results".to_string()
     } else {
         String::new()
     }
@@ -1784,7 +1784,11 @@ mod tests {
     #[test]
     fn content_header_label_has_rows() {
         let label = build_content_header_label(false, true, 0);
-        assert_eq!(label, "Extended search results (remote and local sessions)");
+        assert_eq!(label, "Extended search results");
+        assert!(
+            label.len() < "Extended search results (remote and local sessions)".len(),
+            "content hits sit under the shorter heading"
+        );
     }
     #[test]
     fn content_header_label_empty() {
