@@ -2048,6 +2048,60 @@ fn dispatch_top_border_shows_branch_and_folder() {
     assert!(!hint_underlined, "hover does not underline the choose hint");
 }
 
+/// Hovering the location caption uses the brighter text color, not only an underline.
+#[test]
+fn location_caption_brightens_on_hover() {
+    let cwd = std::path::PathBuf::from("/grok-caption-bright");
+    crate::git_info::set_cwd_git_info_for_test(
+        &cwd,
+        Some(crate::git_info::CwdGitInfo {
+            branch: Some("main".into()),
+            is_worktree: false,
+            main_repo: Some("~/grok".into()),
+            worktree_label: None,
+        }),
+    );
+    // Grok Night separates the two text roles. The terminal palette stores Reset for both.
+    let theme = Theme::groknight();
+    assert_ne!(
+        theme.text_primary, theme.text_secondary,
+        "the brighter caption color has to differ from the resting one"
+    );
+    let folder = crate::util::display_location_path(cwd.as_path());
+    let paint = |hovered: bool| {
+        let area = Rect::new(0, 0, 80, 3);
+        let mut buf = Buffer::empty(area);
+        let mut state = DashboardState::new();
+        state.cwd = cwd.clone();
+        state.location_hit.hovered = hovered;
+        let _ = render_dispatch(
+            &mut buf,
+            area,
+            &theme,
+            &mut state,
+            &crate::actions::ActionRegistry::defaults(),
+            None,
+        );
+        let top: String = (0..area.width)
+            .map(|x| buf_cell(&buf, x, 0).symbol())
+            .collect();
+        let path_at = top.find(&folder).expect("folder on the border") as u16;
+        let style = buf.cell((path_at, 0)).expect("path cell").style();
+        (
+            style.fg,
+            style
+                .add_modifier
+                .contains(ratatui::style::Modifier::UNDERLINED),
+        )
+    };
+    let (rest_fg, rest_under) = paint(false);
+    let (hover_fg, hover_under) = paint(true);
+    assert_eq!(rest_fg, Some(theme.text_secondary));
+    assert!(!rest_under, "the resting caption is not underlined");
+    assert_eq!(hover_fg, Some(theme.text_primary));
+    assert!(hover_under, "hover keeps the underline while the color brightens");
+}
+
 /// On a 3-row rect the dispatch input paints a rounded-box chrome so it reads as a real input field.
 /// The text row contains the `❯` prefix.
 #[test]
@@ -3866,6 +3920,35 @@ fn render_footer_uses_shared_shortcuts_bar_styling() {
         content.contains(" \u{2502} "),
         "footer must use ` │ ` separator, got: {content:?}",
     );
+}
+
+/// The footer leaves two columns untouched on the left and the right.
+/// A short hint row does not fill the bar, so the inset is the cells the bar does not clear.
+#[test]
+fn dashboard_footer_is_padded_evenly() {
+    let width = 28u16;
+    let mut buf = Buffer::empty(Rect::new(0, 0, width, 1));
+    for x in 0..width {
+        buf.cell_mut((x, 0)).unwrap().set_symbol("X");
+    }
+    let theme = Theme::current();
+    let state = DashboardState::new();
+    render_footer(
+        &mut buf,
+        Rect::new(0, 0, width, 1),
+        &theme,
+        &state,
+        &crate::actions::ActionRegistry::defaults(),
+        None,
+        false,
+        None,
+    );
+    let sym = |x: u16| buf_cell(&buf, x, 0).symbol().to_string();
+    assert_eq!(sym(0), "X", "left inset column 0");
+    assert_eq!(sym(1), "X", "left inset column 1");
+    assert_eq!(sym(width - 2), "X", "right inset column");
+    assert_eq!(sym(width - 1), "X", "right inset column");
+    assert_ne!(sym(2), "X", "the hint row starts after the left inset");
 }
 
 /// The footer names what Enter does on the focused actions-row item — from either pane, since an empty Enter acts on the item from

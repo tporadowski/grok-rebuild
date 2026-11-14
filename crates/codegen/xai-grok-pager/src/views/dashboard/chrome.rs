@@ -171,7 +171,13 @@ pub(super) fn location_line(
     if is_worktree {
         location_spans.push(worktree_badge(theme).patch_style(bg));
     }
-    location_spans.push(Span::styled(cwd_display, bg.fg(theme.text_secondary)));
+    // Hover uses the brighter text role. The underline is applied just below.
+    let folder_fg = if state.location_hit.hovered {
+        theme.text_primary
+    } else {
+        theme.text_secondary
+    };
+    location_spans.push(Span::styled(cwd_display, bg.fg(folder_fg)));
     let mut location = truncate_line(Line::from(location_spans), budget);
     if state.location_hit.hovered {
         location.spans = underline_location_on_hover(std::mem::take(&mut location.spans));

@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-270 — Dashboard footer inset and location hover
+
+`v86-x28`. The dashboard footer reserved two columns on the left and none on the right. It now reserves two on both sides, matching the agent view's `block_pad_left` and `block_pad_right`. The location caption's folder uses `text_secondary` at rest and `text_primary` on hover, the same brighter role the action buttons use, and it keeps the underline. On the terminal palette those two roles are both Reset, so the color change shows on RGB themes.
+
 ### D-269 — Welcome tip wording is not a named change
 
 `v86-x26`. The note says a few welcome-screen tips and labels use more consistent wording. It names neither the tips nor the labels nor the new wording. The rotating tips are strings from config (`resolve_tips` in `xai-grok-shell/src/util/config/tips.rs`); the welcome paints `p.tip` as given. The signed-in menu (`session_menu_rows` in `views/welcome/mod.rs`) and the one-row welcome (`views/welcome/short.rs`) already share `Resume session`, `Quit`, `Login with …`, `Switch account`, `Connecting...`, `Waiting for login to complete...`, `Window too small`, `Yes, proceed`, and `No, quit`. `v86-x01` owns the Unicode ellipsis on placeholders. `v86-x18` owns update-notice alignment. Rewriting these strings would invent the copy.
@@ -1191,7 +1195,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 0 | 0 | 30 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 4 | 0 | 51 | 13 | 2 |
+| W8 | Sessions, resume, and dashboard | 3 | 0 | 52 | 13 | 2 |
 | W9 | Prompt, mentions, and keyboard | 3 | 0 | 47 | 7 | 0 |
 | W10 | Transcript, density, and copy | 6 | 0 | 52 | 4 | 0 |
 | W11 | Headless mode and tools | 1 | 0 | 43 | 7 | 0 |
@@ -1202,9 +1206,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 39. Skipped: 9. Done: 575. Already: 113. Deferred: 31.
+Catalog rows: 767. Pending: 38. Skipped: 9. Done: 576. Already: 113. Deferred: 31.
 
-**Next:** v86-x28
+**Next:** v86-x29
 
 ## Waves
 
@@ -1238,7 +1242,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 4. Done: 51 (`v86-x18`; `v86-x03`; `v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 13 (`v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 2 (`v86-x26`, D-269; `v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
+Pending: 3. Done: 52 (`v86-x28`, D-270; `v86-x18`; `v86-x03`; `v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 13 (`v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 2 (`v86-x26`, D-269; `v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -1987,7 +1991,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x25 | pending | W14 | Bug Fixes |  |  | The extensions modal no longer shrinks narrower than other modals.
 - v86-x26 | deferred | W8 | Bug Fixes |  |  | A few welcome-screen tips and labels use more consistent wording.
 - v86-x27 | pending | W14 | Bug Fixes |  |  | Selected items in pickers highlight their full height.
-- v86-x28 | pending | W8 | Bug Fixes |  |  | The dashboard footer is padded evenly and the location caption brightens on hover.
+- v86-x28 | done | W8 | Bug Fixes |  |  | The dashboard footer is padded evenly and the location caption brightens on hover.
 - v86-x29 | pending | W8 | Bug Fixes |  |  | Content-search results in the resume picker appear under a shorter heading.
 - v86-x30 | pending | W14 | Bug Fixes |  |  | Overflow messages correctly pluralize and show exact counts.
 - v86-x31 | done | W5 | Bug Fixes |  |  | Goal status labels are consistent between the status bar and the goal modal.

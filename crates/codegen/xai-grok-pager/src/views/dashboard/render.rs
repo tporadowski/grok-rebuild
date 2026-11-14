@@ -2713,13 +2713,13 @@ fn render_footer(
         return;
     }
 
-    // 2-col left padding to match the agent view's footer position (`block_pad_left = 2`)
-    const FOOTER_PAD_LEFT: u16 = 2;
+    // Match the agent view: `block_pad_left` and `block_pad_right` are both 2.
+    const FOOTER_PAD: u16 = 2;
     let _ = theme;
     let inner = Rect {
-        x: area.x.saturating_add(FOOTER_PAD_LEFT),
+        x: area.x.saturating_add(FOOTER_PAD),
         y: area.y,
-        width: area.width.saturating_sub(FOOTER_PAD_LEFT),
+        width: area.width.saturating_sub(FOOTER_PAD.saturating_mul(2)),
         height: area.height,
     };
 
