@@ -1,4 +1,5 @@
 use super::*;
+use agent_client_protocol as acp;
 use xai_grok_test_support::acp_fixtures::text_block;
 use xai_grok_tools::implementations::skills::types::SkillScope;
 
@@ -151,6 +152,13 @@ fn make_skill(name: &str, user_invocable: bool) -> SkillInfo {
         origin: None,
         enabled: true,
         body: None,
+    }
+}
+
+fn direct_reply(outcome: Result<Vec<acp::ContentBlock>, SlashCommandOutcome>) -> String {
+    match outcome {
+        Err(SlashCommandOutcome::DirectReply(msg)) => msg,
+        other => panic!("expected a direct reply, got {other:?}"),
     }
 }
 
@@ -335,30 +343,26 @@ fn resolve_model_authored_skill_requires_exact_child_catalog_name_and_loader() {
 }
 
 #[test]
-fn disabled_goal_line_passes_through_as_a_prompt() {
+fn disabled_goal_line_replies_instead_of_reaching_the_model() {
     let disabled = CommandAvailability::default();
     assert!(!disabled.goal);
     let goal_line = vec![text_block("/goal ship the auth migration")];
-    let passed = resolve(
+    let reply = direct_reply(resolve(
         goal_line.clone(),
         &[],
         disabled,
         SkillSlashRewrite::default(),
         &[],
-    )
-    .expect("with goals disabled, /goal is a normal prompt");
-    assert_eq!(passed, goal_line);
+    ));
+    assert!(
+        reply.contains("disabled"),
+        "a disabled /goal must not reach the model: {reply}"
+    );
 
     let mut enabled = disabled;
     enabled.goal = true;
-    let caught = resolve(
-        goal_line,
-        &[],
-        enabled,
-        SkillSlashRewrite::default(),
-        &[],
-    )
-    .expect_err("with goals enabled, /goal is the builtin");
+    let caught = resolve(goal_line, &[], enabled, SkillSlashRewrite::default(), &[])
+        .expect_err("with goals enabled, /goal is the builtin");
     assert!(matches!(
         caught,
         SlashCommandOutcome::Builtin(BuiltinAction::GoalSet { .. })
@@ -560,31 +564,30 @@ fn resolve_passes_through_normal_prompts() {
         )
         .is_ok()
     );
+    let reply = direct_reply(resolve(
+        vec![text_block("/unknown")],
+        &skills,
+        all_gated(),
+        SkillSlashRewrite::default(),
+        &[],
+    ));
     assert!(
-        resolve(
-            vec![text_block("/unknown")],
-            &skills,
-            all_gated(),
-            SkillSlashRewrite::default(),
-            &[],
-        )
-        .is_ok()
+        reply.contains("Unknown command") && reply.contains("/unknown"),
+        "{reply}"
     );
 }
 
 #[test]
 fn resolve_filters_non_invocable_skills() {
     let skills = vec![make_skill("internal-only", false)];
-    assert!(
-        resolve(
-            vec![text_block("/internal-only")],
-            &skills,
-            all_gated(),
-            SkillSlashRewrite::default(),
-            &[],
-        )
-        .is_ok()
-    );
+    let reply = direct_reply(resolve(
+        vec![text_block("/internal-only")],
+        &skills,
+        all_gated(),
+        SkillSlashRewrite::default(),
+        &[],
+    ));
+    assert!(reply.contains("Unknown command"), "{reply}");
 }
 
 #[test]
@@ -735,17 +738,14 @@ fn goal_does_not_resolve_when_host_capability_is_off() {
         goal: false,
         ..CommandAvailability::all_enabled()
     };
-    assert!(
-        resolve(
-            vec![text_block("/goal status")],
-            &[],
-            availability,
-            SkillSlashRewrite::default(),
-            &[],
-        )
-        .is_ok(),
-        "expected pass-through (Ok), got an outcome",
-    );
+    let reply = direct_reply(resolve(
+        vec![text_block("/goal status")],
+        &[],
+        availability,
+        SkillSlashRewrite::default(),
+        &[],
+    ));
+    assert!(reply.contains("disabled"), "{reply}");
 }
 
 #[test]
@@ -755,17 +755,14 @@ fn loop_does_not_resolve_when_scheduler_unavailable() {
         scheduler: false,
         ..CommandAvailability::all_enabled()
     };
-    assert!(
-        resolve(
-            vec![text_block("/loop 5m do thing")],
-            &[],
-            availability,
-            SkillSlashRewrite::default(),
-            &[],
-        )
-        .is_ok(),
-        "expected pass-through (Ok), got an outcome",
-    );
+    let reply = direct_reply(resolve(
+        vec![text_block("/loop 5m do thing")],
+        &[],
+        availability,
+        SkillSlashRewrite::default(),
+        &[],
+    ));
+    assert!(reply.contains("disabled"), "{reply}");
 }
 
 fn loop_text(args: &str) -> String {
@@ -1229,15 +1226,16 @@ fn make_plugin_skill(name: &str, plugin: &str) -> SkillInfo {
 fn plugin_login_skill_resolves_by_qualified_name_only() {
     let skills = vec![make_plugin_skill("login", "acme")];
 
+    let reply = direct_reply(resolve(
+        vec![text_block("/login")],
+        &skills,
+        all_gated(),
+        SkillSlashRewrite::default(),
+        &[],
+    ));
     assert!(
-        resolve(
-            vec![text_block("/login")],
-            &skills,
-            all_gated(),
-            SkillSlashRewrite::default(),
-            &[],
-        )
-        .is_ok()
+        reply.contains("Unknown command"),
+        "the bare name is not the advertised command: {reply}"
     );
 
     let outcome = resolve(
@@ -1405,17 +1403,14 @@ fn resolve_mixed_case_workflow_launch_keeps_listing_name() {
 
 #[test]
 fn feedback_does_not_resolve_when_disabled() {
-    // /feedback should pass through as unrecognized when the feature is off.
-    assert!(
-        resolve(
-            vec![text_block("/feedback hello")],
-            &[],
-            CommandAvailability::default(),
-            SkillSlashRewrite::default(),
-            &[],
-        )
-        .is_ok()
-    );
+    let reply = direct_reply(resolve(
+        vec![text_block("/feedback hello")],
+        &[],
+        CommandAvailability::default(),
+        SkillSlashRewrite::default(),
+        &[],
+    ));
+    assert!(reply.contains("disabled"), "{reply}");
 }
 
 #[test]
@@ -1552,16 +1547,16 @@ fn memory_not_resolved_when_not_configured() {
         memory_configured: false,
         ..CommandAvailability::all_enabled()
     };
+    let reply = direct_reply(resolve(
+        vec![text_block("/memory")],
+        &[],
+        availability,
+        SkillSlashRewrite::default(),
+        &[],
+    ));
     assert!(
-        resolve(
-            vec![text_block("/memory")],
-            &[],
-            availability,
-            SkillSlashRewrite::default(),
-            &[],
-        )
-        .is_ok(),
-        "expected pass-through (Ok) when memory_configured is false",
+        reply.contains("disabled"),
+        "a memory command with no backend must not reach the model: {reply}"
     );
 }
 
@@ -1873,18 +1868,25 @@ fn workflow_collision_policy_includes_aliases_and_ambiguous_skills() {
         .unwrap_err(),
         SlashCommandOutcome::Builtin(BuiltinAction::SessionInfo)
     ));
-    for unavailable in ["sessions", "commit"] {
-        assert!(
-            resolve(
-                vec![text_block(&format!("/{unavailable}"))],
-                &skills,
-                all_gated(),
-                SkillSlashRewrite::default(),
-                &workflows,
-            )
-            .is_ok()
-        );
-    }
+    let sessions = direct_reply(resolve(
+        vec![text_block("/sessions")],
+        &skills,
+        all_gated(),
+        SkillSlashRewrite::default(),
+        &workflows,
+    ));
+    assert!(sessions.contains("Unknown command"), "{sessions}");
+    assert!(
+        resolve(
+            vec![text_block("/commit")],
+            &skills,
+            all_gated(),
+            SkillSlashRewrite::default(),
+            &workflows,
+        )
+        .is_ok(),
+        "an ambiguous skill name stays a prompt"
+    );
 }
 
 #[test]
@@ -1937,15 +1939,16 @@ fn existing_runs_keep_management_but_hide_launch_catalog() {
         .unwrap_err(),
         SlashCommandOutcome::Builtin(BuiltinAction::WorkflowManage { .. })
     ));
+    let reply = direct_reply(resolve(
+        vec![text_block("/workflow review")],
+        &[],
+        availability,
+        SkillSlashRewrite::default(),
+        &workflows,
+    ));
     assert!(
-        resolve(
-            vec![text_block("/workflow review")],
-            &[],
-            availability,
-            SkillSlashRewrite::default(),
-            &workflows,
-        )
-        .is_ok()
+        reply.contains("disabled"),
+        "a hidden launch must not reach the model: {reply}"
     );
 }
 

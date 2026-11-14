@@ -1190,6 +1190,8 @@ pub(crate) struct ParsedSkillRef {
 pub(super) enum SlashCommandOutcome {
     /// Execute directly, no model round-trip.
     Builtin(BuiltinAction),
+    /// A leading `/name` that is unknown or disabled. The turn ends with this text.
+    DirectReply(String),
     /// One or more skills detected in user input.
     /// The original prompt `blocks` are preserved verbatim, not rewritten.
     /// The shell's prompt assembly layer will read each skill's SKILL.md and apply substitutions.
@@ -1595,7 +1597,9 @@ pub(super) fn resolve_human_intent(
     }) {
         let action = (builtin.resolve)(args);
         if matches!(action, BuiltinAction::WorkflowLaunch { .. }) && !availability.workflows {
-            return Ok(prompt_blocks);
+            return Err(SlashCommandOutcome::DirectReply(
+                "Workflow launches are disabled.".to_string(),
+            ));
         }
         return Err(SlashCommandOutcome::Builtin(action));
     }
@@ -1623,7 +1627,45 @@ pub(super) fn resolve_human_intent(
             },
         ));
     }
+    if let Some(reply) = unresolved_slash_reply(command_name, skills, availability) {
+        return Err(SlashCommandOutcome::DirectReply(reply));
+    }
     Ok(prompt_blocks)
+}
+
+/// `None` when the token is an ambiguous skill name: more than one enabled user skill matches, so the text stays a prompt.
+/// Every other leading `/name` that did not resolve is a direct reply, not a model turn.
+fn unresolved_slash_reply(
+    name: &str,
+    skills: &[SkillInfo],
+    availability: CommandAvailability,
+) -> Option<String> {
+    let key = slash_key(name);
+    let matches_skill = |skill: &SkillInfo| {
+        slash_key(&skill.name) == key || slash_key(&format_skill_name(skill)) == key
+    };
+    let enabled_matches = skills
+        .iter()
+        .filter(|skill| skill.user_invocable && skill.enabled && matches_skill(skill))
+        .count();
+    if enabled_matches > 1 {
+        return None;
+    }
+    let disabled_builtin = BUILTIN_COMMANDS
+        .iter()
+        .chain(PROMPT_COMMANDS.iter())
+        .any(|cmd| {
+            (slash_key(cmd.name) == key || cmd.aliases.iter().any(|alias| slash_key(alias) == key))
+                && !availability.allows(cmd.gate)
+        });
+    let disabled_skill = skills
+        .iter()
+        .any(|skill| skill.user_invocable && !skill.enabled && matches_skill(skill));
+    if disabled_builtin || disabled_skill {
+        Some(format!("/{name} is disabled."))
+    } else {
+        Some(format!("Unknown command: /{name}"))
+    }
 }
 /// The wording (usage hint and scheduling instruction) is sourced from `xai-grok-tools`.
 /// It stays identical to the pager's `LoopCommand`, so the two front-ends can't drift.

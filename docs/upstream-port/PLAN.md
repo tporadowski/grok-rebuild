@@ -1096,7 +1096,7 @@ Refresh these numbers at the end of a session.
 | W5 | Workflows and goals | 0 | 0 | 28 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 48 | 13 | 1 |
-| W9 | Prompt, mentions, and keyboard | 4 | 0 | 44 | 6 | 0 |
+| W9 | Prompt, mentions, and keyboard | 3 | 0 | 45 | 6 | 0 |
 | W10 | Transcript, density, and copy | 5 | 0 | 47 | 4 | 0 |
 | W11 | Headless mode and tools | 5 | 0 | 38 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 0 | 0 | 46 | 13 | 9 |
@@ -1106,7 +1106,7 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 719. Pending: 22. Skipped: 9. Done: 547. Already: 112. Deferred: 29.
+Catalog rows: 719. Pending: 21. Skipped: 9. Done: 548. Already: 112. Deferred: 29.
 
 **Next:** v85-x10
 

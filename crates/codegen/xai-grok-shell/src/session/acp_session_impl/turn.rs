@@ -697,6 +697,14 @@ impl SessionActor {
         };
         let prompt_blocks = match resolved {
             Ok(blocks) => blocks,
+            Err(SlashCommandOutcome::DirectReply(msg)) => {
+                if policy.authority.is_human_intent() {
+                    self.persist_host_turn_user_echo(&original_prompt_text, prompt_id);
+                }
+                self.mark_front_message_committed().await;
+                self.send_host_turn_slash_command_output(&msg).await;
+                return ok_end_turn(0, None);
+            }
             Err(SlashCommandOutcome::Builtin(action)) => {
                 let text_block =
                     |text: String| acp::ContentBlock::Text(acp::TextContent::new(text));
