@@ -630,7 +630,7 @@ impl BlockViewerPane {
         ))
     }
 
-    /// Create a viewer for a search_tool block. Preamble renders the styled header ("Search Tools
+    /// Create a viewer for a search_tool block. Preamble renders the styled header ("Search
     /// query"). Body shows limit, result count, then the structured tool list.
     pub fn for_integration_search(entry_id: EntryId, entry: &ScrollbackEntry) -> Option<Self> {
         let RenderBlock::ToolCall(ToolCallBlock::IntegrationSearch(st)) = &entry.block else {

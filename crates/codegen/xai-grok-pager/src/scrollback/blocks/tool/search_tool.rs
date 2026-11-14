@@ -126,7 +126,8 @@ impl SearchToolCallBlock {
         out
     }
 
-    /// Render the header line: **Search Tools** `query` `(N results)`
+    /// Render the header line: **Search** `query` `(N results)`, same leading
+    /// word as a file-search row.
     fn header_line(&self, theme: &Theme, muted: bool, max_width: Option<usize>) -> Line<'static> {
         let text_style = if muted {
             theme.muted()
@@ -144,7 +145,7 @@ impl SearchToolCallBlock {
         let max_width = max_width.map(|w| {
             w.saturating_sub(super::collapsed_failure_columns(self.error.as_deref()))
         });
-        let prefix = "Search Tools ";
+        let prefix = "Search ";
 
         let line = match max_width {
             Some(w) => {
@@ -402,6 +403,27 @@ mod tests {
 
     fn name_column(line: &str) -> usize {
         line.find("Item").expect("action name")
+    }
+
+    #[test]
+    fn tool_search_row_starts_with_search_like_a_file_search() {
+        use crate::scrollback::types::line_plain_text;
+
+        let block = SearchToolCallBlock::new("widgets");
+        let ctx = crate::scrollback::types::BlockContext {
+            width: 80,
+            mode: DisplayMode::Collapsed,
+            is_running: false,
+            raw: false,
+            max_lines: None,
+            appearance: Default::default(),
+            is_selected: false,
+            cwd: None,
+        };
+        let text = line_plain_text(&block.output(&ctx).lines[0].content);
+        assert!(text.starts_with("Search "), "{text}");
+        assert!(!text.starts_with("Search Tools"), "{text}");
+        assert!(text.contains("widgets"), "{text}");
     }
 
     #[test]

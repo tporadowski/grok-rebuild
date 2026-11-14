@@ -83,7 +83,7 @@ fn tool_summary(tc: &ToolCallBlock) -> String {
         ToolCallBlock::WebFetch(w) => format!("WebFetch: {}", w.url),
         ToolCallBlock::WebSearch(w) => format!("WebSearch: {}", w.query),
         ToolCallBlock::UseTool(u) => format!("UseTool: {}", u.tool_name),
-        ToolCallBlock::IntegrationSearch(_) => "IntegrationSearch (MCP tool discovery)".into(),
+        ToolCallBlock::IntegrationSearch(s) => format!("Search: {}", s.query),
         ToolCallBlock::MemorySearch(_) => "MemorySearch".into(),
         ToolCallBlock::SentMessage(message) => message.header_text(),
         ToolCallBlock::Skill(o) | ToolCallBlock::Other(o) => format!("Tool: {}", o.name),
@@ -98,5 +98,21 @@ mod tests {
     fn empty_blocks_yield_empty_string() {
         let out = render_blocks_to_markdown(std::iter::empty::<&RenderBlock>());
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn tool_search_export_starts_with_search_like_a_file_search() {
+        use crate::scrollback::blocks::tool::{
+            IntegrationSearchToolCallBlock, SearchToolCallBlock, ToolCallBlock,
+        };
+
+        let file = tool_summary(&ToolCallBlock::Search(SearchToolCallBlock::new("todo")));
+        let tool = tool_summary(&ToolCallBlock::IntegrationSearch(
+            IntegrationSearchToolCallBlock::new("slack"),
+        ));
+        assert!(file.starts_with("Search:"), "{file}");
+        assert!(tool.starts_with("Search:"), "{tool}");
+        assert!(tool.contains("slack"), "{tool}");
+        assert!(!tool.starts_with("IntegrationSearch"), "{tool}");
     }
 }

@@ -2621,7 +2621,7 @@ impl SessionActor {
                 vec![],
             ),
             ToolInput::SearchTool(st) => (
-                format!("Search tools: \"{}\"", st.query),
+                search_tool_row_title(&st.query),
                 acp::ToolKind::Other,
                 vec![],
                 vec![],
@@ -3448,6 +3448,12 @@ fn pre_tool_context_for_model(
 
 /// Title for a file read. A `SKILL.md` read names the skill the catalog
 /// advertises (`display_name`, else the command identity), not the folder.
+/// Shell title for a tool search. File-search rows lead with `Search`;
+/// this uses the same word instead of `Search tools:`.
+fn search_tool_row_title(query: &str) -> String {
+    format!("Search {query:?}")
+}
+
 fn read_file_tool_title(
     path: &str,
     skill: Option<&xai_grok_tools::implementations::skills::types::SkillInfo>,
@@ -3465,6 +3471,19 @@ fn read_file_tool_title(
 fn pdf_read_prompt(path: &str, rendered: usize, total: usize) -> String {
     let noun = if rendered == 1 { "page" } else { "pages" };
     format!("Read PDF file: {path} ({rendered} {noun} rendered, {total} total)")
+}
+
+#[cfg(test)]
+mod search_tool_row_title_tests {
+    use super::search_tool_row_title;
+
+    #[test]
+    fn tool_search_title_starts_with_search_like_a_file_search_row() {
+        let title = search_tool_row_title("slack");
+        assert_eq!(title, "Search \"slack\"");
+        assert!(title.starts_with("Search "));
+        assert!(!title.starts_with("Search tools"));
+    }
 }
 
 #[cfg(test)]
