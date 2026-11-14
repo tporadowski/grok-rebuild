@@ -179,6 +179,33 @@ impl AgentView {
         self.plan_mode_active = false;
         self.plan_mode_pending = None;
     }
+    /// A revision that was sent unchanged is the session draft itself.
+    /// Putting that text back in the composer shows the note again after send.
+    /// An edited note leaves the earlier draft in place.
+    pub(crate) fn drop_unchanged_revision_draft(
+        stashed: &mut crate::views::prompt_widget::StashedPrompt,
+        sent_freeform: &str,
+    ) -> bool {
+        let sent = sent_freeform.trim();
+        if sent.is_empty() || stashed.text.trim() != sent {
+            return false;
+        }
+        stashed.text.clear();
+        stashed.cursor = 0;
+        stashed.chip_elements.clear();
+        for img in stashed
+            .images
+            .drain(..)
+            .chain(stashed.image_undo_stash.drain(..))
+        {
+            crate::prompt_images::cleanup_image(
+                crate::prompt_images::SessionPathPolicy::Preserve,
+                &img,
+            );
+        }
+        stashed.image_counter = 0;
+        true
+    }
     /// Append review notes onto planFileContent. The worker ignores prompt text
     /// on ExecutePlan and only reads `_meta.executePlan`.
     pub(crate) fn plan_content_with_review(content: String, notes: Option<&str>) -> String {
@@ -644,13 +671,23 @@ impl AgentView {
     pub(crate) fn commit_post_turn_plan_approved(&mut self) {
         self.commit_post_turn_plan_review(PostTurnPlanCommit::Approved);
     }
-    pub(crate) fn commit_post_turn_plan_revised(&mut self) {
-        self.commit_post_turn_plan_review(PostTurnPlanCommit::Revised);
+    pub(crate) fn commit_post_turn_plan_revised(&mut self, sent_freeform: &str) {
+        self.commit_post_turn_plan_review_with(
+            PostTurnPlanCommit::Revised,
+            Some(sent_freeform),
+        );
     }
     pub(crate) fn commit_post_turn_plan_abandoned(&mut self) {
         self.commit_post_turn_plan_review(PostTurnPlanCommit::Abandoned);
     }
     pub(crate) fn commit_post_turn_plan_review(&mut self, commit: PostTurnPlanCommit) {
+        self.commit_post_turn_plan_review_with(commit, None);
+    }
+    fn commit_post_turn_plan_review_with(
+        &mut self,
+        commit: PostTurnPlanCommit,
+        sent_freeform: Option<&str>,
+    ) {
         if self
             .plan_approval_view
             .as_ref()
@@ -658,7 +695,12 @@ impl AgentView {
         {
             return;
         }
-        if let Some(pav) = self.plan_approval_view.as_mut() {
+        let sent_revision = sent_freeform.unwrap_or("");
+        let drop_unchanged = matches!(commit, PostTurnPlanCommit::Revised)
+            && self.plan_approval_view.as_mut().is_some_and(|pav| {
+                Self::drop_unchanged_revision_draft(&mut pav.stashed_prompt, sent_revision)
+            });
+        if !drop_unchanged && let Some(pav) = self.plan_approval_view.as_mut() {
             Self::merge_live_images_into_stash(&mut self.prompt, &mut pav.stashed_prompt);
         }
         let Some(mut pav) = self.unmount_plan_review() else {
@@ -685,6 +727,7 @@ impl AgentView {
         }
     }
     fn send_plan_feedback(&mut self, feedback: Option<String>) -> InputOutcome {
+        let sent_freeform = feedback.clone().unwrap_or_default();
         let Some(pav) = self.plan_approval_view.as_ref() else {
             return InputOutcome::Changed;
         };
@@ -718,7 +761,13 @@ impl AgentView {
             let text = to_send.unwrap_or_default();
             return InputOutcome::Action(Action::RevisePlan(text));
         }
-        if let Some(pav) = self.plan_approval_view.as_mut() {
+        let dropped = self
+            .plan_approval_view
+            .as_mut()
+            .is_some_and(|pav| {
+                Self::drop_unchanged_revision_draft(&mut pav.stashed_prompt, &sent_freeform)
+            });
+        if !dropped && let Some(pav) = self.plan_approval_view.as_mut() {
             Self::merge_live_images_into_stash(&mut self.prompt, &mut pav.stashed_prompt);
         }
         let Some(mut pav) = self.unmount_plan_review() else {
@@ -1449,6 +1498,48 @@ mod plan_approval_enter_tests {
             agent.toast.as_ref().map(|(msg, _)| msg.as_str()),
             Some("Plan revision sent")
         );
+    }
+    #[test]
+    fn unchanged_revision_draft_is_not_shown_again_after_send() {
+        let mut agent = agent_with_revise_prompt();
+        if let Some(ref mut pav) = agent.plan_approval_view {
+            pav.stashed_prompt = stashed_text("please use auth middleware");
+        }
+        agent.prompt.set_text("please use auth middleware");
+        let outcome = agent.handle_plan_feedback_key(&enter_key());
+        assert!(matches!(outcome, InputOutcome::Changed));
+        assert!(agent.plan_approval_view.is_none());
+        assert_eq!(
+            agent.prompt.text(),
+            "",
+            "the note just sent must not come back as the composer draft"
+        );
+    }
+    #[test]
+    fn edited_revision_keeps_the_earlier_session_draft() {
+        let mut agent = agent_with_revise_prompt();
+        if let Some(ref mut pav) = agent.plan_approval_view {
+            pav.stashed_prompt = stashed_text("session draft");
+        }
+        agent.prompt.set_text("please use auth middleware");
+        let _ = agent.handle_plan_feedback_key(&enter_key());
+        assert_eq!(agent.prompt.text(), "session draft");
+    }
+    #[test]
+    fn post_turn_unchanged_revision_draft_is_not_shown_again() {
+        let mut agent = make_agent();
+        agent.post_turn_plan_review = true;
+        agent.plan_mode_active = true;
+        agent.kept_plan =
+            crate::app::agent_view::KeptPlan::kept(Some("# Build it\n".to_owned()), None);
+        agent.prompt.set_text("add a rollback");
+        agent.open_post_turn_plan_review();
+        assert!(matches!(
+            agent.send_plan_feedback(Some("add a rollback".into())),
+            InputOutcome::Action(Action::RevisePlan(text)) if text.contains("add a rollback")
+        ));
+        agent.commit_post_turn_plan_revised("add a rollback");
+        assert_eq!(agent.prompt.text(), "");
     }
     #[test]
     fn empty_enter_with_pending_comments_still_requests_changes() {
@@ -2556,7 +2647,7 @@ mod plan_approval_optimistic_mode_tests {
             InputOutcome::Action(Action::RevisePlan(text))
                 if text.contains("add a rollback")
         ));
-        agent.commit_post_turn_plan_revised();
+        agent.commit_post_turn_plan_revised("add a rollback");
         assert_eq!(agent.prompt.text(), draft_text);
         assert_eq!(agent.prompt.images.len(), 1);
         assert_eq!(
@@ -3025,7 +3116,7 @@ mod plan_approval_optimistic_mode_tests {
             agent.send_plan_feedback(Some("tighten the rollout".into())),
             InputOutcome::Action(Action::RevisePlan(_))
         ));
-        agent.commit_post_turn_plan_revised();
+        agent.commit_post_turn_plan_revised("tighten the rollout");
         assert!(agent.kept_plan.body().is_none());
         assert_eq!(agent.kept_plan.path(), Some(path.as_path()));
         std::fs::write(&path, "# Revised plan\n").expect("rewrite");

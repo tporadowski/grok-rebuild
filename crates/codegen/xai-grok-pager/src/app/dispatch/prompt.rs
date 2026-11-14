@@ -338,6 +338,7 @@ pub(super) fn dispatch_revise_plan(app: &mut AppView, text: String) -> Vec<Effec
         }
         return vec![];
     }
+    let sent = text.clone();
     let dispatched = dispatch_send_prompt_with_outcome(
         app, text, /* consume_input */ false, /* literal */ true,
         /* is_follow_up */ false,
@@ -347,7 +348,7 @@ pub(super) fn dispatch_revise_plan(app: &mut AppView, text: String) -> Vec<Effec
         && let ActiveView::Agent(id) = app.active_view
         && let Some(agent) = app.agents.get_mut(&id)
     {
-        agent.commit_post_turn_plan_revised();
+        agent.commit_post_turn_plan_revised(&sent);
     }
     dispatched.effects
 }
