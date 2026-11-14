@@ -206,6 +206,22 @@ fn is_str_range(text: &str, start: usize, end: usize) -> bool {
     start <= end && end <= text.len() && text.is_char_boundary(start) && text.is_char_boundary(end)
 }
 
+/// Byte ranges of plain `http`/`https` URLs in `text`.
+/// The same finder the click overlay uses, so a styled URL stays the clickable one.
+pub fn plain_url_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    for link in link_finder().links(text) {
+        if *link.kind() != LinkKind::Url {
+            continue;
+        }
+        if linkify_href(text, &link).is_none() {
+            continue;
+        }
+        ranges.push(link.start()..link.end());
+    }
+    ranges
+}
+
 /// linkify's Email kind yields the bare address; the opener expects `mailto:`.
 /// Returns `None` for scp-style remotes (`git@github.com:org/repo`) so those stay plain text instead of becoming a mail link.
 /// Also returns `None` when the match range is not a char-boundary substring.

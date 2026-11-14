@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-279 — A typed user URL uses the assistant link style
+
+`v86-x39`. Assistant links are `link_fg` plus underline (`Theme::link_style`, the same formula as markdown `link_text`). A URL typed in a user message was ordinary prompt text. That span is now the link style. The click overlay already opens the same characters.
+
 ### D-278 — Double-click folds a thinking block again
 
 `v86-x33` replaces `v85-x02`. Double-click on a thinking block selects text today, including when word-select is off. It folds or expands the block again. A blank thought still does not fold. Other blocks still select a word only in word-select mode.
@@ -1229,7 +1233,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 54 | 14 | 2 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 50 | 7 | 0 |
-| W10 | Transcript, density, and copy | 4 | 0 | 53 | 4 | 0 |
+| W10 | Transcript, density, and copy | 3 | 0 | 54 | 4 | 0 |
 | W11 | Headless mode and tools | 1 | 0 | 43 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 1 | 0 | 46 | 13 | 9 |
 | W13 | Update, install, and sign-in | 1 | 0 | 29 | 11 | 0 |
@@ -1238,9 +1242,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 30. Skipped: 10. Done: 582. Already: 114. Deferred: 31.
+Catalog rows: 767. Pending: 29. Skipped: 10. Done: 583. Already: 114. Deferred: 31.
 
-**Next:** v86-x39
+**Next:** v86-x40
 
 ## Waves
 
@@ -1282,7 +1286,7 @@ Pending: 0. Done: 50 (`v86-x37`, D-276; `v86-x34`, D-275; `v86-x23`, D-274; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 4. Done: 53 (`v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
+Pending: 3. Done: 54 (`v86-x39`, D-279; `v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
 
 ### W11 — Headless mode and tools
 
@@ -2034,7 +2038,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x36 | pending | W14 | Bug Fixes |  |  | **How-to Guides tip** keeps the last folder name visible when the path is too long.
 - v86-x37 | done | W9 | Bug Fixes |  |  | **@-file search** keeps the filename visible when a path is too long for the row.
 - v86-x38 | pending | W13 | Bug Fixes |  |  | **Sign-in copy messages** read "Copied!", "Copy sent: verify paste", and "Copy failed".
-- v86-x39 | pending | W10 | Bug Fixes |  |  | **URLs typed in user messages** appear as styled clickable links matching assistant links.
+- v86-x39 | done | W10 | Bug Fixes |  |  | **URLs typed in user messages** appear as styled clickable links matching assistant links.
 - v86-x40 | pending | W10 | Bug Fixes |  |  | **Cmd or Ctrl+click** opens links even when the confirmation card is visible.
 - v86-x41 | pending | W10 | Bug Fixes |  |  | **File links** containing %20 spaces open the correct file instead of reporting it missing.
 - v86-x42 | pending | W10 | Bug Fixes |  |  | **Dragging from blank areas** of rows no longer starts a text selection and preserves fold/unfold clicks.

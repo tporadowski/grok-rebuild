@@ -790,6 +790,52 @@ impl UserPromptBlock {
         (spans, width)
     }
 
+    /// Paint plain URLs with the assistant link style (`link_fg` plus underline).
+    /// The click overlay still reads the same characters.
+    fn style_typed_urls(line: Line<'static>, link_style: Style) -> Line<'static> {
+        let text: String = line.spans.iter().map(|span| span.content.as_ref()).collect();
+        let ranges = crate::render::osc8::plain_url_ranges(&text);
+        if ranges.is_empty() {
+            return line;
+        }
+        let mut out = Vec::new();
+        let mut cursor = 0usize;
+        for span in line.spans {
+            let start = cursor;
+            let end = cursor + span.content.len();
+            cursor = end;
+            let mut pos = start;
+            for range in ranges.iter().filter(|range| range.start < end && range.end > start) {
+                let seg_start = range.start.max(pos);
+                let seg_end = range.end.min(end);
+                if pos < seg_start
+                    && let Some(piece) = span.content.get(pos - start..seg_start - start)
+                    && !piece.is_empty()
+                {
+                    out.push(Span::styled(piece.to_string(), span.style));
+                }
+                if seg_start < seg_end
+                    && let Some(piece) = span.content.get(seg_start - start..seg_end - start)
+                    && !piece.is_empty()
+                {
+                    let mut style = link_style;
+                    if let Some(bg) = span.style.bg {
+                        style = style.bg(bg);
+                    }
+                    out.push(Span::styled(piece.to_string(), style));
+                }
+                pos = seg_end;
+            }
+            if pos < end
+                && let Some(piece) = span.content.get(pos - start..)
+                && !piece.is_empty()
+            {
+                out.push(Span::styled(piece.to_string(), span.style));
+            }
+        }
+        Line::from(out)
+    }
+
     /// Wrap and style the prompt text, returning visual lines. When
     /// `max_lines` is set and content exceeds it, the last line is
     /// truncated with a " …" ellipsis.
@@ -888,8 +934,8 @@ impl UserPromptBlock {
                 continue;
             }
 
-            // Wrap this line's content.
-            let content_line = if self.skill_token_ranges.is_empty() && self.image_marks.is_empty()
+            // Wrap this line's content. Typed URLs use the assistant link style.
+            let raw_line = if self.skill_token_ranges.is_empty() && self.image_marks.is_empty()
             {
                 Line::from(Span::styled(line_text.to_string(), text_style))
             } else {
@@ -905,6 +951,7 @@ impl UserPromptBlock {
                 let marks = self.styled_placeholder_ranges(skill_style, sent_style, typed_style);
                 range_styled_line(line_text, line_start, &marks, text_style)
             };
+            let content_line = Self::style_typed_urls(raw_line, theme.link_style());
             let (wrapped, wrap_joiners) =
                 wrap_keeping_image_chips(&content_line, base_content_width);
             let wrapped_count = wrapped.len();
@@ -1125,6 +1172,34 @@ mod tests {
         spans
             .get(i)
             .unwrap_or_else(|| panic!("expected span {i}, len={}", spans.len()))
+    }
+
+    /// A URL typed in a user message uses the same link color and underline as an assistant link.
+    #[test]
+    fn typed_url_matches_the_assistant_link_style() {
+        let _guard = crate::theme::cache::pin_theme();
+        let theme = Theme::current();
+        let link = theme.link_style();
+        let block = UserPromptBlock::new("see https://example.com/docs now");
+        let lines = block.wrap_prompt_lines(80, None, true, false);
+        let spans = &line_at(&lines, 0).content.spans;
+        let url = spans
+            .iter()
+            .find(|span| span.content.contains("https://example.com/docs"))
+            .expect("url span");
+        assert_eq!(url.style.fg, link.fg, "url fg {url:?}");
+        assert!(
+            url.style.add_modifier.contains(Modifier::UNDERLINED),
+            "url is underlined like an assistant link, got {url:?}"
+        );
+        let around = spans
+            .iter()
+            .find(|span| span.content.contains("see"))
+            .expect("prose span");
+        assert!(
+            !around.style.add_modifier.contains(Modifier::UNDERLINED),
+            "only the url is a link, got {around:?}"
+        );
     }
 
     #[test]
