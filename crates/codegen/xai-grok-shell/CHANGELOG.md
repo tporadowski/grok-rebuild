@@ -1,5 +1,49 @@
 # Changelog
 
+# 1.0.85 — 2026-11-13
+
+## Features
+
+- **Question, MCP input, and plan-approval cards** now send the same terminal notification as permission requests.
+- **The /resume picker** now searches session contents as you type and lets you open a match.
+- **`/skills` with a name** now opens the Skills tab filtered to that name.
+- **Slash command autocomplete** now shows each command's argument hint after the name.
+- **`grok inspect`** now counts hooks and MCP servers from inline plugins.
+
+## Bug Fixes
+
+- **`--fork-session` alone** now starts a new session instead of failing.
+- **Double-clicking a thinking block** now selects text instead of folding or expanding it.
+- **Network-restricted sandbox profiles** now start on a Mac when OrbStack is installed.
+- **Typing a full skill name in the slash menu** now reliably selects the exact match.
+- **Dashboard dispatch box** now correctly labels what Enter does when a row is selected.
+- **An unchanged plan-revision draft** is no longer shown again after it is sent.
+- **A subagent that hits its turn limit** now returns its work and wakes the parent.
+- **Session titles** no longer show raw color codes or control characters.
+- **Follow-ups sent into a running turn** are no longer dropped when that turn stops at its cap or on repeated tool calls.
+- **A second Ctrl+C** within one second now arms quit instead of cancelling the next queued prompt.
+- **Clicks** on a hidden question-card answer no longer move the caret.
+- **Dictation** no longer starts a new recording while the last clip is still processing.
+- **The stop panel** now closes when the turn it belongs to finishes.
+- **Ctrl+C** now cancels a /compact that was queued while another turn was running.
+- **grok update** no longer hangs while cleaning up old downloads.
+- **Home-screen session search** no longer sticks on Searching after the dashboard opens.
+- **Rename input and history previews** no longer show raw color codes.
+- **A prompt typed on a tab whose session failed to restore** is now refused instead of dropped.
+- **Skills** now expand `${ARGUMENTS}` and `${ARGUMENTS[N]}` in the skill body.
+- **Headless plain and json output** now start a new paragraph after tool calls.
+- **`/rewind`** now cancels a compaction that is still summarizing.
+- **Unknown or disabled slash commands** now get a direct reply instead of being sent to the model.
+- **Replies** now preserve single newlines as line breaks instead of joining them into one paragraph.
+- **Space in the /skills list** now folds groups, and the filter label is no longer clipped.
+- **Skill reads** now show the skill's advertised name instead of its folder name in the scrollback and shell titles.
+- **Tool search rows** now start with Search, matching file-search rows.
+- **Skill-read titles** keep the skill's advertised name after a reload.
+- **`grok inspect`** hides plugin hooks and LSP servers in an untrusted folder, matching a session.
+- **Grok** panes in tmux now repaint correctly after certain resize sequences.
+- **Session title generation** now finishes on models that count reasoning against the output limit.
+
+
 # 1.0.84 — 2026-11-12
 
 ## Features

@@ -1,6 +1,6 @@
 # Upstream port plan: 1.0.46 through 1.0.85
 
-Living tracker for bringing this fork from package version **1.0.45** up to the behavior described in the official release notes. The port through alpha **1.0.84** (12 November 2026; stable on the 12 November 2026 fetch was still 1.0.77) is stamped. On 13 November 2026 the alpha channel pointed at **1.0.85** and stable at **1.0.77**, and this plan now includes 1.0.85 from that alpha fetch. The 12 November 2026 fetch had added 1.0.79 through 1.0.84. Public GitHub `xai-org/grok-build` stopped at the 29 September 2026 sync.
+Living tracker for bringing this fork from package version **1.0.45** up to the behavior described in the official release notes. The port through **1.0.85** (14 November 2026; stable on the 14 November 2026 fetch was still 1.0.77) is stamped. On 13 November 2026 the alpha channel pointed at **1.0.85** and stable at **1.0.77**, and this plan now includes 1.0.85 from that alpha fetch. On 14 November 2026 alpha pointed at **1.0.86**. The 12 November 2026 fetch had added 1.0.79 through 1.0.84. Public GitHub `xai-org/grok-build` stopped at the 29 September 2026 sync.
 
 This approval **adds this document to the repo**. It does not start the port. A later session executes it when asked to run the upstream port plan.
 
@@ -55,6 +55,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 ## Decisions already made
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
+
+### D-263 — Stamp 1.0.85
+
+On 14 November 2026 every 1.0.85 row was terminal. Stable was still 1.0.77. Alpha had moved to 1.0.86. `1.0.85.external.md` returned 200. The four packages, `Cargo.lock`, `package_version_is_the_ported_release`, and `CHANGELOG.md` are 1.0.85. Tag `v1.0.85`. The 1.0.86 notes are not in this commit.
 
 ### D-262 — tmux resize bursts repaint from a clear
 
