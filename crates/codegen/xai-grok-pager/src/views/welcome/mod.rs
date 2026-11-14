@@ -10,7 +10,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Padding, Paragraph, Widget, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph, Widget, Wrap};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -2658,6 +2658,7 @@ fn render_auth_input_box(
 ) {
     let prompt_block = Block::default()
         .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.accent_user))
         .padding(Padding {
             left: 2,
@@ -2948,6 +2949,28 @@ mod tests {
         let wide_token = format!("{wide_prefix}HIDDEN{suffix}");
         let (_, cursor_column) = masked_auth_token_view(&wide_token, wide_prefix.len(), 40);
         assert_eq!(cursor_column, wide_prefix.graphemes(true).count());
+    }
+
+    #[test]
+    fn auth_token_box_uses_rounded_corners() {
+        let area = Rect::new(0, 0, 24, 3);
+        let theme = Theme::current();
+        let mut buffer = Buffer::empty(area);
+        render_auth_input_box(area, &mut buffer, &theme, "", 0);
+        let corner = |x: u16, y: u16| {
+            buffer
+                .cell((x, y))
+                .map(|cell| cell.symbol().to_string())
+                .unwrap_or_default()
+        };
+        assert_eq!(corner(0, 0), "\u{256d}", "top-left");
+        assert_eq!(corner(area.width - 1, 0), "\u{256e}", "top-right");
+        assert_eq!(corner(0, area.height - 1), "\u{2570}", "bottom-left");
+        assert_eq!(
+            corner(area.width - 1, area.height - 1),
+            "\u{256f}",
+            "bottom-right"
+        );
     }
 
     #[test]
