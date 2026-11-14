@@ -1303,7 +1303,11 @@ impl AgentView {
             }
             2 if feedback_open.is_some() => {}
             2 => {
-                if foldable {
+                let thinking = self
+                    .scrollback
+                    .entry(idx)
+                    .is_some_and(|entry| entry.block.is_thinking());
+                if foldable && !thinking {
                     self.scrollback.toggle_fold_selected();
                 }
             }
@@ -2228,12 +2232,18 @@ mod tests {
         assert_eq!(mode(&agent, 0), DisplayMode::Truncated);
         double_click_gesture(&mut agent, Instant::now(), 1);
         assert_eq!(mode(&agent, 1), DisplayMode::Truncated);
+        let before = mode(&agent, 2);
         double_click_gesture(
             &mut agent,
             Instant::now() + Duration::from_secs(2),
             2,
         );
-        assert_eq!(mode(&agent, 2), DisplayMode::Collapsed);
+        assert_eq!(
+            mode(&agent, 2), before,
+            "a double-click on thinking text must not fold or expand it"
+        );
+        assert!(super::super::double_click_selects_text_for_block(true));
+        assert!(!super::super::double_click_selects_text_for_block(false));
     }
 
     #[test]

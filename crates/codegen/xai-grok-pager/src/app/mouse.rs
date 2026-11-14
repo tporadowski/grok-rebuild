@@ -5,7 +5,7 @@
 use super::actions::Action;
 use super::agent_view::{
     AgentPane, AgentView, CONTEXT_CLICK_DEBOUNCE_MS, CtaPhase, MULTI_CLICK_TIMEOUT_MS, PromptMode,
-    TextClickState, is_link_modifier_held, is_text_selection_on_double_click,
+    TextClickState, double_click_selects_text_for_block, is_link_modifier_held,
 };
 use super::app_view::InputOutcome;
 use crate::scrollback::block::BlockContent;
@@ -828,10 +828,17 @@ impl AgentView {
                 if self.active_pane == AgentPane::Scrollback {
                     if let Some((click_col, click_row)) = self.pending_scrollback_click.take() {
                         let now = Instant::now();
-                        if is_text_selection_on_double_click() {
-                            let exact_text_hit = self
-                                .last_scrollback_selection_model
-                                .hit_test_text_exact(click_col, click_row);
+                        let exact_text_hit = self
+                            .last_scrollback_selection_model
+                            .hit_test_text_exact(click_col, click_row);
+                        let select_text = exact_text_hit.as_ref().is_some_and(|hit| {
+                            let thinking = self
+                                .scrollback
+                                .entry(hit.entry_idx)
+                                .is_some_and(|entry| entry.block.is_thinking());
+                            double_click_selects_text_for_block(thinking)
+                        });
+                        if select_text {
                             if let Some(hit) = exact_text_hit {
                                 let text_click_count = self.count_text_click(now, &hit);
                                 let handled = match text_click_count {

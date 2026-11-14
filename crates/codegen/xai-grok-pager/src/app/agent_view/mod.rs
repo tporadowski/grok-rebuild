@@ -539,6 +539,11 @@ pub(super) fn app_should_open_link_on_click_with(
 pub(super) fn is_text_selection_on_double_click() -> bool {
     crate::appearance::cache::load_keep_text_selection().selects_word()
 }
+
+/// Thinking text selects on double-click even when the setting still folds other blocks.
+pub(super) fn double_click_selects_text_for_block(is_thinking: bool) -> bool {
+    is_thinking || is_text_selection_on_double_click()
+}
 /// A driver-side turn-end broadcast awaiting its `session/prompt` RPC
 /// response. See [`AgentView::pending_turn_end_reconcile`].
 #[derive(Debug, Clone)]
