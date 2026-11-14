@@ -193,6 +193,66 @@
         );
     }
 
+    fn open_stop_panel(agent: &mut AgentView) {
+        agent.cancel_turn_view = Some(crate::views::modal::CancelTurnViewState {
+            active_idx: 1,
+            running_count: 2,
+        });
+    }
+
+    #[test]
+    fn viewer_turn_completed_closes_the_stop_panel() {
+        // A viewer never receives PromptResponse. TurnCompleted is the finish, and the
+        // "Subagents are still running" panel belongs to that turn.
+        let mut app = make_app_with_agent("sess-view");
+        app.agents.get_mut(&AgentId(0)).unwrap().attached_as_viewer = true;
+        let _ = handle(
+            make_agent_chunk_message_with_prompt("sess-view", "chunk", "pid-driver", false),
+            &mut app,
+        );
+        open_stop_panel(app.agents.get_mut(&AgentId(0)).unwrap());
+
+        let _ = handle_ext_notification(
+            &xai_turn_completed_notif("sess-view", "pid-driver", "end_turn", false),
+            &mut app,
+        );
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        assert!(agent.session.state.is_idle(), "the viewer turn finished");
+        assert!(
+            agent.cancel_turn_view.is_none(),
+            "the stop panel closes when the turn it belongs to finishes"
+        );
+    }
+
+    #[test]
+    fn driver_turn_completed_keeps_the_stop_panel_until_the_turn_finishes() {
+        // The driver's PromptResponse still owns the turn. A TurnCompleted only arms reconcile.
+        let mut app = make_app_with_agent("sess-drive");
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            agent.session.start_turn(&mut agent.scrollback);
+            agent.session.current_prompt_id = Some("pid-local".into());
+            assert!(!agent.attached_as_viewer);
+            open_stop_panel(agent);
+        }
+
+        let _ = handle_ext_notification(
+            &xai_turn_completed_notif("sess-drive", "pid-local", "end_turn", false),
+            &mut app,
+        );
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        assert!(
+            matches!(agent.session.state, AgentState::TurnRunning),
+            "the driver turn is not finished yet"
+        );
+        assert!(
+            agent.cancel_turn_view.is_some(),
+            "the stop panel stays until that turn actually finishes"
+        );
+    }
+
     #[test]
     fn unknown_error_kind_from_wire_is_never_sniff_reclassified() {
         // A NEWER shell's kind the pager doesn't know arrives through the real ingress
@@ -2175,6 +2235,47 @@
             "a duplicate child TurnCompleted must not push another marker"
         );
         assert_child_idle_with_turn_cancelled(&app, child_sid);
+    }
+
+    #[test]
+    fn child_turn_completed_closes_that_childs_stop_panel() {
+        // The panel on the still-running parent belongs to the parent turn.
+        let mut app = make_app_with_agent("sess-parent");
+        {
+            let parent = app.agents.get_mut(&AgentId(0)).unwrap();
+            parent.session.start_turn(&mut parent.scrollback);
+            parent.session.current_prompt_id = Some("pid-parent".into());
+            open_stop_panel(parent);
+        }
+        let child_sid = "child-stop";
+        let mut child = make_agent(Some(child_sid));
+        child.session.state = AgentState::TurnRunning;
+        child.session.current_prompt_id = Some("pid-child".into());
+        child.turn_started_at = Some(std::time::Instant::now());
+        open_stop_panel(&mut child);
+        app.agents
+            .get_mut(&AgentId(0))
+            .unwrap()
+            .subagent_views
+            .insert(child_sid.to_string(), Box::new(child));
+
+        let _ = handle_ext_notification(
+            &xai_turn_completed_notif(child_sid, "pid-child", "end_turn", false),
+            &mut app,
+        );
+
+        let parent = app.agents.get(&AgentId(0)).unwrap();
+        assert!(parent.session.state.is_turn_running());
+        assert!(
+            parent.cancel_turn_view.is_some(),
+            "the parent turn is still running, so its stop panel stays"
+        );
+        let child = parent.subagent_views.get(child_sid).expect("child view");
+        assert!(child.session.state.is_idle(), "the child turn finished");
+        assert!(
+            child.cancel_turn_view.is_none(),
+            "the child's stop panel closes when that turn finishes"
+        );
     }
 
     #[test]

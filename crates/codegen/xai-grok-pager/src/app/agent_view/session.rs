@@ -540,6 +540,7 @@ impl AgentView {
         self.subagent_views.get_mut(child_sid).map(|v| &mut **v)
     }
     /// Called at every turn-termination site; clears the wall anchor so a turn that reuses a prompt id cannot report the prior attempt's wall span.
+    /// Also closes the stop panel. Viewer and child finishes land here and do not call `finish_turn_view`.
     pub(crate) fn mark_turn_finished(&mut self, end: TurnEnd) {
         let now = Instant::now();
         self.turn_started_at = None;
@@ -552,6 +553,9 @@ impl AgentView {
         if let Some(event) = self.settle_cancel(end, now) {
             xai_grok_telemetry::session_ctx::log_event(event);
         }
+        // The panel asks whether to stop this turn. A later turn opens its own.
+        self.cancel_turn_view = None;
+        self.cancel_turn_buttons.clear();
     }
     /// Start the acknowledgment watch for a prompt this client just drained and sent.
     /// Chat sessions never arm: the gateway bridge has no queue broadcast, so their first signal is the first delta.
