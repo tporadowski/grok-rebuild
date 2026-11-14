@@ -903,9 +903,8 @@ pub(crate) fn build_content_entry_data(
             }
             let snippet_preview = h.snippet.as_deref().and_then(|s| {
                 let line = s.lines().find(|l| !l.trim().is_empty())?;
-                if line.chars().count() > 80 {
-                    let truncated: String = line.chars().take(77).collect();
-                    Some(format!("{truncated}..."))
+                if unicode_width::UnicodeWidthStr::width(line) > 80 {
+                    Some(crate::render::line_utils::truncate_str(line, 80))
                 } else {
                     Some(line.to_string())
                 }

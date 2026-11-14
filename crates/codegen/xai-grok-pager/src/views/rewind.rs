@@ -544,7 +544,7 @@ pub fn render_rewind_overlay(buf: &mut Buffer, area: Rect, phase: &RewindPhase, 
                 content_w,
             );
             y = y.saturating_add(1);
-            let truncated: String = message.chars().take(content_w as usize).collect();
+            let truncated = crate::render::line_utils::truncate_str(&message, content_w as usize);
             paint_line(
                 buf,
                 area,
@@ -934,6 +934,23 @@ mod tests {
             }
         }
         row
+    }
+
+    #[test]
+    fn error_message_keeps_wide_characters_inside_the_row() {
+        let phase = RewindPhase::Error {
+            message: "日本語".repeat(40),
+        };
+        let area = Rect::new(0, 0, 20, 6);
+        let mut buf = Buffer::empty(area);
+        render_rewind_overlay(&mut buf, area, &phase, true);
+        let message: String = (3..18)
+            .filter_map(|x| buf.cell((x, 2)).map(|cell| cell.symbol().to_string()))
+            .collect();
+        assert!(
+            message.contains('\u{2026}'),
+            "a wide message is shortened, not clipped mid-glyph: {message:?}"
+        );
     }
 
     #[test]

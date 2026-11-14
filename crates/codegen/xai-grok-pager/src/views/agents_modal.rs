@@ -1470,7 +1470,7 @@ fn render_agents_tab(
             }
             Some(FlatRow::Detail(text)) => {
                 let detail_style = Style::default().fg(theme.gray);
-                let display: String = text.chars().take(w).collect();
+                let display = crate::render::line_utils::truncate_str(text, w);
                 buf.set_string(content_area.x, row_y, &display, detail_style);
             }
             None => continue,
@@ -1642,7 +1642,7 @@ fn render_personas_tab(
                     continue;
                 };
                 let remaining = (content_area.x + content_area.width).saturating_sub(x) as usize;
-                let name_display: String = persona.name.chars().take(remaining).collect();
+                let name_display = crate::render::line_utils::truncate_str(&persona.name, remaining);
                 let mut name_style = Style::default()
                     .fg(theme.text_primary)
                     .add_modifier(Modifier::BOLD);
@@ -1676,7 +1676,7 @@ fn render_personas_tab(
                         x += sep.width() as u16;
                         let max_desc =
                             (content_area.x + content_area.width).saturating_sub(x) as usize;
-                        let truncated: String = desc.chars().take(max_desc).collect();
+                        let truncated = crate::render::line_utils::truncate_str(desc, max_desc);
                         buf.set_string(x, row_y, &truncated, desc_style);
                     }
                 }
@@ -1967,7 +1967,7 @@ fn render_modal_message_line(
     theme: &Theme,
 ) -> u16 {
     let shown = crate::views::modal::drop_one_sentence_period(&msg.text);
-    let display: String = shown.chars().take(w).collect();
+    let display = crate::render::line_utils::truncate_str(shown, w);
     buf.set_string(x, y, &display, message_line_style(msg.kind, theme));
     y += 1;
     y + 1
@@ -2546,6 +2546,28 @@ pub fn handle_agents_mouse(state: &mut AgentsModalState, mouse: &MouseEvent) -> 
 mod tests {
     use super::*;
     use xai_grok_shell::agent::config::DEFAULT_AGENT_TYPE;
+    #[test]
+    fn picker_message_keeps_wide_characters_inside_the_row() {
+        let area = Rect::new(0, 0, 8, 1);
+        let theme = Theme::current();
+        let mut buf = Buffer::empty(area);
+        render_modal_message_line(
+            &mut buf,
+            0,
+            0,
+            8,
+            &AgentsModalMessage::info(&"日本語".repeat(12)),
+            &theme,
+        );
+        let row: String = (0..area.width)
+            .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+            .collect();
+        assert!(
+            row.contains('\u{2026}'),
+            "a wide picker row is shortened, not clipped mid-glyph: {row:?}"
+        );
+    }
+
     #[test]
     fn one_sentence_agent_message_drops_its_period() {
         let area = Rect::new(0, 0, 80, 3);

@@ -639,7 +639,7 @@ pub fn render_persona_detail(
         && let Some(ref path) = state.source_path
     {
         let src = format!("Source: {}", path.display());
-        let truncated: String = src.chars().take(w).collect();
+        let truncated = crate::render::line_utils::truncate_str(&src, w);
         buf.set_string(
             content_area.x,
             y,

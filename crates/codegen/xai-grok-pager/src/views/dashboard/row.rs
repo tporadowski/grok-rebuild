@@ -477,13 +477,13 @@ fn top_level_label(agent: &AgentView) -> String {
         }
     }
     if let Some(first) = agent.session.pending_prompts.front() {
-        let preview: String = first.text.trim().chars().take(30).collect();
+        let preview = crate::render::line_utils::truncate_str(first.text.trim(), 30);
         if !preview.is_empty() {
             return sanitize(&preview);
         }
     }
     if let Some(first_msg) = super::peek::extract_first_user_message(agent) {
-        let preview: String = first_msg.chars().take(30).collect();
+        let preview = crate::render::line_utils::truncate_str(&first_msg, 30);
         if !preview.is_empty() {
             return preview;
         }
