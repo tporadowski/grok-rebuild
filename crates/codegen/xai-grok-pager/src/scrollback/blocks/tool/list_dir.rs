@@ -15,6 +15,76 @@ use crate::appearance::AppearanceConfig;
 /// Selection range for list output and error-body lines (header is 0).
 const LIST_DIR_BODY_RANGE: u16 = 1;
 
+/// Files and folders in a `list_dir` body.
+/// The first unindented `- name/` bullet is the directory being listed, not a child.
+/// `[N files in subtree: …]` adds those files; the summary line itself is not an item.
+fn count_files_and_folders(output: &str) -> (usize, usize) {
+    let mut files = 0usize;
+    let mut folders = 0usize;
+    let mut skipped_root = false;
+    for raw in output.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(nested) = subtree_file_count(line) {
+            files += nested;
+            continue;
+        }
+        let (bullet, name) = if let Some(name) = line.strip_prefix("- ") {
+            (true, name.trim())
+        } else if !line.contains([' ', '\t']) {
+            (false, line)
+        } else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        let is_dir = name.ends_with('/');
+        let unindented = !raw.starts_with([' ', '\t']);
+        if is_dir && bullet && unindented && !skipped_root {
+            skipped_root = true;
+            continue;
+        }
+        if is_dir {
+            folders += 1;
+        } else {
+            files += 1;
+        }
+    }
+    (files, folders)
+}
+
+/// `[12 files in subtree: …]` or `[1 file in subtree: …]`.
+fn subtree_file_count(line: &str) -> Option<usize> {
+    let rest = line.strip_prefix('[')?;
+    let (num, rest) = rest.split_once(' ')?;
+    if rest.starts_with("file in subtree:") || rest.starts_with("files in subtree:") {
+        num.parse().ok()
+    } else {
+        None
+    }
+}
+
+fn files_and_folders_suffix(files: usize, folders: usize) -> String {
+    let file_part = match files {
+        0 => None,
+        1 => Some("1 file".to_string()),
+        n => Some(format!("{n} files")),
+    };
+    let folder_part = match folders {
+        0 => None,
+        1 => Some("1 folder".to_string()),
+        n => Some(format!("{n} folders")),
+    };
+    match (file_part, folder_part) {
+        (None, None) => String::new(),
+        (Some(part), None) | (None, Some(part)) => format!(" ({part})"),
+        (Some(files), Some(folders)) => format!(" ({files}, {folders})"),
+    }
+}
+
 /// List directory tool call.
 #[derive(Debug, Clone)]
 pub struct ListDirToolCallBlock {
@@ -127,14 +197,14 @@ impl ListDirToolCallBlock {
             .map(|e| collapsed_error_suffix(e, 48))
             .unwrap_or_default();
 
-        // Success path: optional "(N entries)" suffix when it fits.
-        let entry_count = self.output.lines().filter(|l| !l.trim().is_empty()).count();
-        let count_suffix = if self.error.is_none() && entry_count > 0 {
-            let s = if entry_count == 1 { "y" } else { "ies" };
-            format!(" ({entry_count} entr{s})")
+        // Success path: "(N files, M folders)" when it fits. A line count treats
+        // the listed directory, a subtree summary, and a notice as entries.
+        let (file_count, folder_count) = if self.error.is_none() {
+            count_files_and_folders(&self.output)
         } else {
-            String::new()
+            (0, 0)
         };
+        let count_suffix = files_and_folders_suffix(file_count, folder_count);
         let count_fits = width.is_none_or(|w| prefix.len() + count_suffix.len() < w);
         let effective_count = if count_fits {
             count_suffix.as_str()
@@ -316,10 +386,39 @@ mod tests {
     #[test]
     fn collapsed_header_shows_entry_count() {
         let block = ListDirToolCallBlock::new("src").with_output("a.rs\nb.rs\nsub/\n");
-        assert_eq!(header_text(&block, &make_ctx()), "List src (3 entries)");
+        assert_eq!(header_text(&block, &make_ctx()), "List src (2 files, 1 folder)");
 
         let single = ListDirToolCallBlock::new("src").with_output("lonely.rs\n");
-        assert_eq!(header_text(&single, &make_ctx()), "List src (1 entry)");
+        assert_eq!(header_text(&single, &make_ctx()), "List src (1 file)");
+    }
+
+    #[test]
+    fn collapsed_header_counts_files_and_folders() {
+        let plain = ListDirToolCallBlock::new("src").with_output("a.rs\nb.rs\nsub/\n");
+        assert_eq!(
+            header_text(&plain, &make_ctx()),
+            "List src (2 files, 1 folder)"
+        );
+
+        let single = ListDirToolCallBlock::new("src").with_output("lonely.rs\n");
+        assert_eq!(header_text(&single, &make_ctx()), "List src (1 file)");
+
+        // The root bullet is the listed directory. A collapsed subtree's file
+        // count is the number in the summary, not one extra entry for that line.
+        let listed = "\
+- src/
+  - a.rs
+  - sub/
+    [2 files in subtree: 2 *.rs]
+";
+        let nested = ListDirToolCallBlock::new("src").with_output(listed);
+        assert_eq!(
+            header_text(&nested, &make_ctx()),
+            "List src (3 files, 1 folder)"
+        );
+
+        let only_folder = ListDirToolCallBlock::new("src").with_output("docs/\n");
+        assert_eq!(header_text(&only_folder, &make_ctx()), "List src (1 folder)");
     }
 
     #[test]
