@@ -1260,25 +1260,51 @@ fn list_lsp_servers(
         &inline_names,
     );
 
-    // Folder-trust gate, display-only: inspect never spawns servers
-    // Mark the repo-local (project-scoped) entries a session would skip in an untrusted clone, so the listing matches the live gate
+    // Same drop as a session: an untrusted folder does not run repo-local LSP servers.
+    // Plugin servers stay when that plugin is trusted. Untrusted project plugins were already left out above.
     // `remote = None` mirrors `grok mcp doctor` (no loaded RemoteSettings in a standalone command)
     crate::agent::folder_trust::resolve_and_record(cwd, None, false);
     let project_allowed = crate::agent::folder_trust::project_scope_allowed(cwd);
+    let servers = lsp_servers_for_folder_trust(servers, project_allowed);
 
     servers
         .into_iter()
         .map(|(name, (cfg, source))| {
-            let untrusted = !project_allowed && matches!(source, ConfigSource::Project { .. });
             LspServerEntry {
                 name,
                 command: cfg.command,
                 args: cfg.args,
                 source,
                 extensions: cfg.extensions.keys().cloned().collect(),
-                untrusted,
+                untrusted: false,
             }
         })
+        .collect()
+}
+
+/// Drop repo-local LSP servers when the folder is untrusted. User and plugin servers stay.
+fn lsp_servers_for_folder_trust(
+    servers: std::collections::BTreeMap<
+        String,
+        (
+            xai_grok_tools::implementations::lsp::config::LspServerConfig,
+            ConfigSource,
+        ),
+    >,
+    project_allowed: bool,
+) -> std::collections::BTreeMap<
+    String,
+    (
+        xai_grok_tools::implementations::lsp::config::LspServerConfig,
+        ConfigSource,
+    ),
+> {
+    if project_allowed {
+        return servers;
+    }
+    servers
+        .into_iter()
+        .filter(|(_, (_, source))| !matches!(source, ConfigSource::Project { .. }))
         .collect()
 }
 
@@ -2005,6 +2031,102 @@ mod tests {
         let file_only = file_only.first().expect("file plugin");
         assert!(!file_only.provides.hooks);
         assert_eq!(file_only.provides.mcp_servers, 1);
+    }
+
+    #[test]
+    fn untrusted_folder_hides_plugin_hooks_and_project_lsp() {
+        use xai_grok_agent::plugins::{PluginManifest, PluginScope};
+        use xai_grok_tools::implementations::lsp::config::LspServerConfig;
+        use xai_grok_tools::types::config_source::ConfigSource;
+
+        let mut servers = std::collections::BTreeMap::new();
+        servers.insert(
+            "proj-lsp".into(),
+            (
+                LspServerConfig {
+                    command: "proj".into(),
+                    ..LspServerConfig::default()
+                },
+                ConfigSource::Project {
+                    path: std::path::PathBuf::from("/repo/.grok/lsp.json"),
+                },
+            ),
+        );
+        servers.insert(
+            "plug-lsp".into(),
+            (
+                LspServerConfig {
+                    command: "plug".into(),
+                    ..LspServerConfig::default()
+                },
+                ConfigSource::Plugin {
+                    plugin_name: "user-plug".into(),
+                    path: std::path::PathBuf::from("/plug/lsp.json"),
+                },
+            ),
+        );
+        let hidden = lsp_servers_for_folder_trust(servers.clone(), false);
+        assert!(
+            !hidden.contains_key("proj-lsp"),
+            "an untrusted folder hides the repo LSP server"
+        );
+        assert!(hidden.contains_key("plug-lsp"));
+        assert!(lsp_servers_for_folder_trust(servers, true).contains_key("proj-lsp"));
+
+        let mut untrusted =
+            discovered_plugin(PluginManifest {
+                name: "proj-hooks".into(),
+                ..PluginManifest::default()
+            });
+        untrusted.trusted = false;
+        untrusted.scope = PluginScope::Project;
+        untrusted.hooks_path = Some(untrusted.root.join("hooks.json"));
+        let hooks = list_hooks(None, false, &[untrusted]);
+        assert!(
+            hooks.iter().all(|hook| match &hook.source {
+                ConfigSource::Plugin { plugin_name, .. } => plugin_name != "proj-hooks",
+                _ => true,
+            }),
+            "plugin hooks from an untrusted project plugin stay out of the list"
+        );
+
+        let mut trusted = discovered_plugin(PluginManifest {
+            name: "user-hooks".into(),
+            ..PluginManifest::default()
+        });
+        trusted.trusted = true;
+        trusted.hooks_path = Some(trusted.root.join("hooks.json"));
+        let hooks = list_hooks(None, false, &[trusted]);
+        assert!(
+            hooks.iter().any(|hook| matches!(
+                &hook.source,
+                ConfigSource::Plugin { plugin_name, .. } if plugin_name == "user-hooks"
+            )),
+            "a trusted plugin's hooks stay listed"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let evil_path = dir.path().join("evil.json");
+        let good_path = dir.path().join("good.json");
+        std::fs::write(&evil_path, r#"{"evil-lsp":{"command":"evil"}}"#).unwrap();
+        std::fs::write(&good_path, r#"{"good-lsp":{"command":"good"}}"#).unwrap();
+        let mut evil = discovered_plugin(PluginManifest {
+            name: "proj-plug".into(),
+            ..PluginManifest::default()
+        });
+        evil.trusted = false;
+        evil.scope = PluginScope::Project;
+        evil.lsp_config_path = Some(evil_path);
+        let mut good = discovered_plugin(PluginManifest {
+            name: "user-plug".into(),
+            ..PluginManifest::default()
+        });
+        good.trusted = true;
+        good.lsp_config_path = Some(good_path);
+        let listed = list_lsp_servers(dir.path(), &[evil, good]);
+        let names: Vec<_> = listed.iter().map(|entry| entry.name.as_str()).collect();
+        assert!(names.contains(&"good-lsp"), "{names:?}");
+        assert!(!names.contains(&"evil-lsp"), "{names:?}");
     }
 
     #[test]
