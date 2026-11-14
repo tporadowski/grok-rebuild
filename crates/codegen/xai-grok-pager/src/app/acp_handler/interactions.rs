@@ -27,6 +27,7 @@ pub(crate) fn handle_mcp_elicit(
         return false;
     };
     let is_active = is_matched_agent_active(app, id);
+    let session_id = ext_req.session_id.clone();
     let Some(agent) = app.agents.get_mut(&id) else {
         drop(ext.response_tx);
         return false;
@@ -38,6 +39,8 @@ pub(crate) fn handle_mcp_elicit(
         agent
             .pending_elicitation
             .push_back((ext_req, ext.response_tx));
+        drop(agent);
+        super::permissions::notify_approval_required(app, &session_id);
         return is_active;
     }
 
@@ -49,6 +52,8 @@ pub(crate) fn handle_mcp_elicit(
         Some(ext.response_tx),
     ));
     agent.last_active_at = Some(std::time::Instant::now());
+    drop(agent);
+    super::permissions::notify_approval_required(app, &session_id);
 
     tracing::info!(
         target_active = is_active,
@@ -168,10 +173,18 @@ pub(crate) fn handle_ask_user_question(
 
     // Stamp the "last activity" anchor so the dashboard's NeedsInput row shows time since this question arrived, not the previous turn's end
     agent.last_active_at = Some(std::time::Instant::now());
+    let session_id = ext_req.session_id.clone();
+    let question_count = agent
+        .question_view
+        .as_ref()
+        .map(|q| q.questions.len())
+        .unwrap_or(0);
+    drop(agent);
+    super::permissions::notify_approval_required(app, &session_id);
 
     tracing::info!(
         mode = ?ext_req.mode,
-        question_count = agent.question_view.as_ref().map(|q| q.questions.len()).unwrap_or(0),
+        question_count,
         target_active = is_active,
         "Opened question view from ext_method"
     );
@@ -275,6 +288,7 @@ pub(super) fn handle_exit_plan_mode(
         agent.prompt.set_text("");
     }
 
+    let session_id = params.session_id.clone();
     let mut state = PlanApprovalViewState::with_source(params, source, session_draft, ext.response_tx);
 
     // Comments saved while the revision turn was running live on `plan_comments`.
@@ -309,6 +323,11 @@ pub(super) fn handle_exit_plan_mode(
         agent.clear_kept_plan();
     }
     agent.plan_approval_view = Some(state);
+    drop(agent);
+    super::permissions::notify_approval_required(app, &session_id);
+    let Some(agent) = app.agents.get_mut(&id) else {
+        return is_active;
+    };
 
     agent.casual_commenting_range = None;
     agent.casual_editing_comment_id = None;

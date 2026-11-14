@@ -1,6 +1,65 @@
 #![cfg_attr(rustfmt, rustfmt::skip)]
     use super::*;
 
+    fn ext_for(method: &str, params: serde_json::Value) -> xai_acp_lib::AcpArgs<acp::ExtRequest> {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        xai_acp_lib::AcpArgs {
+            request: xai_grok_test_support::acp_fixtures::ext_request(method, &params),
+            response_tx: tx,
+        }
+    }
+
+    #[test]
+    fn question_mcp_input_and_plan_approval_use_the_permission_notification() {
+        let mut app = make_app_with_agent("sess-1");
+        assert!(handle_ask_user_question(
+            ext_for(
+                "x.ai/ask_user_question",
+                serde_json::json!({
+                    "sessionId": "sess-1",
+                    "toolCallId": "q1",
+                    "questions": [],
+                    "mode": "default"
+                }),
+            ),
+            &mut app,
+        ));
+        assert!(
+            app.notification_service
+                .should_suppress_permission_notification(),
+            "a question card fires the permission notification"
+        );
+
+        app.notification_service.clear_permission_notification();
+        assert!(handle_mcp_elicit(
+            ext_for(
+                "x.ai/mcp/elicit",
+                serde_json::json!({
+                    "sessionId": "sess-1",
+                    "toolCallId": "e1",
+                    "serverName": "demo",
+                    "message": "Need a value",
+                    "mode": "form"
+                }),
+            ),
+            &mut app,
+        ));
+        assert!(
+            app.notification_service
+                .should_suppress_permission_notification(),
+            "an MCP input card fires the permission notification"
+        );
+
+        app.notification_service.clear_permission_notification();
+        let (ext, _rx) = make_exit_plan_ext(Some("# Plan"));
+        assert!(handle_exit_plan_mode(ext, &mut app));
+        assert!(
+            app.notification_service
+                .should_suppress_permission_notification(),
+            "a plan-approval card fires the permission notification"
+        );
+    }
+
     #[test]
     fn interaction_resolved_dismisses_matching_permission() {
         // A peer answered a shared permission, so this pane retracts its copy

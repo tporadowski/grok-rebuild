@@ -40,21 +40,27 @@ pub(super) fn handle_permission_request(
         return false;
     }
 
-    if !app
+    let session_id = perm.request.session_id.0.to_string();
+    let needs_redraw = enqueue_permission(perm, agent);
+    notify_approval_required(app, &session_id);
+    needs_redraw && is_active
+}
+
+/// Question, MCP input, and plan-approval cards use the same terminal notification as a permission request.
+pub(super) fn notify_approval_required(app: &mut AppView, session_id: &str) {
+    if app
         .notification_service
         .should_suppress_permission_notification()
     {
-        app.notification_service.notify(NotificationEvent {
-            kind: NotificationEventKind::ApprovalRequired,
-            title: "Grok".into(),
-            body: NotificationEventKind::ApprovalRequired.as_ref().into(),
-            session_id: Some(perm.request.session_id.0.to_string()),
-        });
-        app.notification_service.mark_permission_notified();
+        return;
     }
-
-    let needs_redraw = enqueue_permission(perm, agent);
-    needs_redraw && is_active
+    app.notification_service.notify(NotificationEvent {
+        kind: NotificationEventKind::ApprovalRequired,
+        title: "Grok".into(),
+        body: NotificationEventKind::ApprovalRequired.as_ref().into(),
+        session_id: Some(session_id.to_string()),
+    });
+    app.notification_service.mark_permission_notified();
 }
 
 fn enqueue_permission(
