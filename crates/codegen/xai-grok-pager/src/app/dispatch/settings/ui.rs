@@ -448,9 +448,9 @@ pub(in crate::app::dispatch) fn dispatch_toggle_vim_mode(app: &mut AppView) -> V
     set_vim_mode_inner(app, enabled);
     refresh_open_settings_modals(app);
     let msg = if enabled {
-        "Vim mode: on"
+        "Vim scrollback navigation: on"
     } else {
-        "Vim mode: off"
+        "Vim scrollback navigation: off"
     };
     tracing::info!(vim_mode = enabled, "Vim mode toggled");
     match app.active_view {

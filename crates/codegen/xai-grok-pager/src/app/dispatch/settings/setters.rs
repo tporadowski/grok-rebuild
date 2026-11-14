@@ -378,7 +378,7 @@ pub(in crate::app::dispatch) fn set_vim_mode(app: &mut AppView, new: bool) -> Ve
         value = new,
         "setting changed",
     );
-    app.show_toast(&save_success_toast("Vim scrollback", new));
+    app.show_toast(&save_success_toast("Vim scrollback navigation", new));
     vec![Effect::PersistSetting {
         key: "vim_mode",
         value: crate::settings::SettingValue::Bool(new),
@@ -406,9 +406,11 @@ pub(in crate::app::dispatch) fn set_vim_keys_mode(
         "setting changed",
     );
     let toast = match value {
-        crate::appearance::VimKeys::All => "\u{2713} Vim mode: all".to_owned(),
-        crate::appearance::VimKeys::Nav => save_success_toast("Vim scrollback", true),
-        crate::appearance::VimKeys::Off => save_success_toast("Vim scrollback", false),
+        crate::appearance::VimKeys::All => {
+            "\u{2713} Vim scrollback navigation: all".to_owned()
+        }
+        crate::appearance::VimKeys::Nav => save_success_toast("Vim scrollback navigation", true),
+        crate::appearance::VimKeys::Off => save_success_toast("Vim scrollback navigation", false),
     };
     app.show_toast(&toast);
     vec![Effect::PersistSetting {
@@ -645,7 +647,7 @@ pub(in crate::app::dispatch) fn set_show_thinking_blocks(
         value = new,
         "setting changed",
     );
-    app.show_toast(&save_success_toast("Thinking blocks", new));
+    app.show_toast(&save_success_toast("Show thinking blocks", new));
     vec![Effect::PersistSetting {
         key: "show_thinking_blocks",
         value: crate::settings::SettingValue::Bool(new),
@@ -1426,7 +1428,7 @@ pub(in crate::app::dispatch) fn set_contextual_hint_undo(
     set_contextual_hint(
         app,
         "contextual_hints.undo",
-        "Undo hint",
+        "Undo",
         prev,
         |h, v| h.undo = v,
         new,
@@ -1441,7 +1443,7 @@ pub(in crate::app::dispatch) fn set_contextual_hint_plan_mode(
     set_contextual_hint(
         app,
         "contextual_hints.plan_mode",
-        "Plan mode hint",
+        "Plan mode",
         prev,
         |h, v| h.plan_mode = v,
         new,
@@ -1456,7 +1458,7 @@ pub(in crate::app::dispatch) fn set_contextual_hint_image_input(
     set_contextual_hint(
         app,
         "contextual_hints.image_input",
-        "Image input hint",
+        "Image input",
         prev,
         |h, v| h.image_input = v,
         new,
@@ -1471,7 +1473,7 @@ pub(in crate::app::dispatch) fn set_contextual_hint_send_now(
     set_contextual_hint(
         app,
         "contextual_hints.send_now",
-        "Send now hint",
+        "Send now",
         prev,
         |h, v| h.send_now = v,
         new,
@@ -1486,7 +1488,7 @@ pub(in crate::app::dispatch) fn set_contextual_hint_small_screen(
     set_contextual_hint(
         app,
         "contextual_hints.small_screen",
-        "Small screen hint",
+        "Small screen",
         prev,
         |h, v| h.small_screen = v,
         new,
@@ -1501,7 +1503,7 @@ pub(in crate::app::dispatch) fn set_contextual_hint_word_select(
     set_contextual_hint(
         app,
         "contextual_hints.word_select",
-        "Word select hint",
+        "Word select",
         prev,
         |h, v| h.word_select = v,
         new,
@@ -1516,7 +1518,7 @@ pub(in crate::app::dispatch) fn set_contextual_hint_export_copy(
     set_contextual_hint(
         app,
         "contextual_hints.export_copy",
-        "Copy and export hint",
+        "Copy and export",
         prev,
         |h, v| h.export_copy = v,
         new,
@@ -1531,7 +1533,7 @@ pub(in crate::app::dispatch) fn set_contextual_hint_ssh_wrap(
     set_contextual_hint(
         app,
         "contextual_hints.ssh_wrap",
-        "SSH wrap hint",
+        "SSH wrap",
         prev,
         |h, v| h.ssh_wrap = v,
         new,
@@ -2369,4 +2371,69 @@ pub(in crate::app::dispatch) fn set_display_refresh_auto_cadence(
         value: crate::settings::SettingValue::Bool(new),
         rollback_value: crate::settings::SettingValue::Bool(prev_effective),
     }]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::agent::AgentId;
+    use crate::app::dispatch::tests::{test_agent, test_app_with_agent};
+    use crate::settings::SettingsRegistry;
+
+    fn label_of(key: &'static str) -> String {
+        SettingsRegistry::defaults()
+            .find(key)
+            .unwrap_or_else(|| panic!("missing setting {key}"))
+            .label
+            .to_string()
+    }
+
+    fn toast_of(app: &crate::app::app_view::AppView) -> String {
+        test_agent(app, AgentId(0))
+            .toast
+            .as_ref()
+            .map(|(message, _)| message.clone())
+            .unwrap_or_default()
+    }
+
+    /// Flip a toggle until it produces a toast, then require that toast to name the row.
+    fn assert_toggle_names_the_row(key: &'static str, apply: impl Fn(&mut AppView, bool)) {
+        let mut app = test_app_with_agent();
+        let label = label_of(key);
+        let mut message = String::new();
+        for value in [true, false] {
+            if let Some(agent) = app.agents.get_mut(&AgentId(0)) {
+                agent.toast = None;
+            }
+            apply(&mut app, value);
+            message = toast_of(&app);
+            if !message.is_empty() {
+                break;
+            }
+        }
+        let expected = format!("\u{2713} {label}:");
+        assert!(
+            message.contains(&expected),
+            "toggle feedback for {key} was {message:?}, expected to contain {expected:?}"
+        );
+    }
+
+    #[test]
+    fn toggle_feedback_uses_the_setting_label() {
+        assert_toggle_names_the_row("show_thinking_blocks", |app, value| {
+            let _ = set_show_thinking_blocks(app, value);
+        });
+        assert_toggle_names_the_row("vim_mode", |app, value| {
+            let _ = set_vim_mode(app, value);
+        });
+        assert_toggle_names_the_row("contextual_hints.undo", |app, value| {
+            let _ = set_contextual_hint_undo(app, value);
+        });
+        assert_toggle_names_the_row("contextual_hints.plan_mode", |app, value| {
+            let _ = set_contextual_hint_plan_mode(app, value);
+        });
+        assert_toggle_names_the_row("contextual_hints.export_copy", |app, value| {
+            let _ = set_contextual_hint_export_copy(app, value);
+        });
+    }
 }
