@@ -3951,6 +3951,57 @@ fn dashboard_footer_is_padded_evenly() {
     assert_ne!(sym(2), "X", "the hint row starts after the left inset");
 }
 
+/// A full `@` file list is 10 rows. Below that, the dashboard still paints the picker inside the buffer.
+#[test]
+fn dashboard_file_picker_does_not_crash_below_ten_rows() {
+    for height in [6u16, 8, 9] {
+        let area = Rect::new(0, 0, 60, height);
+        let mut buf = Buffer::empty(area);
+        let mut state = DashboardState::new();
+        state.dispatch.set_text("@src");
+        let ctx = crate::views::file_search::context::detect("@src", 4).expect("context");
+        let hits = (0..8)
+            .map(|i| xai_grok_workspace::file_system::FuzzyMatchResult {
+                path: nucleo::Utf32String::from(format!("src/file{i}.rs")),
+                score: 1,
+                indices: Vec::new(),
+                is_dir: false,
+            })
+            .collect();
+        state.dispatch.file_search.set_test_state(ctx, hits, 0);
+        assert!(
+            state.dispatch.file_search_visible(),
+            "the picker has rows to paint"
+        );
+        let mut agents = IndexMap::new();
+        let registry = crate::actions::ActionRegistry::defaults();
+        let _ = render_dashboard(
+            &mut buf,
+            area,
+            &mut state,
+            &mut agents,
+            &registry,
+            None,
+            &[],
+            false,
+            crate::views::dashboard::WorkspaceRowInputs {
+                workspace: None,
+                provisional: &[],
+            },
+            None,
+            false,
+            None,
+            None,
+        );
+        if let Some(items) = state.file_search_dropdown_items_area {
+            assert!(
+                items.y >= area.y && items.bottom() <= area.bottom(),
+                "height {height}: file picker {items:?} escapes {area:?}"
+            );
+        }
+    }
+}
+
 /// The footer names what Enter does on the focused actions-row item — from either pane, since an empty Enter acts on the item from
 /// both — and never advertises the arrows: the row is meant to read as a row.
 #[test]

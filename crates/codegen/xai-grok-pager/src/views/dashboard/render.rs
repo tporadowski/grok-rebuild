@@ -2620,17 +2620,8 @@ fn render_file_search_dropdown_for(
         return None;
     }
     let item_count = file_search.result_count();
-    let item_rows = (item_count as u16).min(MAX_DROPDOWN_ROWS);
+    let mut item_rows = (item_count as u16).min(MAX_DROPDOWN_ROWS);
     if item_rows == 0 {
-        return None;
-    }
-    let panel_h = item_rows.saturating_add(2);
-    let max_top = anchor_rect.y.saturating_sub(1);
-    if max_top <= area.y {
-        return None;
-    }
-    let top_y = max_top.saturating_sub(panel_h - 1);
-    if top_y < area.y {
         return None;
     }
     let panel_x = anchor_rect.x;
@@ -2638,6 +2629,16 @@ fn render_file_search_dropdown_for(
     if panel_width < 4 {
         return None;
     }
+    // Two border rows plus at least one item. A full list is 10 rows, which does not fit
+    // above the dispatch box on a terminal shorter than that. Shrink to the space that exists.
+    const CHROME_ROWS: u16 = 2;
+    let available = anchor_rect.y.saturating_sub(area.y);
+    if available < CHROME_ROWS + 1 {
+        return None;
+    }
+    item_rows = item_rows.min(available - CHROME_ROWS);
+    let panel_h = item_rows + CHROME_ROWS;
+    let top_y = anchor_rect.y - panel_h;
 
     // Keep the selected row inside the visible window before painting.
     file_search.ensure_visible(item_rows as usize);
