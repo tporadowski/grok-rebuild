@@ -732,6 +732,7 @@ impl AgentView {
                     }
                     self.commit_question_freeform();
                 }
+                let scroll_region = self.question_scroll_region;
                 let Some(qv) = self.question_view.as_mut() else {
                     return InputOutcome::Changed;
                 };
@@ -781,6 +782,8 @@ impl AgentView {
                     }
                     return InputOutcome::Changed;
                 }
+                // Hit the rows that were actually painted. A click in the footer, or on the
+                // phantom freeform line that is not on screen, must not move the caret.
                 let hit_idx = qv.questions.get(qv.active_tab).and_then(|question| {
                     let content_w = prompt_area.width.saturating_sub(QUESTION_VIEW_HPAD) as usize;
                     let scroll = qv
@@ -788,18 +791,45 @@ impl AgentView {
                         .get(qv.active_tab)
                         .copied()
                         .unwrap_or(0);
-                    crate::views::question_view::item_index_at_screen_row(
-                        question,
-                        prompt_area,
-                        content_w,
-                        scroll,
-                        mouse.row,
-                        qv.focused_preview(),
-                        qv.fullscreen,
-                        qv.cached_desc_cap,
-                        qv.cached_preview_cap,
-                        qv.cursor(),
-                    )
+                    let Some((scroll_top, scroll_bottom)) = scroll_region else {
+                        return crate::views::question_view::item_index_at_screen_row(
+                            question,
+                            prompt_area,
+                            content_w,
+                            scroll,
+                            mouse.row,
+                            qv.focused_preview(),
+                            qv.fullscreen,
+                            qv.cached_desc_cap,
+                            qv.cached_preview_cap,
+                            qv.cursor(),
+                        );
+                    };
+                    if mouse.row >= scroll_top && mouse.row < scroll_bottom {
+                        let visual_line = (mouse.row - scroll_top) + scroll;
+                        let options_only_h = crate::views::question_view::total_options_height(
+                            question,
+                            content_w,
+                            qv.cursor(),
+                        )
+                        .saturating_sub(1);
+                        if visual_line >= options_only_h {
+                            return None;
+                        }
+                        return Some(crate::views::question_view::item_index_at_visual_line(
+                            question,
+                            content_w,
+                            visual_line,
+                            qv.cursor(),
+                        ));
+                    }
+                    if !qv.no_freeform
+                        && qv.focus != crate::views::question_view::QuestionFocus::InputMode
+                        && mouse.row == scroll_bottom
+                    {
+                        return Some(question.options.len());
+                    }
+                    None
                 });
                 let option_count = qv
                     .questions
@@ -2369,6 +2399,34 @@ mod question_no_freeform_tests {
         assert_eq!(qv(&agent).focus, QuestionFocus::InputMode);
     }
 
+    /// Rows under the sticky freeform answer are not an answer. A click there must leave the caret.
+    #[test]
+    fn click_below_a_hidden_answer_row_does_not_move_the_caret() {
+        let mut agent = make_agent();
+        open_question(&mut agent, false);
+        agent.prompt.set_text("draft");
+        agent.prompt.set_cursor(1);
+        draw_frame(&mut agent);
+        let (_, scroll_bottom) = agent.question_scroll_region.expect("scroll region set");
+        let col = agent.pane_areas.prompt.x + 5;
+        let pane_bottom = agent.pane_areas.prompt.y + agent.pane_areas.prompt.height;
+        assert!(
+            scroll_bottom + 1 < pane_bottom,
+            "the card must leave a row under the answers"
+        );
+        for row in (scroll_bottom + 1)..pane_bottom {
+            let _ = agent.handle_question_mouse(&down(col, row));
+            assert_eq!(
+                qv(&agent).focus,
+                QuestionFocus::Navigation,
+                "row {row}: a click off the answers must not enter the text"
+            );
+            assert_eq!(qv(&agent).cursor(), 0, "row {row}: cursor must stay");
+            assert_eq!(agent.prompt.text(), "draft", "row {row}");
+            assert_eq!(agent.prompt.cursor(), 1, "row {row}: caret must stay");
+        }
+    }
+
     /// Ctrl+Y used to dismiss the card with no answer. On the option list it is ignored.
     /// While an answer is being typed it yanks the text Ctrl+K cut.
     #[test]
@@ -2727,8 +2785,8 @@ mod question_send_now_tests {
 
 #[cfg(test)]
 mod send_now_card_tests {
-    use super::super::test_fixtures::make_agent;
     use super::super::AgentView;
+    use super::super::test_fixtures::make_agent;
     use crate::actions::ActionRegistry;
     use crate::app::actions::Action;
     use crate::app::app_view::InputOutcome;
@@ -2797,7 +2855,10 @@ mod send_now_card_tests {
                 "{modifiers:?}+Enter must not accept the MCP prompt"
             );
             assert!(
-                matches!(rx.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)),
+                matches!(
+                    rx.try_recv(),
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+                ),
                 "{modifiers:?}+Enter must not send an answer"
             );
         }
