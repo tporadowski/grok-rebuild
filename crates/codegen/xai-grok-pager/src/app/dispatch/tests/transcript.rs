@@ -663,6 +663,28 @@ fn export_and_copy_refuse_to_overwrite_an_existing_file() {
 }
 
 #[test]
+fn export_file_notice_includes_the_copy_stats() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("fresh.md");
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    app.agents.get_mut(&id).unwrap().scrollback.push_block(
+        RenderBlock::agent_message("hello from the assistant"),
+    );
+    dispatch(
+        Action::ExportConversation {
+            file_path: Some(path),
+        },
+        &mut app,
+    );
+    let notice = last_system_text(app.agents.get(&id).unwrap());
+    assert!(
+        notice.contains("chars") && notice.contains("line"),
+        "export notice should match the copy stats style, got: {notice}"
+    );
+}
+
+#[test]
 fn copy_markdown_source_prefers_the_selected_message_over_the_latest() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);

@@ -57,7 +57,11 @@ pub fn run(args: ExportArgs) -> Result<()> {
             bytes = md.len(),
             "export_cmd: wrote transcript to file"
         );
-        eprintln!("Conversation exported to {}", expanded.display());
+        eprintln!(
+            "Conversation exported to {}{}",
+            expanded.display(),
+            crate::clipboard::clipboard_stats_suffix(&md)
+        );
     } else if args.clipboard {
         let _ = crate::clipboard::copy_text(&md);
         let lines = md.lines().count();
@@ -68,9 +72,8 @@ pub fn run(args: ExportArgs) -> Result<()> {
             "export_cmd: copied transcript to clipboard"
         );
         eprintln!(
-            "Conversation copied to clipboard ({} chars, {} lines)",
-            md.len(),
-            lines
+            "Conversation copied to clipboard{}",
+            crate::clipboard::clipboard_stats_suffix(&md)
         );
     } else {
         let mut stdout = std::io::stdout().lock();

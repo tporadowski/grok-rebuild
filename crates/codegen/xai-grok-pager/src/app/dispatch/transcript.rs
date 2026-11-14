@@ -262,10 +262,11 @@ pub(super) fn dispatch_export_conversation(
         }
 
         if let Some(p) = file_path {
+            let stats = crate::clipboard::clipboard_stats_suffix(&md);
             match crate::clipboard::write_new_text_file(&md, &p) {
                 Ok(path) => {
                     agent.scrollback.push_block(RenderBlock::system(format!(
-                        "Conversation exported to {}",
+                        "Conversation exported to {}{stats}",
                         path.display()
                     )));
                 }
