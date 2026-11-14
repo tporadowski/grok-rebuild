@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-277 — Pretty mode renders a reference link like an inline link
+
+`v86-f01`. Pretty mode already turns `[text](url)` into `text (url)`. A reference link `[text][id]` stayed as source. When the id resolves, pretty mode now rewrites that span the same way. The definition line is still the source line under the paragraph.
+
 ### D-276 — An @-file row keeps the file name
 
 `v86-x37`. A narrow file-search row painted the path from the left and put `…` on the last cell, so the file name was the part that disappeared. The row now shortens with `shorten_path`, which keeps the file name. Match highlights stay on a path that still fits. A shortened path drops them, because those indexes address the original string.
@@ -1221,7 +1225,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 54 | 14 | 2 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 50 | 7 | 0 |
-| W10 | Transcript, density, and copy | 6 | 0 | 52 | 4 | 0 |
+| W10 | Transcript, density, and copy | 5 | 0 | 53 | 4 | 0 |
 | W11 | Headless mode and tools | 1 | 0 | 43 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 1 | 0 | 46 | 13 | 9 |
 | W13 | Update, install, and sign-in | 1 | 0 | 29 | 11 | 0 |
@@ -1230,9 +1234,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 32. Skipped: 9. Done: 581. Already: 114. Deferred: 31.
+Catalog rows: 767. Pending: 31. Skipped: 9. Done: 582. Already: 114. Deferred: 31.
 
-**Next:** v86-f01
+**Next:** v86-x33
 
 ## Waves
 
@@ -1274,7 +1278,7 @@ Pending: 0. Done: 50 (`v86-x37`, D-276; `v86-x34`, D-275; `v86-x23`, D-274; `v50
 
 ### W10 — Transcript, density, and copy
 
-Pending: 6. Done: 52 (`v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
+Pending: 5. Done: 53 (`v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
 
 ### W11 — Headless mode and tools
 
@@ -1987,7 +1991,7 @@ id | status | wave | kind | flag | covered | note
 - v85-x13 | done | W14 | Bug Fixes |  |  | **The stop panel** now closes when the turn it belongs to finishes.
 - v85-x24 | done | W14 | Bug Fixes |  |  | **Space in the /skills list** now folds groups, and the filter label is no longer clipped.
 - v85-x29 | done | W14 | Bug Fixes |  |  | **Grok** panes in tmux now repaint correctly after certain resize sequences.
-- v86-f01 | pending | W10 | Features |  |  | **Pretty mode** shows reference-style links the same as inline links.
+- v86-f01 | done | W10 | Features |  |  | **Pretty mode** shows reference-style links the same as inline links.
 - v86-x01 | pending | W14 | Bug Fixes |  |  | **Loading messages** and input placeholders use a consistent Unicode ellipsis character.
 - v86-x02 | done | W8 | Bug Fixes |  |  | **Resume session cards** keep long text and their ellipsis on a single line.
 - v86-x03 | done | W8 | Bug Fixes |  |  | **Auth token box** on the welcome screen has rounded corners.

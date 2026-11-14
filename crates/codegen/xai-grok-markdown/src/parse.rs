@@ -240,10 +240,12 @@ pub struct MarkdownParser<'a, 'b, 'syn, 'oc> {
 }
 
 /// Link text of a reference, collapsed, or shortcut link. The source still has its markers.
+/// Images start with `![`.
 fn reference_link_text(raw: &str) -> Option<&str> {
-    let rest = raw.strip_prefix('[')?;
+    let rest = raw.strip_prefix("![").or_else(|| raw.strip_prefix('['))?;
     let end = rest.find(']')?;
-    Some(&rest[..end])
+    let label = &rest[..end];
+    (!label.is_empty()).then_some(label)
 }
 
 /// Replace reference-style links whose ranges fall inside `src` (absolute offsets start at `base`).
@@ -1522,6 +1524,56 @@ impl<'a, 'b, 'syn, 'oc> MarkdownParser<'a, 'b, 'syn, 'oc> {
                         self.link_id_counter += 1;
                     }
                     None
+                } else if matches!(
+                    link_type,
+                    LinkType::Reference | LinkType::Collapsed | LinkType::Shortcut
+                ) && let Some(label) = reference_link_text(tag_str)
+                    && !dest_url.is_empty()
+                {
+                    // Pretty mode turns `[text][id]` into `text (url)`, matching `[text](url)`.
+                    let prefix_len = tag_str.len() - tag_str.trim_start_matches('!').len();
+                    let bang = prefix_len.min(1);
+                    if bang > 0 {
+                        self.buffers.transforms.push(Transform {
+                            range: range.start..range.start + bang,
+                            to: String::new(),
+                            force: false,
+                        });
+                    }
+                    let text_start = range.start + bang + 1;
+                    let text_end = text_start + label.len();
+                    if self.text.get(text_start..text_end) == Some(label) && text_end < range.end
+                    {
+                        self.buffers.transforms.push(Transform {
+                            range: text_start - 1..text_start,
+                            to: String::new(),
+                            force: false,
+                        });
+                        self.buffers.transforms.push(Transform {
+                            range: text_end..range.end,
+                            to: format!(" ({dest_url})"),
+                            force: false,
+                        });
+                        more.push(Highlight {
+                            style: Some(self.ms.link_text),
+                            range: text_start..text_end,
+                        });
+                        self.buffers.link_targets.push(LinkTarget {
+                            source_range: text_start..text_end,
+                            url: dest_url.to_string(),
+                            id: self.link_id_counter,
+                        });
+                        self.link_id_counter += 1;
+                        None
+                    } else {
+                        self.buffers.link_targets.push(LinkTarget {
+                            source_range: range.clone(),
+                            url: dest_url.to_string(),
+                            id: self.link_id_counter,
+                        });
+                        self.link_id_counter += 1;
+                        Some(self.ms.link_outer)
+                    }
                 } else {
                     self.buffers.link_targets.push(LinkTarget {
                         source_range: range.clone(),

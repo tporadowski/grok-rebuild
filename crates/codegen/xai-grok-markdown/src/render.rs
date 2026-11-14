@@ -1289,6 +1289,22 @@ mod tests {
         );
     }
 
+    /// A reference-style link renders as `text (url)`, the same as an inline link.
+    #[test]
+    fn test_pretty_reference_link_matches_inline() {
+        let md = "See [the docs][guide] for more.\n\n[guide]: https://example.com/guide\n";
+        let (output, _) = render_markdown_ratatui_full(md, test_style::STYLE, true, None);
+        let text = lines_to_text(&output.lines).join("\n");
+        assert!(
+            text.contains("the docs (https://example.com/guide)"),
+            "pretty reference link should match an inline link, got {text:?}"
+        );
+        assert!(
+            !text.contains("[the docs]"),
+            "pretty mode should hide the reference markers, got {text:?}"
+        );
+    }
+
     /// Same regression for images: `![img](src)` should not show `[img`.
     #[test]
     fn test_pretty_image_bracket_removed() {
