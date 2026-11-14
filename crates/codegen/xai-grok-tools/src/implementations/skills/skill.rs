@@ -223,7 +223,7 @@ pub struct SubstitutionContext<'a> {
 }
 
 /// Apply variable substitutions to skill content. The body is treated as argument-aware only when it contains an *argument* token
-/// (`$ARGUMENTS`, `$ARGUMENTS[N]`, or `$N`); in that case the args are expanded inline and the `**ARGUMENTS:** ...` suffix is **not** appended.
+/// (`$ARGUMENTS`, `${ARGUMENTS}`, `$ARGUMENTS[N]`, `${ARGUMENTS[N]}`, or `$N`); in that case the args are expanded inline and the `**ARGUMENTS:** ...` suffix is **not** appended.
 /// If no argument token is present, arguments are appended as a suffix in the traditional format for backward compatibility.
 pub fn apply_substitutions(content: &mut String, args: Option<&str>, ctx: &SubstitutionContext) {
     let args_str = args.unwrap_or("");
@@ -238,16 +238,21 @@ pub fn apply_substitutions(content: &mut String, args: Option<&str>, ctx: &Subst
     // suppressing it, so a body that uses only a path token still receives its arguments.
     let mut args_substituted = false;
 
-    // $ARGUMENTS[N] first (before $ARGUMENTS to avoid partial match).
+    // Indexed forms before the full-string token, and the braced form before the bare form.
+    // `$ARGUMENTS` is not a substring of `${ARGUMENTS}`, so each pattern is matched on its own.
     // Scan up to the actual argument count + a buffer to handle
     // out-of-range refs that should become empty.
     let max_idx = argv.len().max(1);
     for i in (0..max_idx + 20).rev() {
-        let pattern = format!("$ARGUMENTS[{i}]");
-        if content.contains(&pattern) {
-            let replacement = argv.get(i).unwrap_or(&"");
-            *content = content.replace(&pattern, replacement);
-            args_substituted = true;
+        let replacement = argv.get(i).copied().unwrap_or("");
+        for pattern in [
+            format!("${{ARGUMENTS[{i}]}}"),
+            format!("$ARGUMENTS[{i}]"),
+        ] {
+            if content.contains(&pattern) {
+                *content = content.replace(&pattern, replacement);
+                args_substituted = true;
+            }
         }
     }
 
@@ -277,7 +282,11 @@ pub fn apply_substitutions(content: &mut String, args: Option<&str>, ctx: &Subst
         *content = result;
     }
 
-    // $ARGUMENTS (full string)
+    // Full argument string. Braced form first; the bare token is not inside `${ARGUMENTS}`.
+    if content.contains("${ARGUMENTS}") {
+        *content = content.replace("${ARGUMENTS}", args_str);
+        args_substituted = true;
+    }
     if content.contains("$ARGUMENTS") {
         *content = content.replace("$ARGUMENTS", args_str);
         args_substituted = true;
@@ -887,6 +896,32 @@ Step 2: Check for bugs.
             &SubstitutionContext::default(),
         );
         assert_eq!(content, "File: main.rs, Action: refactor");
+    }
+
+    #[test]
+    fn substitutions_expand_braced_arguments() {
+        let mut content =
+            "All: ${ARGUMENTS}. File: ${ARGUMENTS[0]}. Action: ${ARGUMENTS[1]}.".to_string();
+        apply_substitutions(
+            &mut content,
+            Some("main.rs refactor"),
+            &SubstitutionContext::default(),
+        );
+        assert_eq!(
+            content,
+            "All: main.rs refactor. File: main.rs. Action: refactor."
+        );
+    }
+
+    #[test]
+    fn substitutions_braced_missing_index_suppresses_the_suffix() {
+        let mut content = "Gone: ${ARGUMENTS[3]}.".to_string();
+        apply_substitutions(
+            &mut content,
+            Some("only"),
+            &SubstitutionContext::default(),
+        );
+        assert_eq!(content, "Gone: .");
     }
 
     #[test]
