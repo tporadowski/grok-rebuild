@@ -16,7 +16,10 @@ use crate::views::plan_approval_view::PlanApprovalFocus;
 use crossterm::event::{
     Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// A second Ctrl+C inside this window arms quit instead of cancelling the prompt just promoted from the queue.
+const CTRL_C_QUEUED_QUIT_WINDOW: Duration = Duration::from_secs(1);
 /// External-editor access to the ordinary composer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExternalPromptEditorAccess {
@@ -1284,8 +1287,17 @@ impl AgentView {
         }
         match action_id {
             ActionId::CancelTurn => {
+                let now = Instant::now();
+                if self.ctrl_c_queued_cancel_at.is_some_and(|at| {
+                    now.saturating_duration_since(at) < CTRL_C_QUEUED_QUIT_WINDOW
+                }) {
+                    return InputOutcome::Action(Action::Quit);
+                }
                 if self.stoppable_activity_running() {
                     self.cancel_trigger_hint = Some(crate::app::actions::CancelTrigger::CtrlC);
+                    if !self.session.pending_prompts.is_empty() {
+                        self.ctrl_c_queued_cancel_at = Some(now);
+                    }
                     return InputOutcome::Action(Action::CancelTurn);
                 }
                 if self.any_cancel_pending() {

@@ -435,6 +435,7 @@ impl AgentView {
             cancel_turn_buttons: Vec::new(),
             cancel_subagents_preference: None,
             cancel_trigger_hint: None,
+            ctrl_c_queued_cancel_at: None,
             rewind_state: None,
             rewind_points: None,
             jump_state: None,

@@ -4178,6 +4178,68 @@ fn ctrl_c_running_cancels_turn() {
     assert!(matches!(outcome, InputOutcome::Action(Action::CancelTurn)));
 }
 #[test]
+fn second_ctrl_c_within_a_second_arms_quit_instead_of_cancelling_the_queue() {
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.session.state = AgentState::TurnRunning;
+        agent.session.enqueue_prompt("follow up".into());
+    }
+    let first = app.handle_input(&ctrl_c());
+    assert!(matches!(first, InputOutcome::Action(Action::CancelTurn)));
+    assert!(app.pending_action.is_none());
+    let second = app.handle_input(&ctrl_c());
+    assert!(
+        matches!(second, InputOutcome::Changed),
+        "the second Ctrl+C arms quit, got {second:?}"
+    );
+    assert_pending_quit(&app);
+    let copy_md = KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
+    assert_eq!(
+        app.registry
+            .lookup(&copy_md, crate::actions::When::AgentScreen),
+        Some(ActionId::CopyMarkdownSource),
+        "Ctrl+Shift+Y stays copy markdown"
+    );
+}
+#[test]
+fn second_ctrl_c_without_a_queue_still_cancels() {
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    app.agents.get_mut(&id).unwrap().session.state = AgentState::TurnRunning;
+    assert!(matches!(
+        app.handle_input(&ctrl_c()),
+        InputOutcome::Action(Action::CancelTurn)
+    ));
+    assert!(matches!(
+        app.handle_input(&ctrl_c()),
+        InputOutcome::Action(Action::CancelTurn)
+    ));
+    assert!(app.pending_action.is_none());
+}
+#[test]
+fn ctrl_c_after_the_quit_window_still_cancels_the_running_turn() {
+    let mut app = test_app_with_agent();
+    let id = super::super::agent::AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.session.state = AgentState::TurnRunning;
+        agent.session.enqueue_prompt("follow up".into());
+        agent.ctrl_c_queued_cancel_at =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+    }
+    let outcome = app.handle_input(&ctrl_c());
+    assert!(
+        matches!(outcome, InputOutcome::Action(Action::CancelTurn)),
+        "outside the one-second window Ctrl+C still cancels, got {outcome:?}"
+    );
+    assert!(app.pending_action.is_none());
+}
+#[test]
 fn ctrl_c_cancelling_escalates_to_quit_pending() {
     let mut app = test_app_with_agent();
     let id = super::super::agent::AgentId(0);

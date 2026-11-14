@@ -1403,6 +1403,8 @@ pub struct AgentView {
     /// What gesture triggered the pending turn-cancel (Ctrl+C / mouse / dashboard stop; the pager never sends `Esc`, which only hints at the cancel key).
     /// Set by the key/mouse handler, consumed by `do_cancel_turn` so `session/cancel` carries `_meta.cancelTrigger`.
     pub(crate) cancel_trigger_hint: Option<crate::app::actions::CancelTrigger>,
+    /// Ctrl+C cancelled a turn that still had a queued follow-up. A second Ctrl+C within one second arms quit.
+    pub(crate) ctrl_c_queued_cancel_at: Option<std::time::Instant>,
     pub(crate) rewind_state: Option<crate::views::rewind::RewindState>,
     pub(crate) rewind_points: Option<Vec<crate::views::rewind::RewindPointInfo>>,
     /// `/jump` picker overlay (pure client-side turn navigation).
