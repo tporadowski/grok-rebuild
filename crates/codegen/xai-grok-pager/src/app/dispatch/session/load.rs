@@ -1486,11 +1486,17 @@ pub(in crate::app::dispatch) fn handle_session_search_debounce_expired(
     } else {
         PickerSeqKind::DeepSearch
     };
+    let hidden_welcome =
+        !chat_mode && request.host == SessionPickerHost::Welcome && !welcome_view_live;
     let Some(target) = accept_picker_result(app, request, seq_kind, "debounce expiry") else {
         return vec![];
     };
     let headless_policy = target.source_filter.headless_policy();
-    if !chat_mode && request.host == SessionPickerHost::Welcome && !welcome_view_live {
+    if hidden_welcome {
+        drop(target);
+        // The home screen armed the spinner before this debounce. Dropping the
+        // expiry because the dashboard is up must not leave "Searching" on.
+        app.session_picker_content_loading = false;
         tracing::debug!(
             host = ?request.host,
             generation = request.generation,

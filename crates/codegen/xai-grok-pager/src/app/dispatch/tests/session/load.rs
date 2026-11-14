@@ -2001,6 +2001,10 @@ fn build_mode_debounce_expiry_searches_current_and_drops_stale() {
         effects.is_empty(),
         "build-mode expiry for a hidden welcome picker must not search, got {effects:?}"
     );
+    assert!(
+        !app.session_picker_content_loading,
+        "hiding the home screen must not leave the search spinner on"
+    );
 }
 /// Modal `/resume` surface: the debounce expiry validates against the MODAL's deep-search seq (the welcome counter still sits at 0 here).
 #[test]
