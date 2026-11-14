@@ -30,6 +30,21 @@ fn executable_is_in_use_is_false_for_missing_binary() {
     assert!(!executable_is_in_use(Path::new("/no/such/grok-binary")));
 }
 
+#[test]
+fn a_stuck_process_scan_returns_before_the_deadline() {
+    let started = std::time::Instant::now();
+    let verdict = within_deadline(Duration::from_millis(50), || {
+        std::thread::sleep(Duration::from_secs(2));
+        true
+    });
+    assert!(verdict.is_none(), "cleanup must not wait out a stuck scan");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "returned in {:?}",
+        started.elapsed()
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn executable_is_in_use_matches_hardlink() {

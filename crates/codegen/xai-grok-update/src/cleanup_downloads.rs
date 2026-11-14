@@ -2,8 +2,24 @@
 //! Skip a leftover if a live process is executing it (best-effort).
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::auto_update::STALE_TMP_AGE;
+
+/// A stuck mount under some other process's executable must not hold `grok update` in cleanup.
+const PROCESS_SCAN_DEADLINE: Duration = Duration::from_secs(2);
+
+/// `None` when `work` does not finish before `deadline`. The worker is left running; cleanup does not wait for it.
+fn within_deadline<T: Send + 'static>(
+    deadline: Duration,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let _ = tx.send(work());
+    });
+    rx.recv_timeout(deadline).ok()
+}
 
 pub(crate) async fn cleanup_old_downloads(dir: &Path, bin_prefix: &str, current_version: &str) {
     cleanup_old_downloads_with(dir, bin_prefix, current_version, executable_is_in_use).await;
@@ -109,13 +125,25 @@ pub(crate) async fn cleanup_old_downloads_with(
 /// is not deleted. Linux can unlink a mapped file without killing the
 /// process, so a scan error is treated as not-in-use.
 pub(crate) fn executable_is_in_use(path: &Path) -> bool {
-    match any_process_executing(path) {
-        Ok(in_use) => in_use,
-        Err(e) => {
+    let path = path.to_path_buf();
+    let scanned = within_deadline(PROCESS_SCAN_DEADLINE, {
+        let path = path.clone();
+        move || any_process_executing(&path)
+    });
+    match scanned {
+        Some(Ok(in_use)) => in_use,
+        Some(Err(e)) => {
             tracing::warn!(
                 path = %path.display(),
                 error = %e,
                 "could not list processes executing this binary"
+            );
+            cfg!(target_os = "macos")
+        }
+        None => {
+            tracing::warn!(
+                path = %path.display(),
+                "process scan exceeded {PROCESS_SCAN_DEADLINE:?}; cleanup will not wait"
             );
             cfg!(target_os = "macos")
         }
