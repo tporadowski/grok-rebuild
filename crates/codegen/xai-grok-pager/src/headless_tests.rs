@@ -1087,6 +1087,83 @@ fn successful_write_leaves_no_latched_error() {
     assert!(emitter.take_output_error().is_none());
 }
 
+fn push_headless_update(emitter: &mut super::HeadlessEmitter, update: acp::SessionUpdate) {
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    let msg = xai_acp_lib::AcpClientMessageBox::SessionNotification(xai_acp_lib::AcpArgsBox {
+        request: Box::new(acp::SessionNotification::new(
+            acp::SessionId::new("sess-1"),
+            update,
+        )),
+        response_tx: tx,
+    });
+    let mut pending = std::collections::HashSet::new();
+    let mut completed = super::BackgroundLifecycleState::default();
+    let mut ttf_logged = false;
+    super::handle_headless_acp_message(
+        msg,
+        emitter,
+        std::time::Instant::now(),
+        &mut ttf_logged,
+        false,
+        &mut pending,
+        &mut completed,
+    );
+}
+
+fn assistant_text(text: &str) -> acp::SessionUpdate {
+    acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(acp::ContentBlock::Text(
+        acp::TextContent::new(text),
+    )))
+}
+
+fn tool_call() -> acp::SessionUpdate {
+    acp::SessionUpdate::ToolCall(acp::ToolCall::new(
+        acp::ToolCallId::new("t1"),
+        "Read file",
+    ))
+}
+
+/// Plain and json keep streaming chunks joined, and start a new paragraph once a tool call sits between them.
+#[test]
+fn plain_and_json_start_a_paragraph_after_a_tool_call() {
+    for format in [OutputFormat::Plain, OutputFormat::Json] {
+        let mut joined = HeadlessEmitter::new(format, false);
+        push_headless_update(&mut joined, assistant_text("Hello."));
+        push_headless_update(&mut joined, assistant_text("World."));
+        assert_eq!(joined.text_buffer, "Hello.World.", "{format:?}");
+
+        let mut after_tool = HeadlessEmitter::new(format, false);
+        push_headless_update(&mut after_tool, assistant_text("I'll look."));
+        push_headless_update(&mut after_tool, tool_call());
+        push_headless_update(&mut after_tool, assistant_text("Found it."));
+        assert_eq!(
+            after_tool.text_buffer, "I'll look.\n\nFound it.",
+            "{format:?}"
+        );
+
+        let mut leading_tool = HeadlessEmitter::new(format, false);
+        push_headless_update(&mut leading_tool, tool_call());
+        push_headless_update(&mut leading_tool, assistant_text("Found it."));
+        assert_eq!(leading_tool.text_buffer, "Found it.", "{format:?}");
+
+        let mut already_broken = HeadlessEmitter::new(format, false);
+        push_headless_update(&mut already_broken, assistant_text("I'll look.\n"));
+        push_headless_update(
+            &mut already_broken,
+            acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+                acp::ToolCallId::new("t1"),
+                acp::ToolCallUpdateFields::new()
+                    .status(Some(acp::ToolCallStatus::Completed)),
+            )),
+        );
+        push_headless_update(&mut already_broken, assistant_text("Found it."));
+        assert_eq!(
+            already_broken.text_buffer, "I'll look.\n\nFound it.",
+            "{format:?}"
+        );
+    }
+}
+
 #[test]
 fn parse_json_schema_rejects_non_objects_and_invalid_json() {
     assert!(super::parse_json_schema(r#"{"type":"object"}"#).is_ok());

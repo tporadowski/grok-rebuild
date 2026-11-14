@@ -127,6 +127,12 @@ struct HeadlessEmitter {
     parse_structured_output: bool,
     text_buffer: String,
     thought_buffer: String,
+    /// Plain and json have already emitted assistant text, so a later tool call can break the paragraph.
+    wrote_assistant_text: bool,
+    /// Trailing newlines on that text, capped at 2.
+    assistant_trailing_newlines: u8,
+    /// A tool call arrived since the last assistant chunk. The next chunk starts a new paragraph.
+    paragraph_after_tool: bool,
     /// Schema-validated output read from the prompt-response `_meta`.
     structured_output: Option<Result<serde_json::Value, String>>,
     usage: Option<serde_json::Value>,
@@ -150,6 +156,9 @@ impl HeadlessEmitter {
             parse_structured_output,
             text_buffer: String::new(),
             thought_buffer: String::new(),
+            wrote_assistant_text: false,
+            assistant_trailing_newlines: 0,
+            paragraph_after_tool: false,
             structured_output: None,
             usage: None,
             worktree_path: None,
@@ -267,13 +276,47 @@ impl HeadlessEmitter {
         let Some(meta) = meta else { return };
         self.usage = meta.get("usage").cloned();
     }
+    /// A tool call between assistant chunks. Plain and json start the next chunk as a new paragraph.
+    fn note_tool_call_breaks_paragraph(&mut self) {
+        if matches!(self.format, OutputFormat::Plain | OutputFormat::Json) {
+            self.paragraph_after_tool = true;
+        }
+    }
+    /// Blank line before text that follows a tool call. Streaming chunks with no tool between them stay joined.
+    fn paragraph_prefix(&self) -> &'static str {
+        if !self.paragraph_after_tool || !self.wrote_assistant_text {
+            return "";
+        }
+        match self.assistant_trailing_newlines {
+            0 => "\n\n",
+            1 => "\n",
+            _ => "",
+        }
+    }
+    fn remember_assistant_suffix(&mut self) {
+        self.wrote_assistant_text = !self.text_buffer.is_empty();
+        let newlines = self
+            .text_buffer
+            .chars()
+            .rev()
+            .take_while(|c| *c == '\n')
+            .count();
+        self.assistant_trailing_newlines = u8::try_from(newlines).unwrap_or(u8::MAX).min(2);
+    }
     fn on_text_chunk(&mut self, text: &str) {
         match self.format {
-            OutputFormat::Plain => {
-                let _ = self.write_out(text.as_bytes(), true);
-            }
-            OutputFormat::Json => {
+            OutputFormat::Plain | OutputFormat::Json => {
+                let prefix = self.paragraph_prefix();
+                self.paragraph_after_tool = false;
+                if self.format == OutputFormat::Plain {
+                    let mut out = String::with_capacity(prefix.len() + text.len());
+                    out.push_str(prefix);
+                    out.push_str(text);
+                    let _ = self.write_out(out.as_bytes(), true);
+                }
+                self.text_buffer.push_str(prefix);
                 self.text_buffer.push_str(text);
+                self.remember_assistant_suffix();
             }
             OutputFormat::StreamingMessagesJson => {
                 self.text_buffer.push_str(text);
@@ -2336,6 +2379,7 @@ fn handle_headless_acp_message(
                         background_lifecycle,
                         call.raw_output.as_ref(),
                     );
+                    emitter.note_tool_call_breaks_paragraph();
                     if let Some(event) = map_session_update(&boxed.request.update) {
                         emitter.reduce_and_emit(event);
                     }
@@ -2346,6 +2390,7 @@ fn handle_headless_acp_message(
                         background_lifecycle,
                         update.fields.raw_output.as_ref(),
                     );
+                    emitter.note_tool_call_breaks_paragraph();
                     if let Some(event) = map_session_update(&boxed.request.update) {
                         emitter.reduce_and_emit(event);
                     }
