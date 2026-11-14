@@ -2291,11 +2291,9 @@ fn render_dispatch_placeholder_hidden_when_focused() {
     assert!(cursor.is_some(), "focused input must report a caret");
 }
 
-/// The placeholder stays `Dispatch a new agent` even when a row is selected: the input never becomes a reply target.
-/// Selection is purely the overview navigation cursor; Enter on it OPENS the agent.
-/// This is the regression guard for the "stuck replying to the same agent" trap.
+/// A selected row makes Enter open that session. The dispatch box says so, and does not offer a reply.
 #[test]
-fn render_dispatch_placeholder_stays_new_session_when_row_selected() {
+fn render_dispatch_placeholder_says_open_when_a_row_is_selected() {
     let mut buf = Buffer::empty(Rect::new(0, 0, 80, 3));
     let theme = Theme::current();
     let mut state = DashboardState::new();
@@ -2314,8 +2312,12 @@ fn render_dispatch_placeholder_stays_new_session_when_row_selected() {
     );
     let content = buf_to_text(&buf);
     assert!(
-        content.contains("Dispatch a new agent"),
-        "placeholder must stay new-session even with a row selected, got: {content:?}",
+        content.contains("Open the selected session"),
+        "a selected row must say Enter opens it, got: {content:?}",
+    );
+    assert!(
+        !content.contains("Dispatch a new agent"),
+        "a selected row must not claim Enter dispatches a new agent, got: {content:?}",
     );
     assert!(
         !content.contains("Reply to"),

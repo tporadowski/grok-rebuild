@@ -1419,6 +1419,16 @@ impl DashboardState {
         })
     }
 
+    /// Placeholder in the dispatch box while the list has focus.
+    /// A selected row makes Enter open that session, so the box must not say it will dispatch a new agent.
+    pub(crate) fn dispatch_box_placeholder(&self) -> &'static str {
+        if self.list_focused && self.selected.is_some() {
+            "Open the selected session"
+        } else {
+            "Dispatch a new agent"
+        }
+    }
+
     /// The footer label for Enter on the focused actions-row item.
     /// `+ New Agent` with a typed draft sends it rather than creating an empty session, and the label says so.
     pub(crate) fn focused_action_label(&self) -> Option<&'static str> {

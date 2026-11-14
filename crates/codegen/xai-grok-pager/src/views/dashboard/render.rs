@@ -2429,11 +2429,10 @@ fn render_dispatch(
             prefix,
             Style::default().fg(theme.accent_user).bg(theme.bg_base),
         );
-        // The dispatch input always spawns a NEW session, never a reply, so the placeholder is constant
-        // whatever row the overview cursor is on. It only paints while the input is UNFOCUSED (matching
-        // `PromptWidget::draw`).
+        // The box only paints a placeholder while the list has focus. Enter then follows the
+        // selection, so a selected row says it will open that session instead of dispatching.
         if !input_focused {
-            let msg = "Dispatch a new agent";
+            let msg = state.dispatch_box_placeholder();
             let style = theme.dim().bg(theme.bg_base);
             let trunc = truncate_str(msg, content.width.saturating_sub(prefix_w) as usize);
             buf.set_string(content.x + prefix_w, content.y, trunc, style);
