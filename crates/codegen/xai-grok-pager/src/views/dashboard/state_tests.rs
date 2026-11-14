@@ -653,6 +653,15 @@ fn rename_under_cap_appends() {
     assert!(draft.text().ends_with('b'));
 }
 
+#[test]
+fn rename_input_drops_raw_color_codes() {
+    let draft = RenameDraft::new(
+        DashboardRowId::TopLevel(AgentId(0)),
+        "\u{1b}[31mred\u{1b}[0m title",
+    );
+    assert_eq!(draft.text(), "red title");
+}
+
 /// Ctrl+letter in rename mode rejected (does not type
 /// the bare letter into the draft); Ctrl+C cancels.
 #[test]

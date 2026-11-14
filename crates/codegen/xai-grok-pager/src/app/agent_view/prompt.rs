@@ -26,6 +26,7 @@ impl AgentView {
         use crate::views::history_search::HistoryEntry;
 
         fn push(out: &mut Vec<HistoryEntry>, text: String) {
+            let text = crate::views::session_title::without_color_codes(&text);
             if !text.trim().is_empty() {
                 out.push(HistoryEntry { text });
             }
@@ -1677,6 +1678,13 @@ mod combined_prompt_history_tests {
         agent.session.prompt_history = vec!["/docs".into(), "fix the bug".into(), "/docs".into()];
 
         assert_eq!(texts(&agent), ["/docs", "fix the bug", "/docs"]);
+    }
+
+    #[test]
+    fn history_preview_drops_raw_color_codes() {
+        let mut agent = make_agent_view(None, "/tmp");
+        agent.session.prompt_history = vec!["\u{1b}[32mship it\u{1b}[0m".into()];
+        assert_eq!(texts(&agent), ["ship it"]);
     }
 
     #[test]

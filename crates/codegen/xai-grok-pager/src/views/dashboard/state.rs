@@ -667,9 +667,9 @@ impl RenameDraft {
     }
 
     pub(crate) fn set_text(&mut self, text: impl Into<String>) {
-        // The cap runs before the tag pass, so a cut can never leave half a flag
-        let capped: String = text
-            .into()
+        // The cap runs before the tag pass, so a cut can never leave half a flag.
+        // Color sequences go first, or dropping ESC alone leaves `[31m` in the field.
+        let capped: String = crate::views::session_title::without_color_codes(&text.into())
             .chars()
             .filter(|character| rename_wire_character_allowed(*character))
             .take(MAX_RENAME_SCALARS)

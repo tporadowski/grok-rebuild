@@ -802,6 +802,7 @@ pub(super) fn extract_first_user_prompt(
             let Some(query) = after.get(..end) else {
                 continue;
             };
+            let query = crate::views::session_title::without_color_codes(query.trim());
             let query = query.trim();
             if !query.is_empty() && !query.starts_with('<') {
                 return Some(query.to_string());

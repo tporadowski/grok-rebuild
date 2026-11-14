@@ -22,7 +22,8 @@ pub struct TimelineEntry {
 /// Bounded single pass: the length probe stops one char past the cap, so a huge one-line prompt costs O(cap), not O(line length).
 /// The cap counts chars (not display width) on purpose: it bounds the stored snapshot, and render paths re-truncate to their width.
 fn prompt_preview(text: &str) -> String {
-    let line = text
+    let plain = crate::views::session_title::without_color_codes(text);
+    let line = plain
         .lines()
         .map(str::trim)
         .find(|l| !l.is_empty())

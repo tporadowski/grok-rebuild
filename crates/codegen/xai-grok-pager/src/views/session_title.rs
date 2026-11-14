@@ -158,6 +158,14 @@ fn truncate_title(text: &str) -> String {
     format!("{head}...")
 }
 
+/// Drop ANSI color sequences and the controls inside them, so a preview shows the words.
+pub(crate) fn without_color_codes(text: &str) -> String {
+    strip_ansi_escapes::strip_str(text)
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect()
+}
+
 /// Strip C0/C1 and bidi/format controls that could inject terminal escape sequences or spoof the
 /// title.
 pub(crate) fn sanitize_display_text(s: &str) -> Cow<'_, str> {
@@ -205,6 +213,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn without_color_codes_drops_sgr_and_keeps_the_words() {
+        assert_eq!(
+            without_color_codes("\u{1b}[31mred\u{1b}[0m plan"),
+            "red plan"
+        );
+    }
+
     fn sanitize_passes_through_clean_ascii_unchanged_no_alloc() {
         let s = "session foo bar";
         let out = sanitize_display_text(s);
