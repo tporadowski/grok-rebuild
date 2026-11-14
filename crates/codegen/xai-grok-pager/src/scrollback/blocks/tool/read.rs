@@ -20,6 +20,7 @@ const LAST_LINES: usize = 3;
 const READ_BODY_RANGE: u16 = 1;
 
 use crate::appearance::AppearanceConfig;
+use xai_grok_tools::implementations::skills::discovery::advertised_skill_name;
 use xai_grok_tools::implementations::skills::types::skill_name_from_path;
 
 /// Keep `text` inside the columns still free on a header row.
@@ -80,6 +81,9 @@ pub struct ReadToolCallBlock {
     pub media_kind: Option<ReadMediaKind>,
     /// Whether this ordinary read targets a memory v2 scope.
     pub is_memory_activity: bool,
+    /// Name the skill advertises (`SKILL.md` frontmatter, or the shell title
+    /// before the file arrives). Absent means the header uses the folder.
+    pub advertised_skill_name: Option<String>,
 }
 
 impl ReadToolCallBlock {
@@ -97,6 +101,7 @@ impl ReadToolCallBlock {
             image_ref: None,
             media_kind: None,
             is_memory_activity: false,
+            advertised_skill_name: None,
         }
     }
 
@@ -111,8 +116,24 @@ impl ReadToolCallBlock {
     }
 
     pub fn with_content(mut self, content: String, total_lines: usize) -> Self {
+        if skill_name_from_path(&self.path).is_some()
+            && let Some(name) = advertised_skill_name(&content)
+        {
+            self.advertised_skill_name = Some(name);
+        }
         self.content = Some(content);
         self.total_lines = Some(total_lines);
+        self
+    }
+
+    /// Shell title for a skill read, used until the file body is available.
+    /// A later body with its own frontmatter name replaces this.
+    pub fn with_advertised_skill_name(mut self, name: impl Into<String>) -> Self {
+        let name = name.into();
+        let name = name.trim();
+        if !name.is_empty() && skill_name_from_path(&self.path).is_some() {
+            self.advertised_skill_name = Some(name.to_string());
+        }
         self
     }
 
@@ -132,14 +153,18 @@ impl ReadToolCallBlock {
     }
 
     /// Skill name when this read targets a skill definition (`SKILL.md`).
-    /// All skill-read detection goes through here.
+    /// The advertised name wins over the parent folder.
     pub fn skill_name(&self) -> Option<&str> {
-        skill_name_from_path(&self.path)
+        let folder = skill_name_from_path(&self.path)?;
+        self.advertised_skill_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .or(Some(folder))
     }
 
     /// Whether this read targets a skill definition rather than a plain file.
     pub fn is_skill_read(&self) -> bool {
-        self.skill_name().is_some()
+        skill_name_from_path(&self.path).is_some()
     }
 
     /// Set the error, computing elapsed time if not already set.
@@ -859,6 +884,32 @@ The file is there, but this process cannot read it.";
         assert!(matches!(&header.selectable, Selectable::Spans(r) if *r == (1..2)));
         assert_eq!(derive_selection_text(header), "deploy");
         assert_eq!(span_text(header, 0), "Skill ");
+    }
+
+    fn skill_header_text(block: &ReadToolCallBlock) -> String {
+        first_line(&block.output(&make_ctx()))
+            .content
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn skill_read_shows_the_advertised_name_not_the_folder() {
+        let body = "---\nname: ship-it\ndescription: Ship the build\n---\n\nDo the thing.\n";
+        let block = ReadToolCallBlock::new("/home/user/.grok/skills/deploy/SKILL.md")
+            .with_advertised_skill_name("deploy")
+            .with_content(body.to_string(), 5);
+        assert_eq!(skill_header_text(&block), "Skill ship-it");
+        assert_eq!(block.skill_name(), Some("ship-it"));
+    }
+
+    #[test]
+    fn skill_read_shows_the_shell_title_before_the_file_arrives() {
+        let block = ReadToolCallBlock::new("/home/user/.grok/skills/deploy/SKILL.md")
+            .with_advertised_skill_name("ship-it");
+        assert_eq!(skill_header_text(&block), "Skill ship-it");
     }
 
     #[test]

@@ -2541,6 +2541,99 @@ fn activity_tool_running_when_tool_pending() {
         })
     );
 }
+
+#[test]
+fn skill_read_scrollback_uses_the_advertised_shell_title() {
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    let path = "/home/user/.grok/skills/deploy/SKILL.md";
+    tracker.handle_update(
+        acp::SessionUpdate::ToolCall(
+            acp::ToolCall::new(
+                acp::ToolCallId::new(Arc::from("tc-skill")),
+                "Skill: ship-it",
+            )
+            .kind(acp::ToolKind::Read)
+            .status(acp::ToolCallStatus::Pending)
+            .content(vec![])
+            .raw_input(Some(serde_json::json!({
+                "variant": "ReadFile",
+                "target_file": path,
+            })))
+            .locations(vec![]),
+        ),
+        &meta(),
+        &mut sb,
+    );
+    let RenderBlock::ToolCall(ToolCallBlock::Read(block)) =
+        &sb.get(0).expect("skill read row").block
+    else {
+        panic!("expected a read block");
+    };
+    assert_eq!(block.skill_name(), Some("ship-it"));
+    assert_eq!(
+        tracker.activity(),
+        Some(TurnActivity::ToolRunning {
+            title: "Skill: ship-it".into(),
+            description: None,
+        })
+    );
+}
+
+#[test]
+fn skill_read_file_replaces_a_folder_shell_title() {
+    use xai_grok_tools::types::output::{FileContent, ReadFileOutput, ToolOutput};
+
+    let path = "/home/user/.grok/skills/deploy/SKILL.md";
+    let body = "---\nname: ship-it\ndescription: Ship the build\n---\n\nDo the thing.\n";
+    let raw_output = serde_json::to_value(ToolOutput::ReadFile(ReadFileOutput::FileContent(
+        FileContent {
+            content: body.to_string(),
+            content_concise: None,
+            absolute_path: path.into(),
+            offset: None,
+            limit: None,
+            raw_output: body.to_string(),
+            total_lines: 5,
+            extracted_images: Vec::new(),
+        },
+    )))
+    .expect("tool output serializes");
+    let mut sb = ScrollbackState::new();
+    let mut tracker = AcpUpdateTracker::new();
+    tracker.handle_update(
+        acp::SessionUpdate::ToolCall(
+            acp::ToolCall::new(acp::ToolCallId::new(Arc::from("tc-skill")), "Skill: deploy")
+                .kind(acp::ToolKind::Read)
+                .status(acp::ToolCallStatus::Pending)
+                .content(vec![])
+                .raw_input(Some(serde_json::json!({
+                    "variant": "ReadFile",
+                    "target_file": path,
+                })))
+                .locations(vec![]),
+        ),
+        &meta(),
+        &mut sb,
+    );
+    tracker.handle_update(
+        acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+            acp::ToolCallId::new(Arc::from("tc-skill")),
+            acp::ToolCallUpdateFields::new()
+                .status(Some(acp::ToolCallStatus::Completed))
+                .raw_output(Some(raw_output)),
+        )),
+        &meta(),
+        &mut sb,
+    );
+    let RenderBlock::ToolCall(ToolCallBlock::Read(block)) =
+        &sb.get(0).expect("skill read row").block
+    else {
+        panic!("expected a read block");
+    };
+    assert_eq!(block.skill_name(), Some("ship-it"));
+}
+
 /// Foreground execute tools often carry a human `description` in raw_input (e.g. sleep with "Wait 5 seconds…").
 /// Surface it for the spinner.
 #[test]

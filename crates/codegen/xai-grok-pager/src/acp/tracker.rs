@@ -2099,6 +2099,9 @@ fn tool_call_to_block(
                 .or_else(|| extract_raw_field(tc, "path"))
                 .unwrap_or_else(|| tc.title.clone());
             let mut block = ReadToolCallBlock::new(&path);
+            if let Some(name) = advertised_skill_name_from_title(&tc.title) {
+                block = block.with_advertised_skill_name(name);
+            }
             if is_memory_v2_activity(tc) {
                 block = block.with_memory_activity();
             }
@@ -2654,6 +2657,24 @@ fn is_memory_v2_activity(tc: &acp::ToolCall) -> bool {
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
 }
+/// `Skill: ship-it` from the shell. A path, a backtick quote, or a spaced
+/// phrase is not a skill name, so ordinary read titles stay on the file.
+fn advertised_skill_name_from_title(title: &str) -> Option<&str> {
+    let trimmed = title.trim();
+    let rest = trimmed
+        .strip_prefix("Skill:")
+        .or_else(|| trimmed.strip_prefix("Skill "))?;
+    let rest = rest.trim();
+    if rest.is_empty() || rest.contains('/') || rest.contains('\\') || rest.contains('`') {
+        return None;
+    }
+    let name = rest.split(" - ").next().unwrap_or(rest).trim();
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(name)
+}
+
 /// Display title for a tool call: its title, or the kind name when empty.
 fn tool_call_title(tc: &acp::ToolCall) -> Cow<'_, str> {
     if tc.title.is_empty() {

@@ -2412,11 +2412,13 @@ impl SessionActor {
                 self.tool_context.cwd.as_path(),
             ),
             ToolInput::ReadFile(read_file) => {
-                if let Some(skill) = self.skill_for_read_path(&read_file.path).await {
+                let skill = self.skill_for_read_path(&read_file.path).await;
+                let title = read_file_tool_title(&read_file.path, skill.as_ref());
+                if let Some(skill) = skill {
                     self.emit_skill_md_read(skill);
                 }
                 (
-                    format!("Read `{}`", read_file.path),
+                    title,
                     acp::ToolKind::Read,
                     vec![
                         acp::ToolCallLocation::new(read_file.path)
@@ -3444,9 +3446,52 @@ fn pre_tool_context_for_model(
         .collect()
 }
 
+/// Title for a file read. A `SKILL.md` read names the skill the catalog
+/// advertises (`display_name`, else the command identity), not the folder.
+fn read_file_tool_title(
+    path: &str,
+    skill: Option<&xai_grok_tools::implementations::skills::types::SkillInfo>,
+) -> String {
+    if xai_grok_tools::implementations::skills::types::skill_name_from_path(path).is_some()
+        && let Some(name) = skill
+            .map(|skill| skill.label())
+            .filter(|name| !name.is_empty())
+    {
+        return format!("Skill: {name}");
+    }
+    format!("Read `{path}`")
+}
+
 fn pdf_read_prompt(path: &str, rendered: usize, total: usize) -> String {
     let noun = if rendered == 1 { "page" } else { "pages" };
     format!("Read PDF file: {path} ({rendered} {noun} rendered, {total} total)")
+}
+
+#[cfg(test)]
+mod read_file_tool_title_tests {
+    use super::read_file_tool_title;
+    use xai_grok_tools::implementations::skills::types::SkillInfo;
+
+    #[test]
+    fn skill_read_title_uses_the_advertised_name_not_the_folder() {
+        let path = "/home/user/.grok/skills/deploy/SKILL.md";
+        let mut skill = SkillInfo::default();
+        skill.name = "deploy".to_string();
+        skill.display_name = Some("ship-it".to_string());
+        skill.path = path.to_string();
+        assert_eq!(read_file_tool_title(path, Some(&skill)), "Skill: ship-it");
+        skill.display_name = None;
+        skill.name = "ship-it".to_string();
+        assert_eq!(read_file_tool_title(path, Some(&skill)), "Skill: ship-it");
+        assert_eq!(
+            read_file_tool_title(path, None),
+            "Read `/home/user/.grok/skills/deploy/SKILL.md`"
+        );
+        assert_eq!(
+            read_file_tool_title("src/main.rs", Some(&skill)),
+            "Read `src/main.rs`"
+        );
+    }
 }
 
 #[cfg(test)]

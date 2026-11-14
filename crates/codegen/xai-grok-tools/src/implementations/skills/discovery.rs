@@ -504,6 +504,16 @@ fn cap_string(s: String, max_len: usize) -> String {
     }
 }
 
+/// Frontmatter `name` a `SKILL.md` body advertises, after the same slug
+/// normalization as discovery. `None` when the body has no usable name.
+/// Callers that only have a path keep the folder name instead.
+pub fn advertised_skill_name(content: &str) -> Option<String> {
+    parse_skill_frontmatter(content, None)
+        .ok()
+        .map(|parsed| parsed.name)
+        .filter(|name| !name.is_empty())
+}
+
 pub fn parse_skill_frontmatter(
     content: &str,
     fallback_name: Option<&str>,
