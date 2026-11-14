@@ -219,7 +219,7 @@ pub fn render_turn_status(
                 Style::default().fg(diamond_color),
             ),
             Span::styled(
-                "agent idle ~ waiting on your edit",
+                "Agent idle ~ waiting on your edit",
                 Style::default().fg(theme.gray),
             ),
         ];
@@ -237,7 +237,7 @@ pub fn render_turn_status(
         let cue = match (still_running_label(watchers), parked) {
             (Some(label), true) => Some(format!("{label}{parked_suffix}")),
             (Some(label), false) => Some(label),
-            (None, true) => Some(format!("waiting{parked_suffix}")),
+            (None, true) => Some(format!("Waiting{parked_suffix}")),
             (None, false) => None,
         };
         if let Some(cue) = cue {
@@ -591,6 +591,18 @@ fn compute_activity(
         (AgentState::Idle, _) => (Style::default(), String::new(), false),
     }
 }
+/// A status line starts with a capital, matching the terminal title (`Waiting`, `Thinking`).
+/// The stored step stays lowercase so a timeout can say "while loading your plugins".
+fn sentence_status(label: &str) -> String {
+    let mut chars = label.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut out = first.to_uppercase().collect::<String>();
+    out.extend(chars);
+    out
+}
+
 /// Shown from the session create dispatch until the id binds or the create fails.
 fn render_starting_session(
     buf: &mut Buffer,
@@ -608,7 +620,7 @@ fn render_starting_session(
     let timer_str = format!(" {}", format_turn_timer(started.elapsed()));
     let style = Style::default().fg(theme.gray_dim);
     let label = match session_setup_label {
-        Some(label) => format!("{label}…"),
+        Some(label) => format!("{}…", sentence_status(label)),
         None => "Starting session…".to_string(),
     };
     let spans = vec![
@@ -1233,7 +1245,7 @@ mod tests {
     fn parked_without_watchers_renders_waiting_cue() {
         let text = render_parked_with_watchers(Watchers::default());
         assert!(
-            text.contains("waiting \u{00b7} send a message to interrupt"),
+            text.contains("Waiting \u{00b7} send a message to interrupt"),
             "watcherless parked must render the waiting interrupt cue, got: {text:?}"
         );
         assert!(
@@ -1398,8 +1410,12 @@ mod tests {
         args.session_setup_label = Some(phase.status_label());
         let text = render_row_text(args, 60);
         assert!(
-            text.contains("loading skills"),
-            "a skills setup phase must name the work, got: {text:?}"
+            text.contains("Loading skills"),
+            "a status line starts with a capital, like the terminal title, got: {text:?}"
+        );
+        assert!(
+            !text.contains("loading skills"),
+            "the painted status does not keep the lowercase step, got: {text:?}"
         );
         assert!(
             !text.contains("Starting session"),
