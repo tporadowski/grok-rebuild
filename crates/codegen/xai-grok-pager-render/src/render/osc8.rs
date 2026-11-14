@@ -54,6 +54,26 @@ pub struct ResolvedLinkTarget {
     pub open_target: Option<LinkTarget>,
 }
 
+/// A file link may spell a space as the three characters `%20`.
+/// Opening that spelling looks for a missing name.
+/// Use the spaced path when it exists and the literal path does not.
+/// A session directory is literally named `%2F…`, including `%20` when the workspace path had a space.
+/// A path that exists is left unchanged, and `%2F` is never decoded.
+fn file_path_for_open(path: &Arc<Path>) -> Arc<Path> {
+    let Some(text) = path.to_str() else {
+        return Arc::clone(path);
+    };
+    if !text.contains("%20") || path.exists() {
+        return Arc::clone(path);
+    }
+    let spaced = PathBuf::from(text.replace("%20", " "));
+    if spaced.exists() {
+        Arc::from(spaced)
+    } else {
+        Arc::clone(path)
+    }
+}
+
 /// Resolve one semantic target using the current terminal context.
 pub fn resolve_link_target(target: &LinkTarget) -> Option<ResolvedLinkTarget> {
     resolve_link_target_with_presentation(target, LinkPresentation::Opaque)
@@ -90,10 +110,13 @@ pub fn resolve_link_target_for_context(
                 open_target: None,
             })
         }
-        LinkTarget::File(path) => Some(ResolvedLinkTarget {
-            osc8_url: file_path_to_url(path),
-            open_target: Some(LinkTarget::File(Arc::clone(path))),
-        }),
+        LinkTarget::File(path) => {
+            let path = file_path_for_open(path);
+            Some(ResolvedLinkTarget {
+                osc8_url: file_path_to_url(&path),
+                open_target: Some(LinkTarget::File(path)),
+            })
+        }
         // The app opens these. They are not browser URLs, so the terminal gets no OSC 8 destination.
         LinkTarget::Subagent(id) => Some(ResolvedLinkTarget {
             osc8_url: None,
@@ -2277,6 +2300,65 @@ mod tests {
         assert_eq!(
             nth_link(&overlay, 0).col_end,
             5 + UnicodeWidthStr::width(path) as u16
+        );
+    }
+
+    #[test]
+    fn percent20_file_link_opens_the_spaced_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("My File.txt");
+        std::fs::write(&file, b"notes").unwrap();
+        let encoded = file.to_str().expect("utf-8 temp path").replace(' ', "%20");
+        assert!(
+            !Path::new(&encoded).exists(),
+            "the %20 spelling must be the path that is missing"
+        );
+
+        let line = make_line(&format!("open {encoded} please"));
+        let mut overlay = LinkOverlay::new();
+        scan_unjoined(std::iter::once((0, &line)), 0, &[], &mut overlay);
+
+        assert_eq!(overlay.links().len(), 1, "the %20 path is one file link");
+        let resolved = resolve_link_target(&nth_link(&overlay, 0).target).expect("resolved");
+        let Some(LinkTarget::File(opened)) = &resolved.open_target else {
+            panic!("file link must open a file, got {:?}", resolved.open_target);
+        };
+        assert_eq!(
+            opened.as_ref(),
+            file.as_path(),
+            "opening the %20 link must use the file that exists, got {}",
+            opened.display()
+        );
+        let url = resolved.osc8_url.expect("osc8");
+        let parsed = url::Url::parse(&url).expect("file url");
+        assert_eq!(parsed.to_file_path().expect("path"), file);
+    }
+
+    #[test]
+    fn percent20_file_link_keeps_a_literal_session_name() {
+        // Session folders are named with the encoded workspace path, so `%20` and `%2F` are real characters.
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("sessions").join("%2Fhome%2FMy%20Docs");
+        std::fs::create_dir_all(&session).unwrap();
+        let file = session.join("1.jpg");
+        std::fs::write(&file, b"x").unwrap();
+        let path = file.to_str().expect("utf-8 temp path");
+
+        let line = make_line(&format!("saved {path}."));
+        let mut overlay = LinkOverlay::new();
+        scan_unjoined(std::iter::once((0, &line)), 0, &[], &mut overlay);
+
+        assert_eq!(overlay.links().len(), 1);
+        let resolved = resolve_link_target(&nth_link(&overlay, 0).target).expect("resolved");
+        let Some(LinkTarget::File(opened)) = &resolved.open_target else {
+            panic!("expected a file target");
+        };
+        assert_eq!(opened.as_ref(), file.as_path());
+        let opened_text = opened.to_str().expect("utf-8");
+        assert!(opened_text.contains("%2F"), "a session slash must stay encoded");
+        assert!(
+            opened_text.contains("%20"),
+            "a session space must stay encoded when that directory exists"
         );
     }
 
