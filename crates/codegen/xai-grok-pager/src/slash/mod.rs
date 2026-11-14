@@ -202,10 +202,23 @@ fn trigger_exact_query(trigger: &CommandTrigger, query: &str) -> bool {
     trigger.match_text == query
 }
 
-/// True when the trigger's displayed identity (not a bare-suffix sibling) is exactly `query`.
-/// Owns the cross-command exactness tiebreak so MRU cannot rank a colliding skill above a fully-typed builtin.
-fn trigger_owns_typed_name(trigger: &CommandTrigger, query: &str) -> bool {
-    trigger.alias.as_deref().unwrap_or(&trigger.canonical) == query
+/// Command indexes whose name, alias, or (when nothing else claims the name) bare match text is exactly `query`.
+/// A fully typed builtin still beats a colliding skill. A fully typed skill name beats a longer prefix and MRU.
+fn commands_owning_exact_query(triggers: &[&CommandTrigger], query: &str) -> HashSet<usize> {
+    let identity_exact = |trigger: &CommandTrigger| {
+        trigger
+            .alias
+            .as_deref()
+            .unwrap_or(trigger.canonical.as_str())
+            == query
+    };
+    let any_identity = triggers.iter().copied().any(identity_exact);
+    triggers
+        .iter()
+        .copied()
+        .filter(|trigger| identity_exact(trigger) || (!any_identity && trigger.match_text == query))
+        .map(|trigger| trigger.command_index)
+        .collect()
 }
 
 /// Ghost suffix from the selected dropdown row (same ranker as Tab).
@@ -1199,13 +1212,16 @@ impl SlashController {
                 .map(|(canonical, _)| m.rank_score(trimmed, canonical))
                 .collect()
         };
+        let exact_owners = commands_owning_exact_query(&visible_triggers, trimmed);
         let owns_typed_name: Vec<bool> = visible_triggers
             .iter()
-            .map(|t| trigger_owns_typed_name(t, trimmed))
+            .map(|t| exact_owners.contains(&t.command_index))
             .collect();
         deduped.sort_by(|a, b| {
-            b.0.cmp(&a.0)
-                .then_with(|| owns_typed_name.get(b.1).cmp(&owns_typed_name.get(a.1)))
+            owns_typed_name
+                .get(b.1)
+                .cmp(&owns_typed_name.get(a.1))
+                .then_with(|| b.0.cmp(&a.0))
                 .then_with(|| mru_scores.get(b.1).cmp(&mru_scores.get(a.1)))
                 .then_with(|| {
                     let a_builtin = sort_meta
@@ -3046,6 +3062,55 @@ mod tests {
             state.snapshot().matches.first().map(|m| m.display.as_str()),
             Some("/login"),
             "recently-used colliding skill must not hijack the typed builtin name"
+        );
+    }
+
+    /// A fully typed skill name is the selection even when a longer prefix was used more recently.
+    #[test]
+    fn full_skill_name_selects_the_exact_match() {
+        let mut ctrl = SlashController::new(
+            CommandRegistry::new(vec![Arc::new(TieCmd("login-extra"))]),
+            std::path::PathBuf::from("."),
+        );
+        let meta = serde_json::json!({
+            "scope": "plugin",
+            "path": "/plugins/acme/skills/login/SKILL.md",
+            "pluginName": "acme",
+            "bareName": "login",
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        ctrl.registry_mut()
+            .set_acp_commands(&[agent_client_protocol::AvailableCommand::new(
+                "acme:login".to_string(),
+                "Acme login skill".to_string(),
+            )
+            .meta(meta)]);
+        let mut store = mru::SlashMru::new_in_memory();
+        store.seed_for_test("", "login-extra", 1_700_000_900);
+        ctrl.set_mru(std::rc::Rc::new(std::cell::RefCell::new(store)));
+
+        let state = SlashState::default();
+        let models = ModelState::default();
+        ctrl.refresh(&state, "/login", 6, &models);
+        let snap = state.snapshot();
+        assert!(
+            snap.matches.iter().any(|row| row.display == "/acme:login"),
+            "the skill must stay in the menu: {:?}",
+            snap.matches
+                .iter()
+                .map(|row| row.display.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            snap.selection().map(|row| row.display.as_str()),
+            Some("/acme:login"),
+            "typing the full skill name selects that skill, got {:?}",
+            snap.matches
+                .iter()
+                .map(|row| row.display.as_str())
+                .collect::<Vec<_>>()
         );
     }
 
