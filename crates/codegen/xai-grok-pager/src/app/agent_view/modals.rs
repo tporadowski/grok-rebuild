@@ -1826,7 +1826,7 @@ impl AgentView {
                         {
                             return InputOutcome::Unchanged;
                         }
-                        state.pending_action = Some("authenticating...".into());
+                        state.pending_action = Some("Authenticating\u{2026}".into());
                         state.pending_entry_index = Some(sel);
                         return InputOutcome::Action(Action::McpAuthTrigger {
                             server_name: server.name.clone(),
@@ -1888,7 +1888,7 @@ impl AgentView {
             ButtonAction::AddMcpServer { name, config } => {
                 if let Some(ref mut state) = self.extensions_modal {
                     // No pending_entry_index: the new row doesn't exist yet, so any index would decorate an unrelated existing row
-                    state.pending_action = Some("adding...".into());
+                    state.pending_action = Some("Adding\u{2026}".into());
                 }
                 InputOutcome::Action(Action::UpsertMcpServer { name, config })
             }
@@ -2100,7 +2100,7 @@ impl AgentView {
                 };
                 let skill_name = skill.name.clone();
                 let enabled = !skill.enabled;
-                state.pending_action = Some("toggling...".into());
+                state.pending_action = Some("Toggling\u{2026}".into());
                 state.pending_entry_index = Some(state.picker_state.selected);
                 InputOutcome::Action(Action::ToggleSkill {
                     skill_name,
@@ -2388,7 +2388,7 @@ impl AgentView {
                 .execute_modal_button_action(ButtonAction::MarketplaceAction(marketplace_action)),
             ConfirmationAction::DeleteMcpServer { server_name } => {
                 if let Some(ref mut s) = self.extensions_modal {
-                    s.pending_action = Some("removing...".into());
+                    s.pending_action = Some("Removing\u{2026}".into());
                 }
                 InputOutcome::Action(Action::DeleteMcpServer { server_name })
             }
@@ -3400,7 +3400,7 @@ mod extensions_action_target_tests {
                 other => panic!("enabled={enabled}: expected skill toggle, got {other:?}"),
             }
             let state = agent.extensions_modal.as_ref().expect("modal stays open");
-            assert_eq!(state.pending_action.as_deref(), Some("toggling..."));
+            assert_eq!(state.pending_action.as_deref(), Some("Toggling\u{2026}"));
             assert_eq!(state.pending_entry_index, Some(1));
             assert_eq!(state.modal_message, None);
         }
@@ -4664,7 +4664,7 @@ mod extensions_modal_confirmation_tests {
             other => panic!("expected DeleteMcpServer alpha, got {other:?}"),
         }
         let state = agent.extensions_modal.as_ref().unwrap();
-        assert_eq!(state.pending_action.as_deref(), Some("removing..."));
+        assert_eq!(state.pending_action.as_deref(), Some("Removing\u{2026}"));
         assert_eq!(state.pending_entry_index, Some(0));
         assert!(state.modal_message.is_none());
     }
