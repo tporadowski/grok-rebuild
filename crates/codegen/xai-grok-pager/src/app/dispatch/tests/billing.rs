@@ -280,7 +280,7 @@ fn retry_credit_limit_prompt_toasts_when_stash_empty() {
         matches!(
             &test_agent(&app, AgentId(0)).scrollback.entry(i).unwrap().block,
             crate::scrollback::block::RenderBlock::System(sys)
-                if sys.text.contains("No prompt to retry")
+                if sys.text == "No prompt to retry"
         )
     });
     assert!(has_system, "minimal mode has no toast; need a system line");

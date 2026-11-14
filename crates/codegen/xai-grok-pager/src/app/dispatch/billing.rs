@@ -519,7 +519,7 @@ pub(super) fn dispatch_retry_credit_limit_prompt(app: &mut AppView) -> Vec<Effec
         agent.show_toast("No prompt to retry.");
         agent
             .scrollback
-            .push_block(RenderBlock::system("No prompt to retry."));
+            .push_block(RenderBlock::system("No prompt to retry"));
         return vec![];
     };
     agent.session.enqueue_in_flight_prompt_front(prompt);
