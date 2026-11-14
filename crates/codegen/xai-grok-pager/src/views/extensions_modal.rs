@@ -345,6 +345,39 @@ fn counted(n: usize, singular: &str) -> String {
     }
 }
 
+/// Right-hand source on an MCP server row, matching the full `/mcps` list.
+pub(crate) fn mcp_server_source_label(server: &crate::views::mcps_modal::McpServerInfo) -> String {
+    format!("({})", server.source)
+}
+
+/// One-line tool summary for an MCP server row.
+/// An empty tool list names why, instead of a bare count.
+pub(crate) fn mcp_server_tool_summary(
+    server: &crate::views::mcps_modal::McpServerInfo,
+) -> String {
+    use crate::views::mcps_modal::McpServerDisplayStatus;
+    if server.tools.is_empty() {
+        if server.status == McpServerDisplayStatus::BlockedByPolicy {
+            match server.blocked_reason.as_deref() {
+                Some(reason) => format!("blocked by policy — {reason}"),
+                None => "blocked by policy".to_string(),
+            }
+        } else if !server.enabled {
+            "no tools — server is disabled".to_string()
+        } else if matches!(
+            server.status,
+            McpServerDisplayStatus::SetupRequired | McpServerDisplayStatus::NeedsAuth
+        ) {
+            format!("no tools — {}", server.status.label())
+        } else {
+            "no tools (server may not be connected)".to_string()
+        }
+    } else {
+        let enabled_count = server.tools.iter().filter(|tool| tool.enabled).count();
+        tool_count_summary(server.tools.len(), enabled_count)
+    }
+}
+
 /// MCP tool summary: `1 tool`, `3 tools`, `4 tools (2 enabled)`.
 fn tool_count_summary(total: usize, enabled: usize) -> String {
     let label = counted(total, "tool");
@@ -3487,8 +3520,8 @@ pub fn render_extensions_modal(
             ExtensionsTab::McpServers => {
                 if let TabDataState::Loaded(ref servers) = state.mcps_data {
                     use crate::views::mcps_modal::{
-                        McpSectionId, McpServerDisplayStatus, section_description_lines,
-                        section_for, section_key, section_label,
+                        McpSectionId, section_description_lines, section_for, section_key,
+                        section_label,
                     };
 
                     init_mcps_section_collapse_on_first_load(
@@ -3548,36 +3581,8 @@ pub fn render_extensions_modal(
                                     .clone()
                                     .unwrap_or_else(|| server.name.clone()),
                             );
-                            entry_right_labels.push(format!("({})", server.source));
-                            // Summary line: name the actual cause of an empty tool list instead of guessing at connection state.
-                            if server.tools.is_empty() {
-                                let line =
-                                    if server.status == McpServerDisplayStatus::BlockedByPolicy {
-                                        // The reason already carries its source in parentheses.
-                                        match server.blocked_reason.as_deref() {
-                                            Some(reason) => format!("blocked by policy — {reason}"),
-                                            None => "blocked by policy".to_string(),
-                                        }
-                                    } else if !server.enabled {
-                                        "no tools — server is disabled".to_string()
-                                    } else if matches!(
-                                        server.status,
-                                        McpServerDisplayStatus::SetupRequired
-                                            | McpServerDisplayStatus::NeedsAuth
-                                    ) {
-                                        format!("no tools — {}", server.status.label())
-                                    } else {
-                                        "no tools (server may not be connected)".to_string()
-                                    };
-                                entry_desc_lines.push(vec![line]);
-                            } else {
-                                let enabled_count =
-                                    server.tools.iter().filter(|t| t.enabled).count();
-                                entry_desc_lines.push(vec![tool_count_summary(
-                                    server.tools.len(),
-                                    enabled_count,
-                                )]);
-                            }
+                            entry_right_labels.push(mcp_server_source_label(server));
+                            entry_desc_lines.push(vec![mcp_server_tool_summary(server)]);
                             entry_summary_lines.push(vec![]);
                             entry_fields.push(vec![]);
                             let tools_group_key = format!("mcp-tools:{si}");

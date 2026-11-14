@@ -304,7 +304,12 @@ fn mcps_body_rows(agent: &AgentView) -> u16 {
         &s.mcps_collapsed_sections,
         &s.mcps_tools_expanded,
     );
-    rows.0.len() as u16
+    let summaries = rows
+        .1
+        .iter()
+        .filter(|key| key.as_ref().is_some_and(|key| key.starts_with("mcp-tools:")))
+        .count() as u16;
+    rows.0.len() as u16 + summaries
 }
 
 fn render_mcps(
@@ -326,6 +331,7 @@ fn render_mcps(
     let indents: Vec<u8>;
     let collapsibles: Vec<bool>;
     let expandeds: Vec<bool>;
+    let summaries: Vec<Vec<String>>;
     let subtitle: String;
     let loading;
     {
@@ -349,6 +355,7 @@ fn render_mcps(
                 let mut ind = vec![0u8; n];
                 let mut col = vec![false; n];
                 let mut exp = vec![false; n];
+                let mut summary_lines = vec![Vec::new(); n];
                 for i in 0..n {
                     let gk = row_group_keys.get(i).and_then(|k| k.as_deref());
                     if let Some(k) = gk.filter(|k| k.starts_with("mcp-section:")) {
@@ -401,11 +408,10 @@ fn render_mcps(
                                     }
                                 }
                                 if let Some(right) = rl.get_mut(i) {
-                                    *right = if srv.tool_count == 1 {
-                                        "1 tool".to_string()
-                                    } else {
-                                        format!("{} tools", srv.tool_count)
-                                    };
+                                    *right = minimal_api::mcp_server_source_label(srv);
+                                }
+                                if let Some(lines) = summary_lines.get_mut(i) {
+                                    lines.push(minimal_api::mcp_server_tool_summary(srv));
                                 }
                             }
                         }
@@ -427,6 +433,7 @@ fn render_mcps(
                 indents = ind;
                 collapsibles = col;
                 expandeds = exp;
+                summaries = summary_lines;
             }
             TabDataState::Loading => {
                 subtitle = "loading\u{2026}".to_string();
@@ -439,6 +446,7 @@ fn render_mcps(
                 indents = vec![];
                 collapsibles = vec![];
                 expandeds = vec![];
+                summaries = vec![];
             }
             TabDataState::Error(msg) => {
                 subtitle = format!("error: {msg}");
@@ -451,6 +459,7 @@ fn render_mcps(
                 indents = vec![];
                 collapsibles = vec![];
                 expandeds = vec![];
+                summaries = vec![];
             }
         }
     }
@@ -479,17 +488,21 @@ fn render_mcps(
     let selected = s.picker_state.selected;
     let search_active = s.picker_state.search_active;
     let empty_fields: [PickerField; 0] = [];
-    let no_lines: [&str; 0] = [];
+    let summary_refs: Vec<Vec<&str>> = summaries
+        .iter()
+        .map(|lines| lines.iter().map(String::as_str).collect())
+        .collect();
     let entries: Vec<PickerEntry> = (0..n)
         .map(|i| {
+            let lines = summary_refs.get(i).map(Vec::as_slice).unwrap_or(&[]);
             PickerEntry::Row(PickerRow {
                 label: labels.get(i).map(String::as_str).unwrap_or(""),
                 right_label: right_labels.get(i).map(String::as_str).unwrap_or(""),
                 selected: !search_active && i == selected,
                 expanded: expandeds.get(i).copied().unwrap_or(false),
                 fields: &empty_fields,
-                description_lines: &no_lines,
-                summary_lines: &no_lines,
+                description_lines: lines,
+                summary_lines: lines,
                 dimmed: false,
                 indent: indents.get(i).copied().unwrap_or(0),
                 badge: badges.get(i).map(String::as_str).unwrap_or(""),
@@ -556,10 +569,21 @@ mod tests {
     use super::*;
     use ratatui::layout::Rect;
     use xai_grok_pager::views::extensions_modal::ExtensionsModalState;
-    use xai_grok_pager::views::mcps_modal::{McpServerDisplayStatus, McpServerInfo, McpWireSource};
+    use xai_grok_pager::views::mcps_modal::{
+        McpServerDisplayStatus, McpServerInfo, McpToolDetail, McpWireSource,
+    };
 
     fn agent() -> AgentView {
         minimal_api::test_agent_view(Some("s1"), std::path::PathBuf::from("/tmp/repo"))
+    }
+
+    fn tool_detail(name: &str, enabled: bool) -> McpToolDetail {
+        McpToolDetail {
+            name: name.to_string(),
+            display_name: None,
+            description: None,
+            enabled,
+        }
     }
 
     fn mcp_server(name: &str, status: McpServerDisplayStatus, tools: usize) -> McpServerInfo {
@@ -695,6 +719,43 @@ mod tests {
     }
 
     #[test]
+    fn mcps_panel_shows_source_and_tool_summary() {
+        let mut listed = mcp_server("alpha", McpServerDisplayStatus::Ready, 4);
+        listed.source = "plugin: acme".into();
+        listed.tools = vec![
+            tool_detail("read", true),
+            tool_detail("write", true),
+            tool_detail("hidden", false),
+            tool_detail("off", false),
+        ];
+        let mut disabled = mcp_server("bravo", McpServerDisplayStatus::Unavailable, 0);
+        disabled.enabled = false;
+        disabled.source = "local".into();
+        let mut a = with_mcps(vec![listed, disabled]);
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &mut a, ListPanel::Mcps, &theme);
+        let text = crate::buffer_text(&buf);
+        assert!(
+            text.contains("(plugin: acme)"),
+            "server row keeps its source:\n{text}"
+        );
+        assert!(
+            text.contains("4 tools (2 enabled)"),
+            "tool summary names how many are enabled:\n{text}"
+        );
+        assert!(
+            text.contains("(local)"),
+            "a disabled server still names its source:\n{text}"
+        );
+        assert!(
+            text.contains("no tools — server is disabled"),
+            "an empty disabled server says why:\n{text}"
+        );
+    }
+
+    #[test]
     fn mcps_panel_badges_policy_block_over_disabled() {
         let mut denied = mcp_server("denied-srv", McpServerDisplayStatus::Unavailable, 0);
         denied.enabled = false;
@@ -795,12 +856,13 @@ mod tests {
 
     #[test]
     fn mcps_panel_height_is_chrome_plus_rows() {
-        // One section header + 2 server rows = 3 body rows; + 4 chrome = 7.
+        // One section header + 2 server rows + a tool-summary line under each server.
+        // Body is 5; + 4 chrome = 9.
         let a = with_mcps(vec![
             mcp_server("alpha", McpServerDisplayStatus::Ready, 1),
             mcp_server("bravo", McpServerDisplayStatus::Ready, 2),
         ]);
-        assert_eq!(panel_height(&a, ListPanel::Mcps, 80, 40), 7);
+        assert_eq!(panel_height(&a, ListPanel::Mcps, 80, 40), 9);
         // Clamps to the screen ceiling when content is taller.
         assert_eq!(panel_height(&a, ListPanel::Mcps, 80, 5), 5);
     }

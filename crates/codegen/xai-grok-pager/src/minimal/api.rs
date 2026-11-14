@@ -676,6 +676,16 @@ pub fn mcp_status_label(status: &McpServerDisplayStatus) -> &'static str {
     status.label()
 }
 
+/// Source shown on the right of a minimal `/mcps` server row.
+pub fn mcp_server_source_label(server: &McpServerInfo) -> String {
+    crate::views::extensions_modal::mcp_server_source_label(server)
+}
+
+/// Tool summary under a minimal `/mcps` server row.
+pub fn mcp_server_tool_summary(server: &McpServerInfo) -> String {
+    crate::views::extensions_modal::mcp_server_tool_summary(server)
+}
+
 /// Render a search bar from a [`PickerState`] using its grapheme-safe viewport.
 pub fn render_picker_search_bar(
     buf: &mut Buffer,
