@@ -1183,16 +1183,16 @@ fn push_auth_copy_block(
     lines.push(Line::default());
     lines.push(match clipboard_delivery {
         Some(crate::clipboard::ClipboardDelivery::Confirmed) => {
-            Line::from(Span::styled("copied!", Style::default().fg(theme.gray)))
+            Line::from(Span::styled("Copied!", Style::default().fg(theme.gray)))
                 .alignment(Alignment::Center)
         }
         Some(crate::clipboard::ClipboardDelivery::Unverified) => Line::from(Span::styled(
-            "copy sent: verify paste",
+            "Copy sent: verify paste",
             Style::default().fg(theme.gray),
         ))
         .alignment(Alignment::Center),
         Some(crate::clipboard::ClipboardDelivery::Failed) => {
-            Line::from(Span::styled("copy failed", Style::default().fg(theme.gray)))
+            Line::from(Span::styled("Copy failed", Style::default().fg(theme.gray)))
                 .alignment(Alignment::Center)
         }
         None => Line::default(),
@@ -2870,12 +2870,12 @@ mod tests {
     fn auth_copy_feedback_covers_delivery_states() {
         let theme = Theme::current();
         for (delivery, expected) in [
-            (crate::clipboard::ClipboardDelivery::Confirmed, "copied!"),
+            (crate::clipboard::ClipboardDelivery::Confirmed, "Copied!"),
             (
                 crate::clipboard::ClipboardDelivery::Unverified,
-                "copy sent: verify paste",
+                "Copy sent: verify paste",
             ),
-            (crate::clipboard::ClipboardDelivery::Failed, "copy failed"),
+            (crate::clipboard::ClipboardDelivery::Failed, "Copy failed"),
         ] {
             let mut lines = Vec::new();
             push_auth_copy_block(&mut lines, &theme, Some(delivery));
