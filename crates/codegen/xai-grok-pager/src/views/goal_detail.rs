@@ -674,25 +674,22 @@ pub fn render_goal_detail(
         y += 1;
 
         let display_count = todos.len().min(MAX_TODO_DISPLAY);
+        let todo_style = crate::views::todo_pane::TodoPaneStyle::default();
         for item in todos.iter().take(display_count) {
             if y >= inner.y + inner.height.saturating_sub(1) {
                 break;
             }
-            let (icon, icon_color) = match item.status {
-                TodoStatus::Pending => (crate::glyphs::pending_mark(), theme.gray),
-                TodoStatus::InProgress => ("\u{25b6}", theme.warning),
-                TodoStatus::Completed => (crate::glyphs::check_mark(), theme.accent_success),
-                TodoStatus::Cancelled => (crate::glyphs::ballot_x(), theme.accent_error),
-            };
+            let (icon, status_style) =
+                crate::views::todo_pane::todo_status_parts(item.status, &todo_style);
             // Reserve space for the "  {icon} " prefix (~4 cols) plus content
             // Use display width (not char count) so CJK and emoji measure correctly
             let content_budget = (w as usize).saturating_sub(5);
             let content_display = truncate_to_width(&item.content, content_budget);
             let spans = vec![
                 Span::raw("  "),
-                Span::styled(icon, Style::default().fg(icon_color)),
+                Span::styled(icon, Style::default().fg(status_style.icon_fg)),
                 Span::raw(" "),
-                Span::styled(content_display, Style::default().fg(theme.text_primary)),
+                Span::styled(content_display, status_style.text_style),
             ];
             buf.set_line_safe(x, y, &Line::from(spans), w);
             y += 1;
@@ -1964,6 +1961,58 @@ mod tests {
         assert!(text.contains("\u{25b6} wip"), "missing ▶ for InProgress");
         assert!(text.contains("\u{25a1} todo"), "missing □ for Pending");
         assert!(text.contains("\u{2717} skip"), "missing ✗ for Cancelled");
+    }
+
+    #[test]
+    fn goal_overlay_todos_use_the_todo_pane_style() {
+        let screen = Rect::new(0, 0, 80, 24);
+        let mut buf = ratatui::buffer::Buffer::empty(screen);
+        let goal = make_goal();
+        let todos = vec![
+            make_todo("wip", TodoStatus::InProgress),
+            make_todo("skip", TodoStatus::Cancelled),
+            make_todo("todo", TodoStatus::Pending),
+        ];
+        let area = goal_detail_area(screen, &goal, &todos);
+        render_goal_detail(&mut buf, area, &goal, &todos, 0, None, 0, false);
+        let pane = crate::views::todo_pane::TodoPaneStyle::default();
+
+        let (wx, wy) = find_word(&buf, "wip");
+        let wip = buf.cell((wx, wy)).expect("wip").style();
+        assert!(
+            wip.add_modifier.contains(Modifier::BOLD),
+            "in-progress text is bold in the todo pane"
+        );
+        assert_eq!(wip.fg, pane.in_progress.text_style.fg);
+        let icon = buf.cell((wx - 2, wy)).expect("wip icon");
+        assert_eq!(icon.symbol(), crate::glyphs::play_mark());
+        assert_eq!(icon.style().fg, Some(pane.in_progress.icon_fg));
+
+        let (sx, sy) = find_word(&buf, "skip");
+        let skip = buf.cell((sx, sy)).expect("skip").style();
+        assert!(skip.add_modifier.contains(Modifier::CROSSED_OUT));
+        assert_eq!(skip.fg, pane.cancelled.text_style.fg);
+
+        let (px, py) = find_word(&buf, "todo");
+        let pending_icon = buf.cell((px - 2, py)).expect("pending icon");
+        assert_eq!(pending_icon.style().fg, Some(pane.pending.icon_fg));
+    }
+
+    fn find_word(buf: &ratatui::buffer::Buffer, word: &str) -> (u16, u16) {
+        let chars: Vec<char> = word.chars().collect();
+        for y in 0..buf.area.height {
+            let last = buf.area.width.saturating_sub(chars.len() as u16);
+            for x in 0..=last {
+                let matched = chars.iter().enumerate().all(|(i, ch)| {
+                    buf.cell((x + i as u16, y))
+                        .is_some_and(|cell| cell.symbol() == ch.to_string())
+                });
+                if matched {
+                    return (x, y);
+                }
+            }
+        }
+        panic!("missing {word}");
     }
 
     #[test]

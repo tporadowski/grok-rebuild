@@ -64,14 +64,32 @@ pub struct TodoListEntry {
     status_style: TodoStatusStyle,
 }
 
+/// Icon and colors the Todo pane uses for one status. Goal overlays use the same pair.
+fn todo_status_icon(status: TodoStatus) -> &'static str {
+    match status {
+        TodoStatus::Pending => crate::glyphs::pending_mark(),
+        TodoStatus::InProgress => crate::glyphs::play_mark(),
+        TodoStatus::Completed => crate::glyphs::check_mark(),
+        TodoStatus::Cancelled => crate::glyphs::ballot_x(),
+    }
+}
+
+pub(crate) fn todo_status_parts(
+    status: TodoStatus,
+    style: &TodoPaneStyle,
+) -> (&'static str, TodoStatusStyle) {
+    let look = match status {
+        TodoStatus::Pending => style.pending,
+        TodoStatus::InProgress => style.in_progress,
+        TodoStatus::Completed => style.completed,
+        TodoStatus::Cancelled => style.cancelled,
+    };
+    (todo_status_icon(status), look)
+}
+
 impl TodoListEntry {
     pub fn new(id: u64, item: TodoItem, style: &TodoPaneStyle) -> Self {
-        let status_style = match item.status {
-            TodoStatus::Pending => style.pending,
-            TodoStatus::InProgress => style.in_progress,
-            TodoStatus::Completed => style.completed,
-            TodoStatus::Cancelled => style.cancelled,
-        };
+        let (_, status_style) = todo_status_parts(item.status, style);
         let styled = Line::from(Span::styled(item.content.clone(), status_style.text_style));
         Self {
             id,
@@ -82,12 +100,7 @@ impl TodoListEntry {
     }
 
     fn icon(&self) -> &'static str {
-        match self.item.status {
-            TodoStatus::Pending => crate::glyphs::pending_mark(),
-            TodoStatus::InProgress => crate::glyphs::play_mark(),
-            TodoStatus::Completed => crate::glyphs::check_mark(),
-            TodoStatus::Cancelled => crate::glyphs::ballot_x(),
-        }
+        todo_status_icon(self.item.status)
     }
 }
 
