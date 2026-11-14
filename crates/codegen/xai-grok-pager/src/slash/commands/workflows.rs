@@ -19,6 +19,7 @@ impl SlashCommand for WorkflowsCommand {
         CommandResult::Action(Action::OpenExtensionsModal {
             tab: ExtensionsTab::Workflows,
             trigger: ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         })
     }
 }
@@ -79,6 +80,7 @@ mod tests {
             CommandResult::Action(Action::OpenExtensionsModal {
                 tab: ExtensionsTab::Workflows,
                 trigger: ExtensionsModalTrigger::SlashCommand,
+                skills_query: None,
             })
         ));
         // Parity with /skills: the modal renders in minimal mode too.

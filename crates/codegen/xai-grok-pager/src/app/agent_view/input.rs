@@ -1154,6 +1154,7 @@ impl AgentView {
             return InputOutcome::Action(Action::OpenExtensionsModal {
                 tab: crate::views::extensions_modal::ExtensionsTab::Plugins,
                 trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::KeyboardShortcut,
+                skills_query: None,
             });
         }
         if let Event::Key(key) = ev

@@ -838,6 +838,7 @@ impl AgentView {
                                 InputOutcome::Action(Action::OpenExtensionsModal {
                                     tab,
                                     trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::CommandPalette,
+                                    skills_query: None,
                                 })
                             }
                             PaletteCommand::OpenSettings => {

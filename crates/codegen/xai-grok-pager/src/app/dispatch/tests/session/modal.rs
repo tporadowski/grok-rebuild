@@ -2,6 +2,45 @@
 //! and session close helpers shared with the dashboard.
 use super::*;
 #[test]
+fn skills_named_on_the_command_filters_the_skills_tab() {
+    use crate::views::extensions_modal::ExtensionsTab;
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    dispatch(
+        Action::OpenExtensionsModal {
+            tab: ExtensionsTab::Skills,
+            trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: Some("ship".into()),
+        },
+        &mut app,
+    );
+    let modal = app
+        .agents
+        .get(&id)
+        .and_then(|agent| agent.extensions_modal.as_ref())
+        .expect("skills modal");
+    assert_eq!(modal.active_tab, ExtensionsTab::Skills);
+    assert_eq!(modal.picker_state.query(), "ship");
+    assert!(modal.picker_state.search_active);
+
+    dispatch(
+        Action::OpenExtensionsModal {
+            tab: ExtensionsTab::Skills,
+            trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
+        },
+        &mut app,
+    );
+    let modal = app
+        .agents
+        .get(&id)
+        .and_then(|agent| agent.extensions_modal.as_ref())
+        .expect("skills modal");
+    assert_eq!(modal.picker_state.query(), "");
+    assert!(!modal.picker_state.search_active);
+}
+
+#[test]
 fn open_extensions_modal_no_session_sets_flag_no_fetches() {
     use crate::views::extensions_modal::ExtensionsTab;
     let mut app = test_app_with_agent();
@@ -11,6 +50,7 @@ fn open_extensions_modal_no_session_sets_flag_no_fetches() {
         Action::OpenExtensionsModal {
             tab: ExtensionsTab::Hooks,
             trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         },
         &mut app,
     );
@@ -36,6 +76,7 @@ fn open_extensions_modal_with_session_emits_fetches_no_flag() {
         Action::OpenExtensionsModal {
             tab: ExtensionsTab::Hooks,
             trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         },
         &mut app,
     );
@@ -56,6 +97,7 @@ fn open_extensions_modal_with_session_resets_stale_flag() {
         Action::OpenExtensionsModal {
             tab: ExtensionsTab::Hooks,
             trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         },
         &mut app,
     );
@@ -116,6 +158,7 @@ fn only_reloading_the_skills_tab_rescans_skills() {
         Action::OpenExtensionsModal {
             tab: ExtensionsTab::Skills,
             trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         },
         &mut app,
     );
@@ -394,6 +437,7 @@ fn marketplace_fetch_coalesces_while_inflight() {
         Action::OpenExtensionsModal {
             tab: ExtensionsTab::Marketplace,
             trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         },
         &mut app,
     );
@@ -438,6 +482,7 @@ fn marketplace_fetch_fires_immediately_when_idle() {
         Action::OpenExtensionsModal {
             tab: ExtensionsTab::Marketplace,
             trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         },
         &mut app,
     );

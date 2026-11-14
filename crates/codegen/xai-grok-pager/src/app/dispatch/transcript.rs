@@ -568,6 +568,7 @@ pub(super) fn dispatch_open_extensions_modal(
     app: &mut AppView,
     tab: crate::views::extensions_modal::ExtensionsTab,
     trigger: xai_grok_telemetry::events::ExtensionsModalTrigger,
+    skills_query: Option<String>,
 ) -> Vec<Effect> {
     use crate::views::extensions_modal::ExtensionsModalState;
 
@@ -583,6 +584,12 @@ pub(super) fn dispatch_open_extensions_modal(
     agent.agents_modal = None;
     let mut modal = ExtensionsModalState::new(tab);
     modal.session_team_id = app.team_id.clone();
+    if tab == crate::views::extensions_modal::ExtensionsTab::Skills
+        && let Some(query) = skills_query.as_deref().map(str::trim).filter(|q| !q.is_empty())
+    {
+        modal.picker_state.set_query(query);
+        modal.picker_state.search_active = true;
+    }
     agent.extensions_modal = Some(modal);
     log_event(xai_grok_telemetry::events::ExtensionsModalOpened {
         trigger,

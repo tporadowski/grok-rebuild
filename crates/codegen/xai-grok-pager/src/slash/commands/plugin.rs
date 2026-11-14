@@ -22,6 +22,7 @@ impl SlashCommand for HooksCommand {
         CommandResult::Action(Action::OpenExtensionsModal {
             tab: ExtensionsTab::Hooks,
             trigger: ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         })
     }
 }
@@ -41,6 +42,7 @@ impl SlashCommand for PluginsCommand {
         CommandResult::Action(Action::OpenExtensionsModal {
             tab: ExtensionsTab::Plugins,
             trigger: ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         })
     }
 }
@@ -59,6 +61,7 @@ impl SlashCommand for MarketplaceCommand {
         CommandResult::Action(Action::OpenExtensionsModal {
             tab: ExtensionsTab::Marketplace,
             trigger: ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         })
     }
 }
@@ -70,13 +73,15 @@ impl SlashCommand for SkillsCommand {
     slash_meta! {
         name: "skills",
         description: "View skills",
-        usage: "/skills",
+        usage: "/skills [name]",
     }
 
-    fn run(&self, _ctx: &mut CommandExecCtx, _args: &str) -> CommandResult {
+    fn run(&self, _ctx: &mut CommandExecCtx, args: &str) -> CommandResult {
+        let query = args.trim();
         CommandResult::Action(Action::OpenExtensionsModal {
             tab: ExtensionsTab::Skills,
             trigger: ExtensionsModalTrigger::SlashCommand,
+            skills_query: (!query.is_empty()).then(|| query.to_string()),
         })
     }
 }

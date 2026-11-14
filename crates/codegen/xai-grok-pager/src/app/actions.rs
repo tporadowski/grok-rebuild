@@ -377,6 +377,8 @@ pub enum Action {
     OpenExtensionsModal {
         tab: crate::views::extensions_modal::ExtensionsTab,
         trigger: xai_grok_telemetry::events::ExtensionsModalTrigger,
+        /// Name typed after `/skills`. Other tabs ignore it.
+        skills_query: Option<String>,
     },
     /// Open the agents modal (listing all agent definitions).
     /// Optionally opens directly on a specific tab.

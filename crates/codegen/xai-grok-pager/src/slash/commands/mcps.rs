@@ -14,6 +14,7 @@ impl SlashCommand for McpsCommand {
         CommandResult::Action(Action::OpenExtensionsModal {
             tab: crate::views::extensions_modal::ExtensionsTab::McpServers,
             trigger: xai_grok_telemetry::events::ExtensionsModalTrigger::SlashCommand,
+            skills_query: None,
         })
     }
 }

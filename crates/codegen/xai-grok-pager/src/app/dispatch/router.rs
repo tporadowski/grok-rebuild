@@ -744,11 +744,15 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
             dispatch_open_block_viewer(app);
             vec![]
         }
-        Action::OpenExtensionsModal { tab, trigger } => {
+        Action::OpenExtensionsModal {
+            tab,
+            trigger,
+            skills_query,
+        } => {
             if app.appearance.disable_plugins {
                 return vec![];
             }
-            dispatch_open_extensions_modal(app, tab, trigger)
+            dispatch_open_extensions_modal(app, tab, trigger, skills_query)
         }
         Action::OpenConfigAgentsModal(tab) => dispatch_open_config_agents_modal(app, tab),
         Action::McpAuthTrigger { server_name } => {
