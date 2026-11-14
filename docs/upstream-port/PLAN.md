@@ -1187,7 +1187,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 0 | 0 | 30 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 6 | 0 | 50 | 13 | 1 |
+| W8 | Sessions, resume, and dashboard | 5 | 0 | 51 | 13 | 1 |
 | W9 | Prompt, mentions, and keyboard | 3 | 0 | 47 | 7 | 0 |
 | W10 | Transcript, density, and copy | 6 | 0 | 52 | 4 | 0 |
 | W11 | Headless mode and tools | 1 | 0 | 43 | 7 | 0 |
@@ -1198,9 +1198,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 8 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 41. Skipped: 9. Done: 574. Already: 113. Deferred: 30.
+Catalog rows: 767. Pending: 40. Skipped: 9. Done: 575. Already: 113. Deferred: 30.
 
-**Next:** v86-x18
+**Next:** v86-x26
 
 ## Waves
 
@@ -1234,7 +1234,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 6. Done: 50 (`v86-x03`; `v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 13 (`v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 1 (`v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
+Pending: 5. Done: 51 (`v86-x18`; `v86-x03`; `v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 13 (`v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 1 (`v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -1973,7 +1973,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x15 | pending | W14 | Bug Fixes |  |  | Result notices after extension actions stay visible as long as other messages.
 - v86-x16 | pending | W14 | Bug Fixes |  |  | **Feedback and settings modals** show an Esc hint when the terminal is too small.
 - v86-x17 | pending | W14 | Bug Fixes |  |  | Toast messages for settings resets and voice errors follow a consistent format.
-- v86-x18 | pending | W8 | Bug Fixes |  |  | **Update notices** on the welcome screen align consistently.
+- v86-x18 | done | W8 | Bug Fixes |  |  | **Update notices** on the welcome screen align consistently.
 - v86-x19 | pending | W14 | Bug Fixes |  |  | Error messages for failed actions include the reason in a single sentence.
 - v86-x20 | pending | W14 | Bug Fixes |  |  | The cancel-turn panel uses the correct text color and ellipsis when narrow.
 - v86-x21 | deferred | W2 | Bug Fixes |  |  | Several CLI subcommand messages use consistent punctuation and path quoting.

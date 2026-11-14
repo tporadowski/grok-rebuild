@@ -2266,9 +2266,10 @@ fn render_welcome_done(
                     Style::default().fg(theme.accent_user),
                 ),
             ]);
+            // Same one-column inset as "Tip:" so the notice lines up with the other rows above the prompt.
             Paragraph::new(line)
                 .style(Style::default().bg(theme.bg_base))
-                .render(tip_inset, buf);
+                .render(crate::tips::render::hint_text_area(tip_inset), buf);
         }
 
         // Recent foreign session: offer a one-click resume in the tip area (only when no update is pending; the update shares Ctrl+U and wins)
@@ -3415,6 +3416,38 @@ mod tests {
             assert!(text.contains("2m ago"), "{text}");
             assert!(text.contains("Ctrl+U"), "{text}");
         }
+    }
+
+    #[test]
+    fn pending_update_notice_lines_up_with_the_tip() {
+        let auth = AuthState::Done;
+        let trust = TrustState::Done;
+        let mut update = render_params(&auth, &trust, None);
+        update.pending_update_version = Some("9.9.9");
+        let mut tip = render_params(&auth, &trust, None);
+        tip.tip = Some("press ? for shortcuts");
+
+        let area = Rect::new(0, 0, 100, 40);
+        let start_col = |params: &WelcomeRenderParams, needle: &str| -> u16 {
+            let mut buf = Buffer::empty(area);
+            let mut prompt = PromptWidget::new();
+            let mut picker = PickerState::default();
+            render_welcome(area, &mut buf, params, &mut prompt, &mut picker);
+            for y in 0..area.height {
+                let row: String = (0..area.width)
+                    .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect();
+                if let Some(index) = row.find(needle) {
+                    return index as u16;
+                }
+            }
+            panic!("missing {needle}");
+        };
+        assert_eq!(
+            start_col(&update, "Update:"),
+            start_col(&tip, "Tip:"),
+            "the update notice starts in the same column as a welcome tip"
+        );
     }
 
     #[test]
