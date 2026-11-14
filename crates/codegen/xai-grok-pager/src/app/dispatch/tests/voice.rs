@@ -1351,3 +1351,25 @@ fn without_voice_the_chord_is_refused() {
         .expect("a build without voice refuses it");
     assert_eq!(refusal, last_system_text(&app, AgentId(0)));
 }
+
+/// A pipeline that never starts, or that dies while listening, uses the same `Voice: …` toast as a voice error.
+#[test]
+fn voice_pipeline_errors_use_the_voice_prefix() {
+    assert_eq!(
+        crate::voice::VOICE_COULD_NOT_START_TOAST,
+        "Voice: could not start. Restart Grok."
+    );
+    assert_eq!(
+        crate::voice::VOICE_STOPPED_UNEXPECTEDLY_TOAST,
+        "Voice: stopped unexpectedly. Try again."
+    );
+    let mut app = test_app_with_agent();
+    crate::voice::handle_voice_event(
+        &mut app,
+        xai_grok_voice::VoiceEvent::Error {
+            message: "could not start. Restart Grok.".into(),
+            hint: None,
+        },
+    );
+    assert_eq!(read_toast(&app), crate::voice::VOICE_COULD_NOT_START_TOAST);
+}

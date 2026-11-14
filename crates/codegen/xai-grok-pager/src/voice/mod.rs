@@ -26,6 +26,7 @@ pub use handle::handle_tagged_voice_event;
 pub(crate) use handle::handle_voice_event;
 pub(crate) use handle::{
     RECORDING_DISCARDED_TOAST, TRANSCRIPTION_TIMED_OUT_KEPT_TOAST, TRANSCRIPTION_TIMED_OUT_TOAST,
+    VOICE_COULD_NOT_START_TOAST, VOICE_STOPPED_UNEXPECTEDLY_TOAST,
 };
 pub(crate) use handle::{
     VoiceInterimCommit, commit_interim_into_prompt, merge_voice_fragment, prompt_blank_for_voice,

@@ -13,6 +13,11 @@ pub(crate) const TRANSCRIPTION_TIMED_OUT_TOAST: &str =
     "Voice: transcription timed out; recording discarded";
 pub(crate) const TRANSCRIPTION_TIMED_OUT_KEPT_TOAST: &str =
     "Voice: transcription timed out; the words shown so far were kept";
+/// The voice pipeline never started. Same `Voice: …` shape as other voice toasts.
+pub(crate) const VOICE_COULD_NOT_START_TOAST: &str = "Voice: could not start. Restart Grok.";
+/// The voice event channel closed while the user was listening.
+pub(crate) const VOICE_STOPPED_UNEXPECTEDLY_TOAST: &str =
+    "Voice: stopped unexpectedly. Try again.";
 
 /// Whether a draft counts as blank for voice insertion: an empty or whitespace-only draft is
 /// replaced wholesale rather than dictated into. Shared by the insert, submit-merge, and ghost
@@ -243,7 +248,7 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
             true
         }
         VoiceEvent::Notice { message } => {
-            app.show_toast(&format!("Voice: {message}"));
+            app.show_toast(&voice_toast(&message));
             true
         }
         VoiceEvent::UtteranceFinal { text } => {
@@ -265,7 +270,7 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
                 let _ = commit_interim_into_prompt(app);
             }
             app.voice_reset();
-            app.show_toast(&format!("Voice: {message}"));
+            app.show_toast(&voice_toast(&message));
             // The hint holds long fix steps, so it goes to the agent or peek scrollback; a toast is one line, and dashboard dispatch has no scrollback
             if let Some(hint) = hint
                 && let Some(VoiceTarget::Agent(id) | VoiceTarget::DashboardPeekReply(id)) = target
@@ -282,6 +287,11 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
     }
 }
 
+/// `Voice: {message}` — every voice toast and voice-error scrollback line uses this prefix.
+pub(crate) fn voice_toast(message: &str) -> String {
+    format!("Voice: {message}")
+}
+
 /// Scrollback text for a voice error and its longer hint.
 /// A message that already ends a sentence keeps that mark. One that does not gets a single period
 /// before the hint, so the sentences stay separate and a finished sentence is not doubled.
@@ -289,15 +299,15 @@ fn voice_error_with_hint(message: &str, hint: &str) -> String {
     let message = message.trim();
     let hint = hint.trim();
     if hint.is_empty() {
-        return format!("Voice: {message}");
+        return voice_toast(message);
     }
     if message.is_empty() {
-        return format!("Voice: {hint}");
+        return voice_toast(hint);
     }
     if ends_sentence(message) {
-        format!("Voice: {message} {hint}")
+        voice_toast(&format!("{message} {hint}"))
     } else {
-        format!("Voice: {message}. {hint}")
+        voice_toast(&format!("{message}. {hint}"))
     }
 }
 

@@ -30,7 +30,12 @@ use agent_client_protocol as acp;
 /// Format a "✓ Label: value" success toast.
 pub(in crate::app::dispatch) fn save_success_toast(label: &str, on: bool) -> String {
     let value = if on { "on" } else { "off" };
-    format!("\u{2713} {label}: {value}")
+    setting_status_toast(label, value)
+}
+
+/// `✓ {label}: {detail}`. Settings saves and reset notices share this shape.
+pub(in crate::app::dispatch) fn setting_status_toast(label: &str, detail: &str) -> String {
+    format!("\u{2713} {label}: {detail}")
 }
 
 /// Refresh every open settings modal's `ui_snapshot` and `pager_snapshot` so the next render reads the latest live state.
@@ -397,7 +402,7 @@ pub(in crate::app::dispatch) fn dispatch_confirm_reset_setting(
                     "reset skipped — setting already at default",
                 );
                 with_active_agent(app, |agent| {
-                    agent.show_toast(&format!("{}: already at default", meta.label));
+                    agent.show_toast(&setting_status_toast(meta.label, "already at default"));
                 });
                 return vec![];
             }

@@ -1977,7 +1977,7 @@ pub(crate) async fn run(
             } else if app.voice_cmd_tx.is_none() {
                 app.voice_reset();
                 app.voice_ui_active = false;
-                app.show_toast("Voice could not start. Restart Grok.");
+                app.show_toast(crate::voice::VOICE_COULD_NOT_START_TOAST);
             } else {
                 app.voice_reset();
             }
@@ -2965,7 +2965,7 @@ pub(crate) async fn run(
                         // Pipeline is gone: drop any session/interim entirely.
                         app.voice_reset();
                         if was_listening {
-                            app.show_toast("Voice stopped unexpectedly. Try again.");
+                            app.show_toast(crate::voice::VOICE_STOPPED_UNEXPECTEDLY_TOAST);
                         }
                         presenter.request(false);
                     }

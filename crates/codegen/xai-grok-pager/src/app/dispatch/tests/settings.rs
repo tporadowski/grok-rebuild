@@ -1490,6 +1490,44 @@ fn dispatch_confirm_reset_setting_reset_on_already_default_is_no_op_with_toast()
         "expected 'already at default' toast, got: {toast_text:?}",
     );
 }
+/// A reset that changes nothing uses the same `✓ Label: detail` toast as a setting that was saved.
+#[test]
+fn settings_reset_toasts_use_the_checkmark_format() {
+    use crate::views::modal::ResetSettingsResult;
+    let mut app = test_app_with_agent();
+    setup_reset_confirm_open(&mut app, "compact_mode");
+    let effects = dispatch(
+        Action::ConfirmResetSetting {
+            choice: ResetSettingsResult::Reset,
+        },
+        &mut app,
+    );
+    assert!(
+        effects.is_empty(),
+        "idempotent reset must emit NO Effects, got {effects:?}",
+    );
+    assert_eq!(
+        read_toast(&app),
+        "\u{2713} Compact mode: already at default"
+    );
+
+    let mut app = test_app_with_agent();
+    assert!(dispatch(Action::ClearSubagentModelInheritance, &mut app).is_empty());
+    assert_eq!(
+        read_toast(&app),
+        "\u{2713} Subagent model inheritance: nothing to reset"
+    );
+    app.subagent_model_inheritance.config.below_user =
+        Some(xai_grok_shell::agent::config::FeatureLayerValue {
+            layer: xai_grok_shell::agent::config::FeatureConfigLayer::Managed,
+            value: true,
+        });
+    assert!(dispatch(Action::ClearSubagentModelInheritance, &mut app).is_empty());
+    assert_eq!(
+        read_toast(&app),
+        "\u{2713} Subagent model inheritance: nothing to reset; managed_config.toml sets it"
+    );
+}
 /// Browse `d` then `y` on the coding-data row writes even when the local value already reads as the default "opt-out":
 /// that value may be the unconfirmed fail-safe, so "already at default" must not drop a confirmed decline.
 #[test]

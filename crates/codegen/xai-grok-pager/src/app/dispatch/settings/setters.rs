@@ -1,6 +1,6 @@
 //! Individual setting setters with persistence effects and toasts.
 
-use super::ui::{refresh_open_settings_modals, save_success_toast};
+use super::ui::{refresh_open_settings_modals, save_success_toast, setting_status_toast};
 use crate::app::actions::{Effect, ModelChoice};
 use crate::app::app_view::{ActiveView, AppView};
 use crate::settings::PendingWrite;
@@ -591,11 +591,11 @@ pub(in crate::app::dispatch) fn clear_subagent_model_inheritance(app: &mut AppVi
     if state.config.user.is_none() {
         // A managed layer shows through here; naming it explains why the row is not at the default
         let toast = match state.config.below_user {
-            Some(layer) => format!(
-                "{SUBAGENT_MODEL_INHERITANCE_LABEL}: nothing to reset; {} sets it",
-                layer.layer.label()
+            Some(layer) => setting_status_toast(
+                SUBAGENT_MODEL_INHERITANCE_LABEL,
+                &format!("nothing to reset; {} sets it", layer.layer.label()),
             ),
-            None => format!("{SUBAGENT_MODEL_INHERITANCE_LABEL}: nothing to reset"),
+            None => setting_status_toast(SUBAGENT_MODEL_INHERITANCE_LABEL, "nothing to reset"),
         };
         app.show_toast(&toast);
         return vec![];
@@ -2192,7 +2192,10 @@ pub(in crate::app::dispatch) fn clear_fork_secondary_model(app: &mut AppView) ->
     let prev_id_str = app.current_ui.fork_secondary_model.clone();
     if prev_id_str == baseline {
         // Idempotent: already at baseline.
-        app.show_toast("\u{2713} Fork secondary model: already at default");
+        app.show_toast(&setting_status_toast(
+            "Fork secondary model",
+            "already at default",
+        ));
         return vec![];
     }
     tracing::info!(
