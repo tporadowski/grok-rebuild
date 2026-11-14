@@ -1201,6 +1201,14 @@ fn action_key_footer_desc_for_mapping(
     selected: usize,
 ) -> &'static str {
     if ch == ' ' && desc == "toggle" {
+        // A skills group header folds on Space. "enable/disable" there is the long footer word that
+        // pushed the filter label off a narrow row.
+        if matches!(state.active_tab, ExtensionsTab::Skills)
+            && entry_group_keys.get(selected).is_some_and(Option::is_some)
+            && entry_data_indices.get(selected).is_none_or(Option::is_none)
+        {
+            return "fold";
+        }
         match selected_item_enabled_at(state, entry_data_indices, entry_group_keys, selected) {
             Some(true) => "disable",
             Some(false) => "enable",
@@ -3906,10 +3914,20 @@ pub fn render_extensions_modal(
     // The search controls are irrelevant while the user is typing into a form, and the divider would float above the form awkwardly
 
     let search_width = content_area.width;
+    let filter_reserved = if has_filter && !in_input_mode {
+        picker::filter_indicator_width(filter.label(), "f")
+    } else {
+        0
+    };
+    let search_render_width = if filter_reserved == 0 {
+        search_width
+    } else {
+        picker::search_bar_layout(search_width, filter_reserved).render_width()
+    };
     if !in_input_mode {
-        // Search bar at top of content area.
+        // Search bar at top of content area. The filter label keeps the right-hand columns.
         let search_active_render = state.picker_state.search_active;
-        picker::render_picker_search_bar(
+        picker::render_picker_search_bar_with_trailing(
             buf,
             content_area.x,
             content_area.y,
@@ -3919,6 +3937,7 @@ pub fn render_extensions_modal(
             search_active_render,
             true, // show_search_hint
             Some(theme.bg_base),
+            filter_reserved,
         );
     }
 
@@ -3965,7 +3984,8 @@ pub fn render_extensions_modal(
     let search_bar_rect = if in_input_mode {
         Rect::default()
     } else {
-        Rect::new(content_area.x, content_area.y, content_area.width, 1)
+        // Stop at the reserved filter columns so a click on the label cycles the filter.
+        Rect::new(content_area.x, content_area.y, search_render_width, 1)
     };
 
     // Underline the Managed section's last description line (the connectors URL) so it reads as a link
@@ -7938,6 +7958,35 @@ mod tests {
         assert_eq!(picker::first_selectable_index(5, 3, &non_sel), 2); // min-clamp to last
         assert_eq!(picker::first_selectable_index(0, 1, &[true]), 0); // only non-selectable
         assert_eq!(picker::first_selectable_index(0, 0, &[]), 0);
+    }
+
+    #[test]
+    fn skills_filter_label_stays_whole_beside_a_long_query() {
+        let mut state = ExtensionsModalState::new(ExtensionsTab::Skills);
+        state.skills_filter = StatusFilter::Disabled;
+        state.skills_data = TabDataState::Loaded(vec![make_skill("alpha", "a")].into());
+        state.picker_state.search_active = true;
+        state
+            .picker_state
+            .set_query("abcdefghijklmnopqrstuvwxyz0123456789");
+        let area = Rect::new(0, 0, 48, 20);
+        let mut buf = Buffer::empty(area);
+        render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
+        let rect = state
+            .picker_state
+            .filter_area
+            .expect("skills tab shows the status filter");
+        let mut label = String::new();
+        for x in rect.x..rect.x.saturating_add(rect.width).min(buf.area.width) {
+            if let Some(cell) = buf.cell((x, rect.y)) {
+                label.push_str(cell.symbol());
+            }
+        }
+        let letters: String = label.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        assert_eq!(
+            letters, "Disabledf",
+            "filter label clipped by the search text: {label:?} rect={rect:?}"
+        );
     }
 
     #[test]

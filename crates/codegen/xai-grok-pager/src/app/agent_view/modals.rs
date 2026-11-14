@@ -1043,6 +1043,10 @@ impl AgentView {
                             state.mcps_filter = state.mcps_filter.next();
                             true
                         }
+                        crate::views::extensions_modal::ExtensionsTab::Skills => {
+                            state.skills_filter = state.skills_filter.next();
+                            true
+                        }
                         _ => false,
                     };
                     // Reset selection after filter change.
@@ -1446,6 +1450,10 @@ impl AgentView {
                         }
                         crate::views::extensions_modal::ExtensionsTab::McpServers => {
                             state.mcps_filter = state.mcps_filter.next();
+                            true
+                        }
+                        crate::views::extensions_modal::ExtensionsTab::Skills => {
+                            state.skills_filter = state.skills_filter.next();
                             true
                         }
                         _ => false,
@@ -2059,6 +2067,23 @@ impl AgentView {
                 InputOutcome::Changed
             }
             ButtonAction::ToggleSelectedSkill => {
+                let fold_group = self.extensions_modal.as_ref().is_some_and(|state| {
+                    let sel = state.picker_state.selected;
+                    state
+                        .entry_group_keys
+                        .get(sel)
+                        .is_some_and(Option::is_some)
+                        && state
+                            .entry_data_indices
+                            .get(sel)
+                            .is_none_or(Option::is_none)
+                });
+                if fold_group {
+                    self.extensions_modal_toggle_fold(
+                        xai_grok_telemetry::events::ExtensionsInputMethod::Keyboard,
+                    );
+                    return InputOutcome::Changed;
+                }
                 let Some(state) = self.extensions_modal.as_mut() else {
                     return InputOutcome::Changed;
                 };
@@ -3015,16 +3040,9 @@ mod extensions_action_target_tests {
         }
     }
 
-    /// Hooks and Skills group headers advertise Space in the footer too, so they post the same
-    /// row hint as the Plugins/Marketplace headers instead of a silent no-op.
+    /// Space on a Skills group header folds that group. It does not ask for a skill row.
     #[test]
-    fn hook_and_skill_toggle_on_group_header_posts_row_hint() {
-        let mut hooks = ExtensionsModalState::new(ExtensionsTab::Hooks);
-        hooks.hooks_data = TabDataState::Loaded(xai_hooks_plugins_types::HooksListResponse {
-            hooks: vec![hook_info("src/hook-a", "/tmp/hooks", false)],
-            project_trusted: true,
-            load_errors: Vec::new(),
-        });
+    fn space_on_a_skills_group_folds_it() {
         let mut skills = ExtensionsModalState::new(ExtensionsTab::Skills);
         skills.skills_data = TabDataState::Loaded(
             vec![xai_grok_tools::implementations::skills::types::SkillInfo {
@@ -3034,8 +3052,61 @@ mod extensions_action_target_tests {
             }]
             .into(),
         );
+        let mut agent = pipeline_agent(skills);
+        let group = agent
+            .extensions_modal
+            .as_ref()
+            .unwrap()
+            .entry_group_keys
+            .first()
+            .and_then(|key| key.clone())
+            .expect("skills list opens on a group header");
+        assert!(
+            !agent
+                .extensions_modal
+                .as_ref()
+                .unwrap()
+                .skills_collapsed_groups
+                .contains(&group),
+            "the group starts open"
+        );
 
-        for (noun, modal) in [("hook", hooks), ("skill", skills)] {
+        let outcome = press(&mut agent, KeyCode::Char(' '));
+        assert!(
+            matches!(outcome, crate::app::app_view::InputOutcome::Changed),
+            "folding must not dispatch a skill toggle, got {outcome:?}"
+        );
+        let state = agent.extensions_modal.as_ref().unwrap();
+        assert!(
+            state.skills_collapsed_groups.contains(&group),
+            "Space folds the skills group"
+        );
+        assert_eq!(state.modal_message, None, "no enable/disable hint");
+        assert_eq!(state.pending_action, None);
+
+        press(&mut agent, KeyCode::Char(' '));
+        assert!(
+            !agent
+                .extensions_modal
+                .as_ref()
+                .unwrap()
+                .skills_collapsed_groups
+                .contains(&group),
+            "Space opens the group again"
+        );
+    }
+
+    /// Hooks group headers advertise Space in the footer, so they post the same row hint as the
+    /// Plugins headers. Skills headers fold instead (`space_on_a_skills_group_folds_it`).
+    #[test]
+    fn hook_and_skill_toggle_on_group_header_posts_row_hint() {
+        let mut hooks = ExtensionsModalState::new(ExtensionsTab::Hooks);
+        hooks.hooks_data = TabDataState::Loaded(xai_hooks_plugins_types::HooksListResponse {
+            hooks: vec![hook_info("src/hook-a", "/tmp/hooks", false)],
+            project_trusted: true,
+            load_errors: Vec::new(),
+        });
+        for (noun, modal) in [("hook", hooks)] {
             let mut agent = pipeline_agent(modal);
             assert_eq!(
                 agent

@@ -190,6 +190,10 @@ impl SearchBarLayout {
     pub fn trailing_width(self) -> u16 {
         self.trailing_width
     }
+
+    pub fn render_width(self) -> u16 {
+        self.render_width
+    }
 }
 
 pub fn search_bar_layout(width: u16, trailing_width: u16) -> SearchBarLayout {
@@ -288,7 +292,43 @@ pub(crate) fn render_picker_search_bar(
     show_hint: bool,
     bg: Option<ratatui::style::Color>,
 ) {
-    render_line_editor_search_bar(buf, x, y, width, theme, &state.query, active, show_hint, bg);
+    render_picker_search_bar_with_trailing(
+        buf, x, y, width, theme, state, active, show_hint, bg, 0,
+    );
+}
+
+/// Like [`render_picker_search_bar`], but leaves `trailing_width` columns on the right for a
+/// filter indicator so the query cannot paint through that label.
+pub(crate) fn render_picker_search_bar_with_trailing(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    width: u16,
+    theme: &Theme,
+    state: &PickerState,
+    active: bool,
+    show_hint: bool,
+    bg: Option<ratatui::style::Color>,
+    trailing_width: u16,
+) {
+    if trailing_width == 0 {
+        render_line_editor_search_bar(buf, x, y, width, theme, &state.query, active, show_hint, bg);
+        return;
+    }
+    let layout = search_bar_layout(width, trailing_width);
+    let viewport = state.query.viewport(layout.input_width());
+    render_search_bar_with_viewport(
+        buf,
+        x,
+        y,
+        layout,
+        theme,
+        state.query.text(),
+        active,
+        show_hint,
+        bg,
+        viewport,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -699,6 +739,15 @@ pub fn render_popup_frame(
     Some(inner)
 }
 
+/// Columns the filter indicator occupies at the right of a search row, including its right margin.
+/// The search bar reserves this width so a query cannot paint through the label.
+pub fn filter_indicator_width(label: &str, key_hint: &str) -> u16 {
+    let label_w = label.width() as u16;
+    let hint_w = key_hint.width() as u16;
+    // "Label k " plus the one-column margin before the row edge.
+    label_w + 1 + hint_w + 1 + 1
+}
+
 /// Render a right-aligned filter indicator on a search bar row.
 #[allow(clippy::too_many_arguments)]
 pub fn render_filter_indicator(
@@ -715,7 +764,7 @@ pub fn render_filter_indicator(
     let label_w = label.width() as u16;
     let hint_w = key_hint.width() as u16;
     let total_w = label_w + 1 + hint_w + 1; // "Label k "
-    let start_x = x + width.saturating_sub(total_w + 1);
+    let start_x = x + width.saturating_sub(filter_indicator_width(label, key_hint));
 
     let label_fg = if hovered {
         theme.text_primary
