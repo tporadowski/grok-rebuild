@@ -35,7 +35,7 @@ impl AgentMessageBlock {
         let text = text.into();
         let image_refs = crate::prompt_images::extract_image_refs(&text);
         let video_refs = crate::prompt_images::extract_video_refs(&text);
-        let content = MarkdownContent::new(text);
+        let content = MarkdownContent::for_reply(text);
         let mermaid = content.mermaid_content();
         Self {
             content,
@@ -49,7 +49,7 @@ impl AgentMessageBlock {
     /// Create an empty block for streaming.
     pub fn streaming() -> Self {
         Self {
-            content: MarkdownContent::streaming(),
+            content: MarkdownContent::streaming_reply(),
             image_refs: Vec::new(),
             video_refs: Vec::new(),
             mermaid: MermaidContent::default(),
@@ -164,7 +164,7 @@ impl AgentMessageBlock {
         if rewritten == source {
             return None;
         }
-        let content = MarkdownContent::new(rewritten);
+        let content = MarkdownContent::for_reply(rewritten);
         let links = label_hyperlinks(&content.pre_wrap_lines(), &set.labels);
         *self.labeled.borrow_mut() = Some(LabeledMarkdown {
             generation: set.generation,
@@ -446,6 +446,42 @@ mod tests {
             is_selected: false,
             cwd: None,
         }
+    }
+
+    #[test]
+    fn reply_keeps_a_single_newline_as_its_own_line() {
+        let lines_of = |block: &AgentMessageBlock| -> Vec<String> {
+            block
+                .content()
+                .output(80)
+                .lines
+                .iter()
+                .map(|line| line.content.to_string())
+                .collect()
+        };
+        let keeps_the_break = |lines: &[String]| {
+            lines
+                .iter()
+                .any(|line| line.contains("hello") && !line.contains("world"))
+                && lines
+                    .iter()
+                    .any(|line| line.contains("world") && !line.contains("hello"))
+        };
+        let finished = AgentMessageBlock::new("hello\nworld");
+        let finished_lines = lines_of(&finished);
+        assert!(
+            keeps_the_break(&finished_lines),
+            "a finished reply joined the lines: {finished_lines:?}"
+        );
+        let mut streaming = AgentMessageBlock::streaming();
+        streaming.push_chunk("hello\n");
+        streaming.push_chunk("world");
+        streaming.finish();
+        let streamed_lines = lines_of(&streaming);
+        assert!(
+            keeps_the_break(&streamed_lines),
+            "a streamed reply joined the lines: {streamed_lines:?}"
+        );
     }
 
     #[test]

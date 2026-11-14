@@ -69,6 +69,22 @@ impl MarkdownContent {
         Self::new_inner(text, max_table_width, true)
     }
 
+    /// A reply. A single newline stays a line break instead of joining into one paragraph.
+    pub fn for_reply(text: impl Into<String>) -> Self {
+        Self::new_inner(text, None, false)
+    }
+
+    /// Empty reply that streams. Soft breaks stay line breaks, matching [`Self::for_reply`].
+    pub fn streaming_reply() -> Self {
+        let mut content = Self::streaming();
+        content
+            .state
+            .get_mut()
+            .renderer
+            .set_collapse_soft_breaks(false);
+        content
+    }
+
     /// Create source-faithful content: CommonMark soft breaks are preserved as line breaks instead of collapsing to spaces.
     /// Each source line then maps 1:1 to a rendered line.
     /// Used by the line-numbered plan preview, where rendered lines must map back to file lines (e.g. for commenting on a line range).
