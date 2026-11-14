@@ -184,14 +184,44 @@ pub fn shorten_path(path: &str, budget: usize) -> String {
     }
     if tail_start > 0 {
         let Some(suffix) = path.get(tail_start..) else {
-            return truncate_str(path, budget);
+            return ellipsis_tail(path, budget);
         };
         let result = format!("\u{2026}{suffix}");
         if result.width() <= budget {
             return result;
         }
     }
-    truncate_str(path, budget)
+    // The last component itself is wider than the column. Keep its end:
+    // the front of the path is not what makes the file recognizable.
+    ellipsis_tail(path, budget)
+}
+
+/// Leading `…` plus the widest suffix of `path` that fits in `budget` columns.
+fn ellipsis_tail(path: &str, budget: usize) -> String {
+    if budget == 0 {
+        return String::new();
+    }
+    if path.width() <= budget {
+        return path.to_string();
+    }
+    if budget == 1 {
+        return "\u{2026}".to_string();
+    }
+    let keep = budget - 1;
+    let mut used = 0usize;
+    let mut start = path.len();
+    for (idx, ch) in path.char_indices().rev() {
+        let cols = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used.saturating_add(cols) > keep {
+            break;
+        }
+        used += cols;
+        start = idx;
+    }
+    match path.get(start..) {
+        Some(suffix) if !suffix.is_empty() => format!("\u{2026}{suffix}"),
+        _ => "\u{2026}".to_string(),
+    }
 }
 
 pub fn path_basename(path: &str, budget: usize) -> String {
@@ -252,6 +282,10 @@ mod tests {
             20,
         );
         assert!(result.width() <= 20, "got: {result}");
+        assert!(
+            result.contains("filename.rs"),
+            "the file name stays recognizable: {result}"
+        );
     }
 
     #[test]

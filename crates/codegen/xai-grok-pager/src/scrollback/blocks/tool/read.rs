@@ -317,7 +317,7 @@ impl ReadToolCallBlock {
         if let Some(max) = width {
             let budget = max.saturating_sub(prefix_cols);
             if path.width() > budget {
-                path = crate::render::line_utils::truncate_str(&path, budget);
+                path = crate::render::tool_paths::shorten_path(&path, budget);
             }
         }
         let mut used_cols = prefix_cols + path.width();
@@ -1046,8 +1046,55 @@ The file is there, but this process cannot read it.";
         );
         assert!(header.starts_with("Read "), "{header:?}");
         assert!(
-            header.contains("/tmp/") && header.contains('\u{2026}'),
-            "the expanded path is cut on a column boundary, got {header:?}"
+            header.contains('\u{2026}') && header.contains(".png"),
+            "the expanded path keeps the end of the file name, got {header:?}"
+        );
+        assert!(
+            !header.contains("/tmp/"),
+            "the front of the path gives way on a narrow row, got {header:?}"
+        );
+    }
+
+    #[test]
+    fn narrow_expanded_read_header_keeps_the_file_name() {
+        let fits = ReadToolCallBlock::new(
+            "/tmp/projects/alpha/beta/gamma/delta/epsilon/unique_widget.rs",
+        );
+        let fits_header = line_text(first_line(
+            &fits.output(&narrow_ctx(36, DisplayMode::Expanded)),
+        ));
+        assert!(
+            fits_header.width() <= 36,
+            "expanded header overflowed: {fits_header:?} width {}",
+            fits_header.width()
+        );
+        assert!(
+            fits_header.contains("unique_widget.rs"),
+            "a narrow column still shows the file name, got {fits_header:?}"
+        );
+        assert!(
+            !fits_header.contains("projects/alpha"),
+            "the front of the path gives way, got {fits_header:?}"
+        );
+
+        let long_name = ReadToolCallBlock::new(
+            "/tmp/projects/alpha/beta/gamma/very_long_unique_filename.rs",
+        );
+        let long_header = line_text(first_line(
+            &long_name.output(&narrow_ctx(20, DisplayMode::Expanded)),
+        ));
+        assert!(
+            long_header.width() <= 20,
+            "expanded header overflowed: {long_header:?} width {}",
+            long_header.width()
+        );
+        assert!(
+            long_header.contains("filename.rs"),
+            "a file name wider than the column keeps its end, got {long_header:?}"
+        );
+        assert!(
+            !long_header.contains("/tmp/"),
+            "the front of the path gives way, got {long_header:?}"
         );
     }
 
