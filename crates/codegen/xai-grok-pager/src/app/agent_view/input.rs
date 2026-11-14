@@ -6,7 +6,8 @@ use super::test_fixtures;
 use super::{
     AgentPane, AgentView, BlockingCard, ComposerRoute, CtaPhase, InputMode, KeyOwner,
     MULTI_CLICK_TIMEOUT_MS, PromptInputMode, ViewSurface, active_contexts_for_pane,
-    format_key_for_log, is_link_modifier_for_key, is_mouse_reporting_toggle_chord, resolve_action,
+    format_key_for_log, is_link_modifier_for_key, is_link_modifier_held,
+    is_mouse_reporting_toggle_chord, resolve_action,
 };
 use crate::actions::{ActionId, ActionRegistry, When};
 use crate::app::actions::Action;
@@ -800,6 +801,12 @@ impl AgentView {
                             }
                         }
                         MouseEventKind::Down(MouseButton::Left) => {
+                            // Ctrl/Cmd+click opens a transcript link even while this card is up.
+                            if is_link_modifier_held(mouse.modifiers)
+                                && self.try_arm_link_click(mouse.column, mouse.row)
+                            {
+                                return InputOutcome::Changed;
+                            }
                             if let Some(outcome) =
                                 self.dock_stop_click_outcome(mouse.column, mouse.row)
                             {
@@ -833,6 +840,18 @@ impl AgentView {
                                 if in_followup {
                                     self.prompt.handle_mouse(mouse);
                                 }
+                            }
+                            InputOutcome::Changed
+                        }
+                        MouseEventKind::Up(MouseButton::Left) => {
+                            if let Some((lc, lr, target)) = self.pending_link_click.take()
+                                && mouse.column == lc
+                                && mouse.row == lr
+                            {
+                                return InputOutcome::Action(Action::OpenLink(target));
+                            }
+                            if in_followup {
+                                self.prompt.handle_mouse(mouse);
                             }
                             InputOutcome::Changed
                         }

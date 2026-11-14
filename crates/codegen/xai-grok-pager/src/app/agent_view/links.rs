@@ -1841,6 +1841,45 @@ mod link_click_tests {
             other => panic!("expected Action::OpenLink(file), got {other:?}"),
         }
     }
+
+    /// Ctrl+click still opens a link while the permission confirmation card has the keyboard.
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn modifier_click_opens_a_link_while_the_confirmation_card_is_visible() {
+        let mut agent = make_agent();
+        setup_scrollback_area(&mut agent, Rect::new(0, 0, 80, 24));
+        agent.active_pane = AgentPane::Prompt;
+        add_visible_link(&mut agent, 5, 10, 30, "https://example.com/card");
+        let mut perm = test_fixtures::make_followup_permission_state();
+        perm.focus = crate::views::permission_view::PermissionFocus::Options;
+        agent.permission_queue.push_back(perm);
+        assert_eq!(
+            agent.focused_card(),
+            Some(crate::app::agent_view::BlockingCard::Permission)
+        );
+
+        let reg = ActionRegistry::defaults();
+        let mut down = mouse_down(15, 5);
+        down.modifiers = KeyModifiers::CONTROL;
+        let armed = agent.handle_input(&Event::Mouse(down), &reg);
+        assert!(
+            matches!(armed, InputOutcome::Changed),
+            "modifier down should arm the link, got {armed:?}"
+        );
+        assert!(
+            agent.pending_link_click.is_some(),
+            "the confirmation card must not swallow the link press"
+        );
+        match agent.handle_input(&Event::Mouse(mouse_up(15, 5)), &reg) {
+            InputOutcome::Action(Action::OpenLink(target)) => {
+                assert_eq!(
+                    target,
+                    crate::render::osc8::LinkTarget::Url(Arc::from("https://example.com/card"))
+                );
+            }
+            other => panic!("expected Action::OpenLink, got {other:?}"),
+        }
+    }
     fn test_link(url: &str, painted_w: u16) -> crate::scrollback::VisibleLink {
         crate::scrollback::VisibleLink {
             rects: vec![Rect::new(0, 0, painted_w, 1)],
