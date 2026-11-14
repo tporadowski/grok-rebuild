@@ -89,6 +89,16 @@ fn batch_end_keeps_queued_follow_ups(final_result: &Option<ToolLoop>) -> bool {
         Some(ToolLoop::PermissionReject { .. } | ToolLoop::Cancelled)
     )
 }
+
+/// Queued follow-ups stay queued when this batch ends the turn: a permission
+/// stop, the turn cap, or a run of identical tool calls. A follow-up message
+/// still continues the turn, so those rows are drained.
+fn follow_ups_stay_queued(final_result: &Option<ToolLoop>, turn_stops_after_batch: bool) -> bool {
+    if matches!(final_result, Some(ToolLoop::FollowupMessage(_))) {
+        return false;
+    }
+    turn_stops_after_batch || batch_end_keeps_queued_follow_ups(final_result)
+}
 use crate::tools::tool_context::BlockingWaitGuard;
 /// Clears `awaiting_plan_approval` (and re-persists) when the [`SessionActor::request_plan_approval`] await resolves or is dropped.
 /// Resolve means a decision came back; drop means the model turn was cancelled, so a cancelled in-session approval can never strand the bit `true`.
@@ -357,6 +367,17 @@ impl SessionActor {
         tool_calls: Vec<crate::sampling::types::ToolCallResponse>,
         requested_model: Option<String>,
     ) -> Result<ToolLoop, acp::Error> {
+        self.execute_tool_calls_inner(tool_calls, requested_model, false)
+            .await
+    }
+    /// `turn_stops_after_batch` is set when this tool round is the last one the
+    /// model will see: the turn cap, or repeated identical tool calls.
+    pub(super) async fn execute_tool_calls_inner(
+        &self,
+        tool_calls: Vec<crate::sampling::types::ToolCallResponse>,
+        requested_model: Option<String>,
+        turn_stops_after_batch: bool,
+    ) -> Result<ToolLoop, acp::Error> {
         if let Some(model) = requested_model.as_deref() {
             tracing::Span::current().record("model_id", model);
         }
@@ -411,9 +432,12 @@ impl SessionActor {
                 self.chat_state_handle.push_user_message(chat);
             }
         }
-        // A rejected or cancelled permission ends this turn. Leave queued
-        // follow-ups for the next turn instead of injecting them here.
-        self.drain_follow_ups_after_tool_batch(&final_result).await;
+        // A rejected permission, the turn cap, or repeated tool calls end this
+        // turn. Leave queued follow-ups for the next turn instead of injecting
+        // them into a turn the model will not continue.
+        if !follow_ups_stay_queued(&final_result, turn_stops_after_batch) {
+            self.drain_follow_ups_after_tool_batch(&final_result).await;
+        }
         self.flush_pending_skill_reminders().await;
         if let Some(final_result) = final_result {
             return Ok(final_result);
@@ -3483,6 +3507,33 @@ mod search_tool_row_title_tests {
         assert_eq!(title, "Search \"slack\"");
         assert!(title.starts_with("Search "));
         assert!(!title.starts_with("Search tools"));
+    }
+}
+
+#[cfg(test)]
+mod queued_follow_up_tests {
+    use super::{ToolLoop, follow_ups_stay_queued};
+
+    #[test]
+    fn cap_or_repeated_tools_keep_follow_ups_for_the_next_turn() {
+        assert!(follow_ups_stay_queued(&None, true));
+        assert!(!follow_ups_stay_queued(&None, false));
+        assert!(follow_ups_stay_queued(&Some(ToolLoop::Cancelled), false));
+        assert!(follow_ups_stay_queued(
+            &Some(ToolLoop::PermissionReject {
+                tool_name: "bash".into(),
+                reason: "no".into(),
+            }),
+            false
+        ));
+        assert!(!follow_ups_stay_queued(
+            &Some(ToolLoop::FollowupMessage("try another path".into())),
+            false
+        ));
+        assert!(!follow_ups_stay_queued(
+            &Some(ToolLoop::FollowupMessage("try another path".into())),
+            true
+        ));
     }
 }
 

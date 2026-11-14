@@ -3865,10 +3865,19 @@ impl SessionActor {
                     },
                 )
                 .await;
+            let turn_stops_after_batch = identical_tool_calls.run_len
+                >= identical_tool_calls.hard_stop_threshold()
+                || self
+                    .max_turns
+                    .is_some_and(|limit| tool_turn_count.saturating_add(1) > limit);
             let execute_tool_calls_result = {
                 let _tool_phase = turn_phases.begin_tool_blocking();
-                self.execute_tool_calls(tool_call_responses, requested_model)
-                    .await
+                self.execute_tool_calls_inner(
+                    tool_call_responses,
+                    requested_model,
+                    turn_stops_after_batch,
+                )
+                .await
             };
             match execute_tool_calls_result {
                 Ok(ToolLoop::PermissionReject { tool_name, reason }) => {
