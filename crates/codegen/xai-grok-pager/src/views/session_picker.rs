@@ -1795,6 +1795,77 @@ mod tests {
         let label = build_content_header_label(false, false, 0);
         assert!(label.is_empty());
     }
+
+    /// A multi-line first prompt is clipped with the ellipsis on the Prompt row.
+    #[test]
+    fn multiline_prompt_keeps_its_ellipsis_on_the_prompt_row() {
+        use crate::app::app_view::CardDetail;
+        use crate::views::picker::{PickerField, PickerRow, render_picker_row};
+
+        let mut entry = make_entry("s", "repo");
+        entry.card_detail = Some(CardDetail {
+            turn_count: 2,
+            tool_call_count: 1,
+            first_prompt_preview: "alpha beta\ngamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron"
+                .into(),
+        });
+        let mut state = PickerState::default();
+        state.expanded.insert(0);
+        let built = build_session_entry_data(std::slice::from_ref(&entry), &[0], &state, 48);
+        let prompt = built[0]
+            .field_data
+            .iter()
+            .find(|(label, _)| label == "Prompt")
+            .expect("prompt field");
+        assert!(
+            prompt.1.contains('\u{2026}'),
+            "a long multi-line prompt is clipped, got {:?}",
+            prompt.1
+        );
+        let field = PickerField {
+            label: "Prompt",
+            value: &prompt.1,
+        };
+        let row = PickerRow {
+            label: "Session",
+            right_label: "3m",
+            selected: false,
+            expanded: true,
+            fields: std::slice::from_ref(&field),
+            description_lines: &[],
+            summary_lines: &[],
+            dimmed: false,
+            indent: 0,
+            badge: "",
+            badge_color: None,
+            collapsible: true,
+            underline_last_desc: false,
+        };
+        let width = 40u16;
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, width, 6));
+        let theme = crate::theme::Theme::default();
+        let rendered = render_picker_row(&mut buf, 0, 0, width, &theme, &row, false, None, 6);
+        let rows: Vec<String> = (0..rendered.rows.max(3))
+            .map(|y| {
+                (0..width)
+                    .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect()
+            })
+            .collect();
+        let prompt_row = rows
+            .iter()
+            .find(|row| row.contains("Prompt"))
+            .unwrap_or_else(|| panic!("prompt row missing: {rows:?}"));
+        assert!(
+            prompt_row.contains('\u{2026}'),
+            "ellipsis left the prompt row: {rows:?}"
+        );
+        assert_eq!(
+            rows.iter().filter(|row| row.contains('\u{2026}')).count(),
+            1,
+            "ellipsis on more than the prompt row: {rows:?}"
+        );
+    }
     /// Empty entries list produces empty map.
     #[test]
     fn empty_entries_produces_empty_map() {
