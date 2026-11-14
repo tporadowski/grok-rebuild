@@ -33,6 +33,12 @@ pub(crate) fn should_create_home_on_authenticated_startup(app: &AppView) -> bool
         && !app.is_access_blocked()
 }
 const RESIZE_DEBOUNCE: Duration = Duration::from_millis(16);
+
+/// A multiplexer can reflow the pane during a resize burst, including one that ends at the same size.
+/// The settled draw has to clear first. A diff against the pre-reflow frame leaves the pane torn.
+pub(super) fn settled_resize_needs_full_repaint(out_of_band: bool) -> bool {
+    out_of_band
+}
 /// A resize queues a forced status-line re-run, and the script is told the width the debounced draw recorded.
 const _: () = assert!(
     RESIZE_DEBOUNCE.as_millis() < crate::app::app_view::SLOW_TICK_INTERVAL.as_millis(),
@@ -1854,6 +1860,7 @@ pub(crate) async fn run(
     }
     schedule_tick(&mut animation_tick_at, &app, tick_interval);
     let mut resize_debounce_at: Option<Instant> = None;
+    let mut resize_full_repaint = false;
     app.scroll_state.set_redraw_cadence(scroll_cadence);
     const ACP_DRAIN_BATCH_MAX: usize = 32;
     let mut reconnect_reinit: Option<ReconnectReinit> = None;
@@ -2249,7 +2256,7 @@ pub(crate) async fn run(
             // Gated: an overdue deadline must not paint an intermediate size while a resize event waits
             _ = resize_debounce, if input_rx.is_empty() => {
                 resize_debounce_at = None;
-                presenter.request(false);
+                presenter.request(std::mem::take(&mut resize_full_repaint));
                 schedule_tick(&mut animation_tick_at, &app, tick_interval);
             }
 
@@ -2314,6 +2321,10 @@ pub(crate) async fn run(
                 if state_changed {
                     schedule_tick(&mut animation_tick_at, &app, tick_interval);
                     resize_debounce_at = None;
+                    // A resize burst may already have reflowed the pane. Keep the clear on this draw.
+                    if std::mem::take(&mut resize_full_repaint) {
+                        presenter.request(true);
+                    }
                     // Cap paint rate so terminal input isn't starved during heavy ACP streaming
                     let now = Instant::now();
                     if presenter.request_throttled(now, min_draw_interval) {
@@ -2442,24 +2453,13 @@ pub(crate) async fn run(
                 let tip_shown = app.poll_clipboard_focus_tip();
                 schedule_tick(&mut animation_tick_at, &app, tick_interval);
                 if result.needs_draw || tip_shown {
-                    if result.redraw_in_place && !result.force_repaint {
-                        // Paint every cell over the current frame. A screen clear would flash blank.
-                        terminal.prepare_in_place_redraw();
-                        crate::terminal::overlay::reset_owner();
-                        for agent in app.agents.values_mut() {
-                            agent.forget_transmitted_inline_media();
-                        }
-                        resize_debounce_at = None;
-                        presenter.request(false);
-                    } else if result.force_repaint {
-                        // Refocus heal wins over the resize debounce
-                        // A coalesced same-size resize wouldn't autoresize-clear, so clear and fully repaint now
-                        resize_debounce_at = None;
-                        presenter.request(true);
-                    } else if result.resize_only && !tip_shown {
+                    let burst_needs_clear = result.resize_needs_full_repaint || resize_full_repaint;
+                    if result.resize_only && !result.force_repaint && !tip_shown {
                         // Debounce: schedule a single draw after the size stabilizes.
-                        // Each new resize resets the timer, so layout is rebuilt only once
+                        // Each new resize resets the timer, so layout is rebuilt only once.
+                        // tmux can reflow the pane across that burst, so the settled draw clears.
                         resize_debounce_at = Some(Instant::now() + RESIZE_DEBOUNCE);
+                        resize_full_repaint |= result.resize_needs_full_repaint;
                         // One immediate draw repaints the (now hidden) preview cells — the erase on iTerm2, which smears committed pixels during a drag (see resize_hides_prompt_preview).
                         // Ownership then clears, so later drag events fall back to pure debounce.
                         if crate::terminal::overlay::has_committed_owner()
@@ -2468,6 +2468,22 @@ pub(crate) async fn run(
                         {
                             presenter.request(false);
                         }
+                    } else if result.redraw_in_place && !result.force_repaint && !burst_needs_clear
+                    {
+                        // Paint every cell over the current frame. A screen clear would flash blank.
+                        terminal.prepare_in_place_redraw();
+                        crate::terminal::overlay::reset_owner();
+                        for agent in app.agents.values_mut() {
+                            agent.forget_transmitted_inline_media();
+                        }
+                        resize_debounce_at = None;
+                        presenter.request(false);
+                    } else if result.force_repaint || burst_needs_clear {
+                        // Refocus heal, or a resize the multiplexer already reflowed.
+                        // A coalesced same-size resize wouldn't autoresize-clear, so clear and fully repaint now
+                        resize_debounce_at = None;
+                        resize_full_repaint = false;
+                        presenter.request(true);
                     } else {
                         // Non-resize change (or a shown tip): draw immediately (picks up any pending resize too)
                         resize_debounce_at = None;
@@ -3168,6 +3184,8 @@ struct DrainResult {
     /// Whether the next draw must be preceded by a full clear and repaint.
     /// Set on refocus in editor/multiplexer contexts to heal out-of-band stranded rows.
     force_repaint: bool,
+    /// The batch included a resize and the terminal may have reflowed the pane itself.
+    resize_needs_full_repaint: bool,
     /// Ctrl+L asked for a full repaint that must not clear the screen first.
     redraw_in_place: bool,
     /// Count of coalesced events processed in this drain batch, summed into the stall window's `events_handled`.
@@ -3446,6 +3464,7 @@ async fn drain_and_process(
                 should_quit: true,
                 resize_only: false,
                 force_repaint: false,
+                resize_needs_full_repaint: false,
                 redraw_in_place: false,
                 handled,
             };
@@ -3459,6 +3478,10 @@ async fn drain_and_process(
         should_quit: false,
         resize_only: had_resize && !had_non_resize_change,
         force_repaint,
+        resize_needs_full_repaint: had_resize
+            && settled_resize_needs_full_repaint(
+                crate::terminal::terminal_context().repaints_pane_out_of_band(),
+            ),
         redraw_in_place,
         handled,
     }
@@ -4034,6 +4057,24 @@ fn process_effects(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tmux_resize_sequence_repaints_from_a_clear() {
+        let tmux = crate::terminal::TerminalContext {
+            multiplexer: crate::terminal::MultiplexerKind::Tmux,
+            ..Default::default()
+        };
+        assert!(
+            settled_resize_needs_full_repaint(tmux.repaints_pane_out_of_band()),
+            "a tmux resize burst reflows the pane, so the settled draw must clear"
+        );
+        let plain = crate::terminal::TerminalContext::default();
+        assert!(
+            !settled_resize_needs_full_repaint(plain.repaints_pane_out_of_band()),
+            "a plain terminal keeps the diff draw"
+        );
+    }
+
     fn nth<T>(xs: &[T], i: usize) -> &T {
         let Some(x) = xs.get(i) else {
             panic!("expected index {i}, len {}", xs.len());
