@@ -1470,7 +1470,7 @@ fn render_agents_tab(
             }
             Some(FlatRow::Detail(text)) => {
                 let detail_style = Style::default().fg(theme.gray);
-                let display = crate::render::line_utils::truncate_str(text, w);
+                let display = fit_agent_detail_line(text, w);
                 buf.set_string(content_area.x, row_y, &display, detail_style);
             }
             None => continue,
@@ -1949,6 +1949,18 @@ enum FlatRow {
     Description(usize, String),
     Detail(String),
 }
+/// Fit an expanded-agent detail line. A source path keeps the file name; other lines cut at the end.
+fn fit_agent_detail_line(text: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    const PREFIX: &str = "  Source: ";
+    if let Some(path) = text.strip_prefix(PREFIX) {
+        let budget = width.saturating_sub(UnicodeWidthStr::width(PREFIX));
+        let shortened = crate::render::line_utils::shorten_path(path, budget);
+        return crate::render::line_utils::truncate_str(&format!("{PREFIX}{shortened}"), width);
+    }
+    crate::render::line_utils::truncate_str(text, width)
+}
+
 fn message_line_style(kind: AgentsModalMessageKind, theme: &Theme) -> Style {
     let fg = match kind {
         AgentsModalMessageKind::Error => theme.accent_error,
@@ -2545,7 +2557,23 @@ pub fn handle_agents_mouse(state: &mut AgentsModalState, mouse: &MouseEvent) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use unicode_width::UnicodeWidthStr;
     use xai_grok_shell::agent::config::DEFAULT_AGENT_TYPE;
+
+    #[test]
+    fn persona_source_path_keeps_the_file_name() {
+        let line = "  Source: /home/me/very/long/personas/directory/reviewer.md";
+        let shown = fit_agent_detail_line(line, 28);
+        assert!(
+            UnicodeWidthStr::width(shown.as_str()) <= 28,
+            "the source line stays in the column: {shown}"
+        );
+        assert!(
+            shown.contains("reviewer.md"),
+            "the file name stays visible: {shown}"
+        );
+    }
+
     #[test]
     fn picker_message_keeps_wide_characters_inside_the_row() {
         let area = Rect::new(0, 0, 8, 1);
