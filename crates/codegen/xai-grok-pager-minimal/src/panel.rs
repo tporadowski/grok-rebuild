@@ -20,6 +20,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
+use unicode_width::UnicodeWidthStr;
 
 use xai_grok_pager::app::agent_view::AgentView;
 use xai_grok_pager::minimal_api;
@@ -149,7 +150,84 @@ const RESUME_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} Enter confirm \
 const RESUME_DELETE_FOOTER: &str = "y confirm delete \u{00b7} n cancel";
 
 fn render_footer(buf: &mut Buffer, row: Rect, theme: &Theme, text: &str) {
-    render_dim_line(buf, row, theme, text);
+    // The line is indented one column, so the hint budget is the rest of the row.
+    let budget = usize::from(row.width.saturating_sub(1));
+    let shown = fit_footer_hint(text, budget);
+    render_dim_line(buf, row, theme, &shown);
+}
+
+const FOOTER_SEP: &str = " \u{00b7} ";
+
+/// Keep whole hints, then whole words. A narrow row ends on a word or `…`, never inside a word.
+fn fit_footer_hint(text: &str, budget: usize) -> String {
+    if budget == 0 || text.is_empty() {
+        return String::new();
+    }
+    if text.width() <= budget {
+        return text.to_string();
+    }
+    let segments: Vec<&str> = text.split(FOOTER_SEP).collect();
+    let mut kept: Vec<&str> = Vec::new();
+    let mut used = 0usize;
+    for (i, seg) in segments.iter().enumerate() {
+        let sep = if i == 0 { 0 } else { FOOTER_SEP.width() };
+        if used.saturating_add(sep).saturating_add(seg.width()) <= budget {
+            used = used.saturating_add(sep).saturating_add(seg.width());
+            kept.push(*seg);
+            continue;
+        }
+        let remain = budget.saturating_sub(used.saturating_add(sep));
+        let partial = fit_footer_words(seg, remain);
+        if partial.is_empty() {
+            break;
+        }
+        let mut out = kept.join(FOOTER_SEP);
+        if !out.is_empty() {
+            out.push_str(FOOTER_SEP);
+        }
+        out.push_str(&partial);
+        return out;
+    }
+    let mut out = kept.join(FOOTER_SEP);
+    if kept.len() != segments.len() {
+        let mark = if out.is_empty() { "…" } else { " …" };
+        if out.width().saturating_add(mark.width()) <= budget {
+            out.push_str(mark);
+        }
+    }
+    out
+}
+
+/// Whole words of one hint, then `…` when the rest does not fit.
+fn fit_footer_words(seg: &str, budget: usize) -> String {
+    if budget == 0 {
+        return String::new();
+    }
+    if seg.width() <= budget {
+        return seg.to_string();
+    }
+    if budget == 1 {
+        return "…".to_string();
+    }
+    let mut kept = String::new();
+    let mut kept_w = 0usize;
+    for word in seg.split_whitespace() {
+        let word_w = word.width();
+        let gap = usize::from(!kept.is_empty());
+        if kept_w.saturating_add(gap).saturating_add(word_w).saturating_add(1) > budget {
+            break;
+        }
+        if gap == 1 {
+            kept.push(' ');
+        }
+        kept.push_str(word);
+        kept_w = kept_w.saturating_add(gap).saturating_add(word_w);
+    }
+    if kept.is_empty() {
+        return "…".to_string();
+    }
+    kept.push('…');
+    kept
 }
 
 fn render_divider(buf: &mut Buffer, row: Rect, theme: &Theme) {
@@ -796,6 +874,33 @@ mod tests {
 
     fn agent() -> AgentView {
         minimal_api::test_agent_view(Some("s1"), std::path::PathBuf::from("/tmp/repo"))
+    }
+
+    #[test]
+    fn minimal_footer_hints_do_not_truncate_mid_word() {
+        let source = "Tab tabs \u{00b7} r refresh \u{00b7} a add \u{00b7} Space enable/disable \u{00b7} Esc close";
+        let area = Rect::new(0, 0, 20, 1);
+        let mut buf = Buffer::empty(area);
+        let theme = Theme::current();
+        render_footer(&mut buf, area, &theme, source);
+        let painted: String = (0..area.width)
+            .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+            .collect();
+        let shown = painted.trim();
+        assert!(
+            shown.contains("Tab"),
+            "the footer still shows a hint: {painted:?}"
+        );
+        for word in shown.split_whitespace() {
+            let word = word.trim_end_matches('\u{2026}').trim_matches('\u{00b7}');
+            if word.is_empty() {
+                continue;
+            }
+            assert!(
+                source.split_whitespace().any(|src| src == word),
+                "a footer hint was cut mid-word: {word:?} in {painted:?}"
+            );
+        }
     }
 
     fn tool_detail(name: &str, enabled: bool) -> McpToolDetail {
