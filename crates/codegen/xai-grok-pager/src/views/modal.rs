@@ -1082,7 +1082,11 @@ fn fit_docs_ask_grok_tip(docs_path: &str, width: usize) -> String {
     if budget == 0 {
         return truncate_str("Tip", width);
     }
-    format!("{PREFIX}{}", truncate_str(docs_path, budget))
+    // Parent folders shrink first so the last folder name stays on the row.
+    format!(
+        "{PREFIX}{}",
+        crate::render::line_utils::shorten_path(docs_path, budget)
+    )
 }
 pub fn render_doc_picker_overlay(
     buf: &mut ratatui::buffer::Buffer,
@@ -1599,6 +1603,17 @@ mod doc_picker_tip_tests {
             let line = fit_docs_ask_grok_tip(&path, w);
             assert!(line.width() <= w, "overflow at {w}: {line:?}");
         }
+    }
+
+    #[test]
+    fn howto_tip_keeps_the_last_folder_when_the_path_is_narrow() {
+        let path = "/home/me/very/long/dot-grok/docs/user-guide";
+        let line = fit_docs_ask_grok_tip(path, 24);
+        assert!(line.width() <= 24, "{line}");
+        assert!(
+            line.contains("user-guide"),
+            "the last folder stays visible: {line}"
+        );
     }
     #[test]
     fn doc_picker_renders_tip_with_path() {
