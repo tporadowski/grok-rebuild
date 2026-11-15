@@ -1,5 +1,65 @@
 # Changelog
 
+# 1.0.86 — 2026-11-14
+
+## Features
+
+- **Pretty mode** shows reference-style links the same as inline links.
+
+## Bug Fixes
+
+- **Loading messages** and input placeholders use a consistent Unicode ellipsis character.
+- **Resume session cards** keep long text and their ellipsis on a single line.
+- **Auth token box** on the welcome screen has rounded corners.
+- **Long file paths** shown in narrow columns stay recognizable.
+- **Settings toggles** and feedback messages use consistent labels.
+- **Status messages** and terminal titles follow consistent capitalization.
+- **Todo lists** in goal overlays match the main Todo pane styling.
+- **/export** status messages match the style of other notices.
+- **List tool rows** show the correct number of files and folders.
+- The transcript line for nothing to retry no longer ends with a period.
+- **Message previews** and picker rows no longer get cut off by wide characters.
+- Pending action labels in the extensions modal start with a capital letter.
+- **Image preview overlays** show dimensions with the multiplication sign.
+- **Minimal-mode /mcps** list shows server source and tool summaries.
+- Result notices after extension actions stay visible as long as other messages.
+- **Feedback and settings modals** show an Esc hint when the terminal is too small.
+- Toast messages for settings resets and voice errors follow a consistent format.
+- **Update notices** on the welcome screen align consistently.
+- Error messages for failed actions include the reason in a single sentence.
+- The cancel-turn panel uses the correct text color and ellipsis when narrow.
+- Several CLI subcommand messages use consistent punctuation and path quoting.
+- Key hints in permission cards are no longer cut off mid-word on narrow terminals.
+- The file-search and prompt-history panels no longer crash on very short terminals.
+- Plan approval text in minimal mode matches the fullscreen version.
+- The extensions modal no longer shrinks narrower than other modals.
+- A few welcome-screen tips and labels use more consistent wording.
+- Selected items in pickers highlight their full height.
+- The dashboard footer is padded evenly and the location caption brightens on hover.
+- Content-search results in the resume picker appear under a shorter heading.
+- Overflow messages correctly pluralize and show exact counts.
+- Goal status labels are consistent between the status bar and the goal modal.
+- Error messages for `grok -p --resume` when other flags are present are clearer.
+- **Double-click** on a thinking block folds or expands it again.
+- **Change directory picker** keeps the folder name visible when a path is too long.
+- **Persona Source path** keeps the filename visible when the full path is too long.
+- **How-to Guides tip** keeps the last folder name visible when the path is too long.
+- **@-file search** keeps the filename visible when a path is too long for the row.
+- **Sign-in copy messages** read "Copied!", "Copy sent: verify paste", and "Copy failed".
+- **URLs typed in user messages** appear as styled clickable links matching assistant links.
+- **Cmd or Ctrl+click** opens links even when the confirmation card is visible.
+- **File links** containing %20 spaces open the correct file instead of reporting it missing.
+- **Dragging from blank areas** of rows no longer starts a text selection and preserves fold/unfold clicks.
+- Paths ending in one or more slashes shorten correctly and keep the final folder name readable.
+- **Long setting descriptions** in /settings fit within the modal without being cut off.
+- **Multi-line prompts** in the session picker show their ellipsis on the same row.
+- **@ file picker** in the dashboard no longer crashes on terminals shorter than 10 rows.
+
+## Performance
+
+- **Tasks pane** no longer flickers with changing subagent activity text while work is running.
+
+
 # 1.0.85 — 2026-11-13
 
 ## Features
