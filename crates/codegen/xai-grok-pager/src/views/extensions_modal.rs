@@ -1207,6 +1207,57 @@ pub fn extensions_action_keys(tab: ExtensionsTab) -> Vec<(char, &'static str)> {
     }
 }
 
+/// Footer labels for the minimal `/mcps` panel. Same verbs as the full extensions
+/// modal: the add and setup forms replace the list hints, and a focused search hides them.
+pub(crate) fn mcp_panel_footer_labels(state: &ExtensionsModalState) -> Vec<String> {
+    if state.mcp_setup.is_some() {
+        return vec![
+            "Enter save and authenticate".into(),
+            "\u{2191}/\u{2193} select".into(),
+            "Esc cancel".into(),
+        ];
+    }
+    if let Some(input) = state.input.as_ref() {
+        return vec![
+            "Enter submit".into(),
+            (if input.is_multi_field() {
+                "Tab/Shift+Tab field"
+            } else {
+                "Tab complete"
+            })
+            .into(),
+            "Esc cancel".into(),
+        ];
+    }
+    if state.picker_state.search_active {
+        return Vec::new();
+    }
+    let selected = state.picker_state.selected;
+    let mut labels = vec!["Tab tabs".to_string()];
+    for &(ch, desc) in MCP_SERVERS_ACTION_KEYS {
+        let key_str = action_key_display(ch);
+        if key_str.is_empty() {
+            continue;
+        }
+        if ch == ' ' && selected_mcp_policy_blocked_at(state, &state.entry_data_indices, selected)
+        {
+            continue;
+        }
+        let verb = action_key_footer_desc_for_mapping(
+            ch,
+            desc,
+            state,
+            &state.entry_data_indices,
+            &state.entry_group_keys,
+            selected,
+        );
+        labels.push(format!("{key_str} {verb}"));
+    }
+    labels.push(MCP_SERVERS_OPEN_CONNECTORS_FOOTER.to_string());
+    labels.push("Esc close".into());
+    labels
+}
+
 /// Footer verb for an action key.
 /// Uses the state's published `entry_data_indices` / `entry_group_keys` (input handling, unit tests).
 pub fn action_key_footer_desc(
@@ -4233,7 +4284,12 @@ pub fn render_extensions_modal(
     }
 }
 
-fn render_mcp_setup_form(buf: &mut Buffer, area: Rect, setup: &McpSetupFormState, theme: &Theme) {
+pub(crate) fn render_mcp_setup_form(
+    buf: &mut Buffer,
+    area: Rect,
+    setup: &McpSetupFormState,
+    theme: &Theme,
+) {
     if area.height < 6 || area.width < 20 {
         return;
     }
@@ -4354,7 +4410,7 @@ fn render_footer_hint_segments(
 /// Render an inline input form for commands that need arguments. Each field gets its own rounded
 /// border around the input row, mirroring the prompt input chrome. Labels sit above the bordered
 /// row so they remain visible. Layout (stacked, one field shown).
-fn render_input_form(buf: &mut Buffer, area: Rect, input: &ModalInput, theme: &Theme) {
+pub(crate) fn render_input_form(buf: &mut Buffer, area: Rect, input: &ModalInput, theme: &Theme) {
     if area.height < 4 || area.width < 20 {
         return;
     }

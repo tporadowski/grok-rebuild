@@ -24,7 +24,7 @@ use ratatui::text::Span;
 use xai_grok_pager::app::agent_view::AgentView;
 use xai_grok_pager::minimal_api;
 use xai_grok_pager::theme::Theme;
-use xai_grok_pager::views::extensions_modal::{ExtensionsTab, TabDataState};
+use xai_grok_pager::views::extensions_modal::{ExtensionsTab, StatusFilter, TabDataState};
 use xai_grok_pager::views::mcps_modal::{
     McpSectionId, McpServerInfo, section_description_lines, section_key,
 };
@@ -147,9 +147,6 @@ const RESUME_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} Enter confirm \
 
 /// Shown once `d` has armed a delete, and until `y` deletes or `n` cancels.
 const RESUME_DELETE_FOOTER: &str = "y confirm delete \u{00b7} n cancel";
-
-/// `/mcps` list: Enter expands tools; reconnect is space (off then on); `r` re-lists status.
-const MCPS_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} Space enable/disable \u{00b7} r refresh \u{00b7} Enter expand \u{00b7} Esc cancel";
 
 fn render_footer(buf: &mut Buffer, row: Rect, theme: &Theme, text: &str) {
     render_dim_line(buf, row, theme, text);
@@ -355,6 +352,13 @@ fn mcps_body_rows(agent: &AgentView) -> u16 {
     let Some(s) = minimal_api::extensions_modal(agent) else {
         return 0;
     };
+    if s.input.is_some() {
+        // Two add-form fields: label + bordered row each, plus the gap between them.
+        return 9;
+    }
+    if let Some(setup) = s.mcp_setup.as_ref() {
+        return (setup.field.options.len() as u16).saturating_add(4).max(6);
+    }
     let servers = match &s.mcps_data {
         TabDataState::Loaded(v) => v.as_slice(),
         _ => return 1,
@@ -437,7 +441,6 @@ fn render_mcps(
     let descriptions: Vec<Vec<String>>;
     let dimmeds: Vec<bool>;
     let underlines: Vec<bool>;
-    let subtitle: String;
     let loading;
     {
         let s = minimal_api::extensions_modal(agent)?;
@@ -557,11 +560,6 @@ fn render_mcps(
                         }
                     }
                 }
-                subtitle = format!(
-                    "{} server{}",
-                    servers.len(),
-                    if servers.len() == 1 { "" } else { "s" }
-                );
                 labels = row_labels;
                 group_keys = row_group_keys;
                 data_indices = row_data_indices;
@@ -577,7 +575,6 @@ fn render_mcps(
                 underlines = underline;
             }
             TabDataState::Loading => {
-                subtitle = String::new();
                 labels = vec![];
                 group_keys = vec![];
                 data_indices = vec![];
@@ -593,7 +590,6 @@ fn render_mcps(
                 underlines = vec![];
             }
             TabDataState::Error(msg) => {
-                subtitle = String::new();
                 labels = vec![format!("Error: {msg}")];
                 group_keys = vec![None];
                 data_indices = vec![None];
@@ -612,9 +608,6 @@ fn render_mcps(
     }
     let n = labels.len();
 
-    render_dim_line(buf, subtitle_row, theme, &subtitle);
-    render_divider(buf, divider_row, theme);
-
     // Phase 2 (mutable): mirror the row mapping onto state for the input handler.
     {
         let s = minimal_api::extensions_modal_mut(agent)?;
@@ -628,6 +621,74 @@ fn render_mcps(
         } else if s.picker_state.selected >= n {
             s.picker_state.selected = n - 1;
         }
+    }
+
+    let form_open = minimal_api::extensions_modal(agent)
+        .is_some_and(|s| s.input.is_some() || s.mcp_setup.is_some());
+    let mut search_rect = Rect::default();
+    let mut filter_rect = None;
+    if !form_open {
+        if let Some(s) = minimal_api::extensions_modal(agent) {
+            let filter = s.mcps_filter;
+            let row = Rect::new(
+                subtitle_row.x + 1,
+                subtitle_row.y,
+                subtitle_row.width.saturating_sub(1),
+                1,
+            );
+            let filter_w = picker::filter_indicator_width(filter.label(), "f");
+            minimal_api::render_picker_search_bar_with_trailing(
+                buf,
+                row,
+                theme,
+                &s.picker_state,
+                true,
+                None,
+                filter_w,
+            );
+            let search_w = picker::search_bar_layout(row.width, filter_w).render_width();
+            search_rect = Rect::new(row.x, row.y, search_w, 1);
+            filter_rect = Some(picker::render_filter_indicator(
+                buf,
+                row.x,
+                row.y,
+                row.width,
+                theme,
+                filter.label(),
+                "f",
+                filter != StatusFilter::All,
+                s.picker_state.filter_hovered,
+            ));
+        }
+        render_divider(buf, divider_row, theme);
+    } else {
+        let form_area = Rect {
+            x: area.x,
+            y: subtitle_row.y,
+            width: area.width,
+            height: footer_row.y.saturating_sub(subtitle_row.y),
+        };
+        let footer = {
+            let s = minimal_api::extensions_modal(agent)?;
+            if let Some(setup) = s.mcp_setup.as_ref() {
+                minimal_api::render_mcp_setup_form(buf, form_area, setup, theme);
+            } else if let Some(input) = s.input.as_ref() {
+                minimal_api::render_extensions_input_form(buf, form_area, input, theme);
+            }
+            minimal_api::mcp_panel_footer_labels(s).join(" \u{00b7} ")
+        };
+        render_footer(buf, footer_row, theme, &footer);
+        if let Some(s) = minimal_api::extensions_modal_mut(agent) {
+            s.picker_state.hit_areas = Some(PickerHitAreas {
+                close_button: Rect::default(),
+                search_bar: Rect::default(),
+                item_rects: vec![],
+                entry_indices: vec![],
+                tab_rects: vec![],
+                filter_rect: None,
+            });
+        }
+        return None;
     }
 
     // Phase 3 (mutable picker_state): build PickerEntry from owned data and render
@@ -682,16 +743,17 @@ fn render_mcps(
         loading,
         tick,
     );
+    let footer = minimal_api::mcp_panel_footer_labels(s).join(" \u{00b7} ");
     s.picker_state.hit_areas = Some(PickerHitAreas {
         close_button: Rect::default(),
-        search_bar: Rect::default(),
+        search_bar: search_rect,
         item_rects: hit.item_rects,
         entry_indices: hit.entry_indices,
         tab_rects: vec![],
-        filter_rect: None,
+        filter_rect,
     });
 
-    render_footer(buf, footer_row, theme, MCPS_FOOTER);
+    render_footer(buf, footer_row, theme, &footer);
     None
 }
 
@@ -728,7 +790,8 @@ mod tests {
     use ratatui::layout::Rect;
     use xai_grok_pager::views::extensions_modal::ExtensionsModalState;
     use xai_grok_pager::views::mcps_modal::{
-        McpServerDisplayStatus, McpServerInfo, McpToolDetail, McpWireSource,
+        McpServerDisplayStatus, McpServerInfo, McpSetupConfig, McpSetupField, McpSetupOption,
+        McpToolDetail, McpWireSource,
     };
 
     fn agent() -> AgentView {
@@ -853,12 +916,12 @@ mod tests {
 
         let text = crate::buffer_text(&buf);
         assert!(text.contains("Manage MCP servers"), "title:\n{text}");
-        assert!(text.contains("2 servers"), "subtitle:\n{text}");
+        assert!(text.contains("/ to search"), "search row:\n{text}");
         assert!(text.contains("alpha"), "server row:\n{text}");
         assert!(text.contains("bravo"), "server row:\n{text}");
         assert!(text.contains("Space enable/disable"), "footer:\n{text}");
         assert!(text.contains("r refresh"), "footer:\n{text}");
-        assert!(text.contains("Enter expand"), "footer:\n{text}");
+        assert!(text.contains("a add"), "footer:\n{text}");
         assert!(
             !text.contains("Enter confirm"),
             "MCP footer must not reuse resume confirm copy:\n{text}"
@@ -1229,6 +1292,115 @@ mod tests {
             panel_height(&with_mcps(vec![managed_only]), ListPanel::Mcps, 80, 40),
             9,
             "the managed section's two description rows count toward the panel height"
+        );
+    }
+
+    fn render_mcps_wide(agent: &mut AgentView, theme: &Theme) -> String {
+        let area = Rect::new(0, 0, 120, 24);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, agent, ListPanel::Mcps, theme);
+        crate::buffer_text(&buf)
+    }
+
+    /// The minimal `/mcps` row under the title is the full view's search bar, the
+    /// footer lists that view's action hints, and `a` / `i` open the add and setup forms.
+    #[test]
+    fn minimal_mcps_search_hints_and_forms_match_the_full_view() {
+        let theme = Theme::groknight();
+        let mut listed = with_mcps(vec![
+            mcp_server("alpha", McpServerDisplayStatus::Ready, 1),
+            mcp_server("bravo", McpServerDisplayStatus::Ready, 1),
+        ]);
+        let text = render_mcps_wide(&mut listed, &theme);
+        assert!(
+            text.contains("/ to search"),
+            "the search row shows the full-view hint:\n{text}"
+        );
+        assert!(text.contains("All"), "the filter sits on the search row:\n{text}");
+        for hint in [
+            "Tab tabs",
+            "r refresh",
+            "a add",
+            "i auth",
+            "Space enable/disable",
+            "x remove",
+            "Ctrl+O open",
+            "Esc close",
+        ] {
+            assert!(text.contains(hint), "missing {hint}:\n{text}");
+        }
+
+        minimal_api::press_extensions_modal_key(&mut listed, '/');
+        minimal_api::press_extensions_modal_key(&mut listed, 'z');
+        let text = render_mcps_wide(&mut listed, &theme);
+        assert!(
+            text.contains("search:"),
+            "a typed query uses the search bar:\n{text}"
+        );
+        assert!(text.contains('z'), "the query is painted:\n{text}");
+        assert!(
+            !text.contains("alpha"),
+            "the query filters the server list:\n{text}"
+        );
+
+        let mut adding = with_mcps(vec![mcp_server(
+            "alpha",
+            McpServerDisplayStatus::Ready,
+            1,
+        )]);
+        minimal_api::press_extensions_modal_key(&mut adding, 'a');
+        let text = render_mcps_wide(&mut adding, &theme);
+        assert!(
+            text.contains("URL / Command"),
+            "a opens the add form:\n{text}"
+        );
+        assert!(
+            text.contains("Enter submit"),
+            "the add form uses the full-view footer:\n{text}"
+        );
+        assert!(
+            text.contains("Esc cancel"),
+            "the add form can be cancelled:\n{text}"
+        );
+        assert!(
+            !text.contains("alpha"),
+            "the add form replaces the server list:\n{text}"
+        );
+
+        let mut setup_srv = mcp_server("needs-setup", McpServerDisplayStatus::NeedsAuth, 0);
+        setup_srv.setup_required = true;
+        setup_srv.setup = Some(McpSetupConfig {
+            fields: vec![McpSetupField {
+                id: "region".into(),
+                label: "Region".into(),
+                field_type: "select".into(),
+                required: true,
+                default: None,
+                options: vec![McpSetupOption {
+                    label: "us-east".into(),
+                    value: "us-east".into(),
+                }],
+            }],
+        });
+        let mut setup = with_mcps(vec![setup_srv]);
+        render_mcps_wide(&mut setup, &theme);
+        {
+            let state = minimal_api::extensions_modal_mut(&mut setup).unwrap();
+            state.picker_state.selected = 1;
+        }
+        minimal_api::press_extensions_modal_key(&mut setup, 'i');
+        let text = render_mcps_wide(&mut setup, &theme);
+        assert!(
+            text.contains("Save and authenticate"),
+            "i on a setup server opens the setup form:\n{text}"
+        );
+        assert!(
+            text.contains("us-east"),
+            "the setup form lists its choices:\n{text}"
+        );
+        assert!(
+            text.contains("Enter save and authenticate"),
+            "the setup form uses the full-view footer:\n{text}"
         );
     }
 }

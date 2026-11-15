@@ -704,6 +704,42 @@ pub fn init_mcps_section_collapse_on_first_load(
     );
 }
 
+/// Footer labels for the minimal `/mcps` panel, matching the full extensions modal.
+pub fn mcp_panel_footer_labels(
+    state: &crate::views::extensions_modal::ExtensionsModalState,
+) -> Vec<String> {
+    crate::views::extensions_modal::mcp_panel_footer_labels(state)
+}
+
+/// The add-server form from the full `/mcps` view.
+pub fn render_extensions_input_form(
+    buf: &mut Buffer,
+    area: Rect,
+    input: &crate::views::extensions_modal::ModalInput,
+    theme: &Theme,
+) {
+    crate::views::extensions_modal::render_input_form(buf, area, input, theme);
+}
+
+/// The MCP setup form from the full `/mcps` view.
+pub fn render_mcp_setup_form(
+    buf: &mut Buffer,
+    area: Rect,
+    setup: &crate::views::extensions_modal::McpSetupFormState,
+    theme: &Theme,
+) {
+    crate::views::extensions_modal::render_mcp_setup_form(buf, area, setup, theme);
+}
+
+/// Feed one plain character to the extensions modal key handler.
+pub fn press_extensions_modal_key(agent: &mut AgentView, ch: char) {
+    let key = crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char(ch),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    let _ = agent.handle_extensions_modal_key(&key);
+}
+
 /// Render a search bar from a [`PickerState`] using its grapheme-safe viewport.
 pub fn render_picker_search_bar(
     buf: &mut Buffer,
@@ -723,6 +759,30 @@ pub fn render_picker_search_bar(
         state.search_active,
         show_hint,
         bg,
+    );
+}
+
+/// Search bar that leaves `trailing_width` columns free for a filter label.
+pub fn render_picker_search_bar_with_trailing(
+    buf: &mut Buffer,
+    area: Rect,
+    theme: &Theme,
+    state: &crate::views::picker::PickerState,
+    show_hint: bool,
+    bg: Option<Color>,
+    trailing_width: u16,
+) {
+    crate::views::picker::render_picker_search_bar_with_trailing(
+        buf,
+        area.x,
+        area.y,
+        area.width,
+        theme,
+        state,
+        state.search_active,
+        show_hint,
+        bg,
+        trailing_width,
     );
 }
 

@@ -660,7 +660,7 @@ impl AgentView {
         InputOutcome::Changed
     }
 
-    pub(super) fn handle_extensions_modal_key(
+    pub(crate) fn handle_extensions_modal_key(
         &mut self,
         key: &crossterm::event::KeyEvent,
     ) -> InputOutcome {
