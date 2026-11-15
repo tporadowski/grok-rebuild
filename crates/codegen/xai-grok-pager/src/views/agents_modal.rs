@@ -2694,6 +2694,88 @@ mod tests {
         );
     }
 
+    /// Expanded /agents lines that do not fit end with `…` inside the content rect.
+    #[test]
+    fn expanded_agent_details_end_with_an_ellipsis() {
+        use xai_grok_agent::config::ModelOverride;
+        use xai_grok_tools::registry::types::ToolConfig;
+
+        let mut def = AgentDefinition::explore();
+        def.model = ModelOverride::Override("M".repeat(80));
+        def.skills = vec!["S".repeat(80)];
+        def.plugin_name = Some("P".repeat(80));
+        def.tool_config.tools = vec![ToolConfig::from_id("custom:tool").with_name("T".repeat(80))];
+        def.prompt_body = Some("Body ".repeat(40));
+        def.description = "説".repeat(40);
+        let source = PathBuf::from("/home/me/agents").join("D".repeat(60)).join("reviewer.md");
+        let mut state = make_persona_state(vec![], "", 0);
+        state.active_tab = AgentsTab::Agents;
+        state.agents = vec![AgentListEntry {
+            name: "explore".to_string(),
+            description: def.description.clone(),
+            scope: AgentScope::Project,
+            source_path: Some(source),
+            enabled: true,
+            is_builtin: false,
+            expanded: true,
+            definition: def,
+        }];
+        state.selected = 0;
+        let area = Rect::new(0, 0, 80, 40);
+        let theme = Theme::current();
+        let mut buf = Buffer::empty(area);
+        render_agents_modal(&mut buf, area, &mut state, false, &theme);
+        let content = state.content_rect.expect("agents content");
+        let right = content.x + content.width;
+        let mut rows = Vec::new();
+        for y in content.y..content.y + content.height {
+            let spilled = buf
+                .cell((right, y))
+                .map(|cell| cell.symbol().to_string())
+                .unwrap_or_default();
+            assert!(
+                !spilled.chars().any(|ch| ch == 'M' || ch == 'S' || ch == 'P' || ch == 'T' || ch == '説' || ch == 'D'),
+                "expanded detail crossed the content edge at y={y}: {spilled:?}"
+            );
+            let mut row = String::new();
+            for x in content.x..right {
+                if let Some(cell) = buf.cell((x, y)) {
+                    row.push_str(cell.symbol());
+                }
+            }
+            rows.push(row);
+        }
+        let painted = rows.join("\n");
+        for marker in ["Model:", "Skills:", "Plugin:", "Prompt extension:", "•"] {
+            let row = rows
+                .iter()
+                .find(|row| row.contains(marker))
+                .unwrap_or_else(|| panic!("missing {marker} row:\n{painted}"));
+            let shown = row.trim_end();
+            assert!(
+                shown.ends_with('\u{2026}'),
+                "{marker} line is clipped at the modal edge instead of ending with an ellipsis: {shown:?}\n{painted}"
+            );
+            assert!(
+                UnicodeWidthStr::width(shown) <= usize::from(content.width),
+                "{marker} line is wider than the content: {shown:?}"
+            );
+        }
+        let source_row = rows
+            .iter()
+            .find(|row| row.contains("Source:"))
+            .unwrap_or_else(|| panic!("missing Source row:\n{painted}"));
+        assert!(
+            source_row.contains("reviewer.md"),
+            "a narrowed source line keeps the file name: {source_row:?}\n{painted}"
+        );
+        let shown_desc = painted.chars().filter(|ch| *ch == '説').count();
+        assert_eq!(
+            shown_desc, 40,
+            "the description is clipped instead of wrapped inside the modal:\n{painted}"
+        );
+    }
+
     #[test]
     fn one_sentence_agent_message_drops_its_period() {
         let area = Rect::new(0, 0, 80, 3);
