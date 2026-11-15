@@ -853,15 +853,112 @@ pub(crate) fn build_grouped_picker_entries<'a>(
     }
     (result, non_selectable)
 }
+/// Columns of `s` from the start that fit in `cols`.
+fn head_display_cols(s: &str, cols: usize) -> &str {
+    use unicode_width::UnicodeWidthChar;
+    if cols == 0 {
+        return "";
+    }
+    let mut used = 0usize;
+    for (idx, ch) in s.char_indices() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + cw > cols {
+            return &s[..idx];
+        }
+        used += cw;
+    }
+    s
+}
+
+/// Columns of `s` from the end that fit in `cols`.
+fn tail_display_cols(s: &str, cols: usize) -> &str {
+    use unicode_width::UnicodeWidthChar;
+    use unicode_width::UnicodeWidthStr;
+    if cols == 0 || s.is_empty() || s.width() <= cols {
+        return if cols == 0 { "" } else { s };
+    }
+    let mut used = 0usize;
+    let mut start = s.len();
+    for (idx, ch) in s.char_indices().rev() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + cw > cols {
+            break;
+        }
+        used += cw;
+        start = idx;
+    }
+    &s[start..]
+}
+
+/// Fit one resume-search snippet into `width` painted columns.
+/// `[match]` markers are the hit. They are not painted, and the hit stays inside the list.
+fn fit_resume_search_snippet(line: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    if width == 0 || line.is_empty() {
+        return String::new();
+    }
+    let Some(open) = line.find('[') else {
+        return crate::render::line_utils::truncate_str(line, width);
+    };
+    let after_open = &line[open + 1..];
+    let Some(close_rel) = after_open.find(']') else {
+        return crate::render::line_utils::truncate_str(line, width);
+    };
+    let prefix = &line[..open];
+    let inner = &after_open[..close_rel];
+    let suffix = &after_open[close_rel + 1..];
+    let prefix_w = prefix.width();
+    let inner_w = inner.width();
+    let suffix_w = suffix.width();
+    if prefix_w.saturating_add(inner_w).saturating_add(suffix_w) <= width {
+        return line.to_string();
+    }
+    if inner_w >= width {
+        return format!(
+            "[{}]",
+            crate::render::line_utils::truncate_str(inner, width)
+        );
+    }
+    let leftover = width - inner_w;
+    let mut left = leftover / 2;
+    let mut right = leftover - left;
+    if prefix_w <= left {
+        right += left - prefix_w;
+        left = prefix_w;
+    }
+    if suffix_w <= right {
+        let spare = right - suffix_w;
+        right = suffix_w;
+        left = (left + spare).min(prefix_w);
+    }
+    let prefix_out = if left == 0 {
+        String::new()
+    } else if prefix_w <= left {
+        prefix.to_string()
+    } else {
+        format!("\u{2026}{}", tail_display_cols(prefix, left - 1))
+    };
+    let suffix_out = if right == 0 {
+        String::new()
+    } else if suffix_w <= right {
+        suffix.to_string()
+    } else {
+        format!("{}\u{2026}", head_display_cols(suffix, right - 1))
+    };
+    format!("{prefix_out}[{inner}]{suffix_out}")
+}
+
 /// Build owned rendering data for content search (deep search) result rows. Deduplicates hits that
 /// already appear in the fuzzy results. The returned entries should be appended after the fuzzy
 /// section (and its header row).
+/// `snippet_width` is the description column: the list width minus the description indent.
 pub(crate) fn build_content_entry_data(
     hits: &[xai_grok_shell::extensions::session_search::SearchSessionHit],
     entries_data: &[SessionPickerEntry],
     filtered_indices: &[usize],
     state: &PickerState,
     content_start: usize,
+    snippet_width: usize,
 ) -> Vec<SessionEntryData> {
     let fuzzy_ids: HashSet<&str> = entries_data
         .iter()
@@ -903,11 +1000,8 @@ pub(crate) fn build_content_entry_data(
             }
             let snippet_preview = h.snippet.as_deref().and_then(|s| {
                 let line = s.lines().find(|l| !l.trim().is_empty())?;
-                if unicode_width::UnicodeWidthStr::width(line) > 80 {
-                    Some(crate::render::line_utils::truncate_str(line, 80))
-                } else {
-                    Some(line.to_string())
-                }
+                let fitted = fit_resume_search_snippet(line, snippet_width);
+                (!fitted.is_empty()).then_some(fitted)
             });
             SessionEntryData {
                 summary,
@@ -1771,9 +1865,108 @@ mod tests {
             ]
         ));
         let state = PickerState::default();
-        let content = build_content_entry_data(&hits, &entries, &[0], &state, 2);
+        let content = build_content_entry_data(&hits, &entries, &[0], &state, 2, 80);
         assert_eq!(content.len(), 1);
         assert_eq!(at(&content, 0).summary, "shared");
+    }
+
+    /// A content hit whose match sits past the old 80-column cut must still show that match,
+    /// and the painted snippet must stay inside the list's description width.
+    #[test]
+    fn resume_search_snippet_keeps_the_match_inside_the_list() {
+        use crate::views::picker::{PickerRow, render_picker_row};
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let preamble = "word ".repeat(30);
+        let mut late = make_content_hit("late");
+        late.summary = "Late".into();
+        late.snippet = Some(format!("{preamble}[cargo] tail"));
+        let cjk = "\u{8bed}".repeat(40);
+        let mut wide = make_content_hit("wide");
+        wide.summary = "Wide".into();
+        wide.snippet = Some(format!("{cjk}[cargo]"));
+        let state = PickerState::default();
+        let hits = [late, wide];
+        let content = build_content_entry_data(&hits, &[], &[], &state, 0, 24);
+        for (entry, label) in content.iter().zip(["late", "wide"]) {
+            let preview = entry
+                .snippet_preview
+                .as_deref()
+                .unwrap_or_else(|| panic!("{label} snippet missing"));
+            assert!(
+                preview.contains("cargo"),
+                "{label} match was cut off: {preview}"
+            );
+            assert!(
+                painted_snippet_width(preview) <= 24,
+                "{label} snippet is wider than the list: {preview}"
+            );
+            let row = PickerRow {
+                label: entry.summary.as_str(),
+                right_label: "",
+                selected: false,
+                expanded: true,
+                fields: &[],
+                description_lines: std::slice::from_ref(&preview),
+                summary_lines: &[],
+                dimmed: false,
+                indent: 1,
+                badge: "match",
+                badge_color: None,
+                collapsible: true,
+                underline_last_desc: false,
+            };
+            let list_width = 28u16;
+            let area = Rect::new(0, 0, list_width, 4);
+            let mut buf = Buffer::empty(area);
+            render_picker_row(
+                &mut buf,
+                0,
+                0,
+                list_width,
+                &crate::theme::Theme::default(),
+                &row,
+                false,
+                None,
+                4,
+            );
+            let painted: String = (0..area.height)
+                .map(|y| {
+                    (0..area.width)
+                        .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol().to_string()))
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                painted.contains("cargo"),
+                "{label} match is not on the resume row:\n{painted}"
+            );
+        }
+    }
+
+    fn painted_snippet_width(snippet: &str) -> usize {
+        use unicode_width::UnicodeWidthStr;
+        let mut visible = String::new();
+        let mut rest = snippet;
+        while let Some(open) = rest.find('[') {
+            let (head, after_open) = rest.split_at(open);
+            visible.push_str(head);
+            let Some(after_bracket) = after_open.strip_prefix('[') else {
+                break;
+            };
+            if let Some(close) = after_bracket.find(']') {
+                visible.push_str(&after_bracket[..close]);
+                rest = &after_bracket[close + 1..];
+            } else {
+                visible.push('[');
+                rest = after_bracket;
+                break;
+            }
+        }
+        visible.push_str(rest);
+        UnicodeWidthStr::width(visible.as_str())
     }
     #[test]
     fn content_header_label_loading() {

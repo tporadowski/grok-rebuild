@@ -2480,6 +2480,7 @@ pub(crate) fn render_session_picker_body(
             &filtered_indices,
             ctx.state,
             content_start,
+            content_width.saturating_sub(4) as usize,
         )
     } else {
         Vec::new()

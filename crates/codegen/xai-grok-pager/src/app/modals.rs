@@ -2047,6 +2047,7 @@ impl AgentView {
                             &filtered_indices,
                             state,
                             content_start,
+                            content_area.width.saturating_sub(4) as usize,
                         )
                     } else {
                         Vec::new()
