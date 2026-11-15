@@ -990,7 +990,12 @@ pub fn render_cancel_turn_panel(
 /// while the panel is open, can leave `y` past `area` or past the buffer.
 fn paint_cancel_line(buf: &mut Buffer, area: Rect, x: u16, y: u16, line: &Line<'_>, width: u16) {
     if y >= area.y && y < area.bottom() {
-        buf.set_line_safe(x, y, line, width);
+        // A narrow panel clips the row. Keep the span's color and end the cut with `…`.
+        let fitted = crate::render::line_utils::truncate_line(
+            crate::render::line_utils::line_to_static(line),
+            width as usize,
+        );
+        buf.set_line_safe(x, y, &fitted, width);
     }
 }
 /// Apply scroll-key dispatch for a DocViewer modal.
@@ -1724,6 +1729,42 @@ mod cancel_turn_short_terminal_tests {
         assert!(
             text.contains("Subagents are still running"),
             "the rows that fit are still drawn:\n{text}"
+        );
+    }
+
+    /// A row that does not fit keeps its color and ends in `…`.
+    #[test]
+    fn narrow_panel_keeps_text_color_and_ends_with_an_ellipsis() {
+        let theme = crate::theme::Theme::current();
+        let area = Rect::new(0, 0, 16, 9);
+        let mut buf = Buffer::empty(area);
+        let mut buttons = Vec::new();
+        render_cancel_turn_panel(&mut buf, area, &state(), true, &mut buttons);
+        assert_row_ends_with_colored_ellipsis(&buf, 1, theme.accent_user);
+        assert_row_ends_with_colored_ellipsis(&buf, 2, theme.gray);
+        // Title, count, gap, then the first choice. The label is `text_primary`.
+        assert_row_ends_with_colored_ellipsis(&buf, 4, theme.text_primary);
+    }
+
+    fn assert_row_ends_with_colored_ellipsis(buf: &Buffer, y: u16, color: ratatui::style::Color) {
+        let mut ellipsis_fg = None;
+        for x in 0..buf.area.width {
+            if let Some(cell) = buf.cell((x, y))
+                && cell.symbol() == "\u{2026}"
+            {
+                ellipsis_fg = Some(cell.fg);
+            }
+        }
+        let Some(fg) = ellipsis_fg else {
+            panic!(
+                "row {y} should end a cut with an ellipsis: {:?}",
+                row_text(buf, y)
+            );
+        };
+        assert_eq!(
+            fg, color,
+            "ellipsis on row {y} should keep the text color: {:?}",
+            row_text(buf, y)
         );
     }
 

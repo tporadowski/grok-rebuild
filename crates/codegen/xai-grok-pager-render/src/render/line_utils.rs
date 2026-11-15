@@ -74,9 +74,8 @@ pub fn truncate_line(line: Line<'static>, max_width: usize) -> Line<'static> {
                 let truncated = take_width(&span.content, remaining);
                 out.push(Span::styled(truncated, span.style));
             }
-            // Append ellipsis with the same style as the last span.
-            let ellipsis_style = out.last().map(|s| s.style).unwrap_or_default();
-            out.push(Span::styled("\u{2026}", ellipsis_style));
+            // The mark stands in for the text that did not fit, so it keeps that span's color.
+            out.push(Span::styled("\u{2026}", span.style));
             return Line::from(out);
         }
     }
@@ -236,6 +235,19 @@ mod tests {
         let text: String = result.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.ends_with('\u{2026}'));
         assert!(text.width() <= 15);
+    }
+
+    #[test]
+    fn truncate_line_ellipsis_keeps_the_cut_span_color() {
+        use ratatui::style::Color;
+        let line = Line::from(vec![
+            Span::styled("AB", Color::Red),
+            Span::styled("CDEF", Color::Blue),
+        ]);
+        let result = truncate_line(line, 3);
+        let text: String = result.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text, "AB\u{2026}");
+        assert_eq!(result.spans.last().expect("ellipsis").style.fg, Some(Color::Blue));
     }
 
     #[test]
