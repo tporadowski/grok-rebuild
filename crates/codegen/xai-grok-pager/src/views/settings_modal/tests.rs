@@ -1571,6 +1571,51 @@ fn render_setting_row_emits_restart_pill_when_required() {
     );
 }
 
+/// A row too narrow for ` · restart` shows the setting label. The tag is not cut down to `resta`.
+#[test]
+fn very_narrow_setting_row_shows_the_label_not_a_cut_restart_tag() {
+    let meta = SettingMeta {
+        key: "test-key",
+        category: SettingCategory::Appearance,
+        owner: crate::settings::SettingOwner::Shared,
+        label: "Theme",
+        description: "Test description.",
+        keywords: &["test"],
+        kind: SettingKind::Bool { default: false },
+        restart_required: true,
+        hidden_in_minimal: false,
+    };
+    let area = Rect {
+        x: 0,
+        y: 0,
+        width: 8,
+        height: 2,
+    };
+    let mut buf = Buffer::empty(area);
+    let theme = Theme::current();
+    render_setting_row(
+        &mut buf,
+        area,
+        &meta,
+        &SettingValue::Bool(false),
+        8,
+        false,
+        &theme,
+        true,
+        false,
+        None,
+    );
+    let line1 = buf_row_text(&buf, 0, area.x, area.width);
+    assert!(
+        line1.contains("Theme"),
+        "a very narrow row shows the label: {line1:?}"
+    );
+    assert!(
+        !line1.contains("restart") && !line1.contains("resta"),
+        "the restart tag is left off instead of being cut: {line1:?}"
+    );
+}
+
 /// Counterpart to `render_setting_row_emits_restart_pill_when_required`: the pill is HIDDEN on any collapsed row.
 /// That keeps the modal uncluttered for the common "I'm just browsing" case.
 #[test]

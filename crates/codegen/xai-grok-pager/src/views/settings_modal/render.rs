@@ -668,7 +668,8 @@ pub(super) fn render_rows(
 
                 // Decide 1 vs 2 line layout; fall back to 1 if viewport is tight.
                 let value_display = value_display(meta, value, lock);
-                let show_restart_pill_for_layout = meta.restart_required && is_expanded;
+                let show_restart_pill_for_layout =
+                    restart_pill_visible(area.width, meta.restart_required, is_expanded);
                 let layout_decision = row_layout(
                     area.width,
                     meta.label,
@@ -2137,6 +2138,19 @@ pub(super) enum RowLayout {
     TwoLineWithLabelTruncation,
 }
 
+/// The restart tag is all or nothing. A row that cannot hold ` · restart` shows the label instead of a cut tag.
+pub(super) fn restart_pill_visible(
+    area_width: u16,
+    restart_required: bool,
+    is_expanded: bool,
+) -> bool {
+    if !restart_required || !is_expanded {
+        return false;
+    }
+    let restart_x = area_width.saturating_sub(ROW_RESTART_PILL_W.saturating_add(ROW_RIGHT_PAD_W));
+    restart_x.saturating_add(ROW_RESTART_PILL_W) <= area_width
+}
+
 /// Decide whether a setting row needs 1 or 2 logical lines.
 pub(super) fn row_layout(
     area_width: u16,
@@ -2267,8 +2281,8 @@ pub(super) fn render_setting_row(
     };
     let value_w = value_text.width() as u16;
 
-    // Pill only while expanded: change-time feedback is the toast's job, and a collapsed non-default row would misread as "restart pending" forever
-    let show_restart_pill = meta.restart_required && is_expanded;
+    // Pill only while expanded, and only when the whole tag fits. A narrower row keeps the label.
+    let show_restart_pill = restart_pill_visible(area.width, meta.restart_required, is_expanded);
     let restart_pill_text = " \u{00B7} restart";
     let restart_w = if show_restart_pill {
         restart_pill_text.width() as u16
