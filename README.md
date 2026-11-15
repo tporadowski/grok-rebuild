@@ -83,11 +83,19 @@ A later merge of an upstream snapshot should keep this list.
 
 ## Prebuilt binaries
 
-This fork does not publish release binaries yet.
-[Build from source](#building-from-source).
+[`.github/workflows/release.yml`](.github/workflows/release.yml) builds
+`xai-grok-pager` for Linux x86_64, Linux arm64, Windows x64, and macOS
+(Apple Silicon and Intel) and attaches the files to a
+[GitHub Release](https://github.com/tporadowski/grok-rebuild/releases).
+A `v*` tag publishes a release. The workflow can also be run by hand.
+The files are named `grok-rebuild-<version>-<platform>`.
 
-SpaceXSI publishes official Grok Build binaries at [x.ai/cli](https://x.ai/cli).
-That installer is their client. Their changelog is at
+The built-in updater still downloads official Grok Build from
+`https://x.ai/cli`. Set `[cli] auto_update = false` before using one of
+these binaries as a daily client.
+
+SpaceXSI publishes its own Grok Build binaries at [x.ai/cli](https://x.ai/cli).
+Their changelog is at
 [x.ai/build/changelog](https://x.ai/build/changelog). The notes this tree has
 followed are tracked in
 [`docs/upstream-port/PLAN.md`](docs/upstream-port/PLAN.md).

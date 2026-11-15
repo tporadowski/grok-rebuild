@@ -549,15 +549,17 @@ intent unless analysis shows upstream absorbed them:
    **What this fork adds** list, then later behavior reimplemented from
    the official release notes (`docs/upstream-port/PLAN.md`, package
    version stamp included). No `media.x.ai` logo or screenshot. The
-   install section is **Prebuilt binaries**: this fork publishes none, and
-   `x.ai/cli/install.sh` is not presented as this tree's installer. The
+   install section is **Prebuilt binaries**: `.github/workflows/release.yml`
+   publishes GitHub Release assets for Linux x86_64, Linux arm64, Windows
+   x64, and macOS arm64 and x86_64. `x.ai/cli/install.sh` is not presented
+   as this tree's installer. The
    section lists the fork-only behavior above: copyable tool errors,
    session turn index, sticky Edit path, subagent session IDs, plugin
    hooks at spawn, full release notes, copy markdown source, tool-run
    review keys, and the native Windows link. The Windows bullet under
    **Building from source** points at that section instead of upstream's
    "best-effort" wording. When upstream edits `README.md`, keep this
-   provenance, the absent media, the no-binaries install section, and the
+   provenance, the absent media, the GitHub Release install section, and the
    fork summary. Take new upstream prose only where it leaves those in
    place. Update the section when a fork theme is added or dropped. Never
    take a single side — upstream-only deletes the fork summary or restores
@@ -902,8 +904,9 @@ settings-match, or setter-import conflict.
 **README fork summary** — if the upstream range touches `README.md`,
 re-verify the unofficial-fork provenance (1.0.45 `SOURCE_REV`, **What
 this fork adds**, release-note port via `docs/upstream-port/PLAN.md`),
-the nine bullets, and the **Prebuilt binaries** section (no fork
-binaries; no `x.ai/cli/install.sh` as this tree's installer). No
+the nine bullets, and the **Prebuilt binaries** section (GitHub Release
+assets from `.github/workflows/release.yml`; no `x.ai/cli/install.sh` as
+this tree's installer). No
 `media.x.ai` logo or screenshot. Upstream prose that does not undo that
 provenance stays. The Windows build bullet must not revert to
 "best-effort / not tested" without also pointing at the fork's native
