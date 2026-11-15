@@ -1,23 +1,29 @@
-<div align="center">
+# Grok Build fork
 
-<h1>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://media.x.ai/v1/website/spacexai-symbol-white-transparent-0c31957f.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://media.x.ai/v1/website/spacexai-symbol-black-transparent-6435cf42.png">
-    <img alt="SpaceXAI logo" src="https://media.x.ai/v1/website/spacexai-symbol-black-transparent-6435cf42.png" width="96">
-  </picture>
-  <br>
-  Grok Build (<code>grok</code>)
-</h1>
+Unofficial fork of [Grok Build](https://github.com/xai-org/grok-build),
+the terminal-based AI coding agent from SpaceXSI. The 1.0.45 source and
+parts of this tree still say SpaceXAI. This repository is not affiliated
+with SpaceXSI.
 
-**Grok Build** is SpaceXAI's terminal-based AI coding agent. It runs as a
-full-screen TUI that understands your codebase, edits files, executes shell
-commands, searches the web, and manages long-running tasks — interactively,
-headlessly for scripting/CI, or embedded in editors via the Agent Client
-Protocol (ACP).
+The program is a full-screen TUI that understands your codebase, edits files,
+executes shell commands, searches the web, and manages long-running tasks —
+interactively, headlessly for scripting/CI, or embedded in editors via the
+Agent Client Protocol (ACP).
+
+This tree starts from the Grok Build **1.0.45** source.
+[`SOURCE_REV`](SOURCE_REV) records that monorepo commit
+(`559751fdcec02d413e4c57c8832ab275e4f44980`). Two layers sit on top of it:
+
+- **Fork additions**, listed in [What this fork adds](#what-this-fork-adds).
+  These are this tree's own behavior.
+- **Release-note changes** after 1.0.45, reimplemented from the official
+  Grok Build release notes and tracked in
+  [`docs/upstream-port/PLAN.md`](docs/upstream-port/PLAN.md). The package
+  version is **1.0.87**, the stamp for how far those notes have been applied
+  in this tree.
 
 [What this fork adds](#what-this-fork-adds) ·
-[Installing the released binary](#installing-the-released-binary) ·
+[Prebuilt binaries](#prebuilt-binaries) ·
 [Building from source](#building-from-source) ·
 [Documentation](#documentation) ·
 [Repository layout](#repository-layout) ·
@@ -25,26 +31,10 @@ Protocol (ACP).
 [Contributing](#contributing) ·
 [License](#license)
 
-![Grok Build TUI](https://media.x.ai/v1/website/universe-tui-screenshot-6f7a0837.png)
-
-**Learn more about Grok Build at [x.ai/cli](https://x.ai/cli)**
-
-This repository contains the Rust source for the `grok` CLI/TUI and its agent
-runtime. It is synced periodically from the SpaceXAI monorepo and keeps the
-extra behavior in [What this fork adds](#what-this-fork-adds).
-
-A small `SOURCE_REV` file at the root records the full monorepo commit SHA
-for the version of the code present in this tree.
-
-</div>
-
----
-
 ## What this fork adds
 
-This tree follows [xai-org/grok-build](https://github.com/xai-org/grok-build)
-`main` and keeps the changes below. They are not in the official `grok`
-install.
+These behaviors are this fork's own additions on the 1.0.45 source. The
+release-note port above is separate from this list.
 
 - **Copyable tool errors.** A collapsed Read, List, or Edit failure shows a
   short reason instead of a full path. Expanding a failed Edit also shows
@@ -88,21 +78,19 @@ install.
   pager is linked with an 8 MiB main-thread stack so command-line parsing
   does not overflow.
 
-To refresh this tree from upstream without dropping the list above, use
-[`/update-grok-local`](.grok/skills/update-grok-local/SKILL.md).
+A later merge of an upstream snapshot should keep this list.
+[`/update-grok-local`](.grok/skills/update-grok-local/SKILL.md) records how.
 
-## Installing the released binary
+## Prebuilt binaries
 
-Prebuilt binaries are published for macOS, Linux, and Windows:
+This fork does not publish release binaries yet.
+[Build from source](#building-from-source).
 
-```sh
-curl -fsSL https://x.ai/cli/install.sh | bash   # macOS / Linux / Git Bash
-irm https://x.ai/cli/install.ps1 | iex          # Windows PowerShell
-grok --version
-```
-
-See the [changelog](https://x.ai/build/changelog) for the latest fixes,
-features, and improvements in each release.
+SpaceXSI publishes official Grok Build binaries at [x.ai/cli](https://x.ai/cli).
+That installer is their client. Their changelog is at
+[x.ai/build/changelog](https://x.ai/build/changelog). The notes this tree has
+followed are tracked in
+[`docs/upstream-port/PLAN.md`](docs/upstream-port/PLAN.md).
 
 ## Building from source
 
@@ -138,10 +126,11 @@ The binary artifact is named `xai-grok-pager`; official installs ship it as
 
 ## Documentation
 
-Full online documentation is available at
-[docs.x.ai/build/overview](https://docs.x.ai/build/overview).
+Official Grok Build documentation is at
+[docs.x.ai/build/overview](https://docs.x.ai/build/overview). It describes
+SpaceXSI's client.
 
-The user guide ships with the pager crate:
+The user guide that ships with this tree is in the pager crate:
 [`crates/codegen/xai-grok-pager/docs/user-guide/`](crates/codegen/xai-grok-pager/docs/user-guide/)
 — getting started, keyboard shortcuts, slash commands, configuration, theming,
 MCP servers, skills, plugins, hooks, headless mode, sandboxing, and more.

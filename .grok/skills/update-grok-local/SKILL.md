@@ -544,18 +544,25 @@ intent unless analysis shows upstream absorbed them:
    child gate, and the dashboard non-dashboard fallthrough). Never take
    a single side — upstream-only drops the chords; HEAD-only fails to
    compile when a new upstream variant is missing.
-10. **README fork summary** — `README.md` has a **What this fork adds**
-   section (nav link plus a sentence in the intro) listing the fork-only
-   behavior above: copyable tool errors, session turn index, sticky Edit
-   path, subagent session IDs, plugin hooks at spawn, full release notes,
-   copy markdown source, tool-run review keys, and the native Windows
-   link. The Windows bullet
-   under **Building from source** points at that section instead of
-   upstream's "best-effort" wording. When upstream edits `README.md`, keep
-   this section and take the new upstream text around it. Update the
-   section when a fork theme is added or dropped. Never take a single
-   side — upstream-only deletes the fork summary; HEAD-only drops upstream
-   README edits.
+10. **README fork summary** — `README.md` opens as an unofficial fork of
+   Grok Build. The source base is **1.0.45** (`SOURCE_REV`), then the
+   **What this fork adds** list, then later behavior reimplemented from
+   the official release notes (`docs/upstream-port/PLAN.md`, package
+   version stamp included). No `media.x.ai` logo or screenshot. The
+   install section is **Prebuilt binaries**: this fork publishes none, and
+   `x.ai/cli/install.sh` is not presented as this tree's installer. The
+   section lists the fork-only behavior above: copyable tool errors,
+   session turn index, sticky Edit path, subagent session IDs, plugin
+   hooks at spawn, full release notes, copy markdown source, tool-run
+   review keys, and the native Windows link. The Windows bullet under
+   **Building from source** points at that section instead of upstream's
+   "best-effort" wording. When upstream edits `README.md`, keep this
+   provenance, the absent media, the no-binaries install section, and the
+   fork summary. Take new upstream prose only where it leaves those in
+   place. Update the section when a fork theme is added or dropped. Never
+   take a single side — upstream-only deletes the fork summary or restores
+   the logo and the official installer; HEAD-only drops upstream README
+   edits that do not undo this provenance.
 
 **`tracker.rs` test-extract conflicts:** upstream owns unit tests in
 `acp/tracker_tests.rs` (`#[cfg(test)]` + `#[path = "tracker_tests.rs"]
@@ -893,10 +900,14 @@ every new upstream setter. Never take a single side of an `ActionId`,
 settings-match, or setter-import conflict.
 
 **README fork summary** — if the upstream range touches `README.md`,
-re-verify **What this fork adds** is still present (nav link, intro
-sentence, and the nine bullets) and that upstream's other README edits
-were kept. The Windows build bullet must not revert to "best-effort /
-not tested" without also pointing at the fork's native link fixes.
+re-verify the unofficial-fork provenance (1.0.45 `SOURCE_REV`, **What
+this fork adds**, release-note port via `docs/upstream-port/PLAN.md`),
+the nine bullets, and the **Prebuilt binaries** section (no fork
+binaries; no `x.ai/cli/install.sh` as this tree's installer). No
+`media.x.ai` logo or screenshot. Upstream prose that does not undo that
+provenance stays. The Windows build bullet must not revert to
+"best-effort / not tested" without also pointing at the fork's native
+link fixes.
 
 Note outcomes in the fork-analysis section of the completion report
 (“adjacent re-check: pass / adapt needed” per theme, or “n/a — paths
