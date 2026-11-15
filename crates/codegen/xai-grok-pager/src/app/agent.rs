@@ -902,6 +902,7 @@ impl AgentSession {
         self.in_flight_prompt = None;
         self.compact_held_prompt = None;
         self.current_prompt_id = None;
+        self.tracker.note_foreign_screen_clear();
     }
     /// Whether any background task is still running (not completed or failed).
     /// Used to defer the automatic away-recap: a running task can wake the agent (auto-wake on completion).

@@ -539,6 +539,52 @@ pub(super) fn send_tool_call_update(
         app,
     );
 }
+/// A running tool leaves the screen alone. A finished tool, and the end of the turn, clear text another program wrote.
+#[test]
+fn foreign_terminal_text_clears_when_a_tool_or_turn_ends() {
+    let mut app = make_app_with_agent("sess-1");
+    {
+        let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+        agent.session.current_prompt_id = Some("p1".to_string());
+        agent.session.state = AgentState::TurnRunning;
+    }
+    send_tool_call(&mut app, "p1", "running-1", acp::ToolCallStatus::InProgress);
+    assert!(
+        !crate::app::event_loop::take_foreign_screen_clear(&mut app),
+        "a tool that is still running must not clear the screen"
+    );
+    send_tool_call(&mut app, "p1", "done-1", acp::ToolCallStatus::Completed);
+    assert!(
+        crate::app::event_loop::take_foreign_screen_clear(&mut app),
+        "a finished tool call clears text another program left on the terminal"
+    );
+    prompt_response(&mut app, "p1");
+    assert!(
+        crate::app::event_loop::take_foreign_screen_clear(&mut app),
+        "the end of the turn clears text another program left on the terminal"
+    );
+}
+
+fn send_tool_call(app: &mut AppView, prompt_id: &str, tool_id: &str, status: acp::ToolCallStatus) {
+    let meta = serde_json::json!({ "promptId": prompt_id });
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    handle(
+        AcpClientMessage::SessionNotification(xai_acp_lib::AcpArgs {
+            request: acp_fixtures::session_notification(
+                "sess-1",
+                acp::SessionUpdate::ToolCall(
+                    acp::ToolCall::new(acp_fixtures::tool_call_id(tool_id), format!("tool {tool_id}"))
+                        .kind(acp::ToolKind::Execute)
+                        .status(status),
+                ),
+            )
+            .meta(meta.as_object().cloned()),
+            response_tx: tx,
+        }),
+        app,
+    );
+}
+
 /// Dispatch an `Ok(EndTurn)` PromptResponse for `prompt_id`.
 pub(super) fn prompt_response(app: &mut AppView, prompt_id: &str) {
     use crate::app::actions::{Action, TaskResult};

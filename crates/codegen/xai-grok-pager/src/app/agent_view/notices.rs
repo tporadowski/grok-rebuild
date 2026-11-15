@@ -199,6 +199,15 @@ impl AgentView {
         self.session.blocked_prompt = None;
     }
 
+    /// Whether this view or a nested subagent still owes a full-screen clear.
+    pub(crate) fn take_foreign_screen_clear(&mut self) -> bool {
+        let mut any = self.session.tracker.take_foreign_screen_clear();
+        for child in self.subagent_views.values_mut() {
+            any |= child.take_foreign_screen_clear();
+        }
+        any
+    }
+
     /// Propagate sticky status to this view and every nested subagent view.
     pub fn set_sticky_toast_recursive(&mut self, msg: Option<&str>) {
         self.set_sticky_toast(msg);

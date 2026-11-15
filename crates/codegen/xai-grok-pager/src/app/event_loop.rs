@@ -39,6 +39,25 @@ const RESIZE_DEBOUNCE: Duration = Duration::from_millis(16);
 pub(super) fn settled_resize_needs_full_repaint(out_of_band: bool) -> bool {
     out_of_band
 }
+
+/// Focus returning must clear text another program wrote on this terminal.
+/// The multiplexer reflow is a separate reason to clear; a plain terminal still heals.
+pub(super) fn focus_gained_forces_full_repaint(_out_of_band: bool) -> bool {
+    true
+}
+
+/// A finished tool call or turn, or a resize the outer layer already reflowed, clears the screen.
+pub(super) fn acp_batch_forces_full_repaint(foreign_text: bool, resize_full: bool) -> bool {
+    foreign_text || resize_full
+}
+
+pub(crate) fn take_foreign_screen_clear(app: &mut AppView) -> bool {
+    let mut any = false;
+    for agent in app.agents.values_mut() {
+        any |= agent.take_foreign_screen_clear();
+    }
+    any
+}
 /// A resize queues a forced status-line re-run, and the script is told the width the debounced draw recorded.
 const _: () = assert!(
     RESIZE_DEBOUNCE.as_millis() < crate::app::app_view::SLOW_TICK_INTERVAL.as_millis(),
@@ -1902,7 +1921,7 @@ pub(crate) async fn run(
                 break;
             }
             after_task_complete_dispatch(
-                &app,
+                &mut app,
                 &mut animation_tick_at,
                 tick_interval,
                 &mut resize_debounce_at,
@@ -2318,11 +2337,16 @@ pub(crate) async fn run(
                     schedule_tick(&mut animation_tick_at, &app, tick_interval);
                 }
 
-                if state_changed {
+                let foreign_text = take_foreign_screen_clear(&mut app);
+                if state_changed || foreign_text {
                     schedule_tick(&mut animation_tick_at, &app, tick_interval);
                     resize_debounce_at = None;
-                    // A resize burst may already have reflowed the pane. Keep the clear on this draw.
-                    if std::mem::take(&mut resize_full_repaint) {
+                    // A resize burst may already have reflowed the pane. A finished tool or turn
+                    // also clears text another program left on this terminal.
+                    if acp_batch_forces_full_repaint(
+                        foreign_text,
+                        std::mem::take(&mut resize_full_repaint),
+                    ) {
                         presenter.request(true);
                     }
                     // Cap paint rate so terminal input isn't starved during heavy ACP streaming
@@ -2361,7 +2385,7 @@ pub(crate) async fn run(
                             break;
                         }
                         after_task_complete_dispatch(
-                            &app,
+                            &mut app,
                             &mut animation_tick_at,
                             tick_interval,
                             &mut resize_debounce_at,
@@ -3071,7 +3095,7 @@ fn should_pregenerate_away_recap(app: &AppView) -> bool {
 /// Bookkeeping shared by the JoinSet arm and the deferred SessionLoaded drain.
 /// A deferred load that sets `billing_poll_wanted` must arm the poll here; waiting for an unrelated later event would stall billing/gate timers.
 fn after_task_complete_dispatch(
-    app: &AppView,
+    app: &mut AppView,
     animation_tick_at: &mut Option<Instant>,
     tick_interval: Duration,
     resize_debounce_at: &mut Option<Instant>,
@@ -3093,7 +3117,7 @@ fn after_task_complete_dispatch(
     } else if app.has_access() {
         *gate_poll_at = None;
     }
-    presenter.request(false);
+    presenter.request(take_foreign_screen_clear(app));
 }
 /// Schedule the next animation tick when demanded.
 /// A demand that is due sooner than a tick already waiting replaces it, so opening
@@ -3288,7 +3312,9 @@ async fn drain_and_process(
         match ev {
             Event::FocusGained => {
                 reassert_mouse_capture_on_focus(&app.escape_writer);
-                if crate::terminal::terminal_context().repaints_pane_out_of_band() {
+                if focus_gained_forces_full_repaint(
+                    crate::terminal::terminal_context().repaints_pane_out_of_band(),
+                ) {
                     force_repaint = true;
                     needs_draw = true;
                 }
@@ -4073,6 +4099,17 @@ mod tests {
             !settled_resize_needs_full_repaint(plain.repaints_pane_out_of_band()),
             "a plain terminal keeps the diff draw"
         );
+    }
+
+    #[test]
+    fn focus_gained_clears_text_another_program_left() {
+        assert!(
+            focus_gained_forces_full_repaint(false),
+            "a plain terminal still clears foreign text when the window regains focus"
+        );
+        assert!(focus_gained_forces_full_repaint(true));
+        assert!(acp_batch_forces_full_repaint(true, false));
+        assert!(!acp_batch_forces_full_repaint(false, false));
     }
 
     fn nth<T>(xs: &[T], i: usize) -> &T {

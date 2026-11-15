@@ -444,6 +444,8 @@ pub struct AcpUpdateTracker {
     pending_acp_tools: Option<Vec<String>>,
     /// Live Edit completions awaiting full-file HL (drained via [`Self::take_pending_edit_hl`]).
     pending_edit_hl: Vec<EntryId>,
+    /// A child wrote on the controlling terminal. The next frame clears that text.
+    foreign_screen_clear: bool,
 }
 /// A tool call that's been started but not yet completed.
 #[derive(Debug)]
@@ -523,6 +525,27 @@ impl AcpUpdateTracker {
     }
     /// Record session cwd used when stripping redundant `cd` prefixes in chrome.
     /// No-op when the path is already stored (avoids cloning on every update).
+    /// Remember that another program left text on this terminal.
+    pub(crate) fn note_foreign_screen_clear(&mut self) {
+        self.foreign_screen_clear = true;
+    }
+
+    /// A finished tool call. Streaming updates do not count. Replay does not either.
+    fn note_terminal_tool(&mut self, status: acp::ToolCallStatus, is_replay: bool) {
+        if !is_replay
+            && matches!(
+                status,
+                acp::ToolCallStatus::Completed | acp::ToolCallStatus::Failed
+            )
+        {
+            self.note_foreign_screen_clear();
+        }
+    }
+
+    pub(crate) fn take_foreign_screen_clear(&mut self) -> bool {
+        std::mem::take(&mut self.foreign_screen_clear)
+    }
+
     pub fn set_session_cwd(&mut self, cwd: impl AsRef<Path>) {
         let cwd = cwd.as_ref();
         if self.session_cwd.as_deref() != Some(cwd) {
@@ -1312,6 +1335,7 @@ impl AcpUpdateTracker {
         scrollback: &mut ScrollbackState,
         is_replay: bool,
     ) -> bool {
+        self.note_terminal_tool(tc.status, is_replay);
         self.finish_thinking(scrollback);
         // A tool call cuts the sentence off. Leave the message running and the pager keeps redrawing it.
         if let Some(agent_id) = self.current_agent_msg.take() {
@@ -1414,6 +1438,9 @@ impl AcpUpdateTracker {
         scrollback: &mut ScrollbackState,
         is_replay: bool,
     ) -> bool {
+        if let Some(status) = tcu.fields.status {
+            self.note_terminal_tool(status, is_replay);
+        }
         let tc_id_str = tcu.tool_call_id.0.to_string();
         if self.bg_deferred_tools.contains_key(&tc_id_str) {
             return false;
