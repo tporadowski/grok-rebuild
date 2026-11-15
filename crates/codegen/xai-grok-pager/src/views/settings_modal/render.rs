@@ -635,7 +635,7 @@ pub(super) fn render_rows(
                             x: area.x,
                             y: y_cursor,
                             width: area.width,
-                            height: desc_height.min(8),
+                            height: desc_height,
                         };
                         render_expanded_description(buf, desc_rect, meta.description, theme);
                         let consumed = wrapped_description_height(
@@ -718,7 +718,7 @@ pub(super) fn render_rows(
                         x: area.x,
                         y: y_cursor,
                         width: area.width,
-                        height: desc_height.min(8), // cap at 8 lines per row to keep scroll sane
+                        height: desc_height,
                     };
                     let detail = state.detail_text(key, meta);
                     render_expanded_description(buf, desc_rect, detail, theme);
@@ -790,14 +790,14 @@ fn compute_filtered_row_heights(state: &SettingsModalState, area_width: u16) -> 
                     heights.push(1);
                     continue;
                 };
-                // Group rows carry no value; the height is the chevron row plus the expanded description (cap 8), agreeing with the forward render loop
+                // Group rows carry no value; the height is the chevron row plus every wrapped description line.
                 if matches!(meta.kind, SettingKind::Group { .. }) {
                     let mut h: u16 = 1;
                     if state.expanded_keys.contains(key) {
                         h = h.saturating_add(wrapped_description_height(
                             meta.description,
                             area_width,
-                            8,
+                            u16::MAX,
                         ));
                     }
                     heights.push(h);
@@ -817,11 +817,11 @@ fn compute_filtered_row_heights(state: &SettingsModalState, area_width: u16) -> 
                     RowLayout::TwoLine | RowLayout::TwoLineWithLabelTruncation => 2,
                 };
                 if is_expanded {
-                    // Cap matches the forward render loop (`desc_rect.height = ... .min(8)`).
+                    // Full wrap, so a description that fits the list is scrolled into view whole.
                     h = h.saturating_add(wrapped_description_height(
                         state.detail_text(key, meta),
                         area_width,
-                        8,
+                        u16::MAX,
                     ));
                 }
                 heights.push(h);

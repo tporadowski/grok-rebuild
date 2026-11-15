@@ -7717,6 +7717,92 @@ fn locked_coding_data_sharing_row_renders_locked_value_without_chevron() {
     );
 }
 
+/// Eighty short words wrap past eight lines in a narrow /settings modal. The modal is tall
+/// enough to show every word. A cap that stops early leaves the last words off the dialog.
+#[test]
+fn long_setting_description_fits_inside_the_settings_modal() {
+    let description = long_setting_description();
+    let entries = vec![SettingMeta {
+        key: "compact_mode",
+        category: SettingCategory::Appearance,
+        owner: SettingOwner::Shared,
+        label: "Compact mode",
+        description,
+        keywords: &[],
+        kind: SettingKind::Bool { default: false },
+        restart_required: false,
+        hidden_in_minimal: false,
+    }];
+    let mut s = SettingsModalState::new(
+        Arc::new(SettingsRegistry::from_entries(entries)),
+        UiConfig::default(),
+        PagerLocalSnapshot::default(),
+    );
+    let row = s
+        .rows
+        .iter()
+        .position(|r| matches!(r, RowEntry::Setting { key, .. } if *key == "compact_mode"))
+        .expect("compact_mode row");
+    s.selected = row;
+    s.expanded_keys.insert("compact_mode");
+
+    let area = Rect {
+        x: 0,
+        y: 0,
+        width: 48,
+        height: 60,
+    };
+    let mut buf = Buffer::empty(area);
+    render_settings_modal(&mut buf, area, &mut s, false, None);
+    let popup = s.window.popup_area.expect("settings modal opens");
+
+    let mut inside = String::new();
+    let y_end = popup.y.saturating_add(popup.height).saturating_sub(1);
+    let x_end = popup.x.saturating_add(popup.width).saturating_sub(1);
+    for y in popup.y.saturating_add(1)..y_end {
+        for x in popup.x.saturating_add(1)..x_end {
+            if let Some(cell) = buf.cell((x, y)) {
+                inside.push_str(cell.symbol());
+            }
+        }
+        inside.push('\n');
+    }
+
+    let right = popup.x.saturating_add(popup.width).saturating_sub(1);
+    let bottom = popup.y.saturating_add(popup.height).saturating_sub(1);
+    for y in popup.y..popup.y.saturating_add(popup.height) {
+        for x in [popup.x, right] {
+            let symbol = buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or("");
+            assert!(
+                !symbol.starts_with('w'),
+                "description spilled onto the modal's side border at ({x}, {y}): {symbol:?}"
+            );
+        }
+    }
+    for x in popup.x..popup.x.saturating_add(popup.width) {
+        for y in [popup.y, bottom] {
+            let symbol = buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or("");
+            assert!(
+                !symbol.starts_with('w'),
+                "description spilled onto the modal's top or bottom border at ({x}, {y}): {symbol:?}"
+            );
+        }
+    }
+
+    for word in description.split_whitespace() {
+        assert!(
+            inside.contains(word),
+            "long setting description lost {word:?} inside the modal:\n{inside}"
+        );
+    }
+}
+
+fn long_setting_description() -> &'static str {
+    static CELL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| (0..80).map(|i| format!("w{i:03}")).collect::<Vec<_>>().join(" "))
+        .as_str()
+}
+
 /// A `\n` in a description starts a new painted line in the expanded detail instead of rendering as a control cell.
 #[test]
 fn expanded_description_newlines_start_new_lines() {
