@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - "v*"
+      - "ci-*"
 
 permissions:
   contents: write
@@ -27,13 +28,19 @@ jobs:
           version=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' crates/codegen/xai-grok-version/Cargo.toml | head -1)
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             tag="${GITHUB_REF_NAME}"
-            prerelease=false
-            title="grok-rebuild ${version}"
           else
             tag="ci-${GITHUB_RUN_ID}"
-            prerelease=true
-            title="grok-rebuild ${version} (trial ${GITHUB_RUN_ID})"
           fi
+          case "$tag" in
+            v*)
+              prerelease=false
+              title="grok-rebuild ${version}"
+              ;;
+            *)
+              prerelease=true
+              title="grok-rebuild ${version} (${tag})"
+              ;;
+          esac
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
           echo "title=${title}" >> "$GITHUB_OUTPUT"
