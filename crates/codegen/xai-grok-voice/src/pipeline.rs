@@ -309,7 +309,7 @@ pub(crate) const NO_SPEECH_TIMEOUT: std::time::Duration = std::time::Duration::f
 pub(crate) fn no_speech_error() -> (String, Option<String>) {
     (
         "No speech was detected. Voice stopped.".to_owned(),
-        Some(crate::probe::mic_fix_help().to_owned()),
+        Some(crate::probe::mic_fix_help()),
     )
 }
 
@@ -737,6 +737,7 @@ mod tests {
     fn no_speech_error_carries_permission_hint() {
         let (message, hint) = no_speech_error();
         assert_eq!(message, "No speech was detected. Voice stopped.");
-        assert!(hint.is_some_and(|hint| hint.contains(crate::probe::mic_fix_help())));
+        let help = crate::probe::mic_fix_help();
+        assert!(hint.is_some_and(|hint| hint.contains(help.as_str())));
     }
 }

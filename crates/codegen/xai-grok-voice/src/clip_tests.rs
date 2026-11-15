@@ -256,7 +256,10 @@ fn silence_and_the_silent_clip_error() {
         assert_eq!("No speech was detected. Voice stopped.", message);
         assert_eq!(
             hint_expected,
-            hint.is_some_and(|hint| hint.contains(crate::probe::mic_fix_help())),
+            {
+                let help = crate::probe::mic_fix_help();
+                hint.is_some_and(|hint| hint.contains(help.as_str()))
+            },
             "{pcm_len} bytes at {rate} Hz"
         );
     }

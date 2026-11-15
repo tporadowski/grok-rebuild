@@ -243,8 +243,9 @@ If Grok stops receiving mouse input, re-enable mouse reporting in the terminal:
 After about 10 seconds without a transcript, Grok stops capture and shows
 **“No speech was detected. Voice stopped.”** with microphone fix steps. On macOS,
 a denied microphone grant can look the same as silence because permission belongs
-to the terminal hosting Grok. Open **System Settings → Privacy & Security →
-Microphone**, enable the terminal, and restart it. If access is already on, check
+to the terminal hosting Grok. The message names that app (Terminal, iTerm2,
+Ghostty, or whichever host is running) and tells you to open **System Settings →
+Privacy & Security → Microphone**, turn that app on, and restart it. If access is already on, check
 the input device and level under **System Settings → Sound → Input** and try
 again.
 

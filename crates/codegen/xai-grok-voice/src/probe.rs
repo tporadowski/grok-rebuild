@@ -152,20 +152,131 @@ pub fn input_device_info() -> Result<InputDeviceInfo, VoiceError> {
 }
 
 /// Platform-specific fix text for a mic that isn't being picked up.
-/// On macOS the grant is for the terminal app and only applies after that app restarts.
-pub fn mic_fix_help() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "Allow microphone access for your terminal in System Settings → Privacy & Security → \
-         Microphone, then restart the terminal. If access is already on, check the input device \
-         and level in System Settings → Sound → Input."
-    } else if cfg!(target_os = "windows") {
+/// On macOS the grant belongs to the terminal app and only applies after that app restarts.
+pub fn mic_fix_help() -> String {
+    mic_permission_help(std::env::consts::OS, current_terminal_host_app())
+}
+
+/// The `/voice` permission sentence for `os` (`"macos"`, `"windows"`, or anything else).
+/// `app` is the terminal macOS lists under Microphone, when this process can tell.
+pub fn mic_permission_help(os: &str, app: Option<&str>) -> String {
+    if os == "macos" {
+        macos_microphone_permission_sentence(app)
+    } else if os == "windows" {
         "allow microphone access in Settings → Privacy & security → \
          Microphone, and check the input device and level in Settings → \
          System → Sound."
+            .to_string()
     } else {
         "check the default input device and its volume in your sound settings \
          (e.g. `pavucontrol`, or `wpctl status` on PipeWire)."
+            .to_string()
     }
+}
+
+/// macOS `/voice` text: which app is missing Microphone permission, and how to allow it.
+fn macos_microphone_permission_sentence(app: Option<&str>) -> String {
+    match app.map(str::trim).filter(|app| !app.is_empty()) {
+        Some(app) => format!(
+            "{app} is missing Microphone permission. Open System Settings → Privacy & Security → \
+             Microphone, turn on {app}, then restart {app}. If access is already on, check the \
+             input device and level in System Settings → Sound → Input."
+        ),
+        None => "Your terminal is missing Microphone permission. Open System Settings → Privacy & \
+                 Security → Microphone, turn the terminal on, then restart it. If access is \
+                 already on, check the input device and level in System Settings → Sound → Input."
+            .to_string(),
+    }
+}
+
+/// The terminal app that holds the macOS Microphone grant, from the same env markers the pager uses.
+/// A multiplexer is not that app: the grant is on the terminal that hosts it.
+pub fn terminal_host_app(get: impl Fn(&str) -> Option<String>) -> Option<&'static str> {
+    fn nonempty(get: &impl Fn(&str) -> Option<String>, key: &str) -> Option<String> {
+        get(key)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+    fn label(raw: &str) -> Option<&'static str> {
+        let normalized: String = raw
+            .chars()
+            .filter(|c| !matches!(c, ' ' | '-' | '_' | '.'))
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+        match normalized.as_str() {
+            "appleterminal" => Some("Terminal"),
+            "ghostty" => Some("Ghostty"),
+            "iterm" | "iterm2" | "itermapp" => Some("iTerm2"),
+            "warp" | "warpterminal" => Some("Warp"),
+            "vscode" => Some("Visual Studio Code"),
+            "wezterm" => Some("WezTerm"),
+            "kitty" => Some("kitty"),
+            "alacritty" => Some("Alacritty"),
+            "zed" => Some("Zed"),
+            "rio" => Some("Rio"),
+            "hyper" => Some("Hyper"),
+            "tabby" => Some("Tabby"),
+            "grokdesktop" => Some("Grok"),
+            "rex" => Some("Rex"),
+            "windowsterminal" => Some("Windows Terminal"),
+            "tmux" | "screen" | "byobu" => None,
+            _ => None,
+        }
+    }
+
+    if nonempty(&get, "CURSOR_TRACE_ID").is_some() {
+        return Some("Cursor");
+    }
+    if let Some(askpass) = nonempty(&get, "VSCODE_GIT_ASKPASS_MAIN") {
+        let lower = askpass.to_ascii_lowercase();
+        if lower.contains("cursor") {
+            return Some("Cursor");
+        }
+        if lower.contains("windsurf") {
+            return Some("Windsurf");
+        }
+        return Some("Visual Studio Code");
+    }
+    if let Some(name) = nonempty(&get, "LC_TERMINAL").as_deref().and_then(label) {
+        return Some(name);
+    }
+    if let Some(name) = nonempty(&get, "TERM_PROGRAM").as_deref().and_then(label) {
+        return Some(name);
+    }
+    if nonempty(&get, "WEZTERM_VERSION").is_some() {
+        return Some("WezTerm");
+    }
+    if nonempty(&get, "ITERM_SESSION_ID").is_some() || nonempty(&get, "ITERM_PROFILE").is_some() {
+        return Some("iTerm2");
+    }
+    if nonempty(&get, "KITTY_WINDOW_ID").is_some() {
+        return Some("kitty");
+    }
+    if let Some(emulator) = nonempty(&get, "TERMINAL_EMULATOR") {
+        let lower = emulator.to_ascii_lowercase();
+        if lower.contains("jetbrains") || lower.contains("jediterm") {
+            return Some("JetBrains");
+        }
+    }
+    if nonempty(&get, "REX_SESSION").is_some()
+        || nonempty(&get, "REX_BLOCK").is_some()
+        || nonempty(&get, "TERM").is_some_and(|term| term == "xterm-rex")
+    {
+        return Some("Rex");
+    }
+    if nonempty(&get, "TERM_SESSION_ID").is_some() {
+        return Some("Terminal");
+    }
+    None
+}
+
+fn current_terminal_host_app() -> Option<&'static str> {
+    terminal_host_app(|key| {
+        std::env::var(key)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
 }
 
 /// Human-readable multi-line report for terminal output.
@@ -202,4 +313,60 @@ pub fn format_probe_report(report: &VoiceProbeReport) -> String {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |key| {
+            pairs
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| (*value).to_string())
+        }
+    }
+
+    #[test]
+    fn macos_voice_names_the_terminal_missing_microphone_permission() {
+        let ghostty = mic_permission_help("macos", Some("Ghostty"));
+        assert!(
+            ghostty.contains("Ghostty") && ghostty.contains("Microphone"),
+            "the sentence has to name the terminal and Microphone permission: {ghostty}"
+        );
+        assert!(
+            ghostty.contains("System Settings") && ghostty.contains("Privacy & Security"),
+            "the sentence has to say where to turn the grant on: {ghostty}"
+        );
+        assert!(
+            ghostty.to_lowercase().contains("restart"),
+            "the grant applies only after the terminal restarts: {ghostty}"
+        );
+        assert_eq!(
+            terminal_host_app(env(&[("TERM_PROGRAM", "Apple_Terminal")])),
+            Some("Terminal")
+        );
+        assert_eq!(
+            terminal_host_app(env(&[("TERM_PROGRAM", "iTerm.app")])),
+            Some("iTerm2")
+        );
+        assert_eq!(
+            terminal_host_app(env(&[
+                ("TERM_PROGRAM", "tmux"),
+                ("LC_TERMINAL", "iTerm2"),
+            ])),
+            Some("iTerm2"),
+            "tmux is not the app listed under Microphone"
+        );
+        let unnamed = mic_permission_help("macos", None);
+        assert!(
+            unnamed.contains("terminal") && unnamed.contains("Microphone"),
+            "an unknown host still names the terminal and the permission: {unnamed}"
+        );
+        assert!(
+            unnamed.contains("System Settings"),
+            "an unknown host still says how to fix it: {unnamed}"
+        );
+    }
 }
