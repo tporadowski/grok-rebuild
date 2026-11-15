@@ -76,7 +76,7 @@ jobs:
     needs: release
     name: ${{ matrix.platform }}
     # A win-* tag rebuilds only the Windows binary. ci-* and v* build every target.
-    if: ${{ !startsWith(github.ref_name, 'win-') || matrix.platform == 'windows-x86_64' }}
+    if: "${{ !startsWith(github.ref_name, 'win-') || matrix.platform == 'windows-x86_64' }}"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     strategy:
