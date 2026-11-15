@@ -1988,6 +1988,37 @@ impl AppView {
     pub fn flush_image_notices_if_root(&mut self) -> bool {
         self.dispatch_depth == 0 && crate::app::dispatch::flush_image_notices(self)
     }
+    /// Whether the toast [`Self::show_toast`] will paint cannot hold `message`.
+    /// `screen_width` is the draw rect for the dashboard and the welcome screen. Zero means that rect is not known yet.
+    pub(crate) fn voice_toast_is_cut(&self, message: &str, screen_width: u16) -> bool {
+        match self.active_view {
+            ActiveView::Agent(id) => {
+                let Some(agent) = self.agents.get(&id) else {
+                    return false;
+                };
+                let (painter, size) = if let Some(sid) = agent.active_subagent.as_deref()
+                    && let Some(child) = agent.subagent_views.get(sid)
+                {
+                    let size = if child.last_terminal_size.0 > 0 {
+                        child.last_terminal_size
+                    } else {
+                        agent.last_terminal_size
+                    };
+                    (child.as_ref(), size)
+                } else {
+                    (agent, agent.last_terminal_size)
+                };
+                let slot = crate::app::agent_view::toast_slot_width(painter, size);
+                crate::app::agent_view::toast_cuts_message(message, slot)
+            }
+            ActiveView::AgentDashboard => {
+                crate::views::dashboard::render::dashboard_toast_cuts(message, screen_width)
+            }
+            ActiveView::Welcome => {
+                crate::app::agent_view::toast_cuts_message(message, screen_width)
+            }
+        }
+    }
     /// Show a toast on the currently active view.
     /// Registration (and thus the mismatch notif) finishes during reconnect.
     /// The later "Reconnected" / "Session restored…" line would hide a still-true skew.

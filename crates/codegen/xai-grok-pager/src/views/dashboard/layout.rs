@@ -154,6 +154,12 @@ pub fn allocate_peek(
 /// Matches `LayoutConfig::outer_hpad_left/right = 2` from the agent view's default appearance config.
 pub const DISPATCH_OUTER_HPAD: u16 = 2;
 
+/// Width of the dispatch box inside `screen_width`. A screen too narrow for the padding keeps the full width.
+pub(crate) fn dispatch_box_width(screen_width: u16) -> u16 {
+    let inner = screen_width.saturating_sub(DISPATCH_OUTER_HPAD.saturating_mul(2));
+    if inner > 0 { inner } else { screen_width }
+}
+
 /// Outer horizontal padding for the top page header (cols on each side).
 /// Matches list/dispatch so the title aligns with content below.
 pub const HEADER_OUTER_HPAD: u16 = 2;
@@ -435,9 +441,8 @@ fn compute_layout_with_dispatch_inner(
 
     // The single-line dispatch input keeps its 2-col outer padding so the `❯` prefix lines up with the row content
     // Rows are indented past the marker column too
-    let dispatch_inner_pad = DISPATCH_OUTER_HPAD.saturating_mul(2);
-    let dispatch_width = area.width.saturating_sub(dispatch_inner_pad);
-    let dispatch_x = if dispatch_width > 0 {
+    let dispatch_width = dispatch_box_width(area.width);
+    let dispatch_x = if dispatch_width > 0 && dispatch_width < area.width {
         area.x.saturating_add(DISPATCH_OUTER_HPAD)
     } else {
         area.x
@@ -445,11 +450,7 @@ fn compute_layout_with_dispatch_inner(
     let dispatch = Rect {
         x: dispatch_x,
         y,
-        width: if dispatch_width > 0 {
-            dispatch_width
-        } else {
-            area.width
-        },
+        width: dispatch_width,
         height: dispatch_h,
     };
     y += dispatch_h;

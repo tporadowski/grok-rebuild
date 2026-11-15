@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-326 — A voice error uses the toast that is actually painted
+
+`v87-x13`. The agent toast is fitted to the scrollback row, which is the draw rect minus the outer padding (two columns each side, one each side in compact mode). The dashboard toast is the dispatch chip, which leaves four columns for the border. A voice error is saved when that painted slot cuts the line. A line that fits the slot stays a toast. This correction is after the `v1.0.87` tag.
+
 ### D-325 — Stamp 1.0.87
 
 On 15 November 2026 every 1.0.87 row was terminal. Stable was still 1.0.77. Alpha was still 1.0.87. `1.0.87.external.md` and `.json` returned 200. The four packages, `Cargo.lock`, `package_version_is_the_ported_release`, and `CHANGELOG.md` are 1.0.87. Tag `v1.0.87`.

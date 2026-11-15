@@ -184,7 +184,7 @@ pub(in crate::app) use prompt_stash::prompt_history_text;
 pub use prompt_stash::{PromptStashEntry, StashCause};
 mod queue;
 mod render;
-pub(crate) use render::toast_cuts_message;
+pub(crate) use render::{toast_cuts_message, toast_slot_width};
 pub use render::{AppRenderParams, OverlayHeader};
 #[cfg(test)]
 mod dock_input_tests;

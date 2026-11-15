@@ -4585,6 +4585,20 @@ pub(crate) fn fit_toast_text(msg: &str, avail_width: u16) -> Option<String> {
     Some(format!(" {body}… "))
 }
 
+/// Columns [`fit_toast_text`] receives: the scrollback row, which is the draw rect minus the outer padding.
+pub(crate) fn toast_slot_width(view: &AgentView, size: (u16, u16)) -> u16 {
+    let (width, height) = size;
+    if width == 0 {
+        return 0;
+    }
+    let appearance = view.scrollback.appearance();
+    AgentViewLayout::inner_width(
+        Rect::new(0, 0, width, height),
+        &appearance.scrollback.layout,
+        appearance.prompt.compact,
+    )
+}
+
 /// True when [`fit_toast_text`] has to drop part of `msg` at `avail_width`.
 /// A slot too narrow to draw anything is not a cut: there is no toast to compare.
 pub(crate) fn toast_cuts_message(msg: &str, avail_width: u16) -> bool {

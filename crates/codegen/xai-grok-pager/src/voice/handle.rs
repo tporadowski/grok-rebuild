@@ -270,16 +270,16 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
                 let _ = commit_interim_into_prompt(app);
             }
             let toast_line = voice_toast(message.trim());
-            let columns = match target {
+            // The painted slot is narrower than the draw rect: the agent row is inset by the outer padding, and the dashboard chip leaves room for the dispatch border.
+            let screen_width = match target {
                 Some(VoiceTarget::Agent(id) | VoiceTarget::DashboardPeekReply(id)) => app
                     .agents
                     .get(&id)
                     .map(|agent| agent.last_terminal_size.0)
                     .unwrap_or(0),
-                _ => 0,
+                Some(VoiceTarget::DashboardDispatch) | None => 0,
             };
-            // The toast is one line. When that line cannot hold the error, the full text goes to scrollback.
-            let cut = crate::app::agent_view::toast_cuts_message(&toast_line, columns);
+            let cut = app.voice_toast_is_cut(&toast_line, screen_width);
             app.voice_reset();
             app.show_toast(&toast_line);
             let hint_text = hint.as_deref().map(str::trim).filter(|hint| !hint.is_empty());

@@ -653,6 +653,99 @@ fn voice_error_cut_off_by_the_toast_is_saved_to_scrollback() {
     );
 }
 
+fn voice_body(total_columns: usize) -> String {
+    "x".repeat(total_columns.saturating_sub("Voice: ".len()))
+}
+
+fn send_voice_error(app: &mut AppView, id: AgentId, message: &str) {
+    app.voice_state = VoiceState::Recording {
+        hold: false,
+        target: VoiceTarget::Agent(id),
+        partial: Partial::None,
+        route: None,
+    };
+    crate::voice::handle_voice_event(
+        app,
+        xai_grok_voice::VoiceEvent::Error {
+            message: message.into(),
+            hint: None,
+        },
+    );
+}
+
+/// The agent toast is fitted to the scrollback, which is the terminal minus the outer padding.
+/// A line that fits the full terminal still gets cut on that narrower row.
+#[test]
+fn voice_error_cut_by_the_scrollback_inset_is_saved() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    app.agents.get_mut(&id).unwrap().last_terminal_size = (80, 30);
+    let before = app.agents.get(&id).unwrap().scrollback.len();
+    let message = voice_body(73);
+    send_voice_error(&mut app, id, &message);
+    let agent = app.agents.get(&id).unwrap();
+    assert!(
+        agent.scrollback.len() > before,
+        "the padded scrollback cuts a line the full terminal would keep"
+    );
+    let text = match agent
+        .scrollback
+        .get(agent.scrollback.len() - 1)
+        .map(|entry| &entry.block)
+    {
+        Some(crate::scrollback::block::RenderBlock::System(block)) => block.text.as_str(),
+        other => panic!("expected system block, got {other:?}"),
+    };
+    assert!(text.contains(&message), "scrollback keeps the full error: {text}");
+}
+
+/// Compact mode uses a one-column pad, so the same line still fits and stays a toast.
+#[test]
+fn voice_error_that_fits_the_compact_slot_stays_a_toast() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.last_terminal_size = (80, 40);
+        let mut appearance = agent.scrollback.appearance().clone();
+        appearance.prompt.compact = true;
+        agent.scrollback.set_appearance(appearance);
+    }
+    let before = app.agents.get(&id).unwrap().scrollback.len();
+    send_voice_error(&mut app, id, &voice_body(73));
+    assert_eq!(
+        app.agents.get(&id).unwrap().scrollback.len(),
+        before,
+        "a line that fits the compact toast must not be copied to scrollback"
+    );
+}
+
+/// On the dashboard the toast is the dispatch chip, which is narrower than the agent row.
+#[test]
+fn voice_error_cut_by_the_dashboard_toast_is_saved() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    app.active_view = ActiveView::AgentDashboard;
+    app.agents.get_mut(&id).unwrap().last_terminal_size = (80, 30);
+    let before = app.agents.get(&id).unwrap().scrollback.len();
+    let message = voice_body(71);
+    send_voice_error(&mut app, id, &message);
+    let agent = app.agents.get(&id).unwrap();
+    assert!(
+        agent.scrollback.len() > before,
+        "the dashboard chip cuts a line the agent toast slot would keep"
+    );
+    let text = match agent
+        .scrollback
+        .get(agent.scrollback.len() - 1)
+        .map(|entry| &entry.block)
+    {
+        Some(crate::scrollback::block::RenderBlock::System(block)) => block.text.as_str(),
+        other => panic!("expected system block, got {other:?}"),
+    };
+    assert!(text.contains(&message), "scrollback keeps the full error: {text}");
+}
+
 /// A message that already ends a sentence keeps that punctuation when the hint is appended.
 /// A message with no closing mark gets one period, so the hint does not run into it.
 #[test]

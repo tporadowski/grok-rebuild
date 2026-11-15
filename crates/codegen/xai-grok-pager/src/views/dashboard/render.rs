@@ -2155,6 +2155,32 @@ fn paint_dispatch_location(
     }));
 }
 
+/// The dispatch chip, or `None` when the box is too narrow to draw one.
+/// The same string [`paint_dispatch_feedback_badge`] paints.
+pub(crate) fn fitted_dispatch_feedback(message: &str, box_width: u16) -> Option<String> {
+    // Leave room for the two rounded corners plus a little breathing space, so the bar still reads as a border rather than a full banner
+    let max_w = box_width.saturating_sub(4);
+    if max_w < 6 {
+        return None;
+    }
+    // Leading/trailing spaces pad the chip away from the surrounding border glyphs
+    let label = format!(" {message} ");
+    Some(truncate_str(&label, max_w as usize))
+}
+
+/// True when the dashboard toast cannot show `message` in full.
+/// A zero screen width is unknown, not a cut.
+pub(crate) fn dashboard_toast_cuts(message: &str, screen_width: u16) -> bool {
+    if screen_width == 0 {
+        return false;
+    }
+    let box_width = super::layout::dispatch_box_width(screen_width);
+    match fitted_dispatch_feedback(message, box_width) {
+        None => true,
+        Some(shown) => shown != format!(" {message} "),
+    }
+}
+
 fn paint_dispatch_feedback_badge(
     buf: &mut Buffer,
     area: Rect,
@@ -2164,15 +2190,9 @@ fn paint_dispatch_feedback_badge(
     let Some(err) = error_toast else {
         return;
     };
-    // Leave room for the two rounded corners plus a little breathing space, so the bar still reads as a border rather than a full banner
-    let max_w = area.width.saturating_sub(4);
-    if max_w < 6 {
+    let Some(trunc) = fitted_dispatch_feedback(err, area.width) else {
         return;
-    }
-    // Leading/trailing spaces pad the chip away from the surrounding border glyphs
-    // No glyph is prepended; the message already owns one (see the doc comment)
-    let label = format!(" {err} ");
-    let trunc = truncate_str(&label, max_w as usize);
+    };
     let label_w = UnicodeWidthStr::width(trunc.as_str()) as u16;
     // Right-align so the badge ends one column before the `╮` corner.
     let x = area.x + area.width.saturating_sub(1 + label_w);
