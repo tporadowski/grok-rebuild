@@ -152,7 +152,15 @@ pub fn draw_live(app: &mut AppView, terminal: &mut PagerTerminal, ctx: &Terminal
             let show_todos = crate::todo::todo_panel_visible(agent, force_todos);
             let queued = agent.session.pending_prompts.len() + agent.shared_queue.len();
             if let Some(kind) = super::panel::active(agent) {
-                let cursor = super::panel::render(frame.buffer_mut(), area, agent, kind, &theme);
+                let tick = (now_millis() / 100) as u64;
+                let cursor = super::panel::render_with_tick(
+                    frame.buffer_mut(),
+                    area,
+                    agent,
+                    kind,
+                    &theme,
+                    tick,
+                );
                 return (cursor, None);
             }
             if super::overlay::app_modal_active(agent) {

@@ -686,6 +686,24 @@ pub fn mcp_server_tool_summary(server: &McpServerInfo) -> String {
     crate::views::extensions_modal::mcp_server_tool_summary(server)
 }
 
+/// Status badge for an MCP server row, the same text and color as the full list.
+pub fn mcp_row_badge(server: &McpServerInfo, theme: &Theme) -> (String, Option<Color>) {
+    crate::views::extensions_modal::mcp_row_badge(server, theme)
+}
+
+/// Collapse plugin sections once, on the first non-empty MCP list, matching the full modal.
+pub fn init_mcps_section_collapse_on_first_load(
+    collapsed_sections: &mut HashSet<String>,
+    initialized: &mut bool,
+    servers: &[McpServerInfo],
+) {
+    crate::views::extensions_modal::init_mcps_section_collapse_on_first_load(
+        collapsed_sections,
+        initialized,
+        servers,
+    );
+}
+
 /// Render a search bar from a [`PickerState`] using its grapheme-safe viewport.
 pub fn render_picker_search_bar(
     buf: &mut Buffer,

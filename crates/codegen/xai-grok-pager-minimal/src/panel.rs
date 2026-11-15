@@ -25,6 +25,9 @@ use xai_grok_pager::app::agent_view::AgentView;
 use xai_grok_pager::minimal_api;
 use xai_grok_pager::theme::Theme;
 use xai_grok_pager::views::extensions_modal::{ExtensionsTab, TabDataState};
+use xai_grok_pager::views::mcps_modal::{
+    McpSectionId, McpServerInfo, section_description_lines, section_key,
+};
 use xai_grok_pager::views::modal::ActiveModal;
 use xai_grok_pager::views::picker::{self, PickerEntry, PickerField, PickerHitAreas, PickerRow};
 
@@ -77,12 +80,24 @@ pub(super) fn render(
     kind: ListPanel,
     theme: &Theme,
 ) -> Option<(u16, u16)> {
+    render_with_tick(buf, area, agent, kind, theme, 0)
+}
+
+/// `tick` advances the `/mcps` loading spinner the same way the full extensions modal does.
+pub(super) fn render_with_tick(
+    buf: &mut Buffer,
+    area: Rect,
+    agent: &mut AgentView,
+    kind: ListPanel,
+    theme: &Theme,
+    tick: u64,
+) -> Option<(u16, u16)> {
     if area.height < 2 || area.width < 8 {
         return None;
     }
     match kind {
         ListPanel::Resume => render_resume(buf, area, agent, theme),
-        ListPanel::Mcps => render_mcps(buf, area, agent, theme),
+        ListPanel::Mcps => render_mcps(buf, area, agent, theme, tick),
     }
 }
 
@@ -302,28 +317,99 @@ fn render_resume(
     None
 }
 
-/// Exact body height (display rows) for the MCP list: one line per row.
+/// Collapsed sections the next paint will use. Plugin sections start collapsed on the
+/// first load, matching the full modal, even before that render has written the set back.
+fn collapsed_mcp_sections(
+    collapsed: &std::collections::HashSet<String>,
+    initialized: bool,
+    servers: &[McpServerInfo],
+) -> std::collections::HashSet<String> {
+    let mut collapsed = collapsed.clone();
+    let mut initialized = initialized;
+    minimal_api::init_mcps_section_collapse_on_first_load(&mut collapsed, &mut initialized, servers);
+    collapsed
+}
+
+fn seed_mcp_plugin_sections(agent: &mut AgentView) {
+    let Some(s) = minimal_api::extensions_modal_mut(agent) else {
+        return;
+    };
+    if s.mcps_section_collapse_initialized {
+        return;
+    }
+    let TabDataState::Loaded(servers) = &s.mcps_data else {
+        return;
+    };
+    let servers = servers.clone();
+    minimal_api::init_mcps_section_collapse_on_first_load(
+        &mut s.mcps_collapsed_sections,
+        &mut s.mcps_section_collapse_initialized,
+        &servers,
+    );
+}
+
+/// Exact body height (display rows) for the MCP list.
+/// A loading spinner or an error row is one line. A loaded list counts section copy,
+/// each server's tool summary, and an opened tool's description.
 fn mcps_body_rows(agent: &AgentView) -> u16 {
     let Some(s) = minimal_api::extensions_modal(agent) else {
         return 0;
     };
     let servers = match &s.mcps_data {
         TabDataState::Loaded(v) => v.as_slice(),
-        _ => return 1, // a single "loading…" / error row
+        _ => return 1,
     };
-    let rows = minimal_api::build_mcp_picker_rows(
+    let collapsed = collapsed_mcp_sections(
+        &s.mcps_collapsed_sections,
+        s.mcps_section_collapse_initialized,
+        servers,
+    );
+    let searching = !s.picker_state.query().is_empty();
+    let (labels, keys, indices) = minimal_api::build_mcp_picker_rows(
         servers,
         s.picker_state.query(),
         s.mcps_filter,
-        &s.mcps_collapsed_sections,
+        &collapsed,
         &s.mcps_tools_expanded,
     );
-    let summaries = rows
-        .1
-        .iter()
-        .filter(|key| key.as_ref().is_some_and(|key| key.starts_with("mcp-tools:")))
-        .count() as u16;
-    rows.0.len() as u16 + summaries
+    let managed = section_key(&McpSectionId::Managed);
+    let mut rows = labels.len() as u16;
+    for (i, key) in keys.iter().enumerate() {
+        match key.as_deref() {
+            Some(k) if k.starts_with("mcp-tools:") => rows += 1,
+            Some(k) if k == managed => {
+                let hidden =
+                    minimal_api::mcp_section_children_hidden(&collapsed, k, searching);
+                if !hidden {
+                    rows += section_description_lines(
+                        &McpSectionId::Managed,
+                        s.session_team_id.as_deref(),
+                    )
+                    .len() as u16;
+                }
+            }
+            None if s.picker_state.expanded.contains(&i) => {
+                let Some(si) = indices.get(i).copied().flatten() else {
+                    continue;
+                };
+                let label = labels.get(i).map(String::as_str).unwrap_or("");
+                let described = servers.get(si).is_some_and(|srv| {
+                    srv.tools.iter().any(|tool| {
+                        tool.display_name.as_deref().unwrap_or(tool.name.as_str()) == label
+                            && tool
+                                .description
+                                .as_deref()
+                                .is_some_and(|desc| !desc.is_empty())
+                    })
+                });
+                if described {
+                    rows += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    rows
 }
 
 fn render_mcps(
@@ -331,7 +417,9 @@ fn render_mcps(
     area: Rect,
     agent: &mut AgentView,
     theme: &Theme,
+    tick: u64,
 ) -> Option<(u16, u16)> {
+    seed_mcp_plugin_sections(agent);
     let (title_row, subtitle_row, divider_row, list_area, footer_row) = chrome_layout(area);
     render_title(buf, title_row, theme, "Manage MCP servers");
 
@@ -346,6 +434,9 @@ fn render_mcps(
     let collapsibles: Vec<bool>;
     let expandeds: Vec<bool>;
     let summaries: Vec<Vec<String>>;
+    let descriptions: Vec<Vec<String>>;
+    let dimmeds: Vec<bool>;
+    let underlines: Vec<bool>;
     let subtitle: String;
     let loading;
     {
@@ -370,6 +461,10 @@ fn render_mcps(
                 let mut col = vec![false; n];
                 let mut exp = vec![false; n];
                 let mut summary_lines = vec![Vec::new(); n];
+                let mut desc_lines = vec![Vec::new(); n];
+                let mut dim = vec![false; n];
+                let mut underline = vec![false; n];
+                let managed = section_key(&McpSectionId::Managed);
                 for i in 0..n {
                     let gk = row_group_keys.get(i).and_then(|k| k.as_deref());
                     if let Some(k) = gk.filter(|k| k.starts_with("mcp-section:")) {
@@ -383,6 +478,17 @@ fn render_mcps(
                                 searching,
                             );
                         }
+                        if k == managed {
+                            if let Some(lines) = desc_lines.get_mut(i) {
+                                *lines = section_description_lines(
+                                    &McpSectionId::Managed,
+                                    s.session_team_id.as_deref(),
+                                );
+                            }
+                            if let Some(flag) = underline.get_mut(i) {
+                                *flag = true;
+                            }
+                        }
                     } else if gk.is_some_and(|k| k.starts_with("mcp-tools:")) {
                         if let Some(d) = ind.get_mut(i) {
                             *d = 1;
@@ -395,42 +501,60 @@ fn render_mcps(
                                 *e = s.mcps_tools_expanded.contains(&si);
                             }
                             if let Some(srv) = servers.get(si) {
-                                if !srv.enabled {
-                                    // Policy-blocked rows also carry `enabled = false`; the verdict outranks
-                                    // the personal-disable badge, as in the full modal
-                                    if let Some(badge) = b.get_mut(i) {
-                                        *badge = if srv.blocked_reason.is_some() {
-                                            "blocked by policy"
-                                        } else {
-                                            "disabled"
-                                        }
-                                        .to_string();
-                                    }
-                                    if let Some(color) = bc.get_mut(i) {
-                                        *color = Some(theme.accent_error);
-                                    }
-                                } else {
-                                    if let Some(badge) = b.get_mut(i) {
-                                        *badge =
-                                            minimal_api::mcp_status_label(&srv.status).to_string();
-                                    }
-                                    if let Some(color) = bc.get_mut(i) {
-                                        *color = Some(minimal_api::mcp_status_theme_color(
-                                            &srv.status,
-                                            theme,
-                                        ));
-                                    }
+                                let (badge, color) = minimal_api::mcp_row_badge(srv, theme);
+                                if let Some(slot) = b.get_mut(i) {
+                                    *slot = badge;
+                                }
+                                if let Some(slot) = bc.get_mut(i) {
+                                    *slot = color;
+                                }
+                                if let Some(slot) = dim.get_mut(i) {
+                                    *slot = !srv.enabled;
                                 }
                                 if let Some(right) = rl.get_mut(i) {
                                     *right = minimal_api::mcp_server_source_label(srv);
                                 }
+                                let summary = minimal_api::mcp_server_tool_summary(srv);
                                 if let Some(lines) = summary_lines.get_mut(i) {
-                                    lines.push(minimal_api::mcp_server_tool_summary(srv));
+                                    lines.push(summary.clone());
+                                }
+                                if let Some(lines) = desc_lines.get_mut(i) {
+                                    lines.push(summary);
                                 }
                             }
                         }
                     } else if let Some(d) = ind.get_mut(i) {
                         *d = 2; // tool child
+                        if let Some(si) = row_data_indices.get(i).copied().flatten() {
+                            if let Some(srv) = servers.get(si) {
+                                let label = row_labels.get(i).map(String::as_str).unwrap_or("");
+                                if let Some(tool) = srv.tools.iter().find(|tool| {
+                                    tool.display_name.as_deref().unwrap_or(tool.name.as_str())
+                                        == label
+                                }) {
+                                    if !tool.enabled {
+                                        if let Some(slot) = b.get_mut(i) {
+                                            *slot = "[disabled]".to_string();
+                                        }
+                                        if let Some(slot) = bc.get_mut(i) {
+                                            *slot = Some(theme.accent_error);
+                                        }
+                                        if let Some(slot) = dim.get_mut(i) {
+                                            *slot = true;
+                                        }
+                                    }
+                                    if let Some(desc) = tool
+                                        .description
+                                        .as_deref()
+                                        .filter(|desc| !desc.is_empty())
+                                    {
+                                        if let Some(lines) = desc_lines.get_mut(i) {
+                                            lines.push(desc.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 subtitle = format!(
@@ -448,9 +572,12 @@ fn render_mcps(
                 collapsibles = col;
                 expandeds = exp;
                 summaries = summary_lines;
+                descriptions = desc_lines;
+                dimmeds = dim;
+                underlines = underline;
             }
             TabDataState::Loading => {
-                subtitle = "loading\u{2026}".to_string();
+                subtitle = String::new();
                 labels = vec![];
                 group_keys = vec![];
                 data_indices = vec![];
@@ -461,19 +588,25 @@ fn render_mcps(
                 collapsibles = vec![];
                 expandeds = vec![];
                 summaries = vec![];
+                descriptions = vec![];
+                dimmeds = vec![];
+                underlines = vec![];
             }
             TabDataState::Error(msg) => {
-                subtitle = format!("error: {msg}");
-                labels = vec![];
-                group_keys = vec![];
-                data_indices = vec![];
-                badges = vec![];
-                badge_colors = vec![];
-                right_labels = vec![];
-                indents = vec![];
-                collapsibles = vec![];
-                expandeds = vec![];
-                summaries = vec![];
+                subtitle = String::new();
+                labels = vec![format!("Error: {msg}")];
+                group_keys = vec![None];
+                data_indices = vec![None];
+                badges = vec![String::new()];
+                badge_colors = vec![None];
+                right_labels = vec![String::new()];
+                indents = vec![0];
+                collapsibles = vec![false];
+                expandeds = vec![false];
+                summaries = vec![Vec::new()];
+                descriptions = vec![Vec::new()];
+                dimmeds = vec![false];
+                underlines = vec![false];
             }
         }
     }
@@ -501,33 +634,43 @@ fn render_mcps(
     let s = minimal_api::extensions_modal_mut(agent)?;
     let selected = s.picker_state.selected;
     let search_active = s.picker_state.search_active;
+    let opened_rows = s.picker_state.expanded.clone();
     let empty_fields: [PickerField; 0] = [];
     let summary_refs: Vec<Vec<&str>> = summaries
         .iter()
         .map(|lines| lines.iter().map(String::as_str).collect())
         .collect();
+    let desc_refs: Vec<Vec<&str>> = descriptions
+        .iter()
+        .map(|lines| lines.iter().map(String::as_str).collect())
+        .collect();
     let entries: Vec<PickerEntry> = (0..n)
         .map(|i| {
-            let lines = summary_refs.get(i).map(Vec::as_slice).unwrap_or(&[]);
+            let collapsible = collapsibles.get(i).copied().unwrap_or(false);
+            let expanded = if collapsible {
+                expandeds.get(i).copied().unwrap_or(false)
+            } else {
+                opened_rows.contains(&i)
+            };
             PickerEntry::Row(PickerRow {
                 label: labels.get(i).map(String::as_str).unwrap_or(""),
                 right_label: right_labels.get(i).map(String::as_str).unwrap_or(""),
                 selected: !search_active && i == selected,
-                expanded: expandeds.get(i).copied().unwrap_or(false),
+                expanded,
                 fields: &empty_fields,
-                description_lines: lines,
-                summary_lines: lines,
-                dimmed: false,
+                description_lines: desc_refs.get(i).map(Vec::as_slice).unwrap_or(&[]),
+                summary_lines: summary_refs.get(i).map(Vec::as_slice).unwrap_or(&[]),
+                dimmed: dimmeds.get(i).copied().unwrap_or(false),
                 indent: indents.get(i).copied().unwrap_or(0),
                 badge: badges.get(i).map(String::as_str).unwrap_or(""),
                 badge_color: badge_colors.get(i).copied().flatten(),
-                collapsible: collapsibles.get(i).copied().unwrap_or(false),
-                underline_last_desc: false,
+                collapsible,
+                underline_last_desc: underlines.get(i).copied().unwrap_or(false),
             })
         })
         .collect();
     let non_sel = vec![false; n];
-    let hit = picker::render_picker_content(
+    let hit = picker::render_picker_content_with_tick(
         buf,
         list_area,
         theme,
@@ -537,6 +680,7 @@ fn render_mcps(
         &non_sel,
         None,
         loading,
+        tick,
     );
     s.picker_state.hit_areas = Some(PickerHitAreas {
         close_button: Rect::default(),
@@ -771,7 +915,7 @@ mod tests {
 
     #[test]
     fn mcps_panel_badges_policy_block_over_disabled() {
-        let mut denied = mcp_server("denied-srv", McpServerDisplayStatus::Unavailable, 0);
+        let mut denied = mcp_server("denied-srv", McpServerDisplayStatus::BlockedByPolicy, 0);
         denied.enabled = false;
         denied.blocked_reason = Some("matches deniedMcpServers".into());
         let mut manual = mcp_server("manual-srv", McpServerDisplayStatus::Ready, 2);
@@ -912,5 +1056,179 @@ mod tests {
         assert_eq!(panel_height(&a, ListPanel::Mcps, 80, 40), 9);
         // Clamps to the screen ceiling when content is taller.
         assert_eq!(panel_height(&a, ListPanel::Mcps, 80, 5), 5);
+    }
+
+    fn with_mcps_data(data: TabDataState<Vec<McpServerInfo>>) -> AgentView {
+        let mut a = agent();
+        minimal_api::set_extensions_modal(
+            &mut a,
+            Some(ExtensionsModalState {
+                active_tab: ExtensionsTab::McpServers,
+                mcps_data: data,
+                ..Default::default()
+            }),
+        );
+        a
+    }
+
+    fn render_mcps_text(agent: &mut AgentView, theme: &Theme, tick: u64) -> String {
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        render_with_tick(&mut buf, area, agent, ListPanel::Mcps, theme, tick);
+        crate::buffer_text(&buf)
+    }
+
+    /// Loading, a failed fetch, and the list rows use the full `/mcps` view's
+    /// copy and row shape: spinner, `Error: …`, section copy, and badges.
+    #[test]
+    fn minimal_mcps_loading_error_and_layout_match_the_full_view() {
+        let theme = Theme::groknight();
+
+        let frames = xai_grok_pager::glyphs::dot_spinner_frames();
+        let frame0 = frames.first().copied().unwrap_or("");
+        let frame2 = frames.get(2).copied().unwrap_or("");
+        assert_ne!(frame0, frame2, "the spinner must move between tick 0 and tick 8");
+
+        let mut loading = with_mcps_data(TabDataState::Loading);
+        let text = render_mcps_text(&mut loading, &theme, 0);
+        assert!(
+            text.contains(&format!("{frame0} Loading\u{2026}")),
+            "loading paints the full-view spinner line:\n{text}"
+        );
+        assert!(
+            !text.contains(&format!("{frame2} Loading\u{2026}")),
+            "tick 0 must not show the later spinner frame:\n{text}"
+        );
+        assert!(
+            !text.contains("loading\u{2026}"),
+            "the subtitle must not use a lowercase loading line:\n{text}"
+        );
+        assert!(
+            !text.contains("No matches"),
+            "loading is not an empty list:\n{text}"
+        );
+        let later = render_mcps_text(&mut loading, &theme, 8);
+        assert!(
+            later.contains(&format!("{frame2} Loading\u{2026}")),
+            "the spinner advances with the same tick as the full view:\n{later}"
+        );
+
+        let mut failed = with_mcps_data(TabDataState::Error("the catalog failed".into()));
+        let text = render_mcps_text(&mut failed, &theme, 0);
+        assert!(
+            text.contains("Error: the catalog failed"),
+            "a failed fetch is a row, as in the full view:\n{text}"
+        );
+        assert!(
+            !text.contains("error: the catalog failed"),
+            "the error must not sit in a lowercase subtitle:\n{text}"
+        );
+        assert!(
+            !text.contains("No matches"),
+            "an error is not an empty list:\n{text}"
+        );
+
+        let mut linear = mcp_server("linear", McpServerDisplayStatus::Ready, 1);
+        linear.wire_source = McpWireSource::Managed;
+        linear.source = "managed".into();
+        linear.tools = vec![McpToolDetail {
+            name: "create_issue".into(),
+            display_name: None,
+            description: Some("Creates an issue".into()),
+            enabled: false,
+        }];
+        let mut plugin_srv = mcp_server("hidden-plugin-srv", McpServerDisplayStatus::Ready, 0);
+        plugin_srv.plugin_name = Some("acme".into());
+        plugin_srv.source = "plugin: acme".into();
+        let mut disabled = mcp_server("off-srv", McpServerDisplayStatus::Unavailable, 0);
+        disabled.enabled = false;
+        let mut agent = with_mcps(vec![linear, plugin_srv, disabled]);
+        {
+            let state = minimal_api::extensions_modal_mut(&mut agent).unwrap();
+            state.session_team_id = Some("team-1".into());
+            state.mcps_tools_expanded.insert(0);
+            // Section, linear, create_issue, then the other section headers.
+            state.picker_state.expanded.insert(2);
+        }
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &mut agent, ListPanel::Mcps, &theme);
+        let text = crate::buffer_text(&buf);
+        assert!(
+            text.contains("Add, remove, or manage connectors. Ctrl+O to open or go to:"),
+            "the managed section keeps the full-view description:\n{text}"
+        );
+        assert!(
+            text.contains("grok.com/connectors?teamId=team-1"),
+            "the connectors link uses the session team:\n{text}"
+        );
+        let url_underlined = (0..area.height).any(|y| {
+            let line_has_url = crate::buffer_text(&buf)
+                .lines()
+                .nth(y as usize)
+                .is_some_and(|line| line.contains("grok.com/connectors?teamId=team-1"));
+            line_has_url
+                && (0..area.width).any(|x| {
+                    buf.cell((x, y)).is_some_and(|cell| {
+                        cell.modifier.contains(Modifier::UNDERLINED) && cell.symbol() != " "
+                    })
+                })
+        });
+        assert!(
+            url_underlined,
+            "the connectors url is underlined like the full view:\n{text}"
+        );
+        assert!(
+            text.contains("[ready]"),
+            "a live server uses the full-view bracketed status:\n{text}"
+        );
+        assert!(
+            text.contains("[disabled]"),
+            "a disabled tool uses the full-view badge:\n{text}"
+        );
+        assert!(
+            text.contains("Creates an issue"),
+            "an opened tool shows its description:\n{text}"
+        );
+        assert!(
+            text.contains("Plugin: acme"),
+            "a plugin section header is present:\n{text}"
+        );
+        assert!(
+            !text.contains("hidden-plugin-srv"),
+            "plugin sections start collapsed, as in the full view:\n{text}"
+        );
+        assert!(
+            text.contains("off-srv"),
+            "a disabled local server stays listed:\n{text}"
+        );
+
+        let off_y = (0..area.height).find(|y| {
+            (0..area.width).any(|x| {
+                buf.cell((x, *y))
+                    .is_some_and(|cell| cell.symbol() == "o" || cell.symbol() == "off-srv")
+            }) && crate::buffer_text(&buf)
+                .lines()
+                .nth(*y as usize)
+                .is_some_and(|line| line.contains("off-srv"))
+        });
+        let off_y = off_y.expect("off-srv row");
+        let name_cell = (0..area.width).find_map(|x| {
+            let cell = buf.cell((x, off_y))?;
+            (cell.symbol() == "o").then_some(cell)
+        });
+        let name_cell = name_cell.expect("off-srv label cell");
+        assert_eq!(
+            name_cell.fg, theme.gray_dim,
+            "a disabled server is dimmed like the full list"
+        );
+
+        let mut managed_only = mcp_server("linear", McpServerDisplayStatus::Ready, 0);
+        managed_only.wire_source = McpWireSource::Managed;
+        assert_eq!(
+            panel_height(&with_mcps(vec![managed_only]), ListPanel::Mcps, 80, 40),
+            9,
+            "the managed section's two description rows count toward the panel height"
+        );
     }
 }

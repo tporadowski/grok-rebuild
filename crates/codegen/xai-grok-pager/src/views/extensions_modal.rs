@@ -390,7 +390,7 @@ fn tool_count_summary(total: usize, enabled: usize) -> String {
 
 /// MCP row badge: the policy verdict outranks the personal-disable badge, since policy-blocked
 /// rows also carry `enabled = false`.
-fn mcp_row_badge(
+pub(crate) fn mcp_row_badge(
     server: &crate::views::mcps_modal::McpServerInfo,
     theme: &crate::theme::Theme,
 ) -> (String, Option<ratatui::style::Color>) {

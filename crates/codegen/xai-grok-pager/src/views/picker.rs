@@ -1862,6 +1862,35 @@ pub fn render_picker_content(
     )
 }
 
+/// Like [`render_picker_content`] but the loading spinner advances with `loading_tick`.
+#[allow(clippy::too_many_arguments)]
+pub fn render_picker_content_with_tick(
+    buf: &mut Buffer,
+    content_area: Rect,
+    theme: &Theme,
+    state: &mut PickerState,
+    entries: &[PickerEntry<'_>],
+    non_selectable: &[bool],
+    non_selectable_clickable: &[bool],
+    bg: Option<ratatui::style::Color>,
+    loading: bool,
+    loading_tick: u64,
+) -> PickerContentHitAreas {
+    render_picker_content_inner(
+        buf,
+        content_area,
+        theme,
+        state,
+        entries,
+        non_selectable,
+        non_selectable_clickable,
+        bg,
+        loading,
+        loading_tick,
+        None,
+    )
+}
+
 /// Like [`render_picker_content`] but with an explicit scrollbar x-position. When `scrollbar_x` is
 /// `Some(x)`, the scrollbar is rendered at that column instead of `content_area.x +
 /// content_area.width - 1`. Pass `0` only for tests or a static placeholder.
