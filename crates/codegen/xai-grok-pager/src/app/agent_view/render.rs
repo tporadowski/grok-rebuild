@@ -4569,17 +4569,85 @@ fn draw_scroll_arrow(
 /// Pad `msg` for the toast slot, truncating with a trailing ellipsis when it cannot fit in `avail_width` columns.
 /// (Long clipboard toasts embed backup file paths; dropping the whole toast would hide the copy feedback entirely.)
 /// Returns `None` only when the slot is too narrow for any text.
-fn fit_toast_text(msg: &str, avail_width: u16) -> Option<String> {
+/// Runs of spaces collapse, and a cut never leaves `……` or `...…`.
+pub(crate) fn fit_toast_text(msg: &str, avail_width: u16) -> Option<String> {
     let max_msg_chars = (avail_width as usize).saturating_sub(4);
     if max_msg_chars == 0 {
         return None;
     }
+    let msg = normalize_toast_body(msg);
     let msg_chars = msg.chars().count();
     if msg_chars <= max_msg_chars {
         return Some(format!(" {msg} "));
     }
     let truncated: String = msg.chars().take(max_msg_chars.saturating_sub(1)).collect();
-    Some(format!(" {}… ", truncated.trim_end()))
+    let body = without_trailing_ellipsis(truncated.trim_end());
+    Some(format!(" {body}… "))
+}
+
+/// True when [`fit_toast_text`] has to drop part of `msg` at `avail_width`.
+/// A slot too narrow to draw anything is not a cut: there is no toast to compare.
+pub(crate) fn toast_cuts_message(msg: &str, avail_width: u16) -> bool {
+    let Some(shown) = fit_toast_text(msg, avail_width) else {
+        return false;
+    };
+    shown.trim() != normalize_toast_body(msg)
+}
+
+/// Collapse whitespace and turn `...`, `……`, and `...…` into one `…`.
+/// A single `.` or `..` stays, so versions and abbreviations are left alone.
+fn normalize_toast_body(msg: &str) -> String {
+    let mut out = String::new();
+    let mut pending_space = false;
+    let mut dots = 0u32;
+    let mut saw_ellipsis = false;
+    let flush_mark = |out: &mut String, dots: u32, saw_ellipsis: bool| {
+        if saw_ellipsis || dots >= 3 {
+            out.push('…');
+        } else {
+            for _ in 0..dots {
+                out.push('.');
+            }
+        }
+    };
+    for ch in msg.chars() {
+        if ch == '.' || ch == '…' {
+            dots = dots.saturating_add(if ch == '…' { 3 } else { 1 });
+            saw_ellipsis |= ch == '…';
+            continue;
+        }
+        if dots > 0 {
+            pending_space = false;
+            flush_mark(&mut out, dots, saw_ellipsis);
+            dots = 0;
+            saw_ellipsis = false;
+        }
+        if ch.is_whitespace() {
+            pending_space = !out.is_empty();
+            continue;
+        }
+        if pending_space {
+            out.push(' ');
+            pending_space = false;
+        }
+        out.push(ch);
+    }
+    if dots > 0 {
+        flush_mark(&mut out, dots, saw_ellipsis);
+    }
+    out
+}
+
+/// Drop a trailing `.` / `…` run, and the spaces in front of it, before a cut adds one `…`.
+fn without_trailing_ellipsis(s: &str) -> &str {
+    let mut rest = s;
+    loop {
+        let next = rest.trim_end_matches(['.', '…']).trim_end();
+        if next.len() == rest.len() {
+            return rest;
+        }
+        rest = next;
+    }
 }
 #[cfg(test)]
 mod toast_fit_tests {
@@ -4600,6 +4668,24 @@ mod toast_fit_tests {
     fn zero_width_slot_yields_none() {
         assert_eq!(fit_toast_text("Copied!", 4), None);
         assert_eq!(fit_toast_text("Copied!", 0), None);
+    }
+
+    #[test]
+    fn toast_text_drops_stray_spaces_and_a_second_ellipsis() {
+        assert_eq!(
+            fit_toast_text("Voice:  could   not start", 80).as_deref(),
+            Some(" Voice: could not start ")
+        );
+        let doubled = "Voice: stopped…… check the microphone permission and the input device";
+        let fitted = fit_toast_text(doubled, 20).expect("truncated toast");
+        assert!(
+            !fitted.contains("……") && !fitted.contains("...…") && !fitted.contains("  "),
+            "toast keeps a stray space or a second ellipsis: {fitted:?}"
+        );
+        assert!(
+            fitted.trim_end().ends_with('…'),
+            "a cut toast still ends with one ellipsis: {fitted:?}"
+        );
     }
 }
 #[cfg(test)]

@@ -613,6 +613,46 @@ fn voice_error_hint_lands_in_bound_agent_scrollback() {
     assert_eq!(app.agents.get(&id).unwrap().scrollback.len(), before);
 }
 
+/// A voice error the toast cannot show in full is kept on the agent's scrollback.
+#[test]
+fn voice_error_cut_off_by_the_toast_is_saved_to_scrollback() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    app.agents.get_mut(&id).unwrap().last_terminal_size = (30, 20);
+    let before = app.agents.get(&id).unwrap().scrollback.len();
+    let message = "the microphone permission for this terminal was denied and the input device stayed quiet";
+    app.voice_state = VoiceState::Recording {
+        hold: false,
+        target: VoiceTarget::Agent(id),
+        partial: Partial::None,
+        route: None,
+    };
+    crate::voice::handle_voice_event(
+        &mut app,
+        xai_grok_voice::VoiceEvent::Error {
+            message: message.into(),
+            hint: None,
+        },
+    );
+    let agent = app.agents.get(&id).unwrap();
+    assert!(
+        agent.scrollback.len() > before,
+        "a toast that cuts the error off should keep the full line in scrollback"
+    );
+    let text = match agent
+        .scrollback
+        .get(agent.scrollback.len() - 1)
+        .map(|e| &e.block)
+    {
+        Some(crate::scrollback::block::RenderBlock::System(b)) => b.text.as_str(),
+        other => panic!("expected system block, got {other:?}"),
+    };
+    assert!(
+        text.contains("input device stayed quiet"),
+        "scrollback should keep the part the toast cuts off: {text}"
+    );
+}
+
 /// A message that already ends a sentence keeps that punctuation when the hint is appended.
 /// A message with no closing mark gets one period, so the hint does not run into it.
 #[test]

@@ -269,18 +269,31 @@ pub fn handle_voice_event(app: &mut AppView, event: VoiceEvent) -> bool {
             if app.voice_state.is_on_clip_route() {
                 let _ = commit_interim_into_prompt(app);
             }
+            let toast_line = voice_toast(message.trim());
+            let columns = match target {
+                Some(VoiceTarget::Agent(id) | VoiceTarget::DashboardPeekReply(id)) => app
+                    .agents
+                    .get(&id)
+                    .map(|agent| agent.last_terminal_size.0)
+                    .unwrap_or(0),
+                _ => 0,
+            };
+            // The toast is one line. When that line cannot hold the error, the full text goes to scrollback.
+            let cut = crate::app::agent_view::toast_cuts_message(&toast_line, columns);
             app.voice_reset();
-            app.show_toast(&voice_toast(&message));
-            // The hint holds long fix steps, so it goes to the agent or peek scrollback; a toast is one line, and dashboard dispatch has no scrollback
-            if let Some(hint) = hint
+            app.show_toast(&toast_line);
+            let hint_text = hint.as_deref().map(str::trim).filter(|hint| !hint.is_empty());
+            if (hint_text.is_some() || cut)
                 && let Some(VoiceTarget::Agent(id) | VoiceTarget::DashboardPeekReply(id)) = target
                 && let Some(agent) = app.agents.get_mut(&id)
             {
-                agent.scrollback.push_block(
-                    crate::scrollback::block::RenderBlock::system(voice_error_with_hint(
-                        &message, &hint,
-                    )),
-                );
+                let line = match hint_text {
+                    Some(hint) => voice_error_with_hint(&message, hint),
+                    None => toast_line,
+                };
+                agent
+                    .scrollback
+                    .push_block(crate::scrollback::block::RenderBlock::system(line));
             }
             true
         }
