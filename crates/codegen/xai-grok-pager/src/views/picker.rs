@@ -1241,13 +1241,21 @@ pub fn render_picker_row(
         }
     }
 
+    // The title line was filled above. Summary, description, and field lines are part of the
+    // same item, so a selected or hovered row highlights every line it painted.
+    let band = Rect {
+        x,
+        y,
+        width,
+        height: rows.min(max_rows),
+    };
     // Terminal theme (Reset bands): reverse video; no-op on RGB themes.
     // Hover-first, matching the row_bg fill above.
     if embed.is_none() {
         if hovered {
-            buf.set_style(row_rect, theme.hover_overlay());
+            buf.set_style(band, theme.hover_overlay());
         } else if row.selected {
-            buf.set_style(row_rect, theme.selection_overlay());
+            buf.set_style(band, theme.selection_overlay());
         }
     }
 
@@ -3626,6 +3634,39 @@ mod tests {
             2,
             "the card is the title plus one recap line"
         );
+    }
+
+    /// A selected row's highlight covers the summary line, not only the title.
+    #[test]
+    fn selected_picker_row_highlights_its_full_height() {
+        let summary = "second line of the item";
+        let row = PickerRow {
+            label: "Item",
+            right_label: "",
+            selected: true,
+            expanded: false,
+            fields: &[],
+            description_lines: &[],
+            summary_lines: &[summary],
+            dimmed: false,
+            indent: 0,
+            badge: "",
+            badge_color: None,
+            collapsible: false,
+            underline_last_desc: false,
+        };
+        let width = 40u16;
+        let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, width, 4));
+        let theme = crate::theme::Theme::groknight();
+        let rendered = render_picker_row(&mut buf, 0, 0, width, &theme, &row, false, None, 4);
+        assert!(rendered.rows >= 2, "the summary is a second line");
+        for y in 0..rendered.rows {
+            let cell = buf.cell((0, y)).expect("cell");
+            assert_eq!(
+                cell.bg, theme.bg_visual,
+                "line {y} of the selected item should be highlighted"
+            );
+        }
     }
 
     /// An open foldable row uses the down chevron. A leaf row keeps the diamond, including
