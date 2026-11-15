@@ -538,6 +538,7 @@ pub(crate) fn link_leaves_plugin(path: &Path, plugin_root: &Path) -> bool {
 }
 
 /// Count skills under the skill dirs (each discovered SKILL.md is one skill).
+#[cfg(test)]
 fn count_skill_subdirs(skill_dirs: &[PathBuf], plugin_root: &Path) -> usize {
     contained_skill_mds(skill_dirs, plugin_root).0.len()
 }
@@ -580,6 +581,7 @@ fn skill_names_from_paths(paths: &[PathBuf]) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn collect_skill_names(skill_dirs: &[PathBuf], plugin_root: &Path) -> Vec<String> {
     skill_names_from_paths(&contained_skill_mds(skill_dirs, plugin_root).0)
 }

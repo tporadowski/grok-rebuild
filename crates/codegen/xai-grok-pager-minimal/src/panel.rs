@@ -73,18 +73,8 @@ pub(super) fn panel_height(agent: &AgentView, kind: ListPanel, width: u16, ceili
 }
 
 /// Render the active list panel into `area` (the whole live region).
-/// Returns the text cursor for the panel's search bar when search is focused, else `None`.
-pub(super) fn render(
-    buf: &mut Buffer,
-    area: Rect,
-    agent: &mut AgentView,
-    kind: ListPanel,
-    theme: &Theme,
-) -> Option<(u16, u16)> {
-    render_with_tick(buf, area, agent, kind, theme, 0)
-}
-
 /// `tick` advances the `/mcps` loading spinner the same way the full extensions modal does.
+/// Returns the text cursor for the panel's search bar when search is focused, else `None`.
 pub(super) fn render_with_tick(
     buf: &mut Buffer,
     area: Rect,

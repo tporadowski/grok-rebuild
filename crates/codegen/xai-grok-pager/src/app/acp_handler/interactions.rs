@@ -39,7 +39,6 @@ pub(crate) fn handle_mcp_elicit(
         agent
             .pending_elicitation
             .push_back((ext_req, ext.response_tx));
-        drop(agent);
         super::permissions::notify_approval_required(app, &session_id);
         return is_active;
     }
@@ -52,7 +51,6 @@ pub(crate) fn handle_mcp_elicit(
         Some(ext.response_tx),
     ));
     agent.last_active_at = Some(std::time::Instant::now());
-    drop(agent);
     super::permissions::notify_approval_required(app, &session_id);
 
     tracing::info!(
@@ -179,7 +177,6 @@ pub(crate) fn handle_ask_user_question(
         .as_ref()
         .map(|q| q.questions.len())
         .unwrap_or(0);
-    drop(agent);
     super::permissions::notify_approval_required(app, &session_id);
 
     tracing::info!(
@@ -323,7 +320,6 @@ pub(super) fn handle_exit_plan_mode(
         agent.clear_kept_plan();
     }
     agent.plan_approval_view = Some(state);
-    drop(agent);
     super::permissions::notify_approval_required(app, &session_id);
     let Some(agent) = app.agents.get_mut(&id) else {
         return is_active;

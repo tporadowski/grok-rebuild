@@ -1872,7 +1872,7 @@ async fn run_headless_memory_flush(
 }
 /// Background work tracked for exit: bash/monitor tasks and background subagents, keyed by id.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum BackgroundWork {
+pub(crate) enum BackgroundWork {
     Task(String),
     Subagent(String),
     Goal(String),
