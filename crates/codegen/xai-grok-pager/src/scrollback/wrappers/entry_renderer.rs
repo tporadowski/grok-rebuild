@@ -278,11 +278,7 @@ impl<'a> EntryRenderer<'a> {
         if let Some(GroupHeaderLabel::Truncation(label)) = self.group_header_label {
             spans.extend(label.line.spans.iter().cloned());
         } else {
-            let label = if self.group_collapse_header {
-                format!("{n} tool calls & thoughts")
-            } else {
-                format!("{n} more")
-            };
+            let label = overflow_count_label(n, self.group_collapse_header);
             spans.push(ratatui::text::Span::styled(label, text_style));
         }
         let line = ratatui::text::Line::from(spans);
@@ -972,6 +968,19 @@ impl Renderable for EntryRenderer<'_> {
     }
 }
 
+/// Overflow row. The count is exact. A collapse of one item uses the singular.
+fn overflow_count_label(n: u16, collapse: bool) -> String {
+    if collapse {
+        if n == 1 {
+            "1 tool call & thought".to_string()
+        } else {
+            format!("{n} tool calls & thoughts")
+        }
+    } else {
+        format!("{n} more")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -979,6 +988,14 @@ mod tests {
     use crate::theme::cache::pin_theme;
     use pretty_assertions::assert_eq;
     use ratatui::style::Color;
+
+    #[test]
+    fn overflow_count_label_pluralizes_one_and_keeps_the_count() {
+        assert_eq!(overflow_count_label(1, true), "1 tool call & thought");
+        assert_eq!(overflow_count_label(5, true), "5 tool calls & thoughts");
+        assert_eq!(overflow_count_label(1, false), "1 more");
+        assert_eq!(overflow_count_label(8, false), "8 more");
+    }
 
     #[test]
     fn test_entry_renderer_height() {
