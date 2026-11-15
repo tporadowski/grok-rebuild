@@ -3890,9 +3890,10 @@ pub fn render_extensions_modal(
         tabs: Some(&labels),
         shortcuts: &shortcuts,
         sizing: ModalSizing {
-            width_pct: 0.65,
-            max_width: 160,
-            min_width: 40,
+            // Same width as a standard dialog. 65% made this modal narrower than the others.
+            width_pct: ModalSizing::default().width_pct,
+            max_width: ModalSizing::default().max_width,
+            min_width: ModalSizing::default().min_width,
             v_margin: 3,
             h_pad: 2,
             v_pad: 2,
@@ -4928,6 +4929,26 @@ mod tests {
         let mut buf = Buffer::empty(area);
         render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
         assert_eq!(buffer_count(&buf, "Space enable"), 1);
+    }
+
+    /// The extensions dialog uses the same width as a standard modal, not a narrower fraction.
+    #[test]
+    fn extensions_modal_is_not_narrower_than_a_standard_modal() {
+        let area = Rect::new(0, 0, 120, 40);
+        let mut state = ExtensionsModalState::new(ExtensionsTab::McpServers);
+        let mut buf = Buffer::empty(area);
+        render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
+        let width = state.window.popup_area.expect("popup").width;
+        let standard = ModalSizing::default();
+        let expected = ((area.width as f32) * standard.width_pct) as u16;
+        let expected = expected
+            .min(area.width.saturating_sub(4).min(standard.max_width))
+            .max(standard.min_width)
+            .min(area.width);
+        assert!(
+            width >= expected,
+            "extensions width {width} is narrower than a standard modal {expected}"
+        );
     }
 
     /// Expanding a blocked or disabled row must name the actual cause, not speculate about connection state.
