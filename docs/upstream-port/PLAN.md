@@ -1351,7 +1351,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 0 | 0 | 30 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 1 | 0 | 55 | 14 | 3 |
+| W8 | Sessions, resume, and dashboard | 0 | 0 | 56 | 14 | 3 |
 | W9 | Prompt, mentions, and keyboard | 4 | 0 | 50 | 7 | 0 |
 | W10 | Transcript, density, and copy | 3 | 0 | 57 | 4 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 44 | 7 | 0 |
@@ -1362,9 +1362,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 786. Pending: 17. Skipped: 10. Done: 613. Already: 114. Deferred: 32.
+Catalog rows: 786. Pending: 16. Skipped: 10. Done: 614. Already: 114. Deferred: 32.
 
-**Next:** v87-x19
+**Next:** v87-x01
 
 ## Waves
 
@@ -1398,7 +1398,7 @@ Pending: 0. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 1 (`v87-x19`). Done: 55 (`v87-x10`, D-308; `v86-x46`, D-273; `v86-x29`, D-271; `v86-x28`, D-270; `v86-x18`; `v86-x03`; `v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 14 (`v86-x45`, D-272; `v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 3 (`v87-x15`, D-309; `v86-x26`, D-269; `v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
+Pending: 0. Done: 56 (`v87-x19`; `v87-x10`, D-308; `v86-x46`, D-273; `v86-x29`, D-271; `v86-x28`, D-270; `v86-x18`; `v86-x03`; `v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 14 (`v86-x45`, D-272; `v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 3 (`v87-x15`, D-309; `v86-x26`, D-269; `v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -2184,7 +2184,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x46 | done | W8 | Bug Fixes |  |  | **@ file picker** in the dashboard no longer crashes on terminals shorter than 10 rows.
 - v87-x10 | done | W8 | Bug Fixes |  |  | **Resume search snippets** now fit the list width and keep the matching text visible instead of cutting it off.
 - v87-x15 | deferred | W8 | Bug Fixes |  |  | **Opening a /btw answer as its own session** now moves focus to that session's prompt only after the tab is open.
-- v87-x19 | pending | W8 | Bug Fixes |  |  | **/resume** in minimal mode now shows "y confirm delete · n cancel" before deleting a session.
+- v87-x19 | done | W8 | Bug Fixes |  |  | **/resume** in minimal mode now shows "y confirm delete · n cancel" before deleting a session.
 - v86-p01 | done | W15 | Performance |  |  | **Tasks pane** no longer flickers with changing subagent activity text while work is running.
 - v46-p01 | done | W15 | Performance |  |  | list_dir on network or virtual filesystems now skips slow subtree counts and prints a notice instead.
 - v46-p02 | done | W15 | Performance |  |  | **Session startup** is faster when loading skills from large directories and shows what it is doing instead of a generic spinner.

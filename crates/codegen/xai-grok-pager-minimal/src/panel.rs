@@ -130,6 +130,9 @@ fn render_dim_line(buf: &mut Buffer, row: Rect, theme: &Theme, text: &str) {
 /// `/resume` session picker: Enter picks a session.
 const RESUME_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} Enter confirm \u{00b7} Esc cancel";
 
+/// Shown once `d` has armed a delete, and until `y` deletes or `n` cancels.
+const RESUME_DELETE_FOOTER: &str = "y confirm delete \u{00b7} n cancel";
+
 /// `/mcps` list: Enter expands tools; reconnect is space (off then on); `r` re-lists status.
 const MCPS_FOOTER: &str = "\u{2191}/\u{2193} navigate \u{00b7} Space enable/disable \u{00b7} r refresh \u{00b7} Enter expand \u{00b7} Esc cancel";
 
@@ -196,11 +199,13 @@ fn render_resume(
         entries,
         state,
         source_filter,
+        pending_delete,
         ..
     }) = &mut agent.active_modal
     else {
         return None;
     };
+    let delete_armed = pending_delete.is_some();
     let (title_row, search_row, divider_row, mut list_area, footer_row) = chrome_layout(area);
 
     let entries_data = entries.as_deref().unwrap_or(&[]);
@@ -284,7 +289,16 @@ fn render_resume(
         filter_rect: None,
     });
 
-    render_footer(buf, footer_row, theme, RESUME_FOOTER);
+    render_footer(
+        buf,
+        footer_row,
+        theme,
+        if delete_armed {
+            RESUME_DELETE_FOOTER
+        } else {
+            RESUME_FOOTER
+        },
+    );
     None
 }
 
@@ -787,6 +801,39 @@ mod tests {
         assert!(
             row("manual-srv").contains("disabled"),
             "personal disable keeps its badge:\n{text}"
+        );
+    }
+
+    #[test]
+    fn resume_delete_confirm_shows_y_and_n_before_the_session_goes() {
+        let mut agent = with_resume(vec![session_entry("keep-me")]);
+        let Some(ActiveModal::SessionPicker { pending_delete, .. }) = &mut agent.active_modal
+        else {
+            panic!("expected session picker");
+        };
+        *pending_delete = Some(xai_grok_pager::views::session_picker::PendingDelete {
+            source: "local".into(),
+            session_id: "keep-me".into(),
+            cwd: "/tmp/repo".into(),
+        });
+
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &mut agent, ListPanel::Resume, &theme);
+
+        let text = crate::buffer_text(&buf);
+        assert!(
+            text.contains("y confirm delete \u{00b7} n cancel"),
+            "armed delete must name y and n before the session is removed:\n{text}"
+        );
+        assert!(
+            text.contains("keep-me"),
+            "the session stays listed until y confirms:\n{text}"
+        );
+        assert!(
+            !text.contains("Enter confirm"),
+            "the confirm line replaces the ordinary resume footer:\n{text}"
         );
     }
 
