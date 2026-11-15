@@ -35,6 +35,56 @@ fn save_registry(registry: &InstallRegistry) -> Result<(), String> {
     registry.save().map_err(|e| e.to_string())
 }
 
+/// Join the clauses of a failed action into one sentence.
+/// Later clauses keep their words and start in lowercase after `; `.
+pub fn failed_action_sentence(clauses: &[&str]) -> String {
+    let mut out = String::new();
+    for clause in clauses {
+        let clause = clause.trim().trim_end_matches('.').trim();
+        if clause.is_empty() {
+            continue;
+        }
+        if out.is_empty() {
+            out.push_str(clause);
+            continue;
+        }
+        out.push_str("; ");
+        let mut chars = clause.chars();
+        if let Some(first) = chars.next() {
+            for lower in first.to_lowercase() {
+                out.push(lower);
+            }
+            out.push_str(chars.as_str());
+        }
+    }
+    out
+}
+
+/// Collapse a multi-line action error into one sentence.
+pub fn action_reason_sentence(error: &str) -> String {
+    let lines: Vec<&str> = error
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    failed_action_sentence(&lines)
+}
+
+/// A missing plugin, plus where to list the ones that are installed.
+pub fn plugin_not_found_message(name: &str) -> String {
+    let lead = format!("Plugin \"{name}\" not found");
+    failed_action_sentence(&[
+        &lead,
+        "Run `grok plugin list` to see installed plugins",
+    ])
+}
+
+/// `/plugins` names the in-session list command instead of the CLI.
+pub fn session_plugin_not_found_message(name: &str) -> String {
+    let lead = format!("Plugin \"{name}\" not found in install registry");
+    failed_action_sentence(&[&lead, "Use /plugins list to see installed plugins"])
+}
+
 pub struct InstallOutcome {
     pub repo_key: String,
     pub plugin_names: Vec<String>,
@@ -165,13 +215,7 @@ pub enum UninstallError {
 impl std::fmt::Display for UninstallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotFound { name } => {
-                write!(
-                    f,
-                    "Plugin \"{name}\" not found.\n\
-                     Run `grok plugin list` to see installed plugins."
-                )
-            }
+            Self::NotFound { name } => write!(f, "{}", plugin_not_found_message(name)),
             Self::RegistryLock { detail } => {
                 write!(f, "Another plugin operation is in progress: {detail}")
             }
@@ -305,13 +349,7 @@ pub fn repo_update_requires_reload(outcome: &RepoUpdateOutcome) -> bool {
 impl std::fmt::Display for UpdateError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotFound { name } => {
-                write!(
-                    f,
-                    "Plugin \"{name}\" not found.\n\
-                     Run `grok plugin list` to see installed plugins."
-                )
-            }
+            Self::NotFound { name } => write!(f, "{}", plugin_not_found_message(name)),
             Self::RegistryLock { detail } => {
                 write!(f, "Another plugin operation is in progress: {detail}")
             }
@@ -2443,5 +2481,36 @@ mod tests {
             err,
             MarketplaceInstallError::UnknownQualifier { .. }
         ));
+    }
+}
+
+#[cfg(test)]
+mod failed_action_sentence_tests {
+    use super::{UninstallError, UpdateError};
+
+    #[test]
+    fn uninstall_not_found_is_one_sentence() {
+        let expected = "Plugin \"demo\" not found; run `grok plugin list` to see installed plugins";
+        let msg = UninstallError::NotFound {
+            name: "demo".into(),
+        }
+        .to_string();
+        assert_eq!(msg, expected);
+        assert_eq!(msg.lines().count(), 1, "{msg}");
+        assert_eq!(
+            UpdateError::NotFound {
+                name: "demo".into(),
+            }
+            .to_string(),
+            expected
+        );
+        assert_eq!(
+            super::session_plugin_not_found_message("demo"),
+            "Plugin \"demo\" not found in install registry; use /plugins list to see installed plugins"
+        );
+        assert_eq!(
+            super::action_reason_sentence("Git sync failed.\nCould not read from remote."),
+            "Git sync failed; could not read from remote"
+        );
     }
 }

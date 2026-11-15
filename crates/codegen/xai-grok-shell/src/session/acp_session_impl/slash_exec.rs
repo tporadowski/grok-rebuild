@@ -633,10 +633,9 @@ impl SessionActor {
                             .await;
                         }
                         Err(UninstallError::NotFound { name }) => {
-                            self.send_host_turn_slash_command_output(&format!(
-                                "Plugin \"{name}\" not found in install registry.\n\
-                                 Use /plugins list to see installed plugins."
-                            ))
+                            self.send_host_turn_slash_command_output(
+                                &crate::plugin::session_plugin_not_found_message(&name),
+                            )
                             .await;
                         }
                         Err(UninstallError::RegistryLock { detail }) => {

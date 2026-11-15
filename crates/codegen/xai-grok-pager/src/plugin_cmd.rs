@@ -600,20 +600,35 @@ fn cmd_update(name: Option<&str>) -> Result<()> {
 /// Nonzero-exit summary when any repo update failed (policy blocks, sync
 /// errors), so scripts and CI can detect the failure; `None` when all passed.
 fn update_failure_summary(outcomes: &[RepoUpdateOutcome]) -> Option<String> {
-    let failed = outcomes
+    let reasons: Vec<String> = outcomes
         .iter()
-        .filter(|o| matches!(o, RepoUpdateOutcome::Failed { .. }))
-        .count();
-    (failed > 0).then(|| format!("{failed} of {} plugin update(s) failed", outcomes.len()))
+        .filter_map(|outcome| match outcome {
+            RepoUpdateOutcome::Failed { repo_key, error } => {
+                let reason = plugin::action_reason_sentence(error);
+                Some(if reason.is_empty() {
+                    repo_key.clone()
+                } else {
+                    format!("{repo_key}: {reason}")
+                })
+            }
+            _ => None,
+        })
+        .collect();
+    if reasons.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "{} of {} plugin update(s) failed: {}",
+        reasons.len(),
+        outcomes.len(),
+        reasons.join("; ")
+    ))
 }
 
 fn cmd_enable(name: &str) -> Result<()> {
     let registry = InstallRegistry::load();
     if registry.find_plugin(name).is_none() {
-        bail!(
-            "Plugin \"{name}\" not found.\n\
-               Run `grok plugin list` to see installed plugins."
-        );
+        bail!("{}", plugin::plugin_not_found_message(name));
     }
     if let Err(e) = xai_grok_shell::config::remove_disabled_plugin(name) {
         tracing::warn!("failed to remove from disabled list: {e}");
@@ -627,10 +642,7 @@ fn cmd_enable(name: &str) -> Result<()> {
 fn cmd_disable(name: &str) -> Result<()> {
     let registry = InstallRegistry::load();
     if registry.find_plugin(name).is_none() {
-        bail!(
-            "Plugin \"{name}\" not found.\n\
-               Run `grok plugin list` to see installed plugins."
-        );
+        bail!("{}", plugin::plugin_not_found_message(name));
     }
     if let Err(e) = xai_grok_shell::config::remove_enabled_plugin(name) {
         tracing::warn!("failed to remove from enabled list: {e}");
@@ -644,10 +656,7 @@ fn cmd_disable(name: &str) -> Result<()> {
 fn cmd_details(name: &str) -> Result<()> {
     let registry = InstallRegistry::load();
     let (repo_key, repo, _) = registry.find_plugin(name).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Plugin \"{name}\" not found.\n\
-             Run `grok plugin list` to see installed plugins."
-        )
+        anyhow::anyhow!("{}", plugin::plugin_not_found_message(name))
     })?;
 
     let mp = repo
@@ -1121,10 +1130,31 @@ mod tests {
         ];
         assert_eq!(
             update_failure_summary(&outcomes).as_deref(),
-            Some("1 of 2 plugin update(s) failed")
+            Some("1 of 2 plugin update(s) failed: blocked-repo: Plugin update blocked: source not in strictKnownMarketplaces")
         );
         let (first, _) = outcomes.split_at_checked(1).expect("two outcomes");
         assert_eq!(update_failure_summary(first), None);
+    }
+
+    /// A failed update's error is the reason, in the same sentence as the count.
+    #[test]
+    fn update_failure_summary_includes_each_reason_in_one_sentence() {
+        let outcomes = vec![
+            RepoUpdateOutcome::Failed {
+                repo_key: "blocked-repo".into(),
+                error: "Plugin update blocked: source not in strictKnownMarketplaces".into(),
+            },
+            RepoUpdateOutcome::Failed {
+                repo_key: "other".into(),
+                error: "Git sync failed.\nCould not read from remote.".into(),
+            },
+        ];
+        let summary = update_failure_summary(&outcomes).expect("failures");
+        assert_eq!(
+            summary,
+            "2 of 2 plugin update(s) failed: blocked-repo: Plugin update blocked: source not in strictKnownMarketplaces; other: Git sync failed; could not read from remote"
+        );
+        assert_eq!(summary.lines().count(), 1, "{summary}");
     }
 
     fn removal_fixture() -> Vec<MarketplaceSource> {

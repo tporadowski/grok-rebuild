@@ -364,7 +364,10 @@ fn install_error_outcome(
             ),
             InstallAcquireError::AlreadyInstalled { repo_key } => action_outcome(
                 OutcomeStatus::ValidationError,
-                format!("Already installed (key: {repo_key}). Use Update to reinstall."),
+                crate::plugin::failed_action_sentence(&[
+                    &format!("Already installed (key: {repo_key})"),
+                    "Use Update to reinstall",
+                ]),
             ),
             InstallAcquireError::Sync { detail } => action_outcome(
                 OutcomeStatus::InternalError,
@@ -1788,6 +1791,19 @@ mod default_skills_purge_tests {
 #[cfg(test)]
 mod conversion_tests {
     use super::*;
+
+    #[test]
+    fn already_installed_error_is_one_sentence() {
+        use crate::plugin::acquire::{InstallAcquireError, RunError};
+        let outcome = install_error_outcome(RunError::Op(InstallAcquireError::AlreadyInstalled {
+            repo_key: "acme".into(),
+        }));
+        assert_eq!(
+            outcome.message,
+            "Already installed (key: acme); use Update to reinstall"
+        );
+        assert_eq!(outcome.message.lines().count(), 1, "{}", outcome.message);
+    }
 
     #[test]
     fn to_plugin_entry_carries_homepage_and_keywords() {
