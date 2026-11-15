@@ -81,6 +81,8 @@ pub struct ResolvedSelectionModel {
     pub ranges: Vec<ResolvedSelectableRange>,
     pub visible_blocks: Vec<VisibleBlockGeometry>,
     pub content_area: Rect,
+    /// Entry indexes a drag that crosses blocks leaves out of the copied text.
+    pub spanning_copy_skip: Vec<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -501,6 +503,9 @@ fn cross_range_lines<'a>(
                 .end
                 .saturating_sub(line.selectable_cols.start);
             if width == 0 {
+                continue;
+            }
+            if model.spanning_copy_skip.contains(&line.entry_idx) {
                 continue;
             }
             if ord == top_ord && line.block_line_idx < top.block_line_idx {

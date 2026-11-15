@@ -310,6 +310,12 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
         }
 
         let logical_idx = i + entry_index_base;
+        if entry.omitted_from_spanning_text_drag() {
+            result
+                .selection_model
+                .spanning_copy_skip
+                .push(logical_idx);
+        }
 
         // Calculate visibility
         let top_clipped = entry_start < viewport_start;

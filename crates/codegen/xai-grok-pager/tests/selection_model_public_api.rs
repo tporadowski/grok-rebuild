@@ -7,6 +7,7 @@ fn resolved_selection_model_supports_exhaustive_external_literals() {
         ranges: Vec::new(),
         visible_blocks: Vec::new(),
         content_area: Rect::default(),
+        spanning_copy_skip: Vec::new(),
     };
 
     assert!(model.ranges.is_empty());

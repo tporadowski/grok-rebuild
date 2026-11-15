@@ -150,6 +150,14 @@ impl EffectiveOutput<'_> {
 }
 
 impl ScrollbackEntry {
+    /// A spanning text drag copies the conversation around this row and leaves the row itself out.
+    /// Collapsed tool calls and the turn-summary marker (`Worked for …`) are that chrome.
+    /// An expanded tool stays, and a drag that stays inside one of these rows still copies it.
+    pub(crate) fn omitted_from_spanning_text_drag(&self) -> bool {
+        self.block.is_turn_terminal_marker()
+            || (self.block.is_tool_call() && self.display_mode == DisplayMode::Collapsed)
+    }
+
     /// Create a new entry with expanded display mode.
     /// For production use, prefer `ScrollbackState::push()` which assigns the EntryId automatically.
     /// This constructor is mainly for testing.

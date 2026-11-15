@@ -1216,6 +1216,112 @@ mod tests {
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
 
+    /// A drag from the prompt through the turn marker copies the conversation.
+    /// A collapsed tool header and the "Worked for" line stay out. An expanded tool stays in.
+    #[test]
+    fn drag_across_the_conversation_skips_collapsed_tools_and_the_turn_summary() {
+        use std::time::Duration;
+
+        use crate::scrollback::blocks::tool::{ReadToolCallBlock, ToolCallBlock};
+        use crate::scrollback::blocks::SessionEvent;
+        use crate::scrollback::text_selection::{
+            ActiveTextDrag, RangeHit, SelectionKind, reconstruct_selection_text,
+        };
+        use crate::scrollback::types::DisplayMode;
+
+        let grouped = crate::appearance::cache::load_group_tool_verbs();
+        crate::appearance::cache::set_group_tool_verbs(false);
+        let restore = GroupVerbsGuard(grouped);
+
+        let mut state = ScrollbackState::new();
+        let mut appearance = AppearanceConfig::default();
+        appearance.scrollback.blocks.prompt.vpad = false;
+        appearance.scrollback.blocks.prompt.show_prefix = false;
+        state.set_appearance(appearance);
+
+        state.push_block(RenderBlock::user_prompt("ASK_TOKEN"));
+        state.push_block(RenderBlock::ToolCall(ToolCallBlock::Read(
+            ReadToolCallBlock::new("collapsed-secret.rs")
+                .with_content("HIDDEN_TOOL_BODY".into(), 1),
+        )));
+        let expanded = state.push_block(RenderBlock::ToolCall(ToolCallBlock::Read(
+            ReadToolCallBlock::new("shown.rs").with_content("EXPANDED_TOOL_BODY".into(), 1),
+        )));
+        state
+            .get_by_id_mut(expanded)
+            .unwrap()
+            .set_display_mode(DisplayMode::Expanded);
+        state.push_block(RenderBlock::agent_message("ANSWER_TOKEN"));
+        state.push_block(RenderBlock::session_event(SessionEvent::TurnCompleted {
+            elapsed: Some(Duration::from_secs(125)),
+        }));
+
+        let model = render_model(&mut state, Rect::new(0, 0, 100, 40));
+        let line = |needle: &str| {
+            model
+                .ranges
+                .iter()
+                .flat_map(|range| range.lines.iter())
+                .find(|line| line.text.contains(needle))
+                .unwrap_or_else(|| panic!("no selectable line contains {needle}"))
+        };
+        let ask = line("ASK_TOKEN");
+        let summary = line("Worked for");
+        let drag = ActiveTextDrag {
+            anchor: RangeHit {
+                entry_idx: ask.entry_idx,
+                range_id: ask.range_id,
+                block_line_idx: ask.block_line_idx,
+                col_within_range: 0,
+            },
+            head: RangeHit {
+                entry_idx: summary.entry_idx,
+                range_id: summary.range_id,
+                block_line_idx: summary.block_line_idx,
+                col_within_range: summary
+                    .selectable_cols
+                    .end
+                    .saturating_sub(summary.selectable_cols.start)
+                    .saturating_sub(1),
+            },
+            kind: SelectionKind::Linear,
+            anchor_content_width: None,
+        };
+        let copied = reconstruct_selection_text(&model, &drag).unwrap_or_default();
+        assert!(
+            copied.contains("ASK_TOKEN"),
+            "the prompt stays in the copy:\n{copied}"
+        );
+        assert!(
+            copied.contains("ANSWER_TOKEN"),
+            "the reply stays in the copy:\n{copied}"
+        );
+        assert!(
+            copied.contains("EXPANDED_TOOL_BODY"),
+            "an expanded tool stays in the copy:\n{copied}"
+        );
+        assert!(
+            !copied.contains("collapsed-secret"),
+            "a collapsed tool call is not part of the conversation copy:\n{copied}"
+        );
+        assert!(
+            !copied.contains("HIDDEN_TOOL_BODY"),
+            "a collapsed tool body is not part of the conversation copy:\n{copied}"
+        );
+        assert!(
+            !copied.contains("Worked for"),
+            "the turn summary line is not part of the conversation copy:\n{copied}"
+        );
+        drop(restore);
+    }
+
+    struct GroupVerbsGuard(bool);
+    impl Drop for GroupVerbsGuard {
+        fn drop(&mut self) {
+            crate::appearance::cache::set_group_tool_verbs(self.0);
+        }
+    }
+
     fn render_model(state: &mut ScrollbackState, area: Rect) -> ResolvedSelectionModel {
         state.prepare_layout(area.width, area.height);
         let mut buf = Buffer::empty(area);
