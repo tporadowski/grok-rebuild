@@ -75,8 +75,9 @@ jobs:
   build:
     needs: release
     name: ${{ matrix.platform }}
-    # A win-* tag rebuilds only the Windows binary. ci-* and v* build every target.
-    if: "${{ !startsWith(github.ref_name, 'win-') || matrix.platform == 'windows-x86_64' }}"
+    # A win-* tag rebuilds only Windows. The matrix context is not available
+    # in a job-level if, so Windows is its own job below.
+    if: "${{ !startsWith(github.ref_name, 'win-') }}"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     strategy:
@@ -93,11 +94,6 @@ jobs:
             platform: linux-aarch64
             protoc_zip: protoc-29.3-linux-aarch_64.zip
             exe: ""
-          - runner: windows-2025
-            target: x86_64-pc-windows-msvc
-            platform: windows-x86_64
-            protoc_zip: protoc-29.3-win64.zip
-            exe: ".exe"
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             platform: macos-x86_64
@@ -199,6 +195,79 @@ jobs:
           target_dir="${CARGO_TARGET_DIR:-target}"
           src="${target_dir}/${{ matrix.target }}/release/xai-grok-pager${{ matrix.exe }}"
           name="grok-rebuild-${version}-${{ matrix.platform }}${{ matrix.exe }}"
+          cp "$src" "$name"
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$name" > "${name}.sha256"
+          elif command -v shasum >/dev/null; then
+            shasum -a 256 "$name" > "${name}.sha256"
+          else
+            hash=$(powershell.exe -NoProfile -Command "(Get-FileHash -Algorithm SHA256 '${name}').Hash.ToLower()")
+            printf '%s  %s\n' "$hash" "$name" > "${name}.sha256"
+          fi
+          ls -lh "$name"
+          gh release upload "$TAG" "$name" "${name}.sha256" --clobber
+
+  build-windows:
+    needs: release
+    name: windows-x86_64
+    runs-on: windows-2025
+    timeout-minutes: 240
+    env:
+      TARGET: x86_64-pc-windows-msvc
+      PLATFORM: windows-x86_64
+      PROTOC_ZIP: protoc-29.3-win64.zip
+      EXE: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Use the larger Windows disk
+        shell: pwsh
+        run: |
+          if (Test-Path D:\) {
+            "CARGO_TARGET_DIR=D:/cargo-target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+          Get-PSDrive -PSProvider FileSystem
+
+      - name: Install protoc
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v29.3/${PROTOC_ZIP}"
+          python -c "import zipfile; zipfile.ZipFile(r'''$RUNNER_TEMP/protoc.zip''').extractall(r'''$RUNNER_TEMP/protoc''')"
+          bin="$RUNNER_TEMP/protoc/bin/protoc${EXE}"
+          chmod +x "$bin"
+          echo "PROTOC=$bin" >> "$GITHUB_ENV"
+          "$bin" --version
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.94.0"
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+          CARGO_TERM_COLOR: always
+        run: |
+          set -euo pipefail
+          cargo build --release --target "$TARGET" -p xai-grok-pager-bin
+          df -h /
+
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' crates/codegen/xai-grok-version/Cargo.toml | head -1)
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          src="${target_dir}/${TARGET}/release/xai-grok-pager${EXE}"
+          name="grok-rebuild-${version}-${PLATFORM}${EXE}"
           cp "$src" "$name"
           if command -v sha256sum >/dev/null; then
             sha256sum "$name" > "${name}.sha256"
