@@ -193,19 +193,21 @@ impl AgentView {
             app_should_open_link_on_click(link).then(|| (col, row, link.target.clone()));
         true
     }
-    /// Re-evaluate which link (if any) is under the cursor for the given modifier state.
-    /// A subagent link highlights without the modifier. Other links still wait for it.
+    /// Re-evaluate which link (if any) is under the cursor.
+    /// Moving the pointer over a reply link highlights it, so the underline shows it can be clicked.
+    /// A terminal that already paints that hover keeps it; a subagent link still highlights here.
     /// Returns `true` when `hovered_link_idx` changed.
-    pub(in crate::app) fn update_hovered_link(&mut self, modifier_held: bool) -> bool {
+    pub(in crate::app) fn update_hovered_link(&mut self, _modifier_held: bool) -> bool {
         let new = if self.pos_occluded(self.last_mouse_pos.0, self.last_mouse_pos.1) {
             None
         } else {
             self.visible_link_map
                 .link_at(self.last_mouse_pos.0, self.last_mouse_pos.1)
                 .filter(|hit| {
-                    let subagent = is_subagent_link(hit);
-                    let modified = modifier_held && !has_native_link_hover();
-                    (subagent || modified) && app_should_open_link_on_click(hit)
+                    if has_native_link_hover() && !is_subagent_link(hit) {
+                        return false;
+                    }
+                    app_should_open_link_on_click(hit)
                 })
                 .and_then(|hit| {
                     self.visible_link_map
@@ -2485,6 +2487,36 @@ mod link_click_tests {
         agent.cycle_highlighted_link(true);
         assert_eq!(agent.highlighted_link_idx, None);
     }
+    #[test]
+    fn reply_link_highlights_when_the_pointer_moves_over_it() {
+        if has_native_link_hover() {
+            return;
+        }
+        let mut agent = make_agent();
+        setup_scrollback_area(&mut agent, Rect::new(0, 0, 80, 24));
+        add_multiple_links(&mut agent);
+        let moved = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 2,
+            row: 0,
+            modifiers: KeyModifiers::empty(),
+        };
+        assert!(
+            matches!(agent.handle_mouse(&moved), InputOutcome::Changed),
+            "moving onto a reply link must redraw the highlight"
+        );
+        assert_eq!(agent.hovered_link_idx, Some(0));
+
+        let away = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 40,
+            row: 20,
+            modifiers: KeyModifiers::empty(),
+        };
+        assert!(matches!(agent.handle_mouse(&away), InputOutcome::Changed));
+        assert_eq!(agent.hovered_link_idx, None);
+    }
+
     #[test]
     fn colliding_ids_hover_paints_only_the_hit_link() {
         let mut agent = make_agent();
