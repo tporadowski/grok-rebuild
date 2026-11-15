@@ -15,6 +15,7 @@ use crate::theme::Theme;
 
 const MAX_INLINE_LINES: usize = 10;
 const TRUNCATED_INLINE_LINES: usize = 3;
+const NO_OUTPUT: &str = "(no output)";
 
 /// Use tool call: dispatching to an MCP integration tool.
 #[derive(Debug, Clone)]
@@ -77,6 +78,16 @@ impl UseToolCallBlock {
             self.started_at
                 .map(|start| start.elapsed().as_millis() as i64)
         })
+    }
+
+    /// A finished call with no error and no text returned. A running call has not returned yet.
+    fn shows_no_output(&self, running: bool) -> bool {
+        !running
+            && self.error.is_none()
+            && self
+                .output
+                .as_deref()
+                .is_none_or(|text| text.trim().is_empty())
     }
 
     pub fn copy_text(&self) -> String {
@@ -157,12 +168,18 @@ impl BlockContent for UseToolCallBlock {
             ctx.mute_when_collapsed(ctx.appearance.scrollback.blocks.tool.muted_collapsed);
 
         match ctx.mode {
-            DisplayMode::Collapsed => BlockOutput {
-                lines: vec![
-                    self.header_line(&theme, muted_collapsed, Some(ctx.content_width()))
-                        .into(),
-                ],
-            },
+            DisplayMode::Collapsed => {
+                let mut header =
+                    self.header_line(&theme, muted_collapsed, Some(ctx.content_width()));
+                if self.shows_no_output(ctx.is_running) {
+                    header
+                        .spans
+                        .push(Span::styled(format!(" {NO_OUTPUT}"), theme.muted()));
+                }
+                BlockOutput {
+                    lines: vec![header.into()],
+                }
+            }
             DisplayMode::Truncated | DisplayMode::Expanded => {
                 let header = self.header_line(&theme, false, None);
                 let mut lines = super::flush_wrapped_header_lines(
@@ -187,7 +204,20 @@ impl BlockContent for UseToolCallBlock {
                 } else {
                     MAX_INLINE_LINES
                 };
-                if let Some(ref output) = self.output {
+                if self.shows_no_output(ctx.is_running) {
+                    lines.push(Line::from("").into());
+                    lines
+                        .push(BlockLine::from(Line::from("")).with_panel_background(theme.bg_dark));
+                    lines.push(
+                        BlockLine::from(Line::from(Span::styled(
+                            format!("  {NO_OUTPUT}"),
+                            theme.muted(),
+                        )))
+                        .with_panel_background(theme.bg_dark),
+                    );
+                    lines
+                        .push(BlockLine::from(Line::from("")).with_panel_background(theme.bg_dark));
+                } else if let Some(ref output) = self.output {
                     lines.push(Line::from("").into());
                     lines
                         .push(BlockLine::from(Line::from("")).with_panel_background(theme.bg_dark));
@@ -283,7 +313,10 @@ impl BlockContent for UseToolCallBlock {
     }
 
     fn is_foldable(&self) -> bool {
-        !self.input_args.is_empty() || self.output.is_some() || self.error.is_some()
+        !self.input_args.is_empty()
+            || self.output.is_some()
+            || self.error.is_some()
+            || self.shows_no_output(false)
     }
 
     fn default_display_mode(&self) -> DisplayMode {
@@ -335,6 +368,54 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn empty_use_tool_shows_no_output() {
+        let finished = UseToolCallBlock::new("linear__save_issue");
+        for mode in [DisplayMode::Collapsed, DisplayMode::Expanded] {
+            let text = rendered_text(&finished, mode);
+            assert!(
+                text.contains("(no output)"),
+                "{mode:?} must say the tool returned nothing:\n{text}"
+            );
+        }
+        let blank = UseToolCallBlock {
+            output: Some("  \n".into()),
+            ..UseToolCallBlock::new("linear__save_issue")
+        };
+        assert!(
+            rendered_text(&blank, DisplayMode::Expanded).contains("(no output)"),
+            "blank output is nothing"
+        );
+        let err = UseToolCallBlock::new("linear__save_issue").with_error("boom");
+        let err_text = rendered_text(&err, DisplayMode::Expanded);
+        assert!(err_text.contains("boom"), "{err_text}");
+        assert!(
+            !err_text.contains("(no output)"),
+            "an error is the result:\n{err_text}"
+        );
+        let mut running = UseToolCallBlock::new("linear__save_issue");
+        let mut running_ctx = ctx(DisplayMode::Expanded);
+        running_ctx.is_running = true;
+        let running_text = running
+            .output(&running_ctx)
+            .lines
+            .iter()
+            .map(|l| {
+                l.content
+                    .spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !running_text.contains("(no output)"),
+            "a running call has not returned:\n{running_text}"
+        );
+        let _ = running;
     }
 
     #[test]

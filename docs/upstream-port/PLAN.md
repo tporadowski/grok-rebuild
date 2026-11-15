@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-315 — An empty Use Tool says (no output)
+
+`v87-x18`. A finished Use Tool with no text, or only blank lines, paints `(no output)` on the collapsed row and in the opened body. A running call does not, and an error stays the error.
+
 ### D-314 — A reply link underlines under the pointer
 
 `v87-x09`. Moving the pointer over a link in a reply underlines it, without holding Ctrl or Cmd. A terminal that already paints that hover keeps it. Opening a URL still takes the link modifier. A plain click still opens a subagent link.
@@ -1373,7 +1377,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 56 | 14 | 3 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 53 | 7 | 1 |
-| W10 | Transcript, density, and copy | 1 | 0 | 59 | 4 | 0 |
+| W10 | Transcript, density, and copy | 0 | 0 | 60 | 4 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 44 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 2 | 0 | 47 | 13 | 9 |
 | W13 | Update, install, and sign-in | 0 | 0 | 30 | 11 | 0 |
@@ -1382,9 +1386,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 786. Pending: 10. Skipped: 10. Done: 619. Already: 114. Deferred: 33.
+Catalog rows: 786. Pending: 9. Skipped: 10. Done: 620. Already: 114. Deferred: 33.
 
-**Next:** v87-x18
+**Next:** v87-x03
 
 ## Waves
 
@@ -1426,7 +1430,7 @@ Pending: 0. Done: 53 (`v87-x14`; `v87-x08`, D-312; `v87-x06`, D-311; `v86-x37`, 
 
 ### W10 — Transcript, density, and copy
 
-Pending: 1 (`v87-x18`). Done: 59 (`v87-x09`, D-314; `v87-x05`, D-313; `v86-x42`, D-282; `v86-x41`, D-281; `v86-x40`, D-280; `v86-x39`, D-279; `v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
+Pending: 0. Done: 60 (`v87-x18`, D-315; `v87-x09`, D-314; `v87-x05`, D-313; `v86-x42`, D-282; `v86-x41`, D-281; `v86-x40`, D-280; `v86-x39`, D-279; `v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
 
 ### W11 — Headless mode and tools
 
@@ -2190,7 +2194,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x42 | done | W10 | Bug Fixes |  |  | **Dragging from blank areas** of rows no longer starts a text selection and preserves fold/unfold clicks.
 - v87-x05 | done | W10 | Bug Fixes |  |  | **Dragging to select text** now skips collapsed tool calls and the turn summary line, copying only the actual conversation.
 - v87-x09 | done | W10 | Bug Fixes |  |  | **Links** in replies now highlight when you move the mouse over them, showing they can be clicked.
-- v87-x18 | pending | W10 | Bug Fixes |  |  | **Use Tool** blocks now show (no output) when a tool returns nothing.
+- v87-x18 | done | W10 | Bug Fixes |  |  | **Use Tool** blocks now show (no output) when a tool returns nothing.
 - v86-x43 | done | W14 | Bug Fixes |  |  | Paths ending in one or more slashes shorten correctly and keep the final folder name readable.
 - v86-x44 | done | W14 | Bug Fixes |  |  | **Long setting descriptions** in /settings fit within the modal without being cut off.
 - v87-x02 | pending | W14 | Bug Fixes |  |  | **Persona names and descriptions** in the agents modal no longer overflow the window when they contain wide characters.
