@@ -135,6 +135,19 @@ pub fn shorten_path(path: &str, budget: usize) -> String {
     } else {
         '/'
     };
+    // A trailing slash is not the name. Shorten the path in front of it so the last folder stays whole.
+    let stem_end = path.trim_end_matches(sep).len();
+    if stem_end != path.len() && stem_end > 0 {
+        let stem = &path[..stem_end];
+        let trailing = &path[stem_end..];
+        let stem_budget = budget.saturating_sub(trailing.width());
+        let shortened = shorten_path(stem, stem_budget);
+        let joined = format!("{shortened}{trailing}");
+        if joined.width() <= budget {
+            return joined;
+        }
+        return truncate_str(&joined, budget);
+    }
     let parts: Vec<&str> = path.split(sep).collect();
     if parts.len() <= 1 {
         return truncate_str(path, budget);
@@ -307,6 +320,22 @@ mod tests {
             result.ends_with("note.rs"),
             "file name was cut off: {result}"
         );
+    }
+
+    #[test]
+    fn shorten_path_keeps_the_folder_before_trailing_slashes() {
+        let one = shorten_path("crates/codegen/xai-grok-pager/src/views/", 12);
+        assert!(one.width() <= 12, "{one}");
+        assert!(
+            one.contains("views"),
+            "the last folder was shortened away: {one}"
+        );
+        assert!(one.ends_with('/'), "{one}");
+
+        let many = shorten_path("crates/codegen/xai-grok-pager/src/views///", 14);
+        assert!(many.width() <= 14, "{many}");
+        assert!(many.contains("views"), "{many}");
+        assert!(many.ends_with("///"), "{many}");
     }
 
     #[test]
