@@ -1,11 +1,11 @@
 //! The full TUI renders plan approval as a fullscreen line-viewer plus a live feedback prompt.
 //! Minimal instead commits the whole plan into native scrollback as a normal conversation block (see [`maybe_commit_plan`]).
 //! The plan then reads and scrolls exactly like the rest of the transcript.
-//! The prompt-anchored live region holds only the decision controls (approve / revise / keep planning) plus the feedback input when revising.
+//! The prompt-anchored live region holds only the decision controls (approve / request changes / quit plan) plus the feedback input when revising.
 //! Nothing of the plan body is drawn under the prompt.
 //!
 //! Input routing is unchanged: while `line_viewer.is_some()` the agent's input handler already routes keys to the two plan handlers.
-//! `handle_line_viewer_key` owns Preview focus (`a` approve / `s`/`Tab` revise / `q` keep planning).
+//! `handle_line_viewer_key` owns Preview focus (`a` approve / `s`/`Tab` request changes / `q` quit plan).
 //! `handle_plan_feedback_key` owns Prompt focus (type feedback, `Enter` send, `Esc` back).
 //! Minimal keeps the line viewer open (so those keys fire) but renders this compact controls strip in place of the never-drawn fullscreen viewer.
 
@@ -37,12 +37,31 @@ No plan written yet
 Approve to leave plan mode and start implementing, request changes to send the \
 agent back to planning, or quit to abandon";
 
-/// Controls-strip header for a parked plan approval.
+/// Controls-strip header. Same words as the fullscreen status line.
 fn plan_header(has_plan: bool) -> &'static str {
-    if has_plan {
-        "Plan ready for review"
-    } else {
-        "No plan written yet"
+    xai_grok_pager::views::plan_approval_view::plan_approval_status_label(has_plan)
+}
+
+/// Decision hint. Same verbs as the fullscreen review buttons.
+fn plan_controls_hint(
+    focus: PlanApprovalFocus,
+    has_content: bool,
+    comment_count: usize,
+) -> String {
+    match focus {
+        PlanApprovalFocus::Prompt if has_content => {
+            "Enter request changes \u{00b7} Tab plan \u{00b7} Esc back".to_string()
+        }
+        PlanApprovalFocus::Prompt => "Enter approve \u{00b7} Tab plan \u{00b7} Esc back".to_string(),
+        PlanApprovalFocus::Commenting => "Enter save comment \u{00b7} Esc cancel".to_string(),
+        PlanApprovalFocus::Preview => {
+            let approve = if comment_count > 0 {
+                "approve w/ comments"
+            } else {
+                "approve"
+            };
+            format!("a {approve} \u{00b7} s request changes \u{00b7} q quit plan")
+        }
     }
 }
 
@@ -147,19 +166,12 @@ pub fn render(
         area.width,
     );
 
-    let has_content = minimal_api::plan_approval_view(agent)
-        .map(|p| !p.comments.is_empty())
-        .unwrap_or(false)
-        || !agent.prompt.text().trim().is_empty();
+    let comment_count = minimal_api::plan_approval_view(agent)
+        .map(|p| p.comments.len())
+        .unwrap_or(0);
+    let has_content = comment_count > 0 || !agent.prompt.text().trim().is_empty();
     // Tab reopens the preview (including the empty-plan placeholder).
-    let hint = match foc {
-        PlanApprovalFocus::Prompt if has_content => {
-            "Enter request changes \u{00b7} Tab plan \u{00b7} Esc back"
-        }
-        PlanApprovalFocus::Prompt => "Enter approve \u{00b7} Tab plan \u{00b7} Esc back",
-        PlanApprovalFocus::Commenting => "Enter save comment \u{00b7} Esc cancel",
-        PlanApprovalFocus::Preview => "a approve \u{00b7} s revise \u{00b7} q keep planning",
-    };
+    let hint = plan_controls_hint(foc, has_content, comment_count);
     let hint_style = theme.dim().bg(Color::Reset);
     let controls_rect = Rect {
         x: area.x,
@@ -235,5 +247,23 @@ mod tests {
 
         let real = plan_scrollback_body(Some("# Plan\n- do it"));
         assert_eq!(real, "# Plan\n- do it");
+    }
+
+    /// The controls and the header use the fullscreen plan-approval words.
+    #[test]
+    fn plan_controls_match_the_fullscreen_words() {
+        assert_eq!(
+            plan_controls_hint(PlanApprovalFocus::Preview, false, 0),
+            "a approve \u{00b7} s request changes \u{00b7} q quit plan"
+        );
+        assert_eq!(
+            plan_controls_hint(PlanApprovalFocus::Preview, false, 2),
+            "a approve w/ comments \u{00b7} s request changes \u{00b7} q quit plan"
+        );
+        assert_eq!(plan_header(true), "Waiting for plan approval");
+        assert_eq!(
+            plan_header(false),
+            "No plan written: approve or request changes"
+        );
     }
 }

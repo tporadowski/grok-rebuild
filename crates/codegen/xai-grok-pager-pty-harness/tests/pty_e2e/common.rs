@@ -920,7 +920,7 @@ pub(crate) const MINIMAL_SWITCH_BACK_IDLE_SENTINEL: &str =
     "minimal · /fullscreen to go back · /help";
 
 /// Header of minimal's parked plan-approval controls strip.
-pub(crate) const PLAN_PARKED_SENTINEL: &str = "Plan ready for review";
+pub(crate) const PLAN_PARKED_SENTINEL: &str = "Waiting for plan approval";
 
 /// A plan body the `exit_plan_mode` tool will read off disk.
 /// Every step carries a unique `{tag}{NNN}` sentinel, because a truncated plan still contains its head and would pass a plain substring check.
