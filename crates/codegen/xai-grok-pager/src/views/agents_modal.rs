@@ -868,14 +868,21 @@ pub fn format_agent_detail(entry: &AgentListEntry) -> Vec<String> {
     lines
 }
 /// Word-wrap text to fit within `max_width` display columns.
-/// Breaks at word boundaries (spaces).
-/// Words longer than `max_width` are placed on their own line (not hard-broken).
+/// Breaks at spaces. A run wider than the row, including CJK with no spaces, is split on column boundaries.
 fn word_wrap(text: &str, max_width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
     let mut current_width = 0;
     for word in text.split_whitespace() {
         let word_width = word.width();
+        if max_width > 0 && word_width > max_width {
+            if current_width > 0 {
+                lines.push(std::mem::take(&mut current));
+                current_width = 0;
+            }
+            push_wide_word(&mut lines, word, max_width);
+            continue;
+        }
         if current_width == 0 {
             current = word.to_string();
             current_width = word_width;
@@ -896,6 +903,23 @@ fn word_wrap(text: &str, max_width: usize) -> Vec<String> {
         lines.push(String::new());
     }
     lines
+}
+
+/// Split one display run that is wider than `max_width` into column-sized pieces.
+fn push_wide_word(lines: &mut Vec<String>, word: &str, max_width: usize) {
+    let mut rest = word;
+    while !rest.is_empty() {
+        if rest.width() <= max_width {
+            lines.push(rest.to_string());
+            break;
+        }
+        let end = crate::render::line_utils::byte_offset_at_width(rest, max_width);
+        if end == 0 || end > rest.len() {
+            break;
+        }
+        lines.push(rest[..end].to_string());
+        rest = &rest[end..];
+    }
 }
 /// Build viewer content for a built-in agent's prompt extension. Shows only the `prompt_body`, the
 /// custom instructions this agent adds on top of the base template. Template variables like `${{
@@ -1636,13 +1660,25 @@ fn render_personas_tab(
                 if let Some(bg_color) = bg {
                     ind_style = ind_style.bg(bg_color);
                 }
-                buf.set_string(x, row_y, indicator, ind_style);
-                x += 2;
+                buf.set_string(x, row_y, &indicator, ind_style);
+                x += indicator.width() as u16;
                 let Some(persona) = state.personas.get(*idx) else {
                     continue;
                 };
-                let remaining = (content_area.x + content_area.width).saturating_sub(x) as usize;
-                let name_display = crate::render::line_utils::truncate_str(&persona.name, remaining);
+                let row_right = content_area.x + content_area.width;
+                let remaining = row_right.saturating_sub(x) as usize;
+                let scope_text = persona
+                    .scope_label
+                    .as_ref()
+                    .map(|scope| format!(" {scope} "));
+                let scope_reserve = scope_text
+                    .as_ref()
+                    .map(|scope| scope.width().min(remaining / 2))
+                    .unwrap_or(0);
+                let name_display = crate::render::line_utils::truncate_str(
+                    &persona.name,
+                    remaining.saturating_sub(scope_reserve),
+                );
                 let mut name_style = Style::default()
                     .fg(theme.text_primary)
                     .add_modifier(Modifier::BOLD);
@@ -1651,14 +1687,17 @@ fn render_personas_tab(
                 }
                 buf.set_string(x, row_y, &name_display, name_style);
                 x += name_display.width() as u16;
-                if let Some(ref scope) = persona.scope_label {
-                    let badge = format!(" {scope} ");
-                    let mut scope_style = Style::default().fg(theme.accent_user);
-                    if let Some(bg_color) = bg {
-                        scope_style = scope_style.bg(bg_color);
+                if let Some(scope) = scope_text {
+                    let left = row_right.saturating_sub(x) as usize;
+                    if left > 0 {
+                        let badge = crate::render::line_utils::truncate_str(&scope, left);
+                        let mut scope_style = Style::default().fg(theme.accent_user);
+                        if let Some(bg_color) = bg {
+                            scope_style = scope_style.bg(bg_color);
+                        }
+                        buf.set_string(x, row_y, &badge, scope_style);
+                        x += badge.width() as u16;
                     }
-                    buf.set_string(x, row_y, &badge, scope_style);
-                    x += badge.width() as u16;
                 }
                 if !is_expanded
                     && let Some(ref desc) = persona.description
@@ -1701,7 +1740,10 @@ fn render_personas_tab(
                         }
                     }
                 }
-                buf.set_string(desc_x, row_y, line, desc_style);
+                let max_line =
+                    (content_area.x + content_area.width).saturating_sub(desc_x) as usize;
+                let shown = crate::render::line_utils::truncate_str(line, max_line);
+                buf.set_string(desc_x, row_y, &shown, desc_style);
             }
             Some(PersonaFlatRow::Tags(idx, tags)) => {
                 state.row_map.push((row_y, *idx));
@@ -1724,7 +1766,9 @@ fn render_personas_tab(
                     }
                 }
                 let display = format!("[{tags}]");
-                buf.set_string(tag_x, row_y, &display, tag_style);
+                let max_line = (content_area.x + content_area.width).saturating_sub(tag_x) as usize;
+                let shown = crate::render::line_utils::truncate_str(&display, max_line);
+                buf.set_string(tag_x, row_y, &shown, tag_style);
             }
             Some(PersonaFlatRow::Hint(idx, text)) => {
                 state.row_map.push((row_y, *idx));
@@ -2593,6 +2637,60 @@ mod tests {
         assert!(
             row.contains('\u{2026}'),
             "a wide picker row is shortened, not clipped mid-glyph: {row:?}"
+        );
+    }
+
+    #[test]
+    fn persona_name_and_description_stay_inside_the_window() {
+        let name = "測".repeat(30);
+        let description = "説".repeat(40);
+        let mut state = make_persona_state(
+            vec![PersonaDetail {
+                name: name.clone(),
+                description: Some(description),
+                has_inputs: false,
+                has_outputs: false,
+                source_path: None,
+                scope_label: Some("project".into()),
+            }],
+            "",
+            0,
+        );
+        state.persona_expanded.insert(0);
+        let area = Rect::new(0, 0, 80, 30);
+        let theme = Theme::current();
+        let mut buf = Buffer::empty(area);
+        render_agents_modal(&mut buf, area, &mut state, false, &theme);
+        let content = state.content_rect.expect("personas content");
+        let right = content.x + content.width;
+        for y in content.y..content.y + content.height {
+            let spilled = buf.cell((right, y)).map(|cell| cell.symbol().to_string());
+            let spilled = spilled.unwrap_or_default();
+            assert!(
+                !spilled.chars().any(|ch| ch == '測' || ch == '説'),
+                "wide persona text crossed the content edge at y={y}: {spilled:?}"
+            );
+        }
+        let mut painted = String::new();
+        for y in content.y..content.y + content.height {
+            for x in content.x..right {
+                if let Some(cell) = buf.cell((x, y)) {
+                    painted.push_str(cell.symbol());
+                }
+            }
+            painted.push('\n');
+        }
+        assert!(
+            painted.contains('測'),
+            "the wide name stays visible:\n{painted}"
+        );
+        assert!(
+            painted.contains('説'),
+            "the wide description stays visible:\n{painted}"
+        );
+        assert!(
+            painted.contains('\u{2026}'),
+            "a name wider than the row ends with an ellipsis:\n{painted}"
         );
     }
 
