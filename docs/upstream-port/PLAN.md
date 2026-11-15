@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-305 — A shorter activity does not leave the previous letters
+
+`v86-p01`. The tasks pane paints into the frame the terminal reuses. A subagent's activity went from a long `Running: …` line to `Thinking`, and the old letters stayed on the row. The pane now clears those cells, keeping the background, before it paints the row again.
+
 ### D-304 — A long setting description uses the modal's remaining rows
 
 `v86-x44`. An expanded description in /settings kept only eight wrapped lines, so the rest was cut off while the dialog still had empty rows. It now wraps to the modal width and paints every line that still fits in the list. The row's height is that full wrap, so a description that fits is scrolled into view whole.
@@ -1338,13 +1342,13 @@ Refresh these numbers at the end of a session.
 | W12 | MCP, web, images, and browser | 0 | 0 | 47 | 13 | 9 |
 | W13 | Update, install, and sign-in | 0 | 0 | 30 | 11 | 0 |
 | W14 | Pager and remaining bug fixes | 0 | 1 | 181 | 20 | 5 |
-| W15 | Performance | 1 | 0 | 20 | 6 | 2 |
+| W15 | Performance | 0 | 0 | 21 | 6 | 2 |
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 767. Pending: 1. Skipped: 10. Done: 611. Already: 114. Deferred: 31.
+Catalog rows: 767. Pending: 0. Skipped: 10. Done: 612. Already: 114. Deferred: 31.
 
-**Next:** v86-p01
+**Next:** no pending rows
 
 ## Waves
 
@@ -1406,7 +1410,7 @@ Pending: 0. Done: 181 (`v86-x44`, D-304; `v86-x43`, D-303; `v86-x36`, D-302; `v8
 
 ### W15 — Performance
 
-Pending: 1. Done: 20. Already: 6 (`v54-p01`; `v54-p04`; `v69-p01`; `v74-p04`, D-221; `v74-p05`, D-222). Deferred: 2 (`v73-p01`, D-025; `v82-x08`, D-237). Look first: Performance notes. Confirm the cost with the existing code before adding caches. Skip a note whose hot path cannot be found and record that. Linux startup does not wait on the system-bus Hello handshake. A missing socket still skips the power listener. When the socket is present, that handshake runs on the power-listener thread (`v80-p02`, `open_listener_returns_while_the_bus_handshake_is_blocked`). A Kitty keyboard query that never answers stops at 500ms (`v80-p03`, `unanswered_keyboard_query_is_under_two_seconds`). `/debug` has no tokens-per-second toggle. The scroll HUD, the FPS overlay, and the scroll log are the only debug overlays, so there is no rate that can leave out model retry and auto-compaction waits (`v82-x08`, D-237).
+Pending: 0. Done: 21 (`v86-p01`, D-305). Already: 6 (`v54-p01`; `v54-p04`; `v69-p01`; `v74-p04`, D-221; `v74-p05`, D-222). Deferred: 2 (`v73-p01`, D-025; `v82-x08`, D-237). Look first: Performance notes. Confirm the cost with the existing code before adding caches. Skip a note whose hot path cannot be found and record that. Linux startup does not wait on the system-bus Hello handshake. A missing socket still skips the power listener. When the socket is present, that handshake runs on the power-listener thread (`v80-p02`, `open_listener_returns_while_the_bus_handshake_is_blocked`). A Kitty keyboard query that never answers stops at 500ms (`v80-p03`, `unanswered_keyboard_query_is_under_two_seconds`). `/debug` has no tokens-per-second toggle. The scroll HUD, the FPS overlay, and the scroll log are the only debug overlays, so there is no rate that can leave out model retry and auto-compaction waits (`v82-x08`, D-237).
 
 ## Catalog
 
@@ -2146,7 +2150,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x44 | done | W14 | Bug Fixes |  |  | **Long setting descriptions** in /settings fit within the modal without being cut off.
 - v86-x45 | already | W8 | Bug Fixes |  |  | **Multi-line prompts** in the session picker show their ellipsis on the same row.
 - v86-x46 | done | W8 | Bug Fixes |  |  | **@ file picker** in the dashboard no longer crashes on terminals shorter than 10 rows.
-- v86-p01 | pending | W15 | Performance |  |  | **Tasks pane** no longer flickers with changing subagent activity text while work is running.
+- v86-p01 | done | W15 | Performance |  |  | **Tasks pane** no longer flickers with changing subagent activity text while work is running.
 - v46-p01 | done | W15 | Performance |  |  | list_dir on network or virtual filesystems now skips slow subtree counts and prints a notice instead.
 - v46-p02 | done | W15 | Performance |  |  | **Session startup** is faster when loading skills from large directories and shows what it is doing instead of a generic spinner.
 - v47-p01 | done | W15 | Performance |  |  | **Sessions** in repositories with an .envrc file now start faster.

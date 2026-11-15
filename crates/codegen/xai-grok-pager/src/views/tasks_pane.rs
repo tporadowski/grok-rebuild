@@ -626,6 +626,21 @@ impl Default for TasksPane {
         Self::new()
     }
 }
+/// Clear a reused frame's cells in `area`, keeping the background already painted behind the pane.
+/// A shorter activity label would otherwise leave the previous label's letters on the row.
+fn blank_content_keeping_background(buf: &mut Buffer, area: Rect) {
+    for y in area.y..area.bottom() {
+        for x in area.x..area.right() {
+            let Some(cell) = buf.cell_mut((x, y)) else {
+                continue;
+            };
+            let bg = cell.bg;
+            cell.reset();
+            cell.set_bg(bg);
+        }
+    }
+}
+
 /// Fill overlay cells with spaces so label text doesn't bleed through. The user then sees that the
 /// row was truncated rather than just clipped silently.
 fn clear_overlay_area(buf: &mut Buffer, area: Rect, y: u16, overlay_w: u16) {
@@ -1045,6 +1060,7 @@ impl TasksPane {
         scheduled: &HashMap<String, ScheduledTaskInfo>,
     ) {
         let inner = Self::content_area(area, layout_cfg);
+        blank_content_keeping_background(buf, inner);
         if self.entries.is_empty() {
             if inner.height > 0 && inner.width > 0 {
                 let theme = Theme::current();
@@ -2540,6 +2556,56 @@ mod tests {
             _ => panic!("expected Agent variant"),
         };
         assert_eq!(label, "Subagent Find API endpoints");
+    }
+    /// A second frame with a shorter activity must not keep the previous activity's letters.
+    /// The pane is painted into the same buffer the terminal reuses between frames.
+    #[test]
+    fn changing_subagent_activity_does_not_leave_the_previous_text() {
+        let mut pane = TasksPane::new();
+        let mut info = make_info();
+        info.attempt.activity_label =
+            Some("Running: cargo build --release --all-targets".into());
+        let mut subs = HashMap::new();
+        subs.insert(info.child_session_id.to_string(), info);
+        pane.sync(&BTreeMap::new(), &subs, &HashMap::new(), &[]);
+
+        let area = Rect::new(0, 0, 80, 8);
+        let mut buf = Buffer::empty(area);
+        let layout = crate::appearance::LayoutConfig::default();
+        let paint = |pane: &mut TasksPane, subs: &HashMap<String, SubagentInfo>, buf: &mut Buffer| {
+            pane.render(
+                area,
+                buf,
+                false,
+                &layout,
+                &BTreeMap::new(),
+                subs,
+                &HashMap::new(),
+            );
+        };
+        paint(&mut pane, &subs, &mut buf);
+
+        let child_id = subs.keys().next().unwrap().clone();
+        subs.get_mut(&child_id).unwrap().attempt.activity_label = Some("Thinking".into());
+        pane.sync(&BTreeMap::new(), &subs, &HashMap::new(), &[]);
+        paint(&mut pane, &subs, &mut buf);
+
+        let text: String = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol().to_string()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            text.contains("Thinking"),
+            "the current activity must be on the row:\n{text}"
+        );
+        assert!(
+            !text.contains("cargo"),
+            "the previous activity is still on the row:\n{text}"
+        );
     }
     #[test]
     fn subagent_activity_suffix_renders_while_running_only() {
