@@ -91,6 +91,17 @@ impl AgentView {
                     perm.active_idx = walk.step(perm.active_idx, perm.options.len());
                     return InputOutcome::Changed;
                 }
+                // The reject row says to type feedback. `j` and `k` are letters in that
+                // sentence, so they must not walk the highlight before the text is taken.
+                if let Some(opt) = perm.options.get(perm.active_idx)
+                    && opt.kind == agent_client_protocol::PermissionOptionKind::RejectOnce
+                    && crate::input::key::is_text_input_key(key)
+                    && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_digit())
+                {
+                    perm.focus = PermissionFocus::FollowupInput;
+                    let _ = self.prompt.handle_key(key);
+                    return InputOutcome::Changed;
+                }
                 if key.code == KeyCode::Char('j') || key.code == KeyCode::Down {
                     if perm.active_idx + 1 < perm.options.len() {
                         perm.active_idx += 1;
@@ -193,15 +204,6 @@ impl AgentView {
                         crate::views::permission_view::PatternEditState::new(initial),
                     );
                     perm.focus = PermissionFocus::PatternEdit;
-                    return InputOutcome::Changed;
-                }
-                if let Some(opt) = perm.options.get(perm.active_idx)
-                    && opt.kind == agent_client_protocol::PermissionOptionKind::RejectOnce
-                    && crate::input::key::is_text_input_key(key)
-                    && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_digit())
-                {
-                    perm.focus = PermissionFocus::FollowupInput;
-                    let _ = self.prompt.handle_key(key);
                     return InputOutcome::Changed;
                 }
                 InputOutcome::Changed
@@ -1763,6 +1765,46 @@ mod permission_mouse_tests {
             "row click after an intervening chrome click must not submit; got {third:?}"
         );
         assert!(matches!(agent.last_permission_click, Some((_, 1))));
+    }
+
+    /// `j` on the reject row is the start of a feedback sentence. It must land in
+    /// the follow-up, not walk the highlight onto the next option.
+    #[test]
+    fn typing_on_the_reject_row_is_feedback_and_keeps_the_row() {
+        let mut agent = make_agent();
+        setup_permission(&mut agent);
+        agent.permission_queue.front_mut().unwrap().active_idx = 2;
+
+        let typed = agent.handle_permission_key(&key(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert!(matches!(typed, InputOutcome::Changed), "{typed:?}");
+        let perm = agent.permission_queue.front().unwrap();
+        assert_eq!(perm.active_idx, 2, "j must not leave the reject row");
+        assert_eq!(
+            perm.focus,
+            crate::views::permission_view::PermissionFocus::FollowupInput
+        );
+        assert_eq!(agent.prompt.text(), "j");
+
+        let _ = agent.handle_permission_key(&key(KeyCode::Char('o'), KeyModifiers::NONE));
+        let submitted =
+            agent.handle_permission_key(&key(KeyCode::Enter, KeyModifiers::NONE));
+        match submitted {
+            InputOutcome::Action(Action::PermissionFollowup(text)) => {
+                assert_eq!(text, "jo");
+            }
+            other => panic!("typed feedback must go to the model, got {other:?}"),
+        }
+
+        let mut agent = make_agent();
+        setup_permission(&mut agent);
+        agent.permission_queue.front_mut().unwrap().active_idx = 0;
+        let _ = agent.handle_permission_key(&key(KeyCode::Char('j'), KeyModifiers::NONE));
+        let perm = agent.permission_queue.front().unwrap();
+        assert_eq!(perm.active_idx, 1, "j still walks a row that is not reject");
+        assert_eq!(
+            perm.focus,
+            crate::views::permission_view::PermissionFocus::Options
+        );
     }
 }
 #[cfg(test)]
