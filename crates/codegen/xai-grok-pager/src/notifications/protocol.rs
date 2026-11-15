@@ -42,6 +42,7 @@ pub fn select_protocol(ctx: &TerminalContext) -> NotificationProtocol {
         | TerminalName::Windsurf
         | TerminalName::Zed
         | TerminalName::Otty
+        | TerminalName::Rex
         | TerminalName::Unknown => NotificationProtocol::Bel,
     }
 }

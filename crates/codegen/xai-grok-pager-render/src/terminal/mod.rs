@@ -105,6 +105,8 @@ pub enum TerminalName {
     /// Otty (otty.sh). Wraps macOS IME commits in bracketed paste.
     #[strum(to_string = "Otty")]
     Otty,
+    /// Rex (Superlogical). Sets `REX_SESSION` in every terminal and uses `TERM=xterm-rex`.
+    Rex,
     #[default]
     Unknown,
 }
@@ -134,7 +136,7 @@ impl TerminalName {
     /// Brands whose capabilities are not positively classified.
     /// They share [`Self::Unknown`]'s fail-closed posture (no KKP probe, conservative hyperlinks/notifications/focus, etc.).
     pub fn is_capability_unclassified(self) -> bool {
-        matches!(self, Self::Unknown | Self::Otty)
+        matches!(self, Self::Unknown | Self::Otty | Self::Rex)
     }
 
     /// Host applies OSC 52 writes to the system pasteboard (fail closed).
@@ -176,7 +178,7 @@ impl TerminalName {
             | Self::Vte
             | Self::Terminator
             | Self::WindowsTerminal => WidthShrink::Rewraps,
-            Self::WarpTerminal | Self::JetBrains | Self::Otty | Self::Unknown => {
+            Self::WarpTerminal | Self::JetBrains | Self::Otty | Self::Rex | Self::Unknown => {
                 WidthShrink::Truncates
             }
         }
@@ -686,6 +688,14 @@ pub fn detect_terminal_brand_from_env(env: &HashMap<String, String>) -> Terminal
         return name;
     }
 
+    // Rex sets these in every terminal. `TERM=xterm-rex` is its terminfo name.
+    if env_get(env, "REX_SESSION").is_some()
+        || env_get(env, "REX_BLOCK").is_some()
+        || env_get(env, "TERM").is_some_and(|term| term == "xterm-rex")
+    {
+        return TerminalName::Rex;
+    }
+
     // Both JediTerm engines share this marker; no capability query is safe (XTVERSION leaks). Must run before TERM_SESSION_ID or it false-positives as Apple Terminal.
     if let Some(te) = env_get(env, "TERMINAL_EMULATOR") {
         let te_lower = te.to_ascii_lowercase();
@@ -935,6 +945,7 @@ fn terminal_name_from_term_program(value: &str) -> Option<TerminalName> {
         "grokdesktop" => Some(TerminalName::GrokDesktop),
         "windowsterminal" => Some(TerminalName::WindowsTerminal),
         "otty" => Some(TerminalName::Otty),
+        "rex" => Some(TerminalName::Rex),
         _ => None,
     }
 }

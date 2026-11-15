@@ -496,7 +496,7 @@ Multiline:        Ctrl+M (toggle)
 Paste:            Ctrl+V (text, files, screenshots on macOS/Linux)
 Selected text:    Middle click or Shift+Insert (Linux X11/XWayland PRIMARY)
 Paste image:      Alt+V (Windows only — for screenshots / "Copy Image")
-Select all:       Cmd+A (macOS, Ghostty only — see note below)
+Select all:       Cmd+A (macOS, Ghostty and Rex — see note below)
 Select text:      Shift+←/→ (char) · Alt+Shift+←/→ (word) ·
                   Cmd+Shift+←/→ (visual row) · Shift+Home/End (logical line) ·
                   Shift+↑/↓ (row)
@@ -532,11 +532,11 @@ drop the highlight while still performing their normal action. Note
 `Shift+←/→` only selects while the **prompt** is focused; with scrollback
 focused the same chords jump between turns (see Navigation above).
 
-> **Cmd+A is gated to Ghostty.** Grok's in-app `Cmd+A` handler is only
-> wired up when the detected terminal is Ghostty. Other terminals
+> **Cmd+A is gated to Ghostty and Rex.** Grok's in-app `Cmd+A` handler is
+> wired up when the detected terminal is Ghostty or Rex. Other terminals
 > either swallow `Cmd+A` at the terminal layer (Apple Terminal, default
 > iTerm2) or apply their own in-terminal "Select All" behaviour (Kitty,
-> WezTerm). On a non-Ghostty terminal, the binding does nothing and the
+> WezTerm). On any other terminal, the binding does nothing and the
 > key falls through to the terminal's native behaviour.
 >
 > On Ghostty, add the one-line unbind to `~/.config/ghostty/config` so

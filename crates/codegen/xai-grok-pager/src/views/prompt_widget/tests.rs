@@ -279,7 +279,7 @@
         pw
     }
 
-    /// Gate predicate: only Ghostty enables `Cmd+A` select-all today. The gate is a per-brand policy
+    /// Gate predicate: Ghostty and Rex enable `Cmd+A` select-all. The gate is a per-brand policy
     /// choice and must not be silently inherited by future additions.
     #[test]
     fn cmd_a_supported_only_for_ghostty() {
@@ -304,11 +304,12 @@
             TerminalName::Terminator,
             TerminalName::WindowsTerminal,
             TerminalName::Otty,
+            TerminalName::Rex,
             TerminalName::Unknown,
         ] {
             // Exhaustive on purpose: an unlisted new TerminalName variant fails to compile, forcing the gate decision into someone's hands
             let expected = match brand {
-                TerminalName::Ghostty => true,
+                TerminalName::Ghostty | TerminalName::Rex => true,
                 TerminalName::AppleTerminal
                 | TerminalName::Iterm2
                 | TerminalName::WarpTerminal
@@ -335,6 +336,27 @@
                 "gate verdict for {brand:?} does not match the policy"
             );
         }
+    }
+
+    #[test]
+    fn cmd_a_on_rex_selects_the_whole_prompt() {
+        use crate::terminal::TerminalName;
+        assert!(
+            cmd_a_select_all_supported(TerminalName::Rex),
+            "Rex must take the in-app Cmd+A select-all"
+        );
+        let mut pw = PromptWidget::new();
+        pw.cmd_a_select_all_enabled = cmd_a_select_all_supported(TerminalName::Rex);
+        pw.textarea.insert_str("hello world");
+        pw.textarea.set_cursor(3);
+        assert_eq!(
+            pw.handle_key(&key!('a', SUPER).to_key_event()),
+            PromptEvent::Edited
+        );
+        let range = pw.textarea.selection_range().expect("selection set");
+        assert_eq!(range.start, 0);
+        assert_eq!(range.end, pw.textarea.text().len());
+        assert_eq!(pw.textarea.cursor(), pw.textarea.text().len());
     }
 
     #[test]

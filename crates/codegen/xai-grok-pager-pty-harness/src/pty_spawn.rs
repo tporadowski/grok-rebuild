@@ -48,6 +48,9 @@ const HOST_TERMINAL_ENV_VARS: &[&str] = &[
     "TERMINATOR_UUID",
     "VTE_VERSION",
     "WT_SESSION",
+    "REX_SESSION",
+    "REX_BLOCK",
+    "REX_SERVER",
     // Multiplexer / Byobu markers (detect_multiplexer_from_env,
     // detect_byobu_from_env, detect_tmux_meta_from_env).
     "TMUX",

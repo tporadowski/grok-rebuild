@@ -44,6 +44,17 @@ fn test_terminal_name_from_term_program() {
 }
 
 #[test]
+fn brand_rex_from_session_marker_or_term() {
+    let env = env_from(&[("REX_SESSION", "work")]);
+    assert_eq!(detect_terminal_brand_from_env(&env), TerminalName::Rex);
+    let env = env_from(&[("TERM", "xterm-rex")]);
+    assert_eq!(detect_terminal_brand_from_env(&env), TerminalName::Rex);
+    let env = env_from(&[("TERM_PROGRAM", "rex")]);
+    assert_eq!(detect_terminal_brand_from_env(&env), TerminalName::Rex);
+    assert!(TerminalName::Rex.is_capability_unclassified());
+}
+
+#[test]
 fn brand_otty_from_term_program() {
     let env = env_from(&[("TERM_PROGRAM", "otty")]);
     assert_eq!(detect_terminal_brand_from_env(&env), TerminalName::Otty);

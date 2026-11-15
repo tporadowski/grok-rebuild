@@ -133,10 +133,13 @@ fn file_search_has_selection(fs: &FileSearchState) -> bool {
 }
 
 /// Whether the in-app `Cmd+A` "select all in prompt" handler is supported for the given terminal
-/// brand. Gated to Ghostty only. The rest have in-terminal "Select All" behaviour we don't want to
-/// fight.
+/// brand. Ghostty and Rex deliver the chord to the app. The rest have in-terminal "Select All"
+/// behaviour we don't want to fight.
 fn cmd_a_select_all_supported(brand: crate::terminal::TerminalName) -> bool {
-    matches!(brand, crate::terminal::TerminalName::Ghostty)
+    matches!(
+        brand,
+        crate::terminal::TerminalName::Ghostty | crate::terminal::TerminalName::Rex
+    )
 }
 
 /// Visual configuration for prompt rendering.
@@ -805,9 +808,8 @@ pub struct PromptWidget {
     /// Compact mode lowers the paste-chip threshold from 4 lines to 2.
     compact: bool,
 
-    /// Whether the in-app Cmd+A handler is enabled (gated to Ghostty). Only Ghostty is supported
-    /// because. It's the only terminal in current use that can forward `Cmd+A`, needing just one
-    /// documented terminal-side step (`keybind = cmd+a=unbind`).
+    /// Whether the in-app Cmd+A handler is enabled. Ghostty and Rex forward the chord.
+    /// Other terminals keep their own Select All, so the handler stays off.
     cmd_a_select_all_enabled: bool,
 
     /// Detects user-initiated wipes of a substantial draft (undo tip).
@@ -2145,7 +2147,7 @@ impl PromptWidget {
             return PromptEvent::Ignored;
         }
 
-        // Cmd+A (macOS, Ghostty only): select all text in the prompt textarea. Gated to Ghostty. Every
+        // Cmd+A (macOS, Ghostty and Rex): select all text in the prompt textarea. Every
         // other macOS terminal binds `Cmd+A` to its own in-terminal "Select All" by default. We don't want
         // to compete with that, or surprise users on terminals where the key doesn't even arrive.
         if self.cmd_a_select_all_enabled && key!('a', SUPER).matches(key) {

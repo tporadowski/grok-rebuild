@@ -108,7 +108,10 @@ fn macos_capabilities(brand: TerminalName) -> KeyboardCapabilities {
         // JetBrains JediTerm: no KKP, no CG rescue, and no way to probe capabilities at runtime (no TERM_FEATURES, XTVERSION leaks)
         // Mouse reporting has known SGR bugs in the Classic engine (IJPL-232482); the reworked 2025 engine is better but indistinguishable via env vars
         TerminalName::JetBrains => (Unknown, Unknown, Unknown),
-        TerminalName::WindowsTerminal | TerminalName::Otty | TerminalName::Unknown => {
+        TerminalName::WindowsTerminal
+        | TerminalName::Otty
+        | TerminalName::Rex
+        | TerminalName::Unknown => {
             (Unknown, Unknown, Unknown)
         }
     };

@@ -307,6 +307,7 @@ impl ScrollConfig {
                 | TerminalName::WindowsTerminal
                 | TerminalName::JetBrains
                 | TerminalName::Otty
+                | TerminalName::Rex
                 | TerminalName::Unknown => DEFAULT_EVENTS_PER_TICK,
             }
         };
