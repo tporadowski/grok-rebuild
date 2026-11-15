@@ -553,8 +553,10 @@ impl AgentView {
         }
         // A rect below the paint floor is not a panel. Arrows and Page Up/Down
         // stay with the prompt and the transcript (`render_btw_panel` draws nothing).
+        // An open prompt dropdown owns those arrows too, even when the answer underneath can scroll.
         let btw_scroll_max = if self.active_pane == AgentPane::Prompt
             && self.btw_focused
+            && !self.prompt.any_dropdown_open()
             && crate::minimal_api::minimal_btw_geometry_is_paintable(self.last_btw_area)
             && let Some(btw) = self.btw_state.as_ref()
             && matches!(btw, crate::views::btw_overlay::BtwOverlayState::Done { .. })
@@ -1838,6 +1840,39 @@ mod btw_focus_tests {
             )),
         }
     }
+    #[test]
+    fn arrow_moves_the_prompt_dropdown_while_a_btw_answer_is_underneath() {
+        let mut agent = prompt_focused_agent();
+        let reg = ActionRegistry::defaults();
+        agent.btw_state = Some(BtwOverlayState::done("q".into(), long_btw_answer()));
+        agent.btw_focused = true;
+        agent.prompt.set_text("@src");
+        let ctx = crate::views::file_search::context::detect("@src", 4).expect("@ context");
+        let hits = (0..4)
+            .map(|i| xai_grok_workspace::file_system::FuzzyMatchResult {
+                path: nucleo::Utf32String::from(format!("src/file{i}.rs")),
+                score: 1,
+                indices: Vec::new(),
+                is_dir: false,
+            })
+            .collect();
+        agent.prompt.file_search.set_test_state(ctx, hits, 0);
+        assert!(agent.prompt.any_dropdown_open());
+
+        agent.handle_input(&key(KeyCode::Down), &reg);
+
+        assert_eq!(
+            done_scroll_offset(&agent),
+            0,
+            "the /btw answer underneath must not scroll"
+        );
+        assert_eq!(
+            agent.prompt.file_search.selected(),
+            1,
+            "Down walks the open prompt dropdown"
+        );
+    }
+
     #[test]
     fn focused_panel_scrolls_with_arrows() {
         let mut agent = prompt_focused_agent();
