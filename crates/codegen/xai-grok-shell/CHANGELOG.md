@@ -1,5 +1,30 @@
 # Changelog
 
+# 1.0.87 — 2026-11-14
+
+## Bug Fixes
+
+- **Key hints** in fullscreen dialogs now appear with consistent capitalization.
+- **Persona names and descriptions** in the agents modal no longer overflow the window when they contain wide characters.
+- **The /mcps panel** in minimal mode now shows the same loading, error and layout style as the full view.
+- **The /mcps panel** in minimal mode now shows a search bar and the full set of action hints, and opens forms when their keys are pressed.
+- **Dragging to select text** now skips collapsed tool calls and the turn summary line, copying only the actual conversation.
+- **Typing on the permission card** now sends your text as feedback to the model instead of changing the selected row.
+- **Text left by another program** on the same terminal is now cleared at the end of a tool call, the end of a turn, or when the window regains focus.
+- **Cmd+A** now selects the entire prompt text when using the Rex terminal.
+- **Links** in replies now highlight when you move the mouse over them, showing they can be clicked.
+- **Resume search snippets** now fit the list width and keep the matching text visible instead of cutting it off.
+- **Expanded agent details** in /agents now end with an ellipsis instead of being clipped at the modal edge.
+- **`/voice`** on macOS now tells you exactly which app (your terminal) is missing Microphone permission and how to fix it.
+- **Voice error messages** are now saved to scrollback when the toast cuts them off, and toast text no longer shows stray spaces or double ellipses.
+- **Arrow keys** now navigate prompt dropdowns even when a /btw answer appears underneath.
+- **Opening a /btw answer as its own session** now moves focus to that session's prompt only after the tab is open.
+- **Settings rows** in very narrow terminals now show their label instead of a cut restart tag.
+- **Footer hints** in minimal mode no longer truncate mid-word on narrow terminals.
+- **Use Tool** blocks now show (no output) when a tool returns nothing.
+- **/resume** in minimal mode now shows "y confirm delete · n cancel" before deleting a session.
+
+
 # 1.0.86 — 2026-11-14
 
 ## Features
