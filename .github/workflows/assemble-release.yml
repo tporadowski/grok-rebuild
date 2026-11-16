@@ -1,0 +1,53 @@
+name: Assemble release
+
+# Copies the already-built ci-1 and win-3 assets onto one release.
+# A combine-* tag does not match the build workflow, so this does not rebuild.
+on:
+  push:
+    tags:
+      - "combine-*"
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Publish one 1.0.87 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/assets"
+          mkdir -p "$dir"
+          gh release download ci-1 --dir "$dir"
+          gh release download win-3 --dir "$dir"
+          python3 - <<'PY'
+          import hashlib, pathlib, sys
+          root = pathlib.Path("${{ runner.temp }}/assets")
+          for side in sorted(root.glob("*.sha256")):
+              digest = side.read_text().split()[0].lower()
+              name = side.name[: -len(".sha256")]
+              got = hashlib.sha256((root / name).read_bytes()).hexdigest()
+              if got != digest:
+                  sys.exit(f"checksum mismatch for {name}")
+              print("ok", name)
+          PY
+          notes=$(cat <<'EOF'
+          Unofficial builds of this fork's `xai-grok-pager` 1.0.87. These are not SpaceXSI's Grok Build binaries.
+
+          Linux and macOS were built from `91abb560`. Windows was built from `4b8929b7`, which only bumps the `cc` crate so Rust 1.94 can compile it. That change does not affect the other binaries.
+
+          The program's updater still downloads official Grok Build from https://x.ai/cli. Set `[cli] auto_update = false` before using one of these as a daily binary.
+          EOF
+          )
+          gh release create 1.0.87 \
+            --target 4b8929b77299405447483f89a6b387d4c9978c7e \
+            --prerelease \
+            --title "grok-rebuild 1.0.87" \
+            --notes "$notes" \
+            "$dir"/*
+          gh release delete ci-1 --cleanup-tag --yes
+          gh release delete win-3 --cleanup-tag --yes
+          gh release delete "${GITHUB_REF_NAME}" --cleanup-tag --yes
