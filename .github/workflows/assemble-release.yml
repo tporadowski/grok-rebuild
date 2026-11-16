@@ -17,6 +17,7 @@ jobs:
       - name: Publish one 1.0.87 release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: tporadowski/grok-rebuild
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/assets"
@@ -51,3 +52,4 @@ jobs:
           gh release delete ci-1 --cleanup-tag --yes
           gh release delete win-3 --cleanup-tag --yes
           gh release delete "${GITHUB_REF_NAME}" --cleanup-tag --yes
+          gh api -X DELETE "repos/${GH_REPO}/git/refs/tags/combine-1.0.87" || true
