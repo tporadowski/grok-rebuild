@@ -1446,13 +1446,13 @@ Refresh these numbers at the end of a session.
 | W12 | MCP, web, images, and browser | 0 | 0 | 53 | 13 | 10 |
 | W13 | Update, install, and sign-in | 0 | 0 | 35 | 11 | 0 |
 | W14 | Pager and remaining bug fixes | 0 | 1 | 199 | 22 | 7 |
-| W15 | Performance | 1 | 0 | 22 | 6 | 2 |
+| W15 | Performance | 0 | 0 | 23 | 6 | 2 |
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 849. Pending: 1. Skipped: 10. Done: 686. Already: 116. Deferred: 36.
+Catalog rows: 849. Pending: 0. Skipped: 10. Done: 687. Already: 116. Deferred: 36.
 
-**Next:** v88-p02
+**Next:** none
 
 ## Waves
 
@@ -1514,7 +1514,7 @@ Pending: 0. Done: 199 (`v88-x48`; `v88-x47`; `v88-x44`; `v88-x40`; `v88-x31`; `v
 
 ### W15 — Performance
 
-Pending: 1. Done: 22 (`v88-p01`; `v86-p01`, D-305). Already: 6 (`v54-p01`; `v54-p04`; `v69-p01`; `v74-p04`, D-221; `v74-p05`, D-222). Deferred: 2 (`v73-p01`, D-025; `v82-x08`, D-237). Terminal protocol queries run beside the agent connection, so the first frame waits for the slower of the two (`v88-p01`, `terminal_queries_overlap_the_agent_connection`). Look first: Performance notes. Confirm the cost with the existing code before adding caches. Skip a note whose hot path cannot be found and record that. Linux startup does not wait on the system-bus Hello handshake. A missing socket still skips the power listener. When the socket is present, that handshake runs on the power-listener thread (`v80-p02`, `open_listener_returns_while_the_bus_handshake_is_blocked`). A Kitty keyboard query that never answers stops at 500ms (`v80-p03`, `unanswered_keyboard_query_is_under_two_seconds`). `/debug` has no tokens-per-second toggle. The scroll HUD, the FPS overlay, and the scroll log are the only debug overlays, so there is no rate that can leave out model retry and auto-compaction waits (`v82-x08`, D-237).
+Pending: 0. Done: 23 (`v88-p02`; `v88-p01`; `v86-p01`, D-305). Already: 6 (`v54-p01`; `v54-p04`; `v69-p01`; `v74-p04`, D-221; `v74-p05`, D-222). Deferred: 2 (`v73-p01`, D-025; `v82-x08`, D-237). Inline and minimal startup ask the cursor position with a 50ms budget and anchor on the bottom row when the report is late, instead of crossterm's two-second poll (`v88-p02`, `startup_cursor_budget_does_not_wait_out_a_slow_reply`, `inline_startup_places_from_the_given_cursor`). Terminal protocol queries run beside the agent connection, so the first frame waits for the slower of the two (`v88-p01`, `terminal_queries_overlap_the_agent_connection`). Look first: Performance notes. Confirm the cost with the existing code before adding caches. Skip a note whose hot path cannot be found and record that. Linux startup does not wait on the system-bus Hello handshake. A missing socket still skips the power listener. When the socket is present, that handshake runs on the power-listener thread (`v80-p02`, `open_listener_returns_while_the_bus_handshake_is_blocked`). A Kitty keyboard query that never answers stops at 500ms (`v80-p03`, `unanswered_keyboard_query_is_under_two_seconds`). `/debug` has no tokens-per-second toggle. The scroll HUD, the FPS overlay, and the scroll log are the only debug overlays, so there is no rate that can leave out model retry and auto-compaction waits (`v82-x08`, D-237).
 
 ## Catalog
 
@@ -2364,7 +2364,7 @@ id | status | wave | kind | flag | covered | note
 - v80-p03 | done | W15 | Performance |  |  | **Faster startup** when a Kitty-capable terminal never answers the keyboard protocol query.
 - v82-x08 | deferred | W15 | Bug Fixes |  |  | **`/debug tps`** excludes model retry and auto-compaction waits from the tokens-per-second rate.
 - v88-p01 | done | W15 | Performance |  |  | **Startup** now overlaps terminal protocol queries with the agent connection for a faster first frame.
-- v88-p02 | pending | W15 | Performance |  |  | **Inline and minimal mode** startup no longer delays the first frame on terminals that answer the cursor question slowly.
+- v88-p02 | done | W15 | Performance |  |  | **Inline and minimal mode** startup no longer delays the first frame on terminals that answer the cursor question slowly.
 - v52-f01 | skipped | SKIP | Features | skip-superseded | v63-f01 | **Rex terminal support**: Grok now reports its status (working, waiting for you, done, or failed) to Rex through OSC 7501, so Rex tabs show what each session is doing.
 - v55-x01 | skipped | SKIP | Bug Fixes | skip-unspecified |  | Minor bug fixes.
 - v56-x01 | skipped | SKIP | Bug Fixes | skip-unspecified |  | Minor bug fixes.

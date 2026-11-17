@@ -1757,14 +1757,23 @@ fn init_terminal(
             } else {
                 rows
             };
+            // One short cursor question for inline and minimal. A slow report does not hold the
+            // first frame for crossterm's two-second poll; the viewport anchors on the bottom row.
+            let (cursor_x, cursor_y) = crate::terminal::startup_cursor_anchor(
+                crate::terminal::query_startup_cursor(),
+                rows,
+            );
+            let startup_cursor = ratatui::layout::Position {
+                x: cursor_x,
+                y: cursor_y,
+            };
             let probe_backend = CrosstermBackend::new(
                 TermWriter::new(frame_tx.clone(), writer_sync.clone()).map_err(io::Error::other)?,
             );
-            if let Ok(term) = xai_ratatui_inline::Terminal::with_options(
+            if let Ok(term) = xai_ratatui_inline::Terminal::with_inline_cursor(
                 probe_backend,
-                ratatui::TerminalOptions {
-                    viewport: ratatui::Viewport::Inline(viewport_rows),
-                },
+                viewport_rows,
+                startup_cursor,
             ) {
                 return Ok((
                     term,
@@ -1787,11 +1796,10 @@ fn init_terminal(
                     TermWriter::new(frame_tx.clone(), writer_sync.clone())
                         .map_err(io::Error::other)?,
                 );
-                if let Ok(term) = xai_ratatui_inline::Terminal::with_options(
+                if let Ok(term) = xai_ratatui_inline::Terminal::with_inline_cursor(
                     retry_backend,
-                    ratatui::TerminalOptions {
-                        viewport: ratatui::Viewport::Inline(rows),
-                    },
+                    rows,
+                    startup_cursor,
                 ) {
                     return Ok((term, ScreenMode::Inline));
                 }

@@ -8,6 +8,7 @@ use xai_ratatui_inline::WidthShrink;
 
 use crate::host::HostOs;
 
+pub mod cursor_query;
 pub mod da2;
 pub mod embedded_editor;
 pub mod hyperlinks;
@@ -35,6 +36,9 @@ pub use hyperlinks::{
 pub use keyboard::{
     KeyboardCapabilities, ModifierDelivery, ModifierFate, keyboard_capabilities,
     keyboard_capabilities_for_host,
+};
+pub use cursor_query::{
+    STARTUP_CURSOR_QUERY_BUDGET, parse_cursor_report, query_startup_cursor, startup_cursor_anchor,
 };
 pub use kitty_keyboard::{
     KittyKeyboardMode, effective_kitty_skip_reason, kitty_event_types_withheld,

@@ -287,13 +287,44 @@ where
             }
             Viewport::Fixed(area) => (area, area.as_position()),
         };
+        Ok(Self::assemble(
+            backend,
+            options.viewport,
+            area,
+            viewport_area,
+            cursor_pos,
+        ))
+    }
+
+    /// Inline viewport placed from a cursor the caller already knows.
+    /// Startup uses this so a slow `CSI 6 n` reply does not go through crossterm's two-second poll.
+    pub fn with_inline_cursor(mut backend: B, height: u16, cursor: Position) -> io::Result<Self> {
+        let area = Rect::from((Position::ORIGIN, backend.size()?));
+        let (viewport_area, cursor_pos) =
+            inline_viewport_from_cursor(&mut backend, height, area.as_size(), cursor, 0)?;
+        Ok(Self::assemble(
+            backend,
+            Viewport::Inline(height),
+            area,
+            viewport_area,
+            cursor_pos,
+        ))
+    }
+
+    fn assemble(
+        backend: B,
+        viewport: Viewport,
+        area: Rect,
+        viewport_area: Rect,
+        cursor_pos: Position,
+    ) -> Self {
         let link_len = (viewport_area.width as usize) * (viewport_area.height as usize);
-        Ok(Self {
+        Self {
             backend,
             buffers: [Buffer::empty(viewport_area), Buffer::empty(viewport_area)],
             current: 0,
             hidden_cursor: false,
-            viewport: options.viewport,
+            viewport,
             viewport_area,
             last_known_area: area,
             last_known_cursor_pos: cursor_pos,
@@ -302,7 +333,7 @@ where
             frame_count: 0,
             link_ids: [vec![0; link_len], vec![0; link_len]],
             link_tables: [Vec::new(), Vec::new()],
-        })
+        }
     }
 
     /// Get a Frame object which provides a consistent view into the terminal state for rendering.
@@ -1209,6 +1240,16 @@ fn compute_inline_size<B: Backend>(
     offset_in_previous_viewport: u16,
 ) -> io::Result<(Rect, Position)> {
     let pos = backend.get_cursor_position()?;
+    inline_viewport_from_cursor(backend, height, size, pos, offset_in_previous_viewport)
+}
+
+fn inline_viewport_from_cursor<B: Backend>(
+    backend: &mut B,
+    height: u16,
+    size: Size,
+    pos: Position,
+    offset_in_previous_viewport: u16,
+) -> io::Result<(Rect, Position)> {
     let mut row = pos.y;
 
     let max_height = size.height.min(height);
@@ -1360,6 +1401,20 @@ mod inline_resize_tests {
     use ratatui::{TerminalOptions, Viewport};
 
     use super::{Terminal, WidthShrink};
+
+    /// Startup passes a cursor it already resolved. The viewport follows that cursor, not a fresh `CSI 6 n`.
+    #[test]
+    fn inline_startup_places_from_the_given_cursor() {
+        let rows = 24u16;
+        let height = 5u16;
+        let cursor = Position { x: 0, y: rows - 1 };
+        let terminal =
+            Terminal::with_inline_cursor(TestBackend::new(80, rows), height, cursor).unwrap();
+        // Bottom-row cursor: the viewport sits on the last `height` rows, not at the origin
+        // a query of TestBackend's default cursor would produce.
+        assert_eq!(terminal.viewport_area(), Rect::new(0, rows - height, 80, height));
+        assert_eq!(terminal.last_known_cursor_pos, cursor);
+    }
 
     fn full_height_inline(width: u16, height: u16) -> Terminal<TestBackend> {
         Terminal::with_options(
