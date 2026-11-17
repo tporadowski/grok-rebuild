@@ -30,7 +30,7 @@ pub(crate) const SSH_WRAP_TIP_TICKS: u16 = 300;
 /// Occlusion pauses (not burns) its TTL.
 pub fn ssh_wrap_tip() -> EphemeralTip {
     let theme = Theme::current();
-    let dim = Style::default().fg(theme.gray);
+    let dim = super::render::tip_dim(&theme);
     let command = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);

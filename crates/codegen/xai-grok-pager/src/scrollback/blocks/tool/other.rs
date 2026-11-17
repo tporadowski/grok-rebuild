@@ -248,6 +248,25 @@ fn fit_generated_media_path(path: &str, max_w: usize) -> String {
     format!("{ELLIPSIS}{tail}")
 }
 
+/// Question text in an answered pair. Colored themes keep the primary foreground.
+/// The terminal theme has no separate gray, so the question dims with that terminal's own foreground.
+fn answered_question_text(theme: &Theme) -> ratatui::style::Style {
+    if theme.is_bandless() {
+        theme.muted()
+    } else {
+        theme.primary()
+    }
+}
+
+/// The chosen answer. Colored themes keep the user accent. The terminal theme dims it with the question.
+fn answered_answer_text(theme: &Theme) -> ratatui::style::Style {
+    if theme.is_bandless() {
+        theme.muted()
+    } else {
+        theme.fg(theme.accent_user)
+    }
+}
+
 impl BlockContent for OtherToolCallBlock {
     fn output(&self, ctx: &BlockContext) -> BlockOutput {
         let theme = Theme::current();
@@ -323,7 +342,7 @@ impl BlockContent for OtherToolCallBlock {
                             // "  1. question text"
                             let q_line = Line::from(vec![
                                 Span::styled(format!("  {}. ", i + 1), theme.muted()),
-                                Span::styled(question.clone(), theme.primary()),
+                                Span::styled(question.clone(), answered_question_text(&theme)),
                             ]);
                             lines.push(BlockLine::styled(crate::render::line_utils::truncate_line(
                                 q_line, row_width,
@@ -336,12 +355,10 @@ impl BlockContent for OtherToolCallBlock {
                                     theme.dim(),
                                 ))
                             } else {
+                                let answer_style = answered_answer_text(&theme);
                                 Line::from(vec![
-                                    Span::styled(
-                                        "     \u{2192} ".to_string(),
-                                        theme.fg(theme.accent_user),
-                                    ),
-                                    Span::styled(answer.clone(), theme.fg(theme.accent_user)),
+                                    Span::styled("     \u{2192} ".to_string(), answer_style),
+                                    Span::styled(answer.clone(), answer_style),
                                 ])
                             };
                             lines.push(BlockLine::styled(crate::render::line_utils::truncate_line(

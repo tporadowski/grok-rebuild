@@ -33,7 +33,7 @@ pub fn small_screen_band_contains(rows: u16) -> bool {
 /// While the tip is occluded its TTL stops ticking; otherwise a quick Enter into a multi-second turn reduces the tip to a sub-second blink.
 pub fn small_screen_tip() -> EphemeralTip {
     let theme = Theme::current();
-    let dim = Style::default().fg(theme.gray);
+    let dim = super::render::tip_dim(&theme);
     // The command token gets the same styling the other tips give their chord and key tokens
     let command = Style::default()
         .fg(theme.text_secondary)

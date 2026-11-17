@@ -41,7 +41,7 @@ fn plan_chord_label() -> String {
 /// Build the "Planning? Check out plan mode via {chord}" tip, capped at [`PLAN_NUDGE_SEEN_CAP`] shows per session (in-memory).
 pub fn plan_nudge_tip() -> EphemeralTip {
     let theme = Theme::current();
-    let dim = Style::default().fg(theme.gray);
+    let dim = super::render::tip_dim(&theme);
     // The key chord is styled like the shortcuts bar (bold secondary on dim text)
     let chord = Style::default()
         .fg(theme.text_secondary)

@@ -44,7 +44,7 @@ fn paste_label() -> String {
 /// Nothing caps how many times the tip can show; the changeCount dedup and the cooldown already limit frequency.
 pub fn clipboard_image_tip() -> EphemeralTip {
     let theme = Theme::current();
-    let dim = Style::default().fg(theme.gray);
+    let dim = super::render::tip_dim(&theme);
     // The key chord is styled like the shortcuts bar (bold secondary on dim text)
     let chord = Style::default()
         .fg(theme.text_secondary)

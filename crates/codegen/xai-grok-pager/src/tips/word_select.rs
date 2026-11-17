@@ -29,7 +29,7 @@ pub(crate) const WORD_SELECT_ACCEPT_CHORD: &str = "Ctrl+Y";
 /// Shows are capped at [`WORD_SELECT_TIP_SEEN_CAP`] per session, counted in memory only.
 pub fn word_select_tip() -> EphemeralTip {
     let theme = Theme::current();
-    let dim = Style::default().fg(theme.gray);
+    let dim = super::render::tip_dim(&theme);
     let key_style = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);

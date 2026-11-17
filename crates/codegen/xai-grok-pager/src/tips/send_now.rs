@@ -12,7 +12,7 @@ const SEND_NOW_TIP_SEEN_CAP: u32 = 3;
 
 pub fn send_now_tip() -> EphemeralTip {
     let theme = Theme::current();
-    let dim = Style::default().fg(theme.gray);
+    let dim = super::render::tip_dim(&theme);
     let key_style = Style::default()
         .fg(theme.text_secondary)
         .add_modifier(Modifier::BOLD);

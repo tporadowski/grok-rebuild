@@ -38,7 +38,7 @@ fn undo_chord_label() -> String {
 /// Build the "Input cleared · {chord} to undo" tip; it stops showing after [`UNDO_TIP_SEEN_CAP`] shows in a session (counted in memory).
 pub fn undo_tip() -> EphemeralTip {
     let theme = Theme::current();
-    let dim = Style::default().fg(theme.gray);
+    let dim = super::render::tip_dim(&theme);
     // The key chord uses the shortcuts bar's styling: bold secondary on dim text
     let chord = Style::default()
         .fg(theme.text_secondary)

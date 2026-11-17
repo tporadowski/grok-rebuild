@@ -144,6 +144,59 @@ fn rendered_in(block: &OtherToolCallBlock, ctx: &BlockContext) -> Vec<String> {
 }
 
 #[test]
+fn answered_questions_dim_with_the_terminal_theme() {
+    use crate::theme::Theme;
+    use ratatui::style::Modifier;
+
+    let terminal = Theme::terminal();
+    let question = super::answered_question_text(&terminal);
+    let answer = super::answered_answer_text(&terminal);
+    assert!(
+        question.add_modifier.contains(Modifier::DIM),
+        "a terminal-theme question dims: {question:?}"
+    );
+    assert!(
+        answer.add_modifier.contains(Modifier::DIM),
+        "a terminal-theme answer dims: {answer:?}"
+    );
+    assert!(question.fg.is_none() || question.fg == Some(ratatui::style::Color::Reset));
+    assert!(answer.fg.is_none() || answer.fg == Some(ratatui::style::Color::Reset));
+
+    let night = Theme::groknight();
+    assert_eq!(super::answered_question_text(&night).fg, Some(night.text_primary));
+    assert_eq!(
+        super::answered_answer_text(&night).fg,
+        Some(night.accent_user)
+    );
+
+    let theme = Theme::current();
+    let block = answered_questions_output();
+    let lines = block.output(&context(DisplayMode::Expanded)).lines;
+    let question_line = lines
+        .iter()
+        .find(|line| line_plain_text(&line.content).contains("Which runtime?"))
+        .expect("question row");
+    let question_span = question_line
+        .content
+        .spans
+        .iter()
+        .find(|span| span.content.contains("Which runtime?"))
+        .expect("question span");
+    assert_eq!(question_span.style, super::answered_question_text(&theme));
+    let answer_line = lines
+        .iter()
+        .find(|line| line_plain_text(&line.content).contains("tokio"))
+        .expect("answer row");
+    let answer_span = answer_line
+        .content
+        .spans
+        .iter()
+        .find(|span| span.content.contains("tokio"))
+        .expect("answer span");
+    assert_eq!(answer_span.style, super::answered_answer_text(&theme));
+}
+
+#[test]
 fn answered_questions_have_a_blank_line_between_them_unless_compact() {
     let block = answered_questions_output();
 

@@ -29,14 +29,17 @@ pub fn tip_height(width: u16, tip: &str) -> u16 {
     }
 }
 
+/// Tip copy. An RGB theme keeps its gray. The terminal theme has no separate gray, so the text dims with that terminal's own foreground.
+pub(crate) fn tip_dim(theme: &Theme) -> Style {
+    theme.muted()
+}
+
 fn tip_line(tip: &str) -> Line<'_> {
     let theme = Theme::current();
+    let dim = tip_dim(&theme);
     Line::from(vec![
-        Span::styled(
-            "Tip: ",
-            Style::default().fg(theme.gray).add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(tip, Style::default().fg(theme.gray)),
+        Span::styled("Tip: ", dim.add_modifier(Modifier::BOLD)),
+        Span::styled(tip, dim),
     ])
 }
 
@@ -106,6 +109,50 @@ mod tests {
         (0..area.width)
             .map(|x| buf.cell((area.x + x, y)).expect("cell in area").symbol())
             .collect()
+    }
+
+    #[test]
+    fn tip_text_dims_with_the_terminal_theme() {
+        let terminal = Theme::terminal();
+        let dimmed = tip_dim(&terminal);
+        assert!(
+            dimmed.add_modifier.contains(Modifier::DIM),
+            "a terminal-theme tip dims the terminal's own foreground: {dimmed:?}"
+        );
+        assert!(
+            dimmed.fg.is_none() || dimmed.fg == Some(Color::Reset),
+            "a terminal-theme tip must not paint a fixed gray: {dimmed:?}"
+        );
+
+        let night = Theme::groknight();
+        let colored = tip_dim(&night);
+        assert_eq!(colored.fg, Some(night.gray));
+        assert!(
+            !colored.add_modifier.contains(Modifier::DIM),
+            "an RGB tip keeps its gray without forcing dim: {colored:?}"
+        );
+
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 24, 1);
+        let mut buf = Buffer::empty(area);
+        render_tip(area, &mut buf, "hello", 0);
+        let body = buf.cell((5, 0)).expect("tip body");
+        let expected = tip_dim(&theme);
+        assert_eq!(body.symbol(), "h");
+        assert_eq!(body.fg, expected.fg.unwrap_or(body.fg));
+        assert!(
+            body.modifier.contains(expected.add_modifier),
+            "painted tip uses the theme dim style: cell={body:?} expected={expected:?}"
+        );
+
+        let queued = crate::tips::send_now::send_now_tip();
+        let prose = queued
+            .line
+            .spans
+            .iter()
+            .find(|span| span.content.contains("send now"))
+            .expect("tip prose");
+        assert_eq!(prose.style, tip_dim(&theme));
     }
 
     #[test]
