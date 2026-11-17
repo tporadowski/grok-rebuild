@@ -713,6 +713,8 @@ impl AgentView {
             return self.handle_arg_picker_input(ev);
         }
 
+        // Read before `active_modal` is borrowed. Minimal /resume keys use the painted row list.
+        let minimal_resume = self.is_minimal_mode();
         let Some(ref mut modal) = self.active_modal else {
             return InputOutcome::Changed;
         };
@@ -976,12 +978,18 @@ impl AgentView {
                 let current_repo = crate::views::session_picker::repo_name_from_cwd(
                     &self.session.cwd.to_string_lossy(),
                 );
+                // Minimal /resume paints grouped session rows and no content-search hits.
+                // Keys use that list, so Down and Enter cannot land on a row the panel does not show.
                 let entry_map = build_entry_map(
                     entries.as_deref(),
-                    content_results.as_deref(),
+                    if minimal_resume {
+                        None
+                    } else {
+                        content_results.as_deref()
+                    },
                     effective_filter_query(state.query(), entries_query.as_deref()),
-                    *grouped,
-                    *content_loading,
+                    if minimal_resume { true } else { *grouped },
+                    !minimal_resume && *content_loading,
                     *source_filter,
                     Some(current_repo.as_str()),
                 );
@@ -2459,6 +2467,80 @@ mod session_picker_delete_tests {
 
     fn key(c: char) -> Event {
         Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
+    }
+
+    fn arrow(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    /// Minimal `/resume` paints grouped session rows and hides content-search hits.
+    /// With grouping off, one Down used to select that hidden hit. It now lands on the shown session.
+    #[test]
+    fn minimal_resume_arrows_and_enter_stay_on_shown_rows() {
+        let mut alpha = entry("alpha");
+        alpha.summary = "alpha".into();
+        alpha.repo_name = "alpha-repo".into();
+        let mut beta = entry("beta");
+        beta.summary = "beta".into();
+        beta.repo_name = "beta-repo".into();
+
+        let mut minimal = make_agent();
+        minimal
+            .prompt
+            .set_screen_mode(crate::app::ScreenMode::Minimal);
+        open_picker(&mut minimal, vec![alpha.clone(), beta.clone()]);
+        if let Some(ActiveModal::SessionPicker {
+            grouped,
+            state,
+            content_results,
+            ..
+        }) = minimal.active_modal.as_mut()
+        {
+            *grouped = false;
+            state.set_query("alpha");
+            *content_results = Some(vec![content_hit("secret-session")]);
+        }
+        let _ = minimal.handle_modal_key(&arrow(KeyCode::Down));
+        let picked = minimal.handle_modal_key(&arrow(KeyCode::Enter));
+        assert!(
+            matches!(picked, InputOutcome::Action(Action::PickSession(0))),
+            "Enter must open the shown session, got {picked:?}"
+        );
+
+        let mut full = make_agent();
+        open_picker(&mut full, vec![alpha, beta]);
+        if let Some(ActiveModal::SessionPicker {
+            grouped,
+            state,
+            content_results,
+            ..
+        }) = full.active_modal.as_mut()
+        {
+            *grouped = false;
+            state.set_query("alpha");
+            *content_results = Some(vec![content_hit("secret-session")]);
+        }
+        let _ = full.handle_modal_key(&arrow(KeyCode::Down));
+        let picked = full.handle_modal_key(&arrow(KeyCode::Enter));
+        assert!(
+            matches!(
+                picked,
+                InputOutcome::Action(Action::PickContentSession { .. })
+            ),
+            "the full picker still opens a content hit, got {picked:?}"
+        );
+    }
+
+    fn content_hit(id: &str) -> xai_grok_shell::extensions::session_search::SearchSessionHit {
+        xai_grok_shell::extensions::session_search::SearchSessionHit {
+            session_id: id.into(),
+            cwd: "/repo".into(),
+            summary: "secret match".into(),
+            updated_at: "2026-01-01T00:00:00Z".into(),
+            score: 1.0,
+            matched_fields: vec!["content".into()],
+            snippet: None,
+        }
     }
 
     fn pending(agent: &AgentView) -> Option<String> {
