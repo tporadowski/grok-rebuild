@@ -207,3 +207,141 @@ fn browse_footer_advertises_arrow_nav() {
         "persona detail footer must not advertise j/k: {labels:?}"
     );
 }
+
+fn row_text(buf: &Buffer, y: u16, x: u16, width: u16) -> String {
+    (x..x + width)
+        .filter_map(|col| buf.cell((col, y)).map(|cell| cell.symbol().to_string()))
+        .collect()
+}
+
+fn assert_row_background(buf: &Buffer, y: u16, x: u16, width: u16, bg: ratatui::style::Color) {
+    for col in x..x + width {
+        let cell = buf.cell((col, y)).unwrap_or_else(|| panic!("cell {col},{y}"));
+        assert_eq!(cell.bg, bg, "column {col} of row {y} lost the selection fill");
+    }
+}
+
+/// Content origin of a non-compact persona detail modal in an 80-column area.
+/// Each single-line field occupies its row and then skips one, so Instructions
+/// starts ten rows below the first field.
+fn persona_detail_content(area_height: u16) -> (u16, u16, u16) {
+    let area_width = 80u16;
+    let max_width = area_width.saturating_sub(4).min(100);
+    let preferred = (area_width as f32 * 0.70) as u16;
+    let modal_width = preferred.min(max_width).max(44).min(area_width);
+    let modal_height = area_height.saturating_sub(8);
+    let modal_x = (area_width - modal_width) / 2;
+    let modal_y = (area_height - modal_height) / 2;
+    let content_x = modal_x + 1 + 2;
+    let content_y = modal_y + 1 + 1;
+    let content_w = modal_width - 2 - 4;
+    (content_x, content_y, content_w)
+}
+
+#[test]
+#[serial_test::serial]
+fn selected_multiline_field_highlights_every_row_and_counts_hidden_lines() {
+    let _guard = crate::theme::cache::pin_theme();
+    crate::theme::cache::set_terminal_native_lock(false);
+    crate::theme::cache::set(crate::theme::ThemeKind::TokyoNight);
+    let was_embedded = crate::views::modal_window::embedded();
+    crate::views::modal_window::set_embedded(false);
+    let theme = Theme::current();
+    let highlight = theme.bg_highlight;
+
+    let paint = |state: &mut PersonaDetailState, height: u16| {
+        let area = Rect::new(0, 0, 80, height);
+        let mut buf = Buffer::empty(area);
+        render_persona_detail(&mut buf, area, state, &theme, false);
+        buf
+    };
+
+    // Short modal: 12 instruction lines, only 3 fit, so the hint says 9.
+    let mut state = PersonaDetailState::from_name_only("reviewer");
+    state.instructions = (0..12)
+        .map(|i| format!("alpha-{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    state.selected_field = PersonaField::Instructions;
+    let buf = paint(&mut state, 27);
+    let (content_x, content_y, content_w) = persona_detail_content(27);
+    let instr_y = content_y + 10;
+    assert_eq!(
+        row_text(&buf, instr_y, content_x, content_w).trim(),
+        "Instructions  alpha-00",
+    );
+    assert!(row_text(&buf, instr_y + 1, content_x, content_w).contains("alpha-01"));
+    assert!(row_text(&buf, instr_y + 2, content_x, content_w).contains("alpha-02"));
+    let hint = row_text(&buf, instr_y + 3, content_x, content_w);
+    assert!(
+        hint.contains("(9 more lines: e to expand, j/k to scroll)"),
+        "collapsed hint should count lines the viewport hid, got {hint:?}"
+    );
+    assert!(
+        !hint.contains("4 more lines"),
+        "hint must not use total - 8 when only 3 lines were shown"
+    );
+    for row in instr_y..instr_y + 4 {
+        assert_row_background(&buf, row, content_x, content_w, highlight);
+    }
+    assert_ne!(
+        buf.cell((content_x + content_w - 1, content_y))
+            .map(|cell| cell.bg),
+        Some(highlight),
+        "the unselected name row is not part of the selection"
+    );
+
+    state.instructions_expanded = true;
+    let buf = paint(&mut state, 27);
+    assert!(row_text(&buf, instr_y + 1, content_x, content_w).contains("alpha-01"));
+    let expanded_hint = row_text(&buf, instr_y + 3, content_x, content_w);
+    assert!(
+        expanded_hint.contains("(e to collapse, j/k to scroll"),
+        "expanded instructions keep their scroll hint, got {expanded_hint:?}"
+    );
+    for row in instr_y..instr_y + 4 {
+        assert_row_background(&buf, row, content_x, content_w, highlight);
+    }
+
+    // Tall modal: the collapsed cap is 8, so 10 lines leave 2 hidden.
+    let mut tall = PersonaDetailState::from_name_only("reviewer");
+    tall.instructions = (0..10)
+        .map(|i| format!("beta-{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    tall.selected_field = PersonaField::Instructions;
+    let buf = paint(&mut tall, 40);
+    let (content_x, content_y, content_w) = persona_detail_content(40);
+    let instr_y = content_y + 10;
+    let hint = row_text(&buf, instr_y + 8, content_x, content_w);
+    assert!(
+        hint.contains("(2 more lines: e to expand, j/k to scroll)"),
+        "eight shown lines of ten should leave two, got {hint:?}"
+    );
+    assert!(row_text(&buf, instr_y + 7, content_x, content_w).contains("beta-07"));
+
+    // A wrapped single field highlights every continuation row.
+    let mut wrapped = PersonaDetailState::from_name_only("reviewer");
+    wrapped.description = (0..12)
+        .map(|i| format!("wrap{i:02}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    wrapped.selected_field = PersonaField::Description;
+    let buf = paint(&mut wrapped, 32);
+    let (content_x, content_y, content_w) = persona_detail_content(32);
+    let desc_y = content_y + 2;
+    let first = row_text(&buf, desc_y, content_x, content_w);
+    let second = row_text(&buf, desc_y + 1, content_x, content_w);
+    let third = row_text(&buf, desc_y + 2, content_x, content_w);
+    assert!(first.contains("wrap00") && first.contains("wrap04"), "{first:?}");
+    assert!(
+        second.contains("wrap05") && second.contains("wrap09"),
+        "{second:?}"
+    );
+    assert!(third.contains("wrap10") && third.contains("wrap11"), "{third:?}");
+    for row in desc_y..desc_y + 3 {
+        assert_row_background(&buf, row, content_x, content_w, highlight);
+    }
+
+    crate::views::modal_window::set_embedded(was_embedded);
+}

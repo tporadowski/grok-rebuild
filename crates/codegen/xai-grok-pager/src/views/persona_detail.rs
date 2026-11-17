@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::input::line_editor::{LineEditOutcome, LineEditor};
@@ -405,7 +405,8 @@ pub fn render_persona_detail(
         let label = field.label();
         let value = state.field_value(field);
 
-        // Background highlight for selected row.
+        // Selected fields keep this background on every row they paint,
+        // including wrapped continuations and the instructions hint.
         let row_bg = if is_selected {
             Some(theme.bg_highlight)
         } else {
@@ -413,17 +414,16 @@ pub fn render_persona_detail(
         };
 
         // Label
-        let label_style = if is_selected {
+        let label_style = if let Some(bg) = row_bg {
             Style::default()
                 .fg(theme.accent_user)
+                .bg(bg)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme.gray)
         };
         if let Some(bg) = row_bg {
-            // Fill the row background.
-            let blank: String = " ".repeat(w);
-            buf.set_string(content_area.x, y, &blank, Style::default().bg(bg));
+            paint_row_background(buf, content_area.x, y, w, bg);
         }
         buf.set_string(content_area.x, y, label, label_style);
 
@@ -472,28 +472,36 @@ pub fn render_persona_detail(
                 } else {
                     Style::default().fg(theme.text_secondary)
                 };
+                let hint_style = if let Some(bg) = row_bg {
+                    Style::default().fg(theme.gray_dim).bg(bg)
+                } else {
+                    Style::default().fg(theme.gray_dim)
+                };
 
                 if !state.instructions_expanded {
                     // Collapsed: show first max_collapsed lines (no scroll).
                     let show = total.min(max_collapsed).min(viewport_h);
                     for (i, line) in lines.iter().enumerate().take(show) {
+                        let row = y + i as u16;
+                        if i > 0 && let Some(bg) = row_bg {
+                            paint_row_background(buf, content_area.x, row, w, bg);
+                        }
                         let x_pos = if i == 0 { value_x } else { content_area.x + 2 };
-                        buf.set_string(x_pos, y + i as u16, line, val_style);
+                        buf.set_string(x_pos, row, line, val_style);
                     }
                     y += show.saturating_sub(1) as u16;
                     if is_long {
                         y += 1;
                         if y < max_y {
+                            // A short modal shows fewer than max_collapsed lines.
+                            let hidden = total.saturating_sub(show);
                             let hint = format!(
-                                "  ... ({} more lines: e to expand, j/k to scroll)",
-                                total - max_collapsed
+                                "  ... ({hidden} more lines: e to expand, j/k to scroll)"
                             );
-                            buf.set_string(
-                                content_area.x + 2,
-                                y,
-                                hint,
-                                Style::default().fg(theme.gray_dim),
-                            );
+                            if let Some(bg) = row_bg {
+                                paint_row_background(buf, content_area.x, y, w, bg);
+                            }
+                            buf.set_string(content_area.x + 2, y, hint, hint_style);
                         }
                     }
                 } else {
@@ -506,12 +514,16 @@ pub fn render_persona_detail(
                         .get(scroll..total.min(scroll + viewport_h))
                         .unwrap_or(&[]);
                     for (i, line) in visible.iter().enumerate() {
+                        let row = y + i as u16;
+                        if i > 0 && let Some(bg) = row_bg {
+                            paint_row_background(buf, content_area.x, row, w, bg);
+                        }
                         let x_pos = if i == 0 && scroll == 0 {
                             value_x
                         } else {
                             content_area.x + 2
                         };
-                        buf.set_string(x_pos, y + i as u16, line, val_style);
+                        buf.set_string(x_pos, row, line, val_style);
                     }
                     y += visible.len().saturating_sub(1) as u16;
                     // Hint line.
@@ -528,12 +540,10 @@ pub fn render_persona_detail(
                             String::new()
                         };
                         let hint = format!("  (e to collapse, j/k to scroll{})", pos_hint);
-                        buf.set_string(
-                            content_area.x + 2,
-                            y,
-                            hint,
-                            Style::default().fg(theme.gray_dim),
-                        );
+                        if let Some(bg) = row_bg {
+                            paint_row_background(buf, content_area.x, y, w, bg);
+                        }
+                        buf.set_string(content_area.x + 2, y, hint, hint_style);
                     }
                 }
             }
@@ -561,15 +571,19 @@ pub fn render_persona_detail(
             };
             let lines = word_wrap_lines(value, value_w);
             for (i, line) in lines.iter().enumerate() {
-                if y + i as u16 >= max_y {
+                let row = y + i as u16;
+                if row >= max_y {
                     break;
+                }
+                if i > 0 && let Some(bg) = row_bg {
+                    paint_row_background(buf, content_area.x, row, w, bg);
                 }
                 let x_pos = if i == 0 {
                     value_x
                 } else {
                     content_area.x + label_w
                 };
-                buf.set_string(x_pos, y + i as u16, line, val_style);
+                buf.set_string(x_pos, row, line, val_style);
             }
             y += lines.len().saturating_sub(1) as u16;
         }
@@ -870,6 +884,14 @@ pub fn handle_persona_detail_mouse(
         modal_window::ModalWindowOutcome::Handled => PersonaDetailOutcome::Changed,
         _ => PersonaDetailOutcome::Unchanged,
     }
+}
+
+fn paint_row_background(buf: &mut Buffer, x: u16, y: u16, width: usize, bg: Color) {
+    if width == 0 {
+        return;
+    }
+    let blank = " ".repeat(width);
+    buf.set_string(x, y, &blank, Style::default().bg(bg));
 }
 
 fn word_wrap_lines(text: &str, max_width: usize) -> Vec<String> {
