@@ -202,35 +202,30 @@ impl<'a> EntryRenderer<'a> {
         self
     }
 
-    /// Render a compact "╶╶ N more" group header line.
-    /// Uses the collapsed accent char for the accent column, and renders the header text with dimmed styling to separate it from real entries.
-    /// Avoids the full `self.accent()` path (which allocates a `BlockContext`) by reading the accent color directly from the theme.
-    fn render_group_header(&self, area: Rect, buf: &mut Buffer) {
-        use crate::scrollback::state::verb_group::GroupHeaderLabel;
-
+    /// Content column inside an entry area. Pads shrink before this column does, so a narrow terminal still has a cell.
+    fn header_content_width(&self, area_width: u16) -> u16 {
         let layout_cfg = &self.appearance().scrollback.layout;
         let accent_w = if self.hide_accent {
             0
         } else {
             HorizontalLayout::ACCENT
         };
-        let [accent_area, _left_pad, content_area, _right_pad] = Layout::horizontal([
+        let [_, _, content, _] = Layout::horizontal([
             Constraint::Length(accent_w),
             Constraint::Length(layout_cfg.block_pad_left),
             Constraint::Min(1),
             Constraint::Length(layout_cfg.block_pad_right),
         ])
-        .areas(area);
+        .areas(Rect::new(0, 0, area_width, 1));
+        content.width.max(1)
+    }
 
-        let bg = self.theme.bg_base;
+    /// The header line, diamond included. Width does not change the words.
+    fn group_header_line(&self) -> ratatui::text::Line<'static> {
+        use crate::scrollback::state::verb_group::GroupHeaderLabel;
 
-        // The column is reserved but never painted here, and an unowned cell survives the frame diff
-        // Whatever glyph the previous frame left at this position would stay
-        fill_bg_spaces(buf, accent_area, bg);
-
-        // Verb-group header: an aggregated "Verb N noun" label whose diamond takes the run-state color
-        // An active group's glyph animates with the same wave as a running tool row's bullet
         if let Some(GroupHeaderLabel::VerbRun(vg)) = self.group_header_label {
+            let bg = self.theme.bg_base;
             let glyph_color = if vg.failed {
                 self.theme.accent_error
             } else if vg.running {
@@ -245,27 +240,14 @@ impl<'a> EntryRenderer<'a> {
             } else {
                 self.theme.gray
             };
-
-            // Diamond chrome in BOTH states, same family as the "N more" headers.
-            // The selection caret (the expandable indicator in scrollback_pane.rs) overdraws the diamond on the selected row
-            // It flips `›`/`⌄` with the group's fold state
-            let prefix = group_header_chrome_prefix();
             let mut spans = vec![ratatui::text::Span::styled(
-                prefix,
+                group_header_chrome_prefix(),
                 Style::default().fg(glyph_color),
             )];
             spans.extend(vg.line.spans.iter().cloned());
-            let line = ratatui::text::Line::from(spans);
-            // Group-header content is registered selectable (GROUP_HEADER_RANGE_ID)
-            // Its selection maps visual columns, so it must paint visual too
-            buf.set_line_safe_bidi(content_area.x, content_area.y, &line, content_area.width);
-            return;
+            return ratatui::text::Line::from(spans);
         }
 
-        // Render header: a dimmed ◈, then brighter text that stands out
-        // The aggregated label describes the hidden rows through the shared bucket vocabulary ("Ran 6 commands")
-        // When the caller supplied none (the render loop owns the reasons), the plain count remains
-        let n = self.group_header_count;
         let diamond_style = Style::default().fg(self.theme.gray);
         let text_style = Style::default()
             .fg(self.theme.gray_bright)
@@ -274,17 +256,69 @@ impl<'a> EntryRenderer<'a> {
             group_header_chrome_prefix(),
             diamond_style,
         )];
-        // The VerbRun variant returned above, so only a truncation label can reach this row's span assembly
         if let Some(GroupHeaderLabel::Truncation(label)) = self.group_header_label {
             spans.extend(label.line.spans.iter().cloned());
         } else {
-            let label = overflow_count_label(n, self.group_collapse_header);
+            let label = overflow_count_label(self.group_header_count, self.group_collapse_header);
             spans.push(ratatui::text::Span::styled(label, text_style));
         }
-        let line = ratatui::text::Line::from(spans);
-        // Group-header content is registered selectable (GROUP_HEADER_RANGE_ID)
-        // Its selection maps visual columns, so it must paint visual too
-        buf.set_line_safe_bidi(content_area.x, content_area.y, &line, content_area.width);
+        ratatui::text::Line::from(spans)
+    }
+
+    /// Wrapped header rows at `area_width`. At least one, so a narrow terminal keeps the label.
+    pub(crate) fn wrapped_group_header_lines(
+        &self,
+        area_width: u16,
+    ) -> Vec<ratatui::text::Line<'static>> {
+        let width = usize::from(self.header_content_width(area_width));
+        let wrapped = crate::render::wrapping::word_wrap_lines(
+            std::iter::once(self.group_header_line()),
+            width,
+        );
+        if wrapped.is_empty() {
+            vec![ratatui::text::Line::default()]
+        } else {
+            wrapped
+        }
+    }
+
+    /// How many rows [`Self::wrapped_group_header_lines`] needs.
+    pub(crate) fn group_header_rows(&self, area_width: u16) -> u16 {
+        self.wrapped_group_header_lines(area_width).len().max(1) as u16
+    }
+
+    /// Render a compact group header. A label wider than the content column wraps onto more rows instead of being clipped away.
+    fn render_group_header(&self, area: Rect, buf: &mut Buffer, start_line: u16) {
+        let layout_cfg = &self.appearance().scrollback.layout;
+        let accent_w = if self.hide_accent {
+            0
+        } else {
+            HorizontalLayout::ACCENT
+        };
+        let [accent_area, _left_pad, content_area, _right_pad] = Layout::horizontal([
+            Constraint::Length(accent_w),
+            Constraint::Length(layout_cfg.block_pad_left),
+            Constraint::Min(1),
+            Constraint::Length(layout_cfg.block_pad_right),
+        ])
+        .areas(area);
+
+        // The column is reserved but never painted here, and an unowned cell survives the frame diff.
+        fill_bg_spaces(buf, accent_area, self.theme.bg_base);
+
+        let max_y = area.y.saturating_add(area.height);
+        let mut y = content_area.y;
+        for line in self
+            .wrapped_group_header_lines(area.width)
+            .into_iter()
+            .skip(usize::from(start_line))
+        {
+            if y >= max_y {
+                break;
+            }
+            buf.set_line_safe_bidi(content_area.x, y, &line, content_area.width);
+            y = y.saturating_add(1);
+        }
     }
 
     /// Get the chrome width (accent + padding) for this renderer's appearance.
@@ -622,34 +656,35 @@ impl Renderable for EntryRenderer<'_> {
     }
 
     fn render(&self, area: Rect, buf: &mut Buffer) {
-        let chrome = self.chrome_width();
-        if area.width < chrome + 1 || area.height == 0 || self.thinking_hidden() {
+        // Pads give way on a narrow terminal. Bailing here used to drop the wrapped body and the group header.
+        if area.width == 0 || area.height == 0 || self.thinking_hidden() {
             return;
         }
 
         // Expand header ("╶╶ N more"): replaces block content entirely.
         // Only truncated (non-expanded) groups take this path
         if self.group_header_count > 0 && !self.group_collapse_header {
-            self.render_group_header(area, buf);
+            self.render_group_header(area, buf, self.skip_rows);
             return;
         }
 
         // Collapse header ("▾ N tool calls & thoughts"): a standalone header entry (height=1) that replaces the first group entry's content
         // The remaining group entries keep their normal heights, giving the header its own selectable index with independent interaction
         let (area, skip_rows) = if self.group_collapse_header {
-            if self.skip_rows == 0 {
-                // Header is visible: render it in the first row
-                let header_area = Rect::new(area.x, area.y, area.width, 1);
-                self.render_group_header(header_area, buf);
-                let remaining_height = area.height.saturating_sub(1);
+            let header_rows = self.group_header_rows(area.width);
+            if self.skip_rows < header_rows {
+                let visible = header_rows.saturating_sub(self.skip_rows).min(area.height);
+                let header_area = Rect::new(area.x, area.y, area.width, visible);
+                self.render_group_header(header_area, buf, self.skip_rows);
+                let remaining_height = area.height.saturating_sub(visible);
                 if remaining_height == 0 {
                     return;
                 }
-                let remaining = Rect::new(area.x, area.y + 1, area.width, remaining_height);
+                let remaining =
+                    Rect::new(area.x, area.y + visible, area.width, remaining_height);
                 (remaining, 0u16)
             } else {
-                // Header is scrolled off: reduce skip_rows by 1 for content
-                (area, self.skip_rows - 1)
+                (area, self.skip_rows - header_rows)
             }
         } else {
             (area, self.skip_rows)

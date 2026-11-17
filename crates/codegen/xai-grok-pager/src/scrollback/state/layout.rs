@@ -1032,6 +1032,9 @@ impl ScrollbackState {
     /// Called after dirty height updates or lazy viewport measurement.
     /// Recomputes gap_after (because display_mode changes affect the pairwise gap rule) and then rebuilds virtual_y.
     pub(super) fn rebuild_virtual_y_from_heights(&mut self) {
+        let width = self.layout_cache.as_ref().map(|cache| cache.width).unwrap_or(0);
+        let entry_area_width = self.entry_area_width(width);
+        let theme = Theme::current();
         let Some(cache) = self.layout_cache.as_mut() else {
             return;
         };
@@ -1046,6 +1049,15 @@ impl ScrollbackState {
             &mut cache.entries,
             max_visible,
             &self.expanded_groups,
+        );
+        let groups = cache.groups.clone();
+        grow_wrapped_group_headers(
+            &self.entries,
+            &mut cache.entries,
+            &groups,
+            entry_area_width,
+            &self.appearance,
+            &theme,
         );
 
         cache.virtual_y.clear();
@@ -1312,6 +1324,15 @@ impl ScrollbackState {
             &mut cache.entries,
             max_visible,
             &self.expanded_groups,
+        );
+        let groups = cache.groups.clone();
+        grow_wrapped_group_headers(
+            &self.entries,
+            &mut cache.entries,
+            &groups,
+            entry_area_width,
+            &self.appearance,
+            &theme,
         );
 
         // Pass 3: Build virtual_y and prompt descriptors from heights and gaps
@@ -1602,6 +1623,78 @@ pub fn compute_paint_window(
         0
     };
     (paint_start..paint_end, content_y0)
+}
+
+/// A group header is one row on a wide terminal. On a narrow one the label wraps, and that height has to be
+/// reserved or the later rows never paint.
+fn grow_wrapped_group_headers(
+    entries: &indexmap::IndexMap<crate::scrollback::entry::EntryId, ScrollbackEntry>,
+    layouts: &mut [EntryLayoutInfo],
+    groups: &[super::groups::GroupSpan],
+    entry_area_width: u16,
+    appearance: &crate::appearance::AppearanceConfig,
+    theme: &crate::theme::Theme,
+) {
+    use super::groups::{GroupKind, span_containing};
+    use super::verb_group::{
+        GroupHeaderLabel, truncation_header_label, verb_group_header_label,
+    };
+    use crate::scrollback::wrappers::EntryRenderer;
+
+    let refs: Vec<&ScrollbackEntry> = entries.values().collect();
+    let show_thinking = crate::appearance::cache::load_show_thinking_blocks();
+    for (idx, info) in layouts.iter_mut().enumerate() {
+        if info.height == 0 || !info.is_group_header() {
+            continue;
+        }
+        let Some((_, entry)) = entries.get_index(idx) else {
+            continue;
+        };
+        let label = if info.verb_group_header {
+            let end = span_containing(groups, idx)
+                .map(|span| span.range.end)
+                .unwrap_or(refs.len());
+            Some(GroupHeaderLabel::VerbRun(verb_group_header_label(
+                &refs,
+                idx,
+                end,
+                show_thinking,
+                theme,
+            )))
+        } else if crate::appearance::cache::load_group_tool_verbs() {
+            let Some(span) = span_containing(groups, idx) else {
+                continue;
+            };
+            let GroupKind::Truncation { hidden, .. } = span.kind else {
+                continue;
+            };
+            truncation_header_label(
+                &refs,
+                span.range.clone(),
+                (!span.expanded).then_some(hidden),
+                show_thinking,
+                theme,
+            )
+            .map(GroupHeaderLabel::Truncation)
+        } else {
+            None
+        };
+        let count = info.group_header_count;
+        let collapse = info.group_collapse_header;
+        let expanded_verb = info.is_expanded_verb_header();
+        let height = info.height;
+        let renderer = EntryRenderer::new(entry, theme)
+            .with_appearance_ref(appearance)
+            .with_group_header_count(count)
+            .with_group_collapse_header(collapse)
+            .with_group_header_label(label.as_ref());
+        let rows = renderer.group_header_rows(entry_area_width).max(1);
+        info.height = if expanded_verb {
+            height.saturating_sub(1).saturating_add(rows)
+        } else {
+            rows
+        };
+    }
 }
 
 #[cfg(test)]

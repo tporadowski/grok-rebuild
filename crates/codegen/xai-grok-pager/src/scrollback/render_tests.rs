@@ -521,6 +521,61 @@ fn windowed_paint_renders_full_verb_group_label_for_offscreen_members() {
     );
 }
 
+/// A terminal narrower than the block padding still shows wrapped message text and the full group-header label.
+#[test]
+fn narrow_scrollback_keeps_wrapped_text_and_the_group_header() {
+    use crate::scrollback::ScrollbackState;
+
+    crate::appearance::cache::set_group_tool_verbs(true);
+    crate::appearance::cache::set_tool_call_density(
+        crate::appearance::ToolCallDensity::CompactGrouped,
+    );
+    crate::appearance::cache::set_show_thinking_blocks(false);
+    let mut state = ScrollbackState::new();
+    state.push_block(RenderBlock::agent_message("alpha bravo charlie delta"));
+    for i in 0..4 {
+        state.push_block(RenderBlock::read(format!("f{i}.rs"), None));
+    }
+    let viewport = Rect::new(0, 0, 5, 80);
+    state.prepare_layout(viewport.width, viewport.height);
+    let layouts = state.get_cached_entry_layouts().expect("layouts");
+    let refs = state.entries_in_range(0..state.len());
+    let mut buf = Buffer::empty(viewport);
+    render_scrolled_entries_with_scratch(
+        &mut buf,
+        viewport,
+        &refs,
+        0,
+        None,
+        &Theme::current(),
+        state.appearance(),
+        layouts,
+        0,
+        None,
+        None,
+        None,
+        0,
+        0,
+        &[],
+        None,
+        None,
+    );
+    let text: String = (0..viewport.height)
+        .flat_map(|y| {
+            buffer_row_text(&buf, y)
+                .chars()
+                .filter(|ch| !ch.is_whitespace())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    for word in ["alpha", "bravo", "charlie", "delta", "Read", "files"] {
+        assert!(
+            text.contains(word),
+            "narrow scrollback dropped {word}: {text}"
+        );
+    }
+}
+
 /// A collapsed truncation header on the viewport's last row must label its FULL hidden prefix.
 /// The height-0 hidden rows share the tail's virtual_y past the window bottom.
 /// `paint_window`'s gate must therefore extend the slice for truncation headers too, not just verb headers.
