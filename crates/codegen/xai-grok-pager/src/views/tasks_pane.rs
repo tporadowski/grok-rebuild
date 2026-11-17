@@ -1064,8 +1064,10 @@ impl TasksPane {
             .handle_mouse_event(kind, col, row, area, &self.entries)
     }
     pub fn selected_entry(&self) -> Option<&TaskEntry> {
+        // `selected_index` is a visible-list index. A filter's vis map is not identity,
+        // so Enter, x, and y have to resolve the highlighted row back to `entries`.
         let sel = self.list_state.selected_index()?;
-        self.entries.get(sel)
+        self.entries.get(self.list_state.to_physical(sel))
     }
     /// Get the task_id if the selected entry is a BgTask.
     pub fn selected_task_id(&self) -> Option<&str> {
@@ -2246,6 +2248,40 @@ mod tests {
         assert_eq!(pane.view_button_rects.len(), 1, "{:?}", pane.view_button_rects);
         assert_eq!(pane.kill_button_rects[0].1.y, needle_y as u16);
         assert_eq!(pane.view_button_rects[0].1.y, needle_y as u16);
+    }
+
+    /// Filter hides earlier rows. j and the selection helpers follow the highlighted row, not that row's visual index in `entries`.
+    #[test]
+    fn filtered_tasks_keys_follow_the_highlighted_row() {
+        let mut pane = TasksPane::new();
+        pane.overlay.show();
+        let mut older = make_bg_task("older", "echo hidden-alpha", BgTaskStatus::Running);
+        older.start_time = std::time::SystemTime::UNIX_EPOCH;
+        let mut mid = make_bg_task("mid", "echo needle-mid", BgTaskStatus::Running);
+        mid.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
+        let mut newest = make_bg_task("newest", "echo needle-new", BgTaskStatus::Running);
+        newest.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(20);
+        let mut bg_tasks = std::collections::BTreeMap::new();
+        bg_tasks.insert("older".into(), older);
+        bg_tasks.insert("mid".into(), mid);
+        bg_tasks.insert("newest".into(), newest);
+        pane.sync(&bg_tasks, &HashMap::new(), &HashMap::new(), &[]);
+        assert!(pane.handle_key(&crate::key!('f').to_key_event()));
+        assert!(pane.handle_paste("needle"));
+        let _ = render_pane_to_strings(&mut pane, &bg_tasks, 80, 12);
+        assert!(
+            pane.selected_header_group().is_none(),
+            "the highlight is a task, not the Tasks header"
+        );
+        assert_eq!(pane.selected_task_id(), Some("newest"));
+        assert!(pane.handle_key(&crate::key!(Enter).to_key_event()));
+        assert!(pane.handle_key(&crate::key!('j').to_key_event()));
+        assert_eq!(
+            pane.selected_task_id(),
+            Some("mid"),
+            "j moves to the next visible task"
+        );
+        assert_ne!(pane.selected_task_id(), Some("older"));
     }
 
     #[test]
