@@ -25,6 +25,8 @@ pub(super) enum MinimalAuthHint {
     },
     /// The last sign-in attempt failed; show the error.
     Failed(String),
+    /// Sign-in has started and the flow (browser, device, or command) is not known yet.
+    Connecting,
     /// Authenticated, but the cwd has untrusted repo-local config: ask before creating a session.
     /// Input (y/Enter trust, n/Esc quit) is handled by the welcome interceptor in `AppView::handle_input`; this is render-only.
     TrustFolder { workspace: PathBuf },
@@ -42,19 +44,19 @@ pub(super) fn minimal_auth_hint(
     is_zdr_blocked: bool,
 ) -> MinimalAuthHint {
     match auth {
-        AuthState::Authenticating { auth_url, .. } => MinimalAuthHint::SigningIn {
+        AuthState::Authenticating {
+            mode: xai_grok_pager::app::app_view::AuthMode::Pending,
+            ..
+        } => MinimalAuthHint::Connecting,
+        AuthState::Authenticating { auth_url, mode, .. } => MinimalAuthHint::SigningIn {
             url: auth_url.clone(),
-            code: auth_url
-                .as_deref()
-                .and_then(device_user_code)
-                .map(str::to_owned),
+            code: (*mode == xai_grok_pager::app::app_view::AuthMode::Device)
+                .then(|| auth_url.as_deref().and_then(device_user_code).map(str::to_owned))
+                .flatten(),
         },
         AuthState::Pending { error: Some(err) } => MinimalAuthHint::Failed(err.clone()),
-        // Login is starting (auto-triggered at startup); the URL arrives via AuthUrlReady, which flips us to `Authenticating`
-        AuthState::Pending { error: None } => MinimalAuthHint::SigningIn {
-            url: None,
-            code: None,
-        },
+        // Login is starting. The flow type arrives with `Authenticating`.
+        AuthState::Pending { error: None } => MinimalAuthHint::Connecting,
         AuthState::Done if has_access && !is_zdr_blocked => {
             if let TrustState::Pending { workspace } = trust {
                 MinimalAuthHint::TrustFolder {
@@ -90,6 +92,7 @@ pub(super) fn auth_hint_rows(hint: &MinimalAuthHint, width: u16) -> u16 {
         }
         // The error message only. A heading would repeat it.
         MinimalAuthHint::Failed(err) => wrapped_word_rows(err, width).max(1),
+        MinimalAuthHint::Connecting => 1,
         // question + path rows + blank + 2 warning + blank + 2 menu + blank + hint
         MinimalAuthHint::TrustFolder { workspace } => {
             let path = workspace.display().to_string();
@@ -377,6 +380,15 @@ pub(super) fn render_auth(buf: &mut Buffer, area: Rect, theme: &Theme, hint: &Mi
                 )),
             );
         }
+        MinimalAuthHint::Connecting => {
+            let _ = put_line(
+                buf,
+                area,
+                y,
+                bottom,
+                Line::from(Span::styled("Connecting\u{2026}", gray)),
+            );
+        }
         MinimalAuthHint::Starting => {
             let _ = put_line(
                 buf,
@@ -490,8 +502,68 @@ mod tests {
         // Trust is not offered while auth is still in flight.
         assert!(matches!(
             minimal_auth_hint(&AuthState::Pending { error: None }, &trust, true, false),
-            MinimalAuthHint::SigningIn { .. }
+            MinimalAuthHint::Connecting
         ));
+    }
+
+    #[test]
+    fn sign_in_start_says_connecting_until_the_flow_is_known() {
+        use xai_grok_pager::app::app_view::AuthMode;
+
+        let trust = TrustState::Done;
+        assert!(matches!(
+            minimal_auth_hint(&AuthState::Pending { error: None }, &trust, true, false),
+            MinimalAuthHint::Connecting
+        ));
+        let unknown = AuthState::Authenticating {
+            request_seq: 1,
+            handle: None,
+            auth_url: None,
+            mode: AuthMode::Pending,
+        };
+        assert!(matches!(
+            minimal_auth_hint(&unknown, &trust, true, false),
+            MinimalAuthHint::Connecting
+        ));
+        let browser = AuthState::Authenticating {
+            request_seq: 2,
+            handle: None,
+            auth_url: None,
+            mode: AuthMode::Command,
+        };
+        assert!(matches!(
+            minimal_auth_hint(&browser, &trust, true, false),
+            MinimalAuthHint::SigningIn {
+                url: None,
+                code: None
+            }
+        ));
+
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 40, 4);
+        let mut buf = Buffer::empty(area);
+        render_auth(&mut buf, area, &theme, &MinimalAuthHint::Connecting);
+        let text = crate::buffer_text(&buf);
+        assert!(text.contains("Connecting\u{2026}"), "{text:?}");
+        assert!(!text.contains("Opening your browser"), "{text:?}");
+        assert!(!text.contains("Sign in to Grok"), "{text:?}");
+        assert_eq!(auth_hint_rows(&MinimalAuthHint::Connecting, 40), 1);
+
+        let mut browser_buf = Buffer::empty(area);
+        render_auth(
+            &mut browser_buf,
+            area,
+            &theme,
+            &MinimalAuthHint::SigningIn {
+                url: None,
+                code: None,
+            },
+        );
+        let browser_text = crate::buffer_text(&browser_buf);
+        assert!(
+            browser_text.contains("Opening your browser"),
+            "{browser_text:?}"
+        );
     }
 
     #[test]
