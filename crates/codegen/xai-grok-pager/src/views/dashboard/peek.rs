@@ -456,7 +456,7 @@ pub fn render_peek_panel(
 
     if let Some(ref q) = panel.question {
         // Permission / ask-tool pending: render the question and options across the WHOLE inner box (the `❯ reply` row is hidden here)
-        // The highlighted option carries a ▸ marker
+        // A focused pick uses the same filled marker and selection band as the permission and question cards
         // The `RejectOnce` ("No") option accepts inline free-text feedback that the user types after selecting it (mirrors the chat permission panel)
         let mut y = inner.y;
         let q_line = format!("\u{25B8} {q}");
@@ -482,14 +482,26 @@ pub fn render_peek_panel(
             // The default is `None`, no selection, so the panel reads as navigation, not answering
             let selected = panel.focused && panel.selected_option == Some(i);
             let is_reject = panel.reject_option == Some(i);
-            let marker = if selected { "\u{25B8} " } else { "  " };
+            let marker = if selected {
+                format!("({}) ", crate::glyphs::filled_dot())
+            } else if panel.focused {
+                "(\u{25cb}) ".to_string()
+            } else {
+                "  ".to_string()
+            };
             let style = if selected {
                 Style::default()
-                    .fg(theme.accent_user)
+                    .fg(theme.text_primary)
                     .bg(theme.bg_base)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme.text_primary).bg(theme.bg_base)
+            };
+            let option_row = Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: 1,
             };
             if is_reject {
                 // Freeform feedback row (mirrors the chat permission panel's `build_reject_once_line`).
@@ -540,6 +552,9 @@ pub fn render_peek_panel(
                 let opt_line = format!("{marker}{}. {}", i + 1, label);
                 let trunc = truncate_str(&opt_line, inner.width as usize);
                 buf.set_string(inner.x, y, trunc, style);
+            }
+            if selected {
+                buf.set_style(option_row, theme.selection_overlay());
             }
             y += 1;
         }
@@ -1566,7 +1581,7 @@ mod tests {
         assert!(!content.contains("reply"), "got: {content:?}");
     }
 
-    /// The highlighted option (`selected_option`) is marked with `▸` and the others with a plain indent, so `↑`/`↓` navigation is visible.
+    /// The highlighted option uses the permission card's filled marker and selection band.
     #[test]
     fn render_peek_highlights_selected_option() {
         use ratatui::buffer::Buffer;
@@ -1614,13 +1629,60 @@ mod tests {
             }
             content.push('\n');
         }
-        // Selected option carries the ▸ marker; the other is plain.
-        assert!(content.contains("\u{25b8} 2. Deny"), "got: {content:?}");
-        assert!(content.contains("  1. Allow"), "got: {content:?}");
+        let selected_marker = format!("({}) 2. Deny", crate::glyphs::filled_dot());
+        assert!(
+            content.contains(&selected_marker),
+            "selected option must use the filled marker, got: {content:?}"
+        );
+        assert!(
+            content.contains("(\u{25cb}) 1. Allow"),
+            "the other option stays hollow, got: {content:?}"
+        );
+        let deny_y = (0..buf.area.height)
+            .find(|y| {
+                let row: String = (0..buf.area.width)
+                    .filter_map(|x| buf.cell((x, *y)).map(|cell| cell.symbol()))
+                    .collect();
+                row.contains("2. Deny")
+            })
+            .expect("deny row");
+        let overlay = theme.selection_overlay();
+        assert!(
+            (0..buf.area.width).any(|x| {
+                buf.cell((x, deny_y)).is_some_and(|cell| {
+                    if theme.is_bandless() {
+                        cell.modifier.contains(ratatui::style::Modifier::REVERSED)
+                    } else {
+                        overlay.bg.is_some_and(|bg| cell.bg == bg)
+                    }
+                })
+            }),
+            "the selected option must wear the selection band"
+        );
+        let allow_y = (0..buf.area.height)
+            .find(|y| {
+                let row: String = (0..buf.area.width)
+                    .filter_map(|x| buf.cell((x, *y)).map(|cell| cell.symbol()))
+                    .collect();
+                row.contains("1. Allow")
+            })
+            .expect("allow row");
+        assert!(
+            (0..buf.area.width).all(|x| {
+                buf.cell((x, allow_y)).is_none_or(|cell| {
+                    if theme.is_bandless() {
+                        !cell.modifier.contains(ratatui::style::Modifier::REVERSED)
+                    } else {
+                        overlay.bg.is_none_or(|bg| cell.bg != bg)
+                    }
+                })
+            }),
+            "an unselected option must not wear the selection band"
+        );
     }
 
     /// An UNFOCUSED question panel (Tab returns to row nav) marks no option as selected, so it doesn't falsely imply Enter answers it.
-    /// Every option renders with the plain indent, never the `▸` marker.
+    /// Every option renders with the plain indent, never the filled marker or the selection band.
     #[test]
     fn render_peek_unfocused_question_has_no_selected_option() {
         use ratatui::buffer::Buffer;
