@@ -2429,7 +2429,11 @@ pub fn render_picker(
     } else {
         // The cursor tracks focus (`search_active`) for every picker, like the Settings pane
         // `show_search_hint` is input-only and does not force an always-on cursor
-        render_picker_search_bar(
+        let trailing = config
+            .filter_label
+            .map(|label| filter_indicator_width(label, config.filter_key_hint.unwrap_or("f")))
+            .unwrap_or(0);
+        render_picker_search_bar_with_trailing(
             buf,
             content.x,
             content.y,
@@ -2439,24 +2443,34 @@ pub fn render_picker(
             state.search_active,
             true,
             bg,
+            trailing,
         );
     }
 
     let filter_rect_out = if let Some(filter_label) = config.filter_label {
         let key_hint = config.filter_key_hint.unwrap_or("f");
-        let rect = render_filter_indicator(
-            buf,
-            content.x,
-            content.y,
-            search_width,
-            theme,
-            filter_label,
-            key_hint,
-            config.filter_active,
-            state.filter_hovered,
-        );
-        state.filter_area = Some(rect);
-        Some(rect)
+        let chip_fits =
+            search_bar_layout(search_width, filter_indicator_width(filter_label, key_hint))
+                .trailing_width()
+                > 0;
+        if !chip_fits {
+            state.filter_area = None;
+            None
+        } else {
+            let rect = render_filter_indicator(
+                buf,
+                content.x,
+                content.y,
+                search_width,
+                theme,
+                filter_label,
+                key_hint,
+                config.filter_active,
+                state.filter_hovered,
+            );
+            state.filter_area = Some(rect);
+            Some(rect)
+        }
     } else {
         state.filter_area = None;
         None

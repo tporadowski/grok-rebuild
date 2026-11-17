@@ -124,22 +124,24 @@ pub(crate) fn render_session_picker_search_bar(
     area: Rect,
     theme: &Theme,
     state: &crate::views::picker::PickerState,
+    trailing_width: u16,
 ) {
-    crate::views::picker::render_picker_search_bar_with_label(
+    crate::views::picker::render_picker_search_bar_with_trailing(
         buf,
         area.x,
         area.y,
         area.width,
         theme,
-        SESSION_SEARCH_LABEL,
         state,
         state.search_active,
         true,
         Some(theme.bg_base),
+        trailing_width,
     );
+    let layout = crate::views::picker::search_bar_layout(area.width, trailing_width);
     let label_w = u16::try_from(SESSION_SEARCH_LABEL.len()).unwrap_or(0);
     if state.search_active {
-        let width = label_w.min(area.width);
+        let width = label_w.min(layout.render_width());
         if width > 0 {
             buf.set_style(
                 Rect::new(area.x, area.y, width, 1),
@@ -150,11 +152,41 @@ pub(crate) fn render_session_picker_search_bar(
         }
     } else if !state.query().is_empty() {
         let start = area.x.saturating_add(label_w);
-        let width = area.x.saturating_add(area.width).saturating_sub(start);
+        let end = area.x.saturating_add(layout.render_width());
+        let width = end.saturating_sub(start);
         if width > 0 {
             buf.set_style(Rect::new(start, area.y, width, 1), theme.dim());
         }
     }
+}
+
+/// `/resume` search row. The filter chip keeps the right-hand columns when they fit, and stays off when they do not, so it cannot paint over the query.
+pub(crate) fn render_resume_search_row(
+    buf: &mut Buffer,
+    area: Rect,
+    theme: &Theme,
+    state: &crate::views::picker::PickerState,
+    filter: Option<(&str, &str, bool)>,
+) -> Option<Rect> {
+    let trailing = filter
+        .map(|(label, key, _)| crate::views::picker::filter_indicator_width(label, key))
+        .unwrap_or(0);
+    render_session_picker_search_bar(buf, area, theme, state, trailing);
+    let (label, key, active) = filter?;
+    if crate::views::picker::search_bar_layout(area.width, trailing).trailing_width() == 0 {
+        return None;
+    }
+    Some(crate::views::picker::render_filter_indicator(
+        buf,
+        area.x,
+        area.y,
+        area.width,
+        theme,
+        label,
+        key,
+        active,
+        state.filter_hovered,
+    ))
 }
 
 fn empty_hit_areas() -> crate::views::picker::PickerHitAreas {
@@ -229,6 +261,7 @@ fn render_simple_session_picker_modal(
         Rect::new(content.x, content.y, content.width, 1),
         theme,
         ctx.state,
+        0,
     );
     ctx.state.filter_area = None;
     let separator_y = content.y + 1;
@@ -338,7 +371,7 @@ mod tests {
         let mut state = crate::views::picker::PickerState::default();
         state.search_active = false;
         state.set_query("alpha");
-        render_session_picker_search_bar(&mut buf, area, theme, &state);
+        render_session_picker_search_bar(&mut buf, area, theme, &state, 0);
         buf
     }
 
@@ -414,7 +447,7 @@ mod tests {
         let mut buf = Buffer::empty(area);
         let mut state = crate::views::picker::PickerState::default();
         state.search_active = true;
-        render_session_picker_search_bar(&mut buf, area, &theme, &state);
+        render_session_picker_search_bar(&mut buf, area, &theme, &state, 0);
         let text = row_text(&buf);
         assert!(text.contains(" search:"), "{text:?}");
         assert!(!text.contains('>'), "{text:?}");
@@ -426,5 +459,96 @@ mod tests {
             })
         });
         assert!(labeled, "focused label must match the modal title color");
+    }
+
+    fn row_symbols(buf: &Buffer, y: u16) -> String {
+        (0..buf.area.width).fold(String::new(), |mut text, x| {
+            if let Some(cell) = buf.cell((x, y)) {
+                text.push_str(cell.symbol());
+            }
+            text
+        })
+    }
+
+    /// A narrow `/resume` row drops the filter chip instead of painting it over the query.
+    /// A wider row keeps both, and the chip starts after the query columns.
+    #[test]
+    fn resume_search_filter_does_not_cover_the_query() {
+        let theme = Theme::groknight();
+        let label = crate::views::session_picker::SourceFilter::Grok.label();
+        let key = "f";
+
+        let narrow = Rect::new(0, 0, 16, 1);
+        let mut narrow_buf = Buffer::empty(narrow);
+        let mut narrow_state = crate::views::picker::PickerState::default();
+        narrow_state.search_active = true;
+        narrow_state.set_query("project-alpha");
+        let chip = super::render_resume_search_row(
+            &mut narrow_buf,
+            narrow,
+            &theme,
+            &narrow_state,
+            Some((label, key, false)),
+        );
+        let narrow_text = row_symbols(&narrow_buf, 0);
+        assert!(chip.is_none(), "narrow row must omit the chip, got {chip:?}");
+        assert!(
+            narrow_text.contains("alpha"),
+            "the query tail must stay visible, got {narrow_text:?}"
+        );
+        assert!(
+            !narrow_text.contains(label),
+            "the chip must not replace the query, got {narrow_text:?}"
+        );
+
+        let wide = Rect::new(0, 0, 40, 1);
+        let mut wide_buf = Buffer::empty(wide);
+        for x in 0..wide.width {
+            if let Some(cell) = wide_buf.cell_mut((x, 0)) {
+                cell.set_symbol("#");
+            }
+        }
+        let mut wide_state = crate::views::picker::PickerState::default();
+        wide_state.search_active = true;
+        let query = "abcdefghijklmnopqrstuvwxyz0123";
+        wide_state.set_query(query);
+        let chip = super::render_resume_search_row(
+            &mut wide_buf,
+            wide,
+            &theme,
+            &wide_state,
+            Some((label, key, false)),
+        )
+        .expect("wide row keeps the filter chip");
+        let trailing = crate::views::picker::filter_indicator_width(label, key);
+        let layout = crate::views::picker::search_bar_layout(wide.width, trailing);
+        assert!(layout.trailing_width() > 0);
+        assert!(
+            chip.x >= layout.render_width(),
+            "chip at {} must start after the query columns {}",
+            chip.x,
+            layout.render_width()
+        );
+        assert_eq!(
+            wide_buf.cell((layout.render_width(), 0)).map(|cell| cell.symbol()),
+            Some("#"),
+            "the gap before the chip must not be query text"
+        );
+        let chip_text: String = (chip.x..chip.x.saturating_add(chip.width))
+            .filter_map(|x| wide_buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+            .collect();
+        assert!(
+            chip_text.contains(label),
+            "chip must keep its label, got {chip_text:?}"
+        );
+        let shown = row_symbols(&wide_buf, 0);
+        assert!(
+            shown.contains("uvwxyz0123"),
+            "the query tail beside the cursor must remain, got {shown:?}"
+        );
+        assert!(
+            !chip_text.contains('z'),
+            "a query tail must not sit inside the chip, got {chip_text:?}"
+        );
     }
 }

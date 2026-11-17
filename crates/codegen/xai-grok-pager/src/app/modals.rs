@@ -1957,29 +1957,20 @@ impl AgentView {
                 if let Some(mca) = mw::render_modal_window(buf, area, window, &modal_config, &theme)
                 {
                     let content_area = mca.content;
-                    crate::views::session_picker_surface::render_session_picker_search_bar(
-                        buf,
-                        Rect::new(content_area.x, content_area.y, content_area.width, 1),
-                        &theme,
-                        state,
-                    );
-                    // Render filter indicator on the search bar row (hidden in chat mode; every row is a conversation)
-                    if chat_mode {
-                        state.filter_area = None;
-                    } else {
-                        let filter_rect = picker::render_filter_indicator(
+                    // The filter chip reserves the right-hand columns, and stays off when the row is too narrow to keep it off the query.
+                    let filter = (!chat_mode).then_some((
+                        source_filter.label(),
+                        "f",
+                        source_filter.is_active(),
+                    ));
+                    state.filter_area =
+                        crate::views::session_picker_surface::render_resume_search_row(
                             buf,
-                            content_area.x,
-                            content_area.y,
-                            content_area.width,
+                            Rect::new(content_area.x, content_area.y, content_area.width, 1),
                             &theme,
-                            source_filter.label(),
-                            "f",
-                            source_filter.is_active(),
-                            state.filter_hovered,
+                            state,
+                            filter,
                         );
-                        state.filter_area = Some(filter_rect);
-                    }
                     // Divider; spans full inner width
                     let sep_y = content_area.y + 1;
                     if sep_y < content_area.y + content_area.height {
