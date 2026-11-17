@@ -4330,7 +4330,46 @@ fn show_queue_lists_local_prompts_in_order() {
     assert!(text.contains("Queued prompts (2):"), "got: {text:?}");
     assert!(text.contains("#1  first prompt"), "got: {text:?}");
     // Multi-line prompts collapse to the first line plus a count suffix
-    assert!(text.contains("#2  second  (+1 more line)"), "got: {text:?}");
+    assert!(text.contains("#2  second (+1 line)"), "got: {text:?}");
+}
+
+#[test]
+fn show_queue_prefixes_bash_and_uses_the_pane_line_suffix() {
+    let mut app = test_app_with_agent();
+    {
+        let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+        agent.shared_queue.push(crate::app::prompt_queue::QueueEntryWire {
+            id: "bash-server".into(),
+            version: 1,
+            owner: None,
+            last_editor: None,
+            kind: "bash".into(),
+            text: "echo hi\necho there".into(),
+            position: 0,
+            combined_texts: None,
+        });
+        agent.session.enqueue_bash_command("ls -la".into());
+        agent.session.enqueue_prompt("plain\nsecond\nthird".into());
+    }
+    let effects = dispatch(Action::ShowQueue, &mut app);
+    assert!(effects.is_empty(), "got: {effects:?}");
+    let text = last_system_text(&app, AgentId(0));
+    assert!(
+        text.contains("#1  ! echo hi (+1 line)"),
+        "a server bash row keeps the ! prefix and the pane suffix, got: {text:?}"
+    );
+    assert!(
+        text.contains("#2  ! ls -la"),
+        "a local bash row is prefixed, got: {text:?}"
+    );
+    assert!(
+        text.contains("#3  plain (+2 lines)"),
+        "a multiline prompt uses the pane suffix, got: {text:?}"
+    );
+    assert!(
+        !text.contains("more line"),
+        "the old more-lines wording is gone, got: {text:?}"
+    );
 }
 
 #[test]
