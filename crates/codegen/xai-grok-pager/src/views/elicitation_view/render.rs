@@ -9,6 +9,7 @@ use unicode_width::UnicodeWidthStr;
 use xai_grok_tools::mcp_elicitation::ElicitFieldKind;
 
 use crate::render::SafeBuf;
+use crate::render::line_utils::{truncate_line, truncate_str};
 use crate::theme::Theme;
 
 use super::state::{
@@ -352,7 +353,10 @@ pub fn render_elicitation_view(
                     content_x,
                     row_y,
                     content_width,
-                    error_row(err, is_cur && focused, theme),
+                    truncate_line(
+                        error_row(err, is_cur && focused, theme),
+                        content_width as usize,
+                    ),
                 );
             }
             BodyRow::Option { field, option } => {
@@ -365,7 +369,10 @@ pub fn render_elicitation_view(
                     content_x,
                     row_y,
                     content_width,
-                    option_row(field_ui, *option, focused, theme),
+                    truncate_line(
+                        option_row(field_ui, *option, focused, theme),
+                        content_width as usize,
+                    ),
                 );
                 if let Some(ref mut hits) = hits {
                     hits.push((
@@ -397,7 +404,10 @@ pub fn render_elicitation_view(
             content_x,
             action_y,
             content_width,
-            action_row(shortcut, label, is_cur, focused, theme),
+            truncate_line(
+                action_row(shortcut, label, is_cur, focused, theme),
+                content_width as usize,
+            ),
         );
         if row_is_inside(area, content_x, action_y)
             && let Some(ref mut hits) = hits
@@ -561,8 +571,6 @@ fn field_row(
     value_col: usize,
     content_w: usize,
 ) -> Line<'static> {
-    use crate::render::line_utils::truncate_str;
-
     let bg = row_bg(is_cur, focused, theme);
     let shortcut = crate::views::question_view::option_shortcut_label(idx).unwrap_or(' ');
     let num_style = Style::default().fg(theme.accent_user).bg(bg);
@@ -606,25 +614,52 @@ fn field_row(
     };
 
     let prefix = format!("{shortcut} ");
-    let req = if field.spec.required {
+    let mut req = if field.spec.required {
         " (required)"
     } else {
         ""
     };
-    let left_w = prefix.width() + field.spec.title.width() + req.width();
-    // The value starts at `value_col`. What does not fit the card ends with `…`.
-    let room = content_w.saturating_sub(value_col).min(MAX_VALUE_WIDTH);
+    let content_w = content_w.max(1);
+    let prefix_w = prefix.width().min(content_w);
+    let mut title = field.spec.title.clone();
+    let value_limit = value.width().min(MAX_VALUE_WIDTH);
+    let mut left_w = prefix_w + title.width() + req.width();
+    // A long label must not push the value past the card. Drop the required tag, then cut the title.
+    if value_limit > 0 && left_w + 1 + value_limit > content_w && !req.is_empty() {
+        req = "";
+        left_w = prefix_w + title.width();
+    }
+    if value_limit > 0 && left_w + 1 + value_limit > content_w {
+        let title_budget = content_w.saturating_sub(prefix_w + 1 + value_limit);
+        title = truncate_str(&field.spec.title, title_budget);
+        left_w = prefix_w + title.width();
+    } else if left_w > content_w {
+        title = truncate_str(&field.spec.title, content_w.saturating_sub(prefix_w));
+        req = "";
+        left_w = prefix_w + title.width();
+    }
+    // Keep the shared value column when the value still fits. Otherwise the gap shrinks to the card edge.
+    let max_gap = content_w.saturating_sub(left_w + value_limit);
+    let gap = if value_limit == 0 {
+        0
+    } else if max_gap == 0 {
+        content_w.saturating_sub(left_w).min(1)
+    } else {
+        value_col.saturating_sub(left_w).max(1).min(max_gap)
+    };
+    let room = content_w.saturating_sub(left_w + gap);
     let value_disp = truncate_str(&value, room);
-    let gap = value_col.saturating_sub(left_w).max(1);
 
     let mut spans = vec![
         Span::styled(prefix, num_style),
-        Span::styled(field.spec.title.clone(), label_style),
+        Span::styled(title, label_style),
     ];
-    if field.spec.required {
+    if !req.is_empty() {
         spans.push(Span::styled(req.to_string(), req_style));
     }
-    spans.push(Span::styled(" ".repeat(gap), Style::default().bg(bg)));
+    if gap > 0 {
+        spans.push(Span::styled(" ".repeat(gap), Style::default().bg(bg)));
+    }
     if !value_disp.is_empty() {
         spans.push(Span::styled(value_disp.to_string(), value_style));
     }
@@ -635,7 +670,7 @@ fn field_row(
     } else {
         row_style(is_cur, focused, theme)
     };
-    Line::from(spans).style(style)
+    truncate_line(Line::from(spans).style(style), content_w)
 }
 
 fn option_row(field: &FormFieldUi, option: usize, focused: bool, theme: &Theme) -> Line<'static> {

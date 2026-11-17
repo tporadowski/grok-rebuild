@@ -158,6 +158,39 @@ fn card_draws_in_a_tiny_area() {
     render_elicitation_view(&mut wide, edge, &mut narrow, &theme, true, None);
 }
 
+/// Minimal mode draws this card at the live region's width. A narrow region still shows every field and its value.
+#[test]
+fn narrow_form_keeps_every_field_inside_the_card() {
+    use unicode_width::UnicodeWidthStr;
+
+    let mut req = form_req();
+    req.mode = McpElicitModeFields::Form {
+        requested_schema: Some(json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "title": "Ticket title" },
+                "priority": { "type": "string", "title": "Priority" }
+            },
+            "required": ["title", "priority"]
+        })),
+    };
+    let mut state = ElicitationViewState::from_request(req, None, None);
+    set_draft(&mut state, 0, "note");
+    set_draft(&mut state, 1, "high");
+    let width = 30u16;
+    let text = render_to_text(&mut state, width, 16);
+    assert!(text.contains("Ticket title"), "{text}");
+    assert!(text.contains("note"), "{text}");
+    assert!(text.contains("Priority"), "{text}");
+    assert!(text.contains("high"), "{text}");
+    for (i, row) in text.lines().enumerate() {
+        assert!(
+            row.width() <= width as usize,
+            "row {i} is wider than the card ({width}): {row:?}"
+        );
+    }
+}
+
 #[test]
 fn title_names_the_mcp_server() {
     let form = ElicitationViewState::from_request(form_req(), None, None);
