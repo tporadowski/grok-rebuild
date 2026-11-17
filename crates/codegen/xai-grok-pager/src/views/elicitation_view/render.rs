@@ -155,6 +155,11 @@ fn actions(state: &ElicitationViewState) -> Vec<(ElicitHit, char, &'static str)>
     }
 }
 
+/// Width `render_elicitation_view` uses for wrapping inside an area of `area_width` columns.
+pub fn elicitation_inner_width(area_width: u16) -> usize {
+    area_width.saturating_sub(ELICIT_HPAD) as usize
+}
+
 pub fn elicitation_view_height(
     state: &ElicitationViewState,
     screen_h: u16,
@@ -164,7 +169,11 @@ pub fn elicitation_view_height(
     let theme = Theme::default();
     let title_h = wrap_count(&state.title(), w);
     let msg_h = wrap_count(&state.message, w).min(MAX_MESSAGE_LINES);
-    let banner_h = u16::from(state.banner_error().is_some());
+    // The banner paints at most two rows. Counting a wrapped reason as one row covers the URL.
+    let banner_h = state
+        .banner_error()
+        .map(|err| wrap_count(err, w).min(2))
+        .unwrap_or(0);
     let body_total = build_body_rows(state, w, &theme).0.len() as u16;
     let actions_h = actions(state).len() as u16;
     let chrome = 1 + title_h + 1 + msg_h + banner_h + 1 + 1 + actions_h + 1;

@@ -437,8 +437,11 @@ pub fn modal_height(modal: Modal, agent: &mut AgentView, screen_h: u16, content_
         }
         Modal::Elicitation => minimal_api::elicitation_view(agent)
             .map(|ev| {
+                let inner = xai_grok_pager::views::elicitation_view::elicitation_inner_width(
+                    content_w as u16,
+                );
                 xai_grok_pager::views::elicitation_view::elicitation_view_height(
-                    ev, screen_h, content_w,
+                    ev, screen_h, inner.max(1),
                 )
             })
             .unwrap_or(0),

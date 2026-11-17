@@ -511,6 +511,32 @@ fn url_check_flags_punycode_hosts() {
     assert!(display.punycode_host, "IDN host must normalize + flag");
 }
 
+/// A rejection reason that wraps to two rows must not cover the URL it rejected.
+#[test]
+fn rejected_url_stays_visible_when_the_reason_wraps() {
+    use unicode_width::UnicodeWidthStr;
+
+    let url = "javascript:alert(1)#tail-end-marker";
+    let mut state = ElicitationViewState::from_request(url_req(url), None, None);
+    let reason = state.banner_error().expect("rejected URL has a reason");
+    assert!(
+        reason.width() > 20,
+        "the fixture reason must wrap: {reason}"
+    );
+    let inner = 20usize;
+    let area_w = (inner + 5) as u16;
+    let h = elicitation_view_height(&state, 40, inner);
+    let text = render_to_text(&mut state, area_w, h);
+    assert!(
+        text.contains("unsupported"),
+        "the wrapped reason stays:\n{text}"
+    );
+    assert!(
+        text.contains("tail-end-marker"),
+        "the rejected URL stays visible under a two-row reason:\n{text}"
+    );
+}
+
 #[test]
 fn unsafe_url_disables_accept() {
     let mut state = ElicitationViewState::from_request(url_req("javascript:alert(1)"), None, None);
