@@ -299,6 +299,14 @@ impl FileSearchState {
         self.result_count() > 0
     }
 
+    /// The `@` query is open and this query has not produced a finished list yet.
+    pub fn is_awaiting_results(&self) -> bool {
+        self.context.is_some()
+            && !self.outside_listing
+            && self.result_count() == 0
+            && !self.results.status.done
+    }
+
     /// Displayed hits belong to the query currently in the `@` token.
     fn hits_are_for_current_query(&self) -> bool {
         self.context

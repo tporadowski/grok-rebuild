@@ -47,8 +47,9 @@ pub fn render_image_overlay(
     bg: Color,
     text_fg: Color,
     border_fg: Color,
+    tick: u64,
 ) -> Option<overlay::Escapes> {
-    render_image_overlay_inner(buf, area, image, bg, text_fg, border_fg)
+    render_image_overlay_inner(buf, area, image, bg, text_fg, border_fg, tick)
         .and_then(|render| render.escapes)
 }
 
@@ -59,6 +60,7 @@ fn render_image_overlay_inner(
     bg: Color,
     text_fg: Color,
     border_fg: Color,
+    tick: u64,
 ) -> Option<ImageOverlayRender> {
     if area.width < MIN_BOX_WIDTH {
         return None;
@@ -149,13 +151,13 @@ fn render_image_overlay_inner(
             lines.push(Line::from(format!("Dimensions: {} \u{00d7} {}", w, h)));
         }
         let status = if image.preview.is_failed() {
-            Some("Preview unavailable")
+            Some("Preview unavailable".to_string())
         } else if image.preview.is_pending() && protocol.supports_images() {
-            Some("Preview pending")
+            Some(crate::glyphs::animated_loading_label(tick))
         } else {
             None
         };
-        lines.push(Line::from(status.map(str::to_owned).unwrap_or_else(|| {
+        lines.push(Line::from(status.unwrap_or_else(|| {
             format!("Size: {}", format_bytes(image.byte_len as u64))
         })));
         // Short boxes need the path in the body because no footer fits.
@@ -187,8 +189,8 @@ fn render_image_overlay_inner(
 
     if image_inner.width > 0 && image_inner.height > 0 {
         use crate::render::SafeBuf;
-        let loading = "Loading\u{2026}";
-        let lw = unicode_width::UnicodeWidthStr::width(loading) as u16;
+        let loading = crate::glyphs::animated_loading_label(tick);
+        let lw = unicode_width::UnicodeWidthStr::width(loading.as_str()) as u16;
         let lx = image_inner.x + image_inner.width.saturating_sub(lw) / 2;
         let ly = image_inner.y + image_inner.height / 2;
         buf.set_span_safe(

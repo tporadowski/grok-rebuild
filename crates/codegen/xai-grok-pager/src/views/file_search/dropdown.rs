@@ -92,6 +92,35 @@ pub fn render_dropdown(buf: &mut Buffer, area: Rect, file_search: &FileSearchSta
     }
 }
 
+/// One row while `@` search has not finished: the shared animated `Loading…` label.
+pub fn render_loading_row(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    width: u16,
+    tick: u64,
+    theme: &Theme,
+) {
+    if width < 4 {
+        return;
+    }
+    let row_bg = theme.bg_light;
+    for col in x..x + width {
+        if let Some(cell) = buf.cell_mut((col, y)) {
+            cell.set_char(' ');
+            cell.set_style(Style::default().bg(row_bg));
+        }
+    }
+    let label = format!("  {}", crate::glyphs::animated_loading_label(tick));
+    buf.set_stringn(
+        x,
+        y,
+        &label,
+        width as usize,
+        Style::default().fg(theme.gray).bg(row_bg),
+    );
+}
+
 /// Desired height for the dropdown: the separator row plus min(results, max_rows).
 pub fn dropdown_height(file_search: &FileSearchState, max_rows: u16) -> u16 {
     if !file_search.is_visible() {
@@ -295,6 +324,40 @@ mod tests {
         assert!(
             text.contains('\u{2026}'),
             "the row is still shortened, got {text:?}"
+        );
+    }
+
+    /// An open `@` query with no finished list paints the animated loading label (`v88-x16`).
+    #[test]
+    fn file_search_loading_row_animates() {
+        let ctx = crate::views::file_search::context::detect("@src", 4).expect("context");
+        let mut state = FileSearchState::new(std::path::Path::new("/tmp"));
+        state.set_test_state(ctx, vec![], 0);
+        state.set_scoring_for_test(true);
+        assert!(state.is_awaiting_results());
+        let area = Rect::new(0, 0, 32, 1);
+        let paint = |tick: u64| {
+            let mut buf = Buffer::empty(area);
+            render_loading_row(&mut buf, 0, 0, area.width, tick, &Theme::current());
+            (0..area.width)
+                .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+                .collect::<String>()
+        };
+        let first = paint(0);
+        let later = paint(4);
+        assert!(
+            first.contains("Loading\u{2026}"),
+            "the waiting row names the load, got {first:?}"
+        );
+        assert!(
+            later.contains("Loading\u{2026}"),
+            "a later frame still names the load, got {later:?}"
+        );
+        assert_ne!(first, later, "the spinner frame changes with the tick");
+        state.set_scoring_for_test(false);
+        assert!(
+            !state.is_awaiting_results(),
+            "a finished empty list is not still loading"
         );
     }
 }

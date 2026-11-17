@@ -193,6 +193,17 @@ pub fn braille_spinner_frames() -> &'static [&'static str] {
 }
 
 /// Dot spinner; those code points are absent from CP437, so legacy ConHost uses a 1-column dot cycle.
+/// `{spinner} Loading…`, advancing one frame every four ticks.
+/// File search, history, and the image preview share this label.
+pub fn animated_loading_label(tick: u64) -> String {
+    let frames = dot_spinner_frames();
+    let frame = frames
+        .get((tick as usize / 4) % frames.len().max(1))
+        .copied()
+        .unwrap_or("");
+    format!("{frame} Loading\u{2026}")
+}
+
 pub fn dot_spinner_frames() -> &'static [&'static str] {
     const FANCY: &[&str] = &[
         "\u{22c5}", ":", "\u{2e2c}", "\u{2059}", "\u{22c5}", ":", "\u{2e2c}", "\u{2059}",

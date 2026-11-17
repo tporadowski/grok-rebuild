@@ -6102,6 +6102,14 @@ impl AppView {
                     )
                     || agent.drain_blocked()
                     || agent.prompt.file_search.context().is_some()
+                    || agent.prompt.image_preview_pending()
+                    || agent.transcript_image_hover.as_ref().is_some_and(|hover| {
+                        matches!(
+                            hover,
+                            crate::scrollback::blocks::TranscriptImageHover::Sent(image)
+                                if image.preview.is_pending()
+                        )
+                    })
                     || agent.prompt.history_search.is_active()
                     || agent.scrollback_search.is_some()
                     || agent.line_viewer.is_some()

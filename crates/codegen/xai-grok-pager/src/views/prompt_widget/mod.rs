@@ -801,6 +801,8 @@ pub struct PromptWidget {
     hovered_image_element_id: Option<xai_ratatui_textarea::ElementId>,
     /// Image shown immediately after insertion without moving the edit cursor.
     post_insert_image_preview: Option<(xai_ratatui_textarea::ElementId, usize)>,
+    /// Tick for the image-preview loading spinner. The agent view sets this before each draw.
+    preview_tick: u64,
     /// Monotonic counter for image display numbering (1-based).
     /// Reset on prompt clear. Only increases within a single prompt lifetime.
     pub image_counter: usize,
@@ -870,6 +872,7 @@ impl PromptWidget {
             image_undo_stash: Vec::new(),
             hovered_image_element_id: None,
             post_insert_image_preview: None,
+            preview_tick: 0,
             image_counter: 0,
             compact: false,
             cmd_a_select_all_enabled: cmd_a_select_all_supported(
@@ -2907,6 +2910,17 @@ impl PromptWidget {
             .find(|e| e.range.end == cursor)
     }
 
+    /// Frame counter for the preview's loading spinner.
+    pub fn set_preview_tick(&mut self, tick: u64) {
+        self.preview_tick = tick;
+    }
+
+    /// The overlay that would paint now is still waiting on its pixel payload.
+    pub fn image_preview_pending(&self) -> bool {
+        self.image_for_preview()
+            .is_some_and(|image| image.preview.is_pending())
+    }
+
     /// Image record for the preview overlay: cursor, hover, or fresh insertion.
     fn image_for_preview(&self) -> Option<&PastedImage> {
         if let Some(elem) = self.image_element_near_cursor() {
@@ -3821,6 +3835,7 @@ impl PromptWidget {
                 theme.paste_bg,
                 theme.paste_fg,
                 theme.paste_dim,
+                self.preview_tick,
             );
         }
 

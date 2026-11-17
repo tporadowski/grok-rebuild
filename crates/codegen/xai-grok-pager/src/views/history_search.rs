@@ -449,6 +449,15 @@ impl HistorySearchState {
         self.send(Msg::SetQuery(query.to_string()));
     }
 
+    /// Empty-panel text. A history fetch still in flight uses the animated loading label.
+    pub fn empty_row_label(loading: bool, tick: u64) -> String {
+        if loading {
+            format!("  {}", crate::glyphs::animated_loading_label(tick))
+        } else {
+            "  no matching history".to_string()
+        }
+    }
+
     /// Poll for new results from the daemon. Returns `true` if changed.
     /// Call on every tick while the overlay is active.
     pub fn poll(&mut self) -> bool {
@@ -794,6 +803,19 @@ mod tests {
         assert!(state.activate(&entries(&["a"]), ""));
         assert!(state.is_active());
         assert!(!state.is_browse(), "/history search mode is not browse");
+    }
+
+    #[test]
+    fn empty_history_row_animates_while_the_list_loads() {
+        let first = HistorySearchState::empty_row_label(true, 0);
+        let later = HistorySearchState::empty_row_label(true, 4);
+        assert!(first.contains("Loading\u{2026}"), "{first:?}");
+        assert!(later.contains("Loading\u{2026}"), "{later:?}");
+        assert_ne!(first, later, "the spinner frame changes with the tick");
+        assert_eq!(
+            HistorySearchState::empty_row_label(false, 0),
+            "  no matching history"
+        );
     }
 
     #[test]

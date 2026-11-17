@@ -44,6 +44,7 @@ fn render_to_string(image: &PastedImage, area: Rect) -> (Option<ImageOverlayRend
         Color::Black,
         Color::White,
         Color::Gray,
+        0,
     );
     let rendered = (area.y..area.y + area.height)
         .map(|y| {
@@ -215,6 +216,45 @@ fn overlay_title_dimensions_use_the_multiplication_sign() {
         meta.contains("640\u{00d7}480"),
         "title dimensions use the multiplication sign, got {meta}"
     );
+}
+
+#[test]
+fn pending_preview_animates_the_loading_label() {
+    let _guard = set_protocol_for_test(GraphicsProtocol::Kitty);
+    let image = sample_image(Some("/tmp/photo.png"), false);
+    assert!(image.preview.is_pending());
+    let paint = |tick: u64| {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 12));
+        let _ = render_image_overlay_inner(
+            &mut buf,
+            Rect::new(0, 0, 60, 12),
+            &image,
+            Color::Black,
+            Color::White,
+            Color::Gray,
+            tick,
+        );
+        (0..buf.area.height)
+            .map(|y| {
+                (0..buf.area.width)
+                    .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol().to_owned()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let first = paint(0);
+    let later = paint(4);
+    assert!(
+        first.contains("Loading\u{2026}"),
+        "a pending preview says it is loading, got {first:?}"
+    );
+    assert!(
+        later.contains("Loading\u{2026}"),
+        "a later frame still says it is loading, got {later:?}"
+    );
+    assert_ne!(first, later, "the spinner frame changes with the tick");
+    assert!(!first.contains("Preview pending"));
 }
 
 #[test]

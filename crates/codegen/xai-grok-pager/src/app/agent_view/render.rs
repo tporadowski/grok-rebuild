@@ -736,6 +736,7 @@ impl AgentView {
             overlay_stop_label,
         } = app_params;
         self.scrollback.begin_frame();
+        self.prompt.set_preview_tick(self.tasks.tick_count());
         self.in_dashboard_overlay = in_dashboard_overlay;
         self.overlay_can_cycle = overlay_header.can_cycle();
         self.workspace_dashboard_enabled = workspace_dashboard_enabled;
@@ -3007,10 +3008,17 @@ impl AgentView {
                 prompt_post_flush = Some(escapes.into());
             }
         }
-        if self.prompt.file_search_visible() {
-            use crate::views::file_search::dropdown::{MAX_DROPDOWN_ROWS, render_dropdown};
+        let file_search_waiting = self.prompt.file_search.is_awaiting_results();
+        if self.prompt.file_search_visible() || file_search_waiting {
+            use crate::views::file_search::dropdown::{
+                MAX_DROPDOWN_ROWS, render_dropdown, render_loading_row,
+            };
             let item_count = self.prompt.file_search.result_count();
-            let wanted_rows = (item_count as u16).min(MAX_DROPDOWN_ROWS);
+            let wanted_rows = if item_count > 0 {
+                (item_count as u16).min(MAX_DROPDOWN_ROWS)
+            } else {
+                1
+            };
             if wanted_rows > 0 {
                 let bottom_border_y = if let Some(ipa) = self.inline_prompt_area {
                     ipa.y.saturating_sub(1)
@@ -3075,7 +3083,18 @@ impl AgentView {
                         width: items_width,
                         height: item_rows,
                     };
-                    render_dropdown(buf, items_area, &self.prompt.file_search, &theme);
+                    if file_search_waiting && item_count == 0 {
+                        render_loading_row(
+                            buf,
+                            items_area.x,
+                            items_area.y,
+                            items_area.width,
+                            self.tasks.tick_count(),
+                            &theme,
+                        );
+                    } else {
+                        render_dropdown(buf, items_area, &self.prompt.file_search, &theme);
+                    }
                     self.dropdown_items_area = Some(items_area);
                 } else {
                     self.dropdown_items_area = None;
@@ -3229,11 +3248,10 @@ impl AgentView {
                 if result_count == 0 {
                     let msg_y = top_border_y + 1;
                     if msg_y < bottom_border_y {
-                        let message = if self.prompt_history_loading() {
-                            "  Loading\u{2026}"
-                        } else {
-                            "  no matching history"
-                        };
+                        let message = crate::views::history_search::HistorySearchState::empty_row_label(
+                            self.prompt_history_loading(),
+                            self.tasks.tick_count(),
+                        );
                         buf.set_string_safe(
                             items_x,
                             msg_y,
@@ -4536,6 +4554,7 @@ impl AgentView {
                     theme.paste_bg,
                     theme.paste_fg,
                     theme.paste_dim,
+                    self.tasks.tick_count(),
                 );
             }
             Some(TranscriptImageHover::NotSent(reason)) => {

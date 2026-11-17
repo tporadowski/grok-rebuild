@@ -253,6 +253,7 @@ pub(crate) fn render_dashboard(
                 layout.dispatch,
                 &theme,
                 &mut state.peek_reply.file_search,
+                state.spinner_tick,
             );
         } else {
             state.file_search_dropdown_items_area = None;
@@ -2673,6 +2674,7 @@ fn render_file_search_dropdown(
         dispatch_rect,
         theme,
         &mut state.dispatch.file_search,
+        state.spinner_tick,
     );
 }
 
@@ -2685,16 +2687,24 @@ fn render_file_search_dropdown_for(
     anchor_rect: Rect,
     theme: &Theme,
     file_search: &mut crate::views::file_search::FileSearchState,
+    tick: u64,
 ) -> Option<Rect> {
     use ratatui::widgets::{Clear, Widget};
 
-    use crate::views::file_search::dropdown::{MAX_DROPDOWN_ROWS, render_dropdown as render_files};
+    use crate::views::file_search::dropdown::{
+        MAX_DROPDOWN_ROWS, render_dropdown as render_files, render_loading_row,
+    };
 
-    if !file_search.is_visible() {
+    let awaiting = file_search.is_awaiting_results();
+    if !file_search.is_visible() && !awaiting {
         return None;
     }
     let item_count = file_search.result_count();
-    let mut item_rows = (item_count as u16).min(MAX_DROPDOWN_ROWS);
+    let mut item_rows = if awaiting && item_count == 0 {
+        1
+    } else {
+        (item_count as u16).min(MAX_DROPDOWN_ROWS)
+    };
     if item_rows == 0 {
         return None;
     }
@@ -2761,7 +2771,18 @@ fn render_file_search_dropdown_for(
         width: items_width,
         height: item_rows,
     };
-    render_files(buf, items_area, file_search, theme);
+    if awaiting && item_count == 0 {
+        render_loading_row(
+            buf,
+            items_area.x,
+            items_area.y,
+            items_area.width,
+            tick,
+            theme,
+        );
+    } else {
+        render_files(buf, items_area, file_search, theme);
+    }
     Some(items_area)
 }
 
