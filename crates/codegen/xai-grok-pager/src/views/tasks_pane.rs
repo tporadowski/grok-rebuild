@@ -719,6 +719,16 @@ fn clear_overlay_area(buf: &mut Buffer, area: Rect, y: u16, overlay_w: u16, left
         buf.set_span(clear_x - 1, y, &Span::styled("\u{2026}", ellipsis_style), 1);
     }
 }
+/// Up and down arrow rows reserved when the entry list is taller than the pane.
+/// `(top, bottom)` are 0 or 1. The list of tasks starts `top` rows below the content area.
+fn scroll_chrome(entry_count: usize, height: u16, scroll: usize) -> (u16, u16) {
+    let scrollable = entry_count > height as usize && height >= 3;
+    let top = u16::from(scrollable && scroll > 0);
+    let rows_without_bottom = height.saturating_sub(top) as usize;
+    let bottom = u16::from(scrollable && scroll + rows_without_bottom < entry_count);
+    (top, bottom)
+}
+
 /// Draw a single scroll indicator glyph centered on row `y`, blanking the rest of the row so it reads as a dedicated indicator row.
 /// The glyphs are the same ▲/▼ as the corner indicators, just centered for visibility.
 fn draw_centered_arrow(buf: &mut Buffer, area: Rect, y: u16, arrow: &str, color: Color) {
@@ -1060,8 +1070,29 @@ impl TasksPane {
         if self.entries.is_empty() {
             return false;
         }
+        // Clicks use the rows the list actually paints. The up arrow sits above those rows once
+        // the pane is scrolled, and the list's y math would otherwise select the next task.
+        let hit = self.item_hit_area(area);
+        if hit.height == 0 || row < hit.y || row >= hit.bottom() {
+            return false;
+        }
         self.list_state
-            .handle_mouse_event(kind, col, row, area, &self.entries)
+            .handle_mouse_event(kind, col, row, hit, &self.entries)
+    }
+    /// Screen rows that paint task entries: below the up arrow, above the down arrow and the filter bar.
+    fn item_hit_area(&self, area: Rect) -> Rect {
+        let (top, bottom) = scroll_chrome(
+            self.entries.len(),
+            area.height,
+            self.list_state.scroll_offset(),
+        );
+        let list_height = area.height.saturating_sub(top).saturating_sub(bottom);
+        let bar = self.list_state.bottom_bar_height(list_height);
+        Rect {
+            y: area.y.saturating_add(top),
+            height: list_height.saturating_sub(bar),
+            ..area
+        }
     }
     pub fn selected_entry(&self) -> Option<&TaskEntry> {
         // `selected_index` is a visible-list index. A filter's vis map is not identity,
@@ -1140,13 +1171,10 @@ impl TasksPane {
             return;
         }
         let total = self.entries.len();
-        let scrollable = total > inner.height as usize && inner.height >= 3;
         let scroll = self.list_state.scroll_offset();
-        let reserve_top = scrollable && scroll > 0;
-        let top = u16::from(reserve_top);
-        let rows_without_bottom = inner.height.saturating_sub(top) as usize;
-        let reserve_bottom = scrollable && scroll + rows_without_bottom < total;
-        let bottom = u16::from(reserve_bottom);
+        let (top, bottom) = scroll_chrome(total, inner.height, scroll);
+        let reserve_top = top > 0;
+        let reserve_bottom = bottom > 0;
         let list_area = Rect {
             x: inner.x,
             y: inner.y + top,
@@ -2282,6 +2310,50 @@ mod tests {
             "j moves to the next visible task"
         );
         assert_ne!(pane.selected_task_id(), Some("older"));
+    }
+
+    /// Once the list is scrolled, the up arrow occupies the first row. A click selects the task painted on that row.
+    #[test]
+    fn scrolled_tasks_click_selects_the_row_under_the_pointer() {
+        use crossterm::event::MouseButton;
+        let mut pane = TasksPane::new();
+        pane.overlay.show();
+        let mut bg_tasks = std::collections::BTreeMap::new();
+        for i in 0..8u64 {
+            let mut task = make_bg_task(&format!("t{i}"), &format!("cmd {i}"), BgTaskStatus::Running);
+            task.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(i);
+            bg_tasks.insert(format!("t{i}"), task);
+        }
+        pane.sync(&bg_tasks, &HashMap::new(), &HashMap::new(), &[]);
+        let width = 40u16;
+        let height = 6u16;
+        let area = Rect::new(0, 0, width, height);
+        let _ = render_pane_to_strings(&mut pane, &bg_tasks, width, height);
+        pane.list_state.set_scroll_offset(3);
+        let rows = render_pane_to_strings(&mut pane, &bg_tasks, width, height);
+        let joined = rows.join("\n");
+        assert!(
+            joined.contains('\u{25B2}'),
+            "a scrolled pane paints the up arrow, got:\n{joined}"
+        );
+        let click = |pane: &mut TasksPane, y: u16| {
+            pane.handle_mouse(MouseEventKind::Down(MouseButton::Left), 4, y, area);
+        };
+        let row_of = |needle: &str| {
+            rows.iter()
+                .position(|row| row.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} not painted:\n{joined}")) as u16
+        };
+        click(&mut pane, row_of("cmd 5"));
+        assert_eq!(pane.selected_task_id(), Some("t5"), "rows:\n{joined}");
+        click(&mut pane, row_of("cmd 4"));
+        assert_eq!(pane.selected_task_id(), Some("t4"), "rows:\n{joined}");
+        click(&mut pane, row_of("\u{25B2}"));
+        assert_eq!(
+            pane.selected_task_id(),
+            Some("t4"),
+            "the up arrow is not a task row:\n{joined}"
+        );
     }
 
     #[test]
