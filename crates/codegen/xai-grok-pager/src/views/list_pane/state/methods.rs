@@ -554,6 +554,7 @@ impl ListPaneState {
     /// tracking to avoid redundant work. Append only (same width, no filter change, count grew, Wrap
     /// mode): only new items get `desired_height`, growing the prefix-sum cache.
     pub fn prepare_layout<T: ListItem>(&mut self, items: &[T], width: u16, viewport_height: u16) {
+        let was_hidden = self.viewport_height == 0;
         // Reserve 1 row for the bottom bar when the input bar is open or a matcher is accepted (showing status)
         self.viewport_height = if self.input_mode.is_some() || self.matcher.is_some() {
             viewport_height.saturating_sub(1)
@@ -810,6 +811,11 @@ impl ListPaneState {
             if !self.follow_mode {
                 self.ensure_selected_visible();
             }
+        }
+        // A hidden layout has no rows. Showing the pane again must put the selection back on screen
+        // before the next j/k, including after the list changed while the pane was hidden.
+        if was_hidden && self.viewport_height > 0 && !self.follow_mode {
+            self.ensure_selected_visible();
         }
     }
 
@@ -1303,6 +1309,11 @@ impl ListPaneState {
         let Some(vi) = self.selected_index else {
             return;
         };
+        // A zero-height layout is a hidden pane. Scrolling against it parks the selection just
+        // past the top of the next real viewport, so j/k then move a row that is not on screen.
+        if self.viewport_height == 0 {
+            return;
+        }
         let item_y = self.layout.virtual_y(vi);
         let item_h = self.layout.item_height(vi) as usize;
         let vp = self.viewport_height as usize;

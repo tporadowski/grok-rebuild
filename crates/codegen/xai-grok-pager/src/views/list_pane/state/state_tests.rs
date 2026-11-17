@@ -71,6 +71,36 @@ impl ListItem for TestItem {
     }
 }
 
+/// Todo, tasks, and the queue all lay out through this state. A rebuild while the pane is
+/// hidden (viewport 0) must not park the selection off screen (`v88-x24`).
+#[test]
+fn navigation_stays_on_the_selection_after_a_hidden_rebuild() {
+    let mut items: Vec<TestItem> = (0..10).map(TestItem::new).collect();
+    let mut state = ListPaneState::new(WrapMode::NoWrap, false);
+    state.prepare_layout(&items, 40, 4);
+    state.select_at(2, &items);
+    assert!(state.visible_range().contains(&2));
+
+    items.drain(0..2);
+    state.prepare_layout(&items, 40, 0);
+    state.prepare_layout(&items, 40, 4);
+
+    let selected = state.selected_index().expect("selection survives the rebuild");
+    assert!(
+        state.visible_range().contains(&selected),
+        "the selection is on screen after the hidden change, selected={selected} range={:?} scroll={}",
+        state.visible_range(),
+        state.scroll_offset()
+    );
+    state.select_next(&items);
+    let next = state.selected_index().expect("down moves");
+    assert_eq!(next, selected + 1);
+    assert!(
+        state.visible_range().contains(&next),
+        "the next row stays on screen"
+    );
+}
+
 #[test]
 fn scroll_basics() {
     let items: Vec<TestItem> = (0..20).map(TestItem::new).collect();
