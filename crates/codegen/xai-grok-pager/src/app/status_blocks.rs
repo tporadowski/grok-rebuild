@@ -155,7 +155,7 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
         ));
     }
     if rows.is_empty() {
-        "No background tasks, workflows, or subagents.".to_string()
+        "No tasks or agents.".to_string()
     } else {
         let header = format!(
             "Task{} ({}):",

@@ -2371,7 +2371,7 @@ fn show_tasks_empty_commits_empty_message() {
     assert_eq!(agent_scrollback_len(&app), before + 1);
     assert_eq!(
         last_system_text(&app, AgentId(0)),
-        "No background tasks, workflows, or subagents."
+        "No tasks or agents."
     );
 }
 #[test]
@@ -2402,6 +2402,13 @@ fn show_tasks_lists_a_scheduled_task() {
         "got: {text:?}"
     );
     assert!(text.contains("scheduled"), "got: {text:?}");
+    let agent = app.agents.get(&AgentId(0)).unwrap();
+    let info = agent.session.scheduled_tasks.get("t1").unwrap();
+    let suffix = crate::views::scheduled_next::next_suffix(info, chrono::Utc::now());
+    assert!(
+        suffix.starts_with(" (next in ") && text.contains(&suffix),
+        "block {text:?} pane suffix {suffix:?}"
+    );
 }
 #[test]
 fn show_tasks_no_active_agent_is_noop() {
