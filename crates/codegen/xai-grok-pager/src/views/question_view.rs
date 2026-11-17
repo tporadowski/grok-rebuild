@@ -1753,18 +1753,16 @@ pub fn render_question_scrollbar(
     state: &QuestionViewState,
     theme: &Theme,
     scroll_region: (u16, u16),
+    content_w: usize,
 ) -> Option<Rect> {
     let q_idx = state.active_tab;
     let question = state.questions.get(q_idx)?;
 
     let (scroll_top, scroll_bottom) = scroll_region;
     let visible_options_h = scroll_bottom.saturating_sub(scroll_top);
-    // Content width for height computation; use a reasonable estimate
-    let total_option_h = {
-        let cw = buf.area.width.saturating_sub(QUESTION_VIEW_HPAD) as usize;
-        total_options_height(question, cw, state.cursor())
-            .saturating_sub(state.phantom_freeform_h())
-    };
+    // Descriptions wrap at the card width. The terminal is wider than the card.
+    let total_option_h = total_options_height(question, content_w, state.cursor())
+        .saturating_sub(state.phantom_freeform_h());
 
     let scroll = state.per_question_scroll.get(q_idx).copied().unwrap_or(0);
 
@@ -3000,6 +2998,48 @@ mod tests {
         assert_eq!(
             item_index_at_visual_line(&q, content_w, *at(&heights, 0), cursor),
             1
+        );
+    }
+
+    fn wrapping_question() -> Question {
+        Question {
+            question: "Pick?".into(),
+            options: vec![QuestionOption {
+                label: "Alpha".into(),
+                description: "one two three four five six seven eight nine ten eleven twelve"
+                    .into(),
+                preview: None,
+                id: None,
+            }],
+            multi_select: Some(false),
+            id: None,
+        }
+    }
+
+    fn scrollbar_for(content_w: usize, visible: u16) -> Option<Rect> {
+        let theme = Theme::default();
+        let state = QuestionViewState::new(
+            "tc".into(),
+            vec![wrapping_question()],
+            StashedPrompt::default(),
+        );
+        // The buffer is wider than the card. The old code measured wrap against that width.
+        let area = Rect::new(0, 0, 200, visible.max(1));
+        let mut buf = Buffer::empty(area);
+        render_question_scrollbar(&mut buf, 0, &state, &theme, (0, visible), content_w)
+    }
+
+    #[test]
+    fn wrapped_descriptions_shrink_the_question_scrollbar_thumb() {
+        let q = wrapping_question();
+        let narrow = total_options_height(&q, 24, 0);
+        let wide = total_options_height(&q, 200, 0);
+        assert!(narrow > wide, "narrow {narrow} wide {wide}");
+        // The viewport that holds the unwrapped description is too short once it wraps.
+        assert!(scrollbar_for(200, wide).is_none(), "unwrapped description fits");
+        assert!(
+            scrollbar_for(24, wide).is_some(),
+            "the same viewport needs a bar after the description wraps"
         );
     }
 

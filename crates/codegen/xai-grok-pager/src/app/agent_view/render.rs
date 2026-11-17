@@ -2928,6 +2928,7 @@ impl AgentView {
                     qv,
                     &theme,
                     scroll_region,
+                    question_area.width.saturating_sub(QUESTION_VIEW_HPAD) as usize,
                 );
                 self.hit_question_scrollbar.set(sb_rect);
             } else {
