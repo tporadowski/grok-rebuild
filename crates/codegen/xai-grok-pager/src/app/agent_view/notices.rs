@@ -543,15 +543,8 @@ pub(crate) fn paint_mode_switch_banner(
         .map(|color| crate::render::color::blend_color(bg, color, opacity).unwrap_or(color));
     let text = format!("  {msg}");
     let maxw = area.width.saturating_sub(2) as usize;
-    let truncated = text.len() > maxw;
-    let display: String = if truncated {
-        text.chars()
-            .take(maxw.saturating_sub(1))
-            .collect::<String>()
-            + "…"
-    } else {
-        text
-    };
+    // Display columns, so a long mode name ends in `…` inside the row.
+    let display = crate::render::line_utils::truncate_str(&text, maxw);
     let name_start = 2 + MODE_SWITCH_LABEL.chars().count();
     let name_end = name_start + name.map(|mode_name| mode_name.chars().count()).unwrap_or(0);
     for (i, ch) in display.chars().enumerate() {
@@ -639,6 +632,30 @@ mod mode_switch_banner_tests {
             .map(|prefix| prefix.chars().count())
             .unwrap_or(0) as u16;
         assert_eq!(fg_at(&buf, x), theme.text_secondary);
+    }
+
+    /// A mode name wider than the banner ends in an ellipsis inside the row (`v88-x02`).
+    #[test]
+    fn mode_switch_banner_truncates_a_long_mode_name() {
+        let theme = Theme::default();
+        let area = Rect::new(0, 0, 28, 1);
+        let mut buf = Buffer::empty(area);
+        let mode = "custom-mode-name-that-overflows";
+        let msg = format!("{MODE_SWITCH_LABEL}{mode}");
+        paint_mode_switch_banner(&mut buf, area, &msg, MODE_BANNER_TOTAL_TICKS, &theme);
+        let text = row_text(&buf, area.width);
+        assert!(
+            text.contains('\u{2026}'),
+            "a long mode name ends in an ellipsis: {text:?}"
+        );
+        assert!(
+            !text.contains("overflows"),
+            "the mode tail stays off the banner: {text:?}"
+        );
+        assert!(
+            text.contains("Switched to mode:"),
+            "the label stays when the name is what overflows: {text:?}"
+        );
     }
 }
 

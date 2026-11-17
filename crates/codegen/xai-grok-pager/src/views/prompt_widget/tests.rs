@@ -5658,6 +5658,74 @@
         assert_eq!(buf_text_at(&buf, 38, 40, 3), "\u{2500}\u{256f}");
     }
 
+    /// A model or mode name that does not fit the bottom border ends in an ellipsis (`v88-x02`).
+    #[test]
+    fn prompt_border_truncates_long_model_and_mode_names() {
+        let width = 28u16;
+        let area = Rect::new(0, 0, width, 4);
+        let info_row = |info: PromptInfo| {
+            let mut buf = Buffer::empty(area);
+            PromptWidget::new().draw(
+                &mut buf,
+                area,
+                None,
+                &PromptStyle::default(),
+                Some(&info),
+                None,
+            );
+            assert_eq!(buf.cell((0, 3)).unwrap().symbol(), "\u{2570}");
+            assert_eq!(
+                buf.cell((width - 1, 3)).unwrap().symbol(),
+                "\u{256f}",
+                "the corner stays outside the caption"
+            );
+            buf_text_at(&buf, 0, width, 3)
+        };
+
+        let model = "grok-very-long-model-name-overflows";
+        let model_row = info_row(PromptInfo {
+            model_name: model,
+            ..Default::default()
+        });
+        assert!(
+            model_row.contains('\u{2026}'),
+            "a long model name ends in an ellipsis: {model_row:?}"
+        );
+        assert!(
+            !model_row.contains("overflows"),
+            "the model tail stays off the border: {model_row:?}"
+        );
+
+        let mode = "custom-mode-name-that-overflows";
+        let flags = [PromptFlag {
+            text: mode,
+            color: None,
+            bold: false,
+        }];
+        let mode_row = info_row(PromptInfo {
+            model_name: "grok",
+            flags: &flags,
+            multiline: true,
+            ..Default::default()
+        });
+        assert!(
+            mode_row.contains("grok"),
+            "the model stays when only the mode is long: {mode_row:?}"
+        );
+        assert!(
+            mode_row.contains('\u{2026}'),
+            "a long mode name ends in an ellipsis: {mode_row:?}"
+        );
+        assert!(
+            !mode_row.contains("overflows"),
+            "the mode tail stays off the border: {mode_row:?}"
+        );
+        assert!(
+            mode_row.contains("multiline"),
+            "the right-hand label stays whole: {mode_row:?}"
+        );
+    }
+
     fn any_cell_with_bg(buf: &Buffer, bg: ratatui::style::Color) -> bool {
         let area = *buf.area();
         (area.top()..area.bottom())

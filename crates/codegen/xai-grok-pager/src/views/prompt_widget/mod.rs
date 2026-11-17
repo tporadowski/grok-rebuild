@@ -3943,25 +3943,33 @@ impl PromptWidget {
             right_spans.push(Span::styled("multiline", flag_style));
         }
 
-        if !right_spans.is_empty() {
+        // A long model or mode name ends in `…` instead of running off the border.
+        let (right_line, left_budget) = if right_spans.is_empty() {
+            (None, usize::from(area.width))
+        } else {
             // Pad the right side so it doesn't sit flush against the ╯ corner.
             right_spans.push(Span::styled(" ", pad_style));
             let right_line = Line::from(right_spans);
+            let right_w = right_line.width();
+            let budget = usize::from(area.width).saturating_sub(right_w.saturating_add(1));
+            (Some(right_line), budget)
+        };
+        let left_line = crate::render::line_utils::truncate_line(
+            crate::render::line_utils::line_to_static(&Line::from(left_spans)),
+            left_budget,
+        );
+        let left_w = (left_line.width()).min(left_budget) as u16;
+        if let Some(right_line) = right_line {
             let right_w = right_line.width() as u16;
-            let left_line = Line::from(left_spans);
-            let left_w = (left_line.width() as u16).min(area.width.saturating_sub(right_w + 1));
             // Right-align both parts: [left][gap][right]
-            let total_w = left_w + 1 + right_w; // 1 for gap
+            let total_w = left_w + 1 + right_w;
             let x = area.x + area.width.saturating_sub(total_w);
             buf.set_line_safe(x, area.y, &left_line, left_w);
             let rx = area.x + area.width.saturating_sub(right_w);
             buf.set_line_safe(rx, area.y, &right_line, right_w);
         } else {
-            // Right-align: clamp to area width so text doesn't overflow borders.
-            let line = Line::from(left_spans);
-            let text_w = (line.width() as u16).min(area.width);
-            let x = area.x + area.width.saturating_sub(text_w);
-            buf.set_line_safe(x, area.y, &line, text_w);
+            let x = area.x + area.width.saturating_sub(left_w);
+            buf.set_line_safe(x, area.y, &left_line, left_w);
         }
     }
 }
