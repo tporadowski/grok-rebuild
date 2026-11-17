@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span, Text};
 
 use crate::appearance::AppearanceConfig;
 use crate::scrollback::block::BlockContent;
-use crate::scrollback::types::{AccentStyle, BlockContext, BlockOutput, DisplayMode};
+use crate::scrollback::types::{AccentStyle, BlockContext, BlockLine, BlockOutput, DisplayMode};
 use crate::theme::Theme;
 use crate::util::format_duration;
 
@@ -178,7 +178,7 @@ impl BlockContent for BgTaskBlock {
         };
 
         BlockOutput {
-            lines: vec![line.into()],
+            lines: vec![BlockLine::styled(line).with_selection_range(Some(0))],
         }
     }
 

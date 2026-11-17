@@ -1223,6 +1223,84 @@ fn test_partial_visibility_top_clipped() {
     assert!(!selected.bottom_clipped);
 }
 
+/// A drag that crosses message blocks paints the selection band on Task, Subagent, and Workflow rows.
+#[test]
+fn task_subagent_and_workflow_rows_take_the_selection_highlight() {
+    use crate::scrollback::blocks::{SubagentBlock, WorkflowBlock};
+    use crate::scrollback::text_selection::{
+        ActiveTextDrag, RangeHit, ResolvedSelectableLine, SelectionKind,
+        render_active_selection_overlay,
+    };
+
+    let entries = vec![
+        make_markdown_entry("alpha"),
+        ScrollbackEntry::new(RenderBlock::bg_task("echo hi", "task-1")),
+        ScrollbackEntry::new(RenderBlock::Subagent(SubagentBlock::started(
+            "look around",
+            "child-1",
+            "explore",
+            None,
+            None,
+            None,
+            true,
+        ))),
+        ScrollbackEntry::new(RenderBlock::Workflow(WorkflowBlock::started(
+            "run-1",
+            "review",
+            "check the diff",
+        ))),
+        make_markdown_entry("omega"),
+    ];
+    let viewport = Rect::new(0, 0, 80, 24);
+    let (result, mut buf) = render_with_scratch_and_buffer(&entries, viewport, 0, None);
+    let model = &result.selection_model;
+    let line_for = |idx: usize| {
+        model
+            .ranges
+            .iter()
+            .find(|range| range.entry_idx == idx)
+            .and_then(|range| range.lines.first())
+            .unwrap_or_else(|| panic!("entry {idx} has no selectable line"))
+    };
+    let first = line_for(0);
+    let last = line_for(4);
+    let drag = ActiveTextDrag {
+        anchor: RangeHit {
+            entry_idx: first.entry_idx,
+            range_id: first.range_id,
+            block_line_idx: first.block_line_idx,
+            col_within_range: 0,
+        },
+        head: RangeHit {
+            entry_idx: last.entry_idx,
+            range_id: last.range_id,
+            block_line_idx: last.block_line_idx,
+            col_within_range: 0,
+        },
+        kind: SelectionKind::Linear,
+        anchor_content_width: None,
+    };
+    let baseline = buf.clone();
+    render_active_selection_overlay(model, &drag, None, &mut buf);
+    let highlighted = |line: &ResolvedSelectableLine| {
+        let x = line.screen_x.saturating_add(line.selectable_cols.start);
+        let cell = buf.cell((x, line.screen_y)).expect("cell");
+        let orig = baseline.cell((x, line.screen_y)).expect("baseline");
+        (cell.fg, cell.bg, cell.modifier) != (orig.fg, orig.bg, orig.modifier)
+    };
+    assert!(highlighted(first), "the message the drag starts on is highlighted");
+    assert!(highlighted(line_for(1)), "a Task row takes the selection band");
+    assert!(
+        highlighted(line_for(2)),
+        "a Subagent row takes the selection band"
+    );
+    assert!(
+        highlighted(line_for(3)),
+        "a Workflow row takes the selection band"
+    );
+    assert!(highlighted(last), "the message the drag ends on is highlighted");
+}
+
 #[test]
 fn test_selection_model_maps_visible_lines_for_markdown_entry() {
     let entries = vec![make_markdown_entry(

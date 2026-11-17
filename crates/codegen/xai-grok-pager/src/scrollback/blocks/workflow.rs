@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span, Text};
 
 use crate::appearance::AppearanceConfig;
 use crate::scrollback::block::BlockContent;
-use crate::scrollback::types::{AccentStyle, BlockContext, BlockOutput, DisplayMode};
+use crate::scrollback::types::{AccentStyle, BlockContext, BlockLine, BlockOutput, DisplayMode};
 use crate::theme::Theme;
 use crate::util::format_duration;
 
@@ -151,7 +151,7 @@ impl BlockContent for WorkflowBlock {
         }
 
         BlockOutput {
-            lines: vec![Line::from(spans).into()],
+            lines: vec![BlockLine::styled(Line::from(spans)).with_selection_range(Some(0))],
         }
     }
 

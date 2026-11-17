@@ -280,7 +280,7 @@ impl BlockContent for SubagentBlock {
             }
         };
 
-        let mut lines = vec![line.into()];
+        let mut lines = vec![BlockLine::styled(line).with_selection_range(Some(0))];
         if ctx.mode != DisplayMode::Collapsed && !self.child_session_id.is_empty() {
             lines.push(BlockLine::separator(Line::from("")));
             lines.push(self.session_id_body_line(muted));
