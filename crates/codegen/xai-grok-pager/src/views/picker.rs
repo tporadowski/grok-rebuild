@@ -865,13 +865,41 @@ fn value_is_clipped(value: &str) -> bool {
     value.ends_with('\u{2026}')
 }
 
-/// Visual rows for an expanded field value. A clipped value is one row.
-fn field_value_rows(value: &str, val_w: usize) -> usize {
-    if val_w == 0 || value_is_clipped(value) || value.width() <= val_w {
-        1
-    } else {
-        value.width().div_ceil(val_w)
+/// Where a field value breaks onto the next card row.
+/// The last space that fits starts the next row. A value with no space in the window is cut on the column.
+fn field_value_break(value: &str, val_w: usize) -> usize {
+    if value.width() <= val_w {
+        return value.len();
     }
+    let chunk_len = byte_offset_for_width(value, val_w);
+    value
+        .get(..chunk_len)
+        .and_then(|prefix| prefix.rfind(' '))
+        .map(|pos| pos + 1)
+        .unwrap_or(chunk_len)
+}
+
+/// Visual rows for an expanded field value.
+/// A clipped value is one row. Other values follow the same space break as the painter,
+/// so an early space in a long CWD still reserves every continuation row.
+fn field_value_rows(value: &str, val_w: usize) -> usize {
+    if val_w == 0 || value_is_clipped(value) {
+        return 1;
+    }
+    let mut remaining = value;
+    let mut rows = 0usize;
+    while !remaining.is_empty() {
+        rows += 1;
+        let break_at = field_value_break(remaining, val_w);
+        if break_at == 0 || break_at >= remaining.len() {
+            break;
+        }
+        let Some((_, rest)) = remaining.split_at_checked(break_at) else {
+            break;
+        };
+        remaining = rest.trim_start();
+    }
+    rows.max(1)
 }
 
 /// Return the byte offset in `s` that covers at most `max_width` display columns.
@@ -1191,16 +1219,9 @@ pub fn render_picker_row(
                     rows += 1;
                     continue;
                 }
-                // First line: label then the start of the value
+                // First line: label then the start of the value. Break on the last space that fits.
                 let val = field.value;
-                let first_chunk_len = byte_offset_for_width(val, max_val_w);
-                let first_break = if val.width() <= max_val_w {
-                    val.len()
-                } else if let Some(pos) = val.get(..first_chunk_len).and_then(|s| s.rfind(' ')) {
-                    pos + 1
-                } else {
-                    first_chunk_len
-                };
+                let first_break = field_value_break(val, max_val_w);
                 let (first_val, mut remaining) =
                     val.split_at_checked(first_break).unwrap_or((val, ""));
                 remaining = remaining.trim_start();
@@ -1216,15 +1237,10 @@ pub fn render_picker_row(
                         break;
                     }
                     let cy = y + rows;
-                    let chunk_len = byte_offset_for_width(remaining, max_val_w);
-                    let break_at = if remaining.width() <= max_val_w {
-                        remaining.len()
-                    } else if let Some(pos) = remaining.get(..chunk_len).and_then(|s| s.rfind(' '))
-                    {
-                        pos + 1
-                    } else {
-                        chunk_len
-                    };
+                    let break_at = field_value_break(remaining, max_val_w);
+                    if break_at == 0 {
+                        break;
+                    }
                     let Some((chunk, rest)) = remaining.split_at_checked(break_at) else {
                         break;
                     };
@@ -3676,6 +3692,78 @@ mod tests {
             compute_row_height(&row, width),
             2,
             "the card is the title plus one recap line"
+        );
+    }
+
+    /// A long CWD with an early space keeps its tail and the next field (`v88-x58`).
+    #[test]
+    fn resume_card_keeps_a_cwd_that_breaks_on_an_early_space() {
+        let cwd = format!("/home/dev/My Documents/{}", "early-tail");
+        let fields = [
+            PickerField {
+                label: "CWD",
+                value: &cwd,
+            },
+            PickerField {
+                label: "Model",
+                value: "grok-4",
+            },
+        ];
+        let row = PickerRow {
+            label: "Session",
+            right_label: "3m",
+            selected: false,
+            expanded: true,
+            fields: &fields,
+            description_lines: &[],
+            summary_lines: &[],
+            dimmed: false,
+            indent: 0,
+            badge: "",
+            badge_color: None,
+            collapsible: true,
+            underline_last_desc: false,
+        };
+        let width = 36u16;
+        let height = u16::try_from(compute_row_height(&row, width)).unwrap_or(1);
+        // Packed columns ignore the short line before the space, so they reserve one row too few.
+        let value_cols = 36usize - 4 - 13;
+        let packed_cwd = cwd.chars().count().div_ceil(value_cols);
+        assert!(
+            usize::from(height) > 1 + packed_cwd + 1,
+            "an early space must reserve more rows than a packed wrap (height={height}, packed cwd={packed_cwd})"
+        );
+        let area = ratatui::layout::Rect::new(0, 0, width, height);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        let mut state = PickerState::default();
+        let entries = [PickerEntry::Row(row)];
+        render_picker_content(
+            &mut buf,
+            area,
+            &crate::theme::Theme::groknight(),
+            &mut state,
+            &entries,
+            &[false],
+            &[],
+            None,
+            false,
+        );
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                if let Some(cell) = buf.cell((x, y)) {
+                    text.push_str(cell.symbol());
+                }
+            }
+        }
+        let compact: String = text.chars().filter(|ch| !ch.is_whitespace()).collect();
+        assert!(
+            compact.contains("early-tail"),
+            "the cwd tail stays on the card:\n{text}"
+        );
+        assert!(
+            text.contains("grok-4"),
+            "the field after the cwd stays on the card:\n{text}"
         );
     }
 

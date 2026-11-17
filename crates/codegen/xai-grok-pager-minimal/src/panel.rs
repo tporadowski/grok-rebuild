@@ -1536,6 +1536,41 @@ mod tests {
         );
     }
 
+    /// An expanded card whose CWD has an early space keeps the tail and later fields (`v88-x58`).
+    #[test]
+    fn minimal_resume_keeps_a_cwd_with_an_early_space() {
+        let theme = Theme::groknight();
+        let mut entry = session_entry("space-session");
+        entry.cwd = format!("/home/dev/My Documents/{}", "early-tail");
+        entry.model_id = Some("grok-4".into());
+        let mut agent = with_resume(vec![entry]);
+        {
+            let Some(ActiveModal::SessionPicker { state, .. }) = &mut agent.active_modal else {
+                panic!("expected session picker");
+            };
+            state.expanded.insert(0);
+        }
+        let width = 36u16;
+        let height = panel_height(&agent, ListPanel::Resume, width, 40);
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        render_with_tick(&mut buf, area, &mut agent, ListPanel::Resume, &theme, 0);
+        let text = crate::buffer_text(&buf);
+        let compact: String = text.chars().filter(|ch| !ch.is_whitespace()).collect();
+        assert!(
+            compact.contains("early-tail"),
+            "the cwd tail stays on the resume card:\n{text}"
+        );
+        assert!(
+            text.contains("grok-4"),
+            "the model field stays visible under a cwd that breaks on a space:\n{text}"
+        );
+        assert!(
+            text.contains("Source"),
+            "fields after that cwd stay visible:\n{text}"
+        );
+    }
+
     fn render_resume_text(agent: &mut AgentView, theme: &Theme, tick: u64) -> String {
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
