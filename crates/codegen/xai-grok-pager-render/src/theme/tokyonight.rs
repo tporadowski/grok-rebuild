@@ -185,7 +185,7 @@ impl Theme {
             accent_remember: Color::Rgb(139, 195, 74), // #8BC34A, Material Design light green
 
             selection_border: rgb(58, 72, 115), // #3A4873, muted tokyonight blue
-            prompt_border: rgb(60, 75, 120),    // #323E64, dimmer prompt chrome
+            prompt_border: rgb(50, 62, 100), // #323E64, dimmer prompt chrome
             prompt_border_active: rgb(75, 92, 140), // #4B5C8C, brighter when focused
             hover_border: rgb(55, 58, 80),
 

@@ -4566,6 +4566,46 @@
     }
 
     #[test]
+    #[serial_test::serial]
+    fn tokyonight_unfocused_input_border_is_dimmer_than_the_focused_border() {
+        use ratatui::style::Color;
+
+        let _guard = crate::theme::cache::pin_theme();
+        crate::theme::cache::set_terminal_native_lock(false);
+        crate::theme::cache::set(crate::theme::ThemeKind::TokyoNight);
+        let source = crate::theme::Theme::tokyonight();
+        assert_eq!(source.prompt_border, Color::Rgb(50, 62, 100));
+        let sum = |color: Color| -> i32 {
+            let Color::Rgb(r, g, b) = color else {
+                panic!("tokyo night border must stay rgb, got {color:?}");
+            };
+            i32::from(r) + i32::from(g) + i32::from(b)
+        };
+        assert!(
+            sum(source.prompt_border) + 80 <= sum(source.prompt_border_active),
+            "unfocused {:?} should sit well below focused {:?}",
+            source.prompt_border,
+            source.prompt_border_active
+        );
+
+        let paint = |focused: bool| {
+            let mut prompt = PromptWidget::new();
+            let mut style = PromptStyle::default();
+            style.focused = focused;
+            let area = Rect::new(0, 0, 40, 6);
+            let mut buf = Buffer::empty(area);
+            prompt.draw(&mut buf, area, None, &style, None, None);
+            buf.cell((2, 0))
+                .expect("top border")
+                .fg
+        };
+        let theme = crate::theme::Theme::current();
+        assert_eq!(paint(false), theme.prompt_border);
+        assert_eq!(paint(true), theme.prompt_border_active);
+        assert_ne!(theme.prompt_border, theme.prompt_border_active);
+    }
+
+    #[test]
     fn mode_flags_show_plan_and_permission_together() {
         use crate::app::actions::PermissionLabel;
         use xai_grok_tools::types::SessionMode;
