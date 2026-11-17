@@ -1586,7 +1586,7 @@ fn build_permission_option_line<'a>(
     let sc = shortcut_char(index);
 
     if option.kind == acp::PermissionOptionKind::RejectOnce {
-        return build_reject_once_line(sc, is_cursor, row_bg, followup_text, theme);
+        return build_reject_once_line(sc, is_cursor, row_bg, followup_text, row_width, theme);
     }
 
     let (label_prefix, scope_words) = dynamic_option_label(option, selected_words, mcp_scope);
@@ -1645,6 +1645,7 @@ fn build_reject_once_line<'a>(
     is_cursor: bool,
     row_bg: ratatui::style::Color,
     followup_text: &str,
+    row_width: u16,
     theme: &Theme,
 ) -> Line<'a> {
     let num_style = Style::default().fg(theme.accent_user).bg(row_bg);
@@ -1669,7 +1670,11 @@ fn build_reject_once_line<'a>(
 
     let (label, label_style) = if has_text {
         let first_line = followup_text.lines().next().unwrap_or("");
-        let preview = crate::render::line_utils::truncate_str(first_line, 50);
+        // The arrow is one column and is painted only when there is text.
+        let prefix_cols =
+            2 + marker.width() + 1 + crate::glyphs::prompt_arrow().width();
+        let room = (row_width as usize).saturating_sub(prefix_cols).min(50);
+        let preview = crate::render::line_utils::truncate_str(first_line, room);
         (preview, Style::default().fg(theme.text_primary).bg(row_bg))
     } else {
         (
@@ -1790,6 +1795,17 @@ mod tests {
             .iter()
             .map(|span| span.content.as_ref())
             .collect()
+    }
+
+    #[test]
+    fn narrow_reject_followup_ends_with_an_ellipsis() {
+        let theme = Theme::default();
+        let text = "feedback that is much too long for a narrow permission card";
+        let line = build_reject_once_line('1', true, theme.bg_light, text, 24, &theme);
+        let plain: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        let width: usize = line.spans.iter().map(|s| s.content.width()).sum();
+        assert!(width <= 24, "{width} {plain}");
+        assert!(plain.ends_with('\u{2026}'), "{plain}");
     }
 
     #[test]

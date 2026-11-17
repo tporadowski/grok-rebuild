@@ -322,7 +322,16 @@ pub fn render_elicitation_view(
                     content_x,
                     row_y,
                     content_width,
-                    field_row(state, *i, field, is_cur, focused, theme, value_col),
+                    field_row(
+                        state,
+                        *i,
+                        field,
+                        is_cur,
+                        focused,
+                        theme,
+                        value_col,
+                        content_width as usize,
+                    ),
                 );
                 if let Some(ref mut hits) = hits {
                     hits.push((
@@ -550,6 +559,7 @@ fn field_row(
     focused: bool,
     theme: &Theme,
     value_col: usize,
+    content_w: usize,
 ) -> Line<'static> {
     use crate::render::line_utils::truncate_str;
 
@@ -602,7 +612,9 @@ fn field_row(
         ""
     };
     let left_w = prefix.width() + field.spec.title.width() + req.width();
-    let value_disp = truncate_str(&value, MAX_VALUE_WIDTH);
+    // The value starts at `value_col`. What does not fit the card ends with `…`.
+    let room = content_w.saturating_sub(value_col).min(MAX_VALUE_WIDTH);
+    let value_disp = truncate_str(&value, room);
     let gap = value_col.saturating_sub(left_w).max(1);
 
     let mut spans = vec![

@@ -341,6 +341,29 @@ fn move_focus_zero_field_form_toggles_actions() {
 }
 
 #[test]
+fn narrow_form_value_ends_with_an_ellipsis() {
+    let mut state = ElicitationViewState::from_request(form_req(), None, None);
+    set_draft(
+        &mut state,
+        0,
+        "someone.with.a.very.long.address@example.com",
+    );
+    let w = 36u16;
+    let text = render_to_text(&mut state, w, 16);
+    let row = text
+        .lines()
+        .find(|line| line.contains("email"))
+        .unwrap_or_else(|| panic!("no email row\n{text}"));
+    let content_w = (w - 5) as usize;
+    let shown: String = row.chars().skip(3).take(content_w).collect();
+    let trimmed = shown.trim_end();
+    assert!(
+        trimmed.ends_with('\u{2026}'),
+        "form value should end inside the card, got {trimmed:?}\n{text}"
+    );
+}
+
+#[test]
 fn value_column_caps_on_wide_content() {
     let state = ElicitationViewState::from_request(form_req(), None, None);
     let fields = &state.form().unwrap().fields;

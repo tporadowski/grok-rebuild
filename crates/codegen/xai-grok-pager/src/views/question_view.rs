@@ -1246,6 +1246,7 @@ pub fn build_flat_option_lines(
             is_multi,
             theme,
             panel_focused,
+            content_w,
         ));
     }
 
@@ -1479,6 +1480,7 @@ fn build_freeform_line(
     is_multi: bool,
     theme: &Theme,
     panel_focused: bool,
+    content_w: usize,
 ) -> Line<'static> {
     // Whitespace-only freeform is treated as empty and never shown as selected
     let is_selected = is_selected && !freeform_text.trim().is_empty();
@@ -1528,10 +1530,17 @@ fn build_freeform_line(
 
     let has_text = !freeform_text.trim().is_empty();
     let prompt_indicator = Style::default().fg(fg(theme.accent_user)).bg(row_bg);
+    let arrow_cols = if has_text {
+        crate::glyphs::prompt_arrow().width()
+    } else {
+        0
+    };
+    let prefix_cols = num_str.width() + 1 + marker_with_space.width() + arrow_cols;
+    let room = content_w.saturating_sub(prefix_cols).min(50);
     let (label, label_style) = if is_selected && has_text {
-        // Show a truncated preview of the typed answer.
+        // Show a truncated preview of the typed answer, inside the card.
         let first_line = freeform_text.lines().next().unwrap_or("");
-        let preview = truncate_str(first_line, 50);
+        let preview = truncate_str(first_line, room);
         (
             preview,
             Style::default().fg(fg(theme.text_primary)).bg(row_bg),
@@ -1539,7 +1548,7 @@ fn build_freeform_line(
     } else if has_text {
         // Has text but not selected: show dimmed preview
         let first_line = freeform_text.lines().next().unwrap_or("");
-        let preview = truncate_str(first_line, 50);
+        let preview = truncate_str(first_line, room);
         (preview, Style::default().fg(fg(theme.gray)).bg(row_bg))
     } else {
         // Empty: show placeholder
@@ -1711,6 +1720,7 @@ pub fn render_question_view(
                 is_multi,
                 theme,
                 focused,
+                content_width as usize,
             );
             let row_rect = Rect {
                 x: content_x,
@@ -2171,7 +2181,7 @@ mod tests {
         );
 
         // Freeform row on cursor: same accent treatment.
-        let freeform_cursor = build_freeform_line(true, false, "", false, false, &theme, true);
+        let freeform_cursor = build_freeform_line(true, false, "", false, false, &theme, true, 80);
         assert!(
             freeform_cursor
                 .spans
@@ -2538,6 +2548,30 @@ mod tests {
 
         let heights = option_visual_height(&opt, content_w, prefix_w, max_label_w, true);
         assert_eq!(heights as usize, lines.len());
+    }
+
+    #[test]
+    fn narrow_typed_answer_ends_with_an_ellipsis() {
+        let theme = Theme::default();
+        let q = make_question("Pick?", &["A"], false);
+        let text = "a typed answer that is far too long for this card";
+        let lines = build_flat_option_lines(
+            &q,
+            24,
+            0,
+            None,
+            &QuestionSelection::Single(None),
+            &theme,
+            true,
+            text,
+            false,
+            true,
+        );
+        let line = lines.last().expect("freeform row");
+        let plain: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        let width: usize = line.spans.iter().map(|s| s.content.width()).sum();
+        assert!(width <= 24, "{width} {plain}");
+        assert!(plain.contains('\u{2026}'), "{plain}");
     }
 
     #[test]
