@@ -270,7 +270,7 @@ fn resume_body_rows(agent: &AgentView, width: u16) -> u16 {
         !agent.app_chat_mode
             && minimal_api::hidden_external_hint(entries.as_deref(), *source_filter).is_some(),
     );
-    measure_entries(&picker_entries).saturating_add(hint_row)
+    measure_entries(&picker_entries, width).saturating_add(hint_row)
 }
 
 fn render_resume(
@@ -847,10 +847,10 @@ fn render_mcps(
     None
 }
 
-/// Sum the display height of grouped picker entries.
+/// Sum the display height of grouped picker entries at `width`.
 /// A header is one row, plus the blank spacer `render_picker_content` draws before non-first headers.
-/// A row is its label line plus its collapsed summary lines (what the picker draws when the row is not expanded).
-fn measure_entries(entries: &[PickerEntry<'_>]) -> u16 {
+/// Row height matches [`picker::compute_row_height`], including a CWD value that wraps onto extra lines.
+fn measure_entries(entries: &[PickerEntry<'_>], width: u16) -> u16 {
     entries
         .iter()
         .enumerate()
@@ -862,14 +862,7 @@ fn measure_entries(entries: &[PickerEntry<'_>]) -> u16 {
                     2u16
                 }
             }
-            PickerEntry::Row(r) => {
-                if r.expanded {
-                    1u16.saturating_add(r.description_lines.len() as u16)
-                        .saturating_add(r.fields.len() as u16)
-                } else {
-                    1u16.saturating_add(r.summary_lines.len() as u16)
-                }
-            }
+            PickerEntry::Row(row) => picker::compute_row_height(row, width) as u16,
         })
         .fold(0u16, |acc, h| acc.saturating_add(h))
 }
@@ -1506,6 +1499,40 @@ mod tests {
         assert!(
             alpha_at < zeta_at,
             "grouped rows follow repo order, not caller order:\n{grouped_text}"
+        );
+    }
+
+    /// An expanded card whose CWD wraps still shows the fields under it (`v88-x52`).
+    #[test]
+    fn minimal_resume_shows_fields_when_cwd_wraps() {
+        let theme = Theme::groknight();
+        let mut entry = session_entry("wrap-session");
+        entry.cwd = format!("/home/dev/{}", "a".repeat(48)) + "/wrap-tail-dir";
+        entry.model_id = Some("grok-4".into());
+        let mut agent = with_resume(vec![entry]);
+        {
+            let Some(ActiveModal::SessionPicker { state, .. }) = &mut agent.active_modal else {
+                panic!("expected session picker");
+            };
+            state.expanded.insert(0);
+        }
+        let width = 36u16;
+        let height = panel_height(&agent, ListPanel::Resume, width, 40);
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        render_with_tick(&mut buf, area, &mut agent, ListPanel::Resume, &theme, 0);
+        let text = crate::buffer_text(&buf);
+        assert!(
+            text.contains("wrap-tail-dir"),
+            "the wrapped cwd stays on the card:\n{text}"
+        );
+        assert!(
+            text.contains("grok-4"),
+            "the model field stays visible under a wrapped cwd:\n{text}"
+        );
+        assert!(
+            text.contains("Source"),
+            "fields after the wrapped cwd stay visible:\n{text}"
         );
     }
 
