@@ -13,7 +13,7 @@ use crate::views::modal_window::{
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthStr;
@@ -828,7 +828,7 @@ pub fn format_agent_detail(entry: &AgentListEntry) -> Vec<String> {
     lines.push(format!("  Prompt mode: {mode_label}"));
     let tools = &def.tool_config.tools;
     if tools.is_empty() {
-        lines.push("  Tools: (none)".to_string());
+        lines.push("  Tools: (empty)".to_string());
     } else {
         lines.push(format!("  Tools ({}): ", tools.len()));
         for tool in tools {
@@ -837,6 +837,7 @@ pub fn format_agent_detail(entry: &AgentListEntry) -> Vec<String> {
                     .rsplit_once(':')
                     .map_or(tool.id.as_str(), |(_, name)| name)
             });
+            let name = if name.is_empty() { "(empty)" } else { name };
             lines.push(format!("    \u{2022} {name}"));
         }
     }
@@ -852,18 +853,22 @@ pub fn format_agent_detail(entry: &AgentListEntry) -> Vec<String> {
     lines.push(format!("  Scope: {}", entry.scope.label()));
     if let Some(ref body) = def.prompt_body {
         let rendered = render_prompt_body(body, &def.tool_config);
-        let char_count = rendered.chars().count();
-        let truncated: String = rendered.chars().take(120).collect::<String>();
-        if char_count > 120 {
-            lines.push(format!("  Prompt extension: {truncated}..."));
-            lines.push("  (Enter to view full)".to_string());
+        if rendered.trim().is_empty() {
+            lines.push("  Prompt extension: (empty)".to_string());
         } else {
-            lines.push(format!("  Prompt extension: {truncated}"));
+            let char_count = rendered.chars().count();
+            let truncated: String = rendered.chars().take(120).collect::<String>();
+            if char_count > 120 {
+                lines.push(format!("  Prompt extension: {truncated}..."));
+                lines.push("  (Enter to view full)".to_string());
+            } else {
+                lines.push(format!("  Prompt extension: {truncated}"));
+            }
         }
     } else if entry.source_path.is_some() {
         lines.push("  Prompt extension: (in file, Enter to view)".to_string());
     } else {
-        lines.push("  Prompt extension: (none)".to_string());
+        lines.push("  Prompt extension: (empty)".to_string());
     }
     lines
 }
@@ -1062,6 +1067,15 @@ fn modal_sizing(compact: bool) -> ModalSizing {
         footer_lines: 2,
     }
     .with_compact(compact)
+}
+fn persona_scope_fg(scope: &str, theme: &Theme) -> Color {
+    match scope.trim() {
+        "built-in" => theme.accent_assistant,
+        "project" => theme.accent_user,
+        "user" => theme.text_secondary,
+        "bundled" => theme.gray_dim,
+        _ => theme.gray,
+    }
 }
 fn scope_badge(scope: AgentScope, theme: &Theme) -> (String, Style) {
     let label = match scope {
@@ -1691,7 +1705,8 @@ fn render_personas_tab(
                     let left = row_right.saturating_sub(x) as usize;
                     if left > 0 {
                         let badge = crate::render::line_utils::truncate_str(&scope, left);
-                        let mut scope_style = Style::default().fg(theme.accent_user);
+                        let mut scope_style =
+                            Style::default().fg(persona_scope_fg(scope.trim(), theme));
                         if let Some(bg_color) = bg {
                             scope_style = scope_style.bg(bg_color);
                         }
@@ -2638,6 +2653,100 @@ mod tests {
             row.contains('\u{2026}'),
             "a wide picker row is shortened, not clipped mid-glyph: {row:?}"
         );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn persona_badges_follow_scope_and_empty_fields_say_empty() {
+        let _guard = crate::theme::cache::pin_theme();
+        crate::theme::cache::set_terminal_native_lock(false);
+        crate::theme::cache::set(crate::theme::ThemeKind::TokyoNight);
+        let theme = Theme::current();
+        let mut state = make_persona_state(
+            vec![
+                PersonaDetail {
+                    name: "alpha".into(),
+                    description: None,
+                    has_inputs: false,
+                    has_outputs: false,
+                    source_path: None,
+                    scope_label: Some("project".into()),
+                },
+                PersonaDetail {
+                    name: "beta".into(),
+                    description: None,
+                    has_inputs: false,
+                    has_outputs: false,
+                    source_path: None,
+                    scope_label: Some("user".into()),
+                },
+            ],
+            "",
+            0,
+        );
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        render_agents_modal(&mut buf, area, &mut state, false, &theme);
+        let content = state.content_rect.expect("personas content");
+        let fg_of = |needle: &str| -> Color {
+            for y in content.y..content.y + content.height {
+                let mut text = String::new();
+                for x in content.x..content.x + content.width {
+                    if let Some(cell) = buf.cell((x, y)) {
+                        text.push_str(cell.symbol());
+                    }
+                }
+                if let Some(at) = text.find(needle) {
+                    let col = text.get(..at).map(|prefix| prefix.chars().count()).unwrap_or(0);
+                    let x = content.x + col as u16;
+                    return buf
+                        .cell((x, y))
+                        .map(|cell| cell.fg)
+                        .unwrap_or(Color::Reset);
+                }
+            }
+            panic!("missing badge {needle}");
+        };
+        assert_eq!(fg_of("project"), theme.accent_user);
+        assert_eq!(fg_of("user"), theme.text_secondary);
+        assert_ne!(theme.accent_user, theme.text_secondary);
+
+        let mut def = AgentDefinition::explore();
+        def.tool_config.tools.clear();
+        def.prompt_body = Some(String::new());
+        let mut state = make_persona_state(vec![], "", 0);
+        state.active_tab = AgentsTab::Agents;
+        state.agents = vec![AgentListEntry {
+            name: "explore".into(),
+            description: String::new(),
+            scope: AgentScope::Project,
+            source_path: None,
+            enabled: true,
+            is_builtin: false,
+            expanded: true,
+            definition: def,
+        }];
+        let mut buf = Buffer::empty(area);
+        render_agents_modal(&mut buf, area, &mut state, false, &theme);
+        let content = state.content_rect.expect("agents content");
+        let mut painted = String::new();
+        for y in content.y..content.y + content.height {
+            for x in content.x..content.x + content.width {
+                if let Some(cell) = buf.cell((x, y)) {
+                    painted.push_str(cell.symbol());
+                }
+            }
+            painted.push('\n');
+        }
+        assert!(
+            painted.contains("Tools: (empty)"),
+            "an agent with no tools says empty:\n{painted}"
+        );
+        assert!(
+            painted.contains("Prompt extension: (empty)"),
+            "a blank prompt extension says empty:\n{painted}"
+        );
+        assert!(!painted.contains("(none)"), "{painted}");
     }
 
     #[test]
