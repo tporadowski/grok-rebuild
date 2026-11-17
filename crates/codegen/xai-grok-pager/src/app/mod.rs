@@ -72,6 +72,7 @@ mod reader_thread;
 pub(crate) mod screen_mode_relaunch;
 mod session_load_barrier;
 mod startup_failure;
+mod startup_overlap;
 use reader_thread::ReaderThread;
 pub mod signal_handler;
 mod teardown_fence;
@@ -1115,28 +1116,6 @@ pub async fn run(
     let cursor_blink = initial_ui.cursor_blink;
     let kitty_keyboard =
         crate::terminal::KittyKeyboardMode::parse(initial_ui.kitty_keyboard.as_deref());
-    let TerminalInit {
-        mut terminal,
-        screen_mode,
-        startup_typeahead,
-    } = init_terminal(
-        screen_mode,
-        minimal_live_rows,
-        relaunched_into_minimal,
-        frame_tx,
-        writer_sync,
-        cursor_blink,
-        kitty_keyboard,
-    )?;
-    MINIMAL_SHOW_SWITCH_BACK_TO_FULLSCREEN.store(
-        relaunched_into_minimal && screen_mode.is_minimal(),
-        Ordering::Release,
-    );
-    apply_screen_mode_globals(screen_mode);
-    finish_theme_after_probe(minimal, screen_mode);
-    if let Some(ref t) = session_title {
-        set_terminal_title(t);
-    }
     let connect_ui_timeout_env = std::env::var(connect_timeout::CONNECT_UI_TIMEOUT_ENV).ok();
     let connect_ui_timeout = connect_timeout::resolve(
         connect_ui_timeout_env.as_deref(),
@@ -1168,27 +1147,74 @@ pub async fn run(
     );
     let tracing_handle = crate::tracing::init_tracing();
     let pending_startup = xai_grok_telemetry::startup::PendingStartup::new();
-    let timer = xai_grok_telemetry::startup::begin(crate::acp::Owner::Client);
-    let primary_started = std::time::Instant::now();
-    let connect_result = bounded_connect(
-        &cancel,
-        connect_ui_timeout,
-        connect_ui_timeout_env.as_deref(),
-        primary_target,
-        startup_failure::ConnectAttempt::First,
-        &timer,
-        async {
-            match primary_target {
-                crate::acp::AgentKind::Leader => {
-                    crate::acp::connect_via_leader(&cancel, connect_flags, &raw_config).await
-                }
-                crate::acp::AgentKind::Embedded => {
-                    crate::acp::connect(&cancel, connect_flags).await
-                }
-            }
-        },
-    )
-    .await;
+    let cancel_for_connect = cancel.clone();
+    let connect_flags_for_connect = connect_flags;
+    let raw_config_for_connect = raw_config.clone();
+    let connect_env_for_connect = connect_ui_timeout_env.clone();
+    // Protocol queries (keyboard, and the inline cursor question) run on this thread while the
+    // agent connection is already in progress. The first frame waits for the slower of the two.
+    let (terminal_init, (connect_result, timer, primary_started)) =
+        startup_overlap::overlap_terminal_queries_with_connect(
+            move || {
+                init_terminal(
+                    screen_mode,
+                    minimal_live_rows,
+                    relaunched_into_minimal,
+                    frame_tx,
+                    writer_sync,
+                    cursor_blink,
+                    kitty_keyboard,
+                )
+            },
+            async move {
+                let primary_started = std::time::Instant::now();
+                let timer = xai_grok_telemetry::startup::begin(crate::acp::Owner::Client);
+                let connect_result = bounded_connect(
+                    &cancel_for_connect,
+                    connect_ui_timeout,
+                    connect_env_for_connect.as_deref(),
+                    primary_target,
+                    startup_failure::ConnectAttempt::First,
+                    &timer,
+                    async {
+                        match primary_target {
+                            crate::acp::AgentKind::Leader => {
+                                crate::acp::connect_via_leader(
+                                    &cancel_for_connect,
+                                    connect_flags_for_connect,
+                                    &raw_config_for_connect,
+                                )
+                                .await
+                            }
+                            crate::acp::AgentKind::Embedded => {
+                                crate::acp::connect(
+                                    &cancel_for_connect,
+                                    connect_flags_for_connect,
+                                )
+                                .await
+                            }
+                        }
+                    },
+                )
+                .await;
+                (connect_result, timer, primary_started)
+            },
+        )
+        .await;
+    let TerminalInit {
+        mut terminal,
+        screen_mode,
+        startup_typeahead,
+    } = terminal_init?;
+    MINIMAL_SHOW_SWITCH_BACK_TO_FULLSCREEN.store(
+        relaunched_into_minimal && screen_mode.is_minimal(),
+        Ordering::Release,
+    );
+    apply_screen_mode_globals(screen_mode);
+    finish_theme_after_probe(minimal, screen_mode);
+    if let Some(ref t) = session_title {
+        set_terminal_title(t);
+    }
     let (connect_result, embedded_fallback, timer, connect_target) = match connect_result {
         Err(f) if primary_target == crate::acp::AgentKind::Leader && !cancel.is_cancelled() => {
             tracing::warn!(error = %f.error, "leader connect failed; falling back to embedded agent");
