@@ -492,6 +492,11 @@ pub fn parse_hook_file(content: &str, file_path: &Path) -> (Vec<HookSpec>, Vec<H
     let specs = Vec::new();
     let mut errors = Vec::new();
 
+    // A blank file is an empty hook set, not a parse error.
+    if content.trim().is_empty() {
+        return (specs, errors);
+    }
+
     let top_level: serde_json::Value = match serde_json::from_str(content) {
         Ok(v) => v,
         Err(e) => {
@@ -1536,6 +1541,15 @@ mod tests {
         let has_post = specs.iter().any(|s| s.event == HookEventName::PostToolUse);
         assert!(has_pre, "expected PreToolUse hook");
         assert!(has_post, "expected PostToolUse hook");
+    }
+
+    #[test]
+    fn parse_hook_file_blank_is_not_an_error() {
+        for content in ["", "   ", "\n\n", " \t\n"] {
+            let (specs, errors) = parse_hook_file(content, Path::new("/tmp/hooks/empty.json"));
+            assert!(specs.is_empty(), "{content:?} -> {specs:?}");
+            assert!(errors.is_empty(), "{content:?} -> {errors:?}");
+        }
     }
 
     #[test]
