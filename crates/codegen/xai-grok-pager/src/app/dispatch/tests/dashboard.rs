@@ -8717,3 +8717,175 @@ fn dashboard_stop_ends_background_subagents_and_workflows() {
         "the subagent row is marked stopping"
     );
 }
+
+fn dashboard_buffer(app: &mut AppView) -> (String, Option<(u16, u16)>) {
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    let area = Rect::new(0, 0, 100, 30);
+    let mut buf = Buffer::empty(area);
+    let mut agents = indexmap::IndexMap::new();
+    let registry = crate::actions::ActionRegistry::defaults();
+    let cursor = crate::views::dashboard::render_dashboard(
+        &mut buf,
+        area,
+        app.dashboard.as_mut().expect("dashboard"),
+        &mut agents,
+        &registry,
+        None,
+        &[],
+        false,
+        crate::views::dashboard::WorkspaceRowInputs {
+            workspace: None,
+            provisional: &[],
+        },
+        None,
+        false,
+        None,
+        None,
+    );
+    let mut painted = String::new();
+    for y in 0..area.height {
+        for x in 0..area.width {
+            if let Some(cell) = buf.cell((x, y)) {
+                painted.push_str(cell.symbol());
+            }
+        }
+        painted.push('\n');
+    }
+    (painted, cursor)
+}
+
+/// `/release-notes`, `/docs`, and `/help` open on the dashboard instead of being dropped.
+/// Release notes stay on `fetch_changelog` (`fetch_merged`), so older embedded versions remain.
+#[serial_test::serial(GROK_AGENT_DASHBOARD)]
+#[test]
+fn dashboard_slash_release_notes_docs_and_help_open_in_place() {
+    use crate::views::modal::ActiveModal;
+    let mut app = three_agent_app();
+    open_dashboard(&mut app);
+    let before = app.agents.len();
+    let effects = dispatch_dashboard_dispatch_slash(&mut app, "/release-notes".into());
+    assert!(effects.is_empty(), "must not spawn a session: {effects:?}");
+    assert_eq!(app.agents.len(), before);
+    assert!(matches!(app.active_view, ActiveView::AgentDashboard));
+    let (title, content, scroll, standalone) = {
+        let dashboard = app.dashboard.as_ref().unwrap();
+        assert_eq!(dashboard.dispatch.text(), "");
+        let ActiveModal::DocViewer {
+            title,
+            content,
+            scroll,
+            standalone,
+            ..
+        } = dashboard.guide_modal.as_ref().expect("release notes")
+        else {
+            panic!("expected a release-notes viewer");
+        };
+        (title.clone(), content.clone(), *scroll, *standalone)
+    };
+    assert_eq!(title, "Release Notes");
+    assert!(standalone);
+    assert_eq!(scroll, 0);
+    let headings: Vec<&str> = content
+        .lines()
+        .filter(|line| line.starts_with("# 1.0."))
+        .collect();
+    assert!(
+        headings.len() >= 2,
+        "release notes must keep older versions, got {headings:?}"
+    );
+    assert_ne!(
+        headings[0], headings[1],
+        "two headings must name different versions"
+    );
+
+    let (painted, cursor) = dashboard_buffer(&mut app);
+    assert!(
+        cursor.is_none(),
+        "the dashboard caret hides while notes are open"
+    );
+    assert!(
+        painted.contains("Release Notes"),
+        "viewer title must be painted: {painted}"
+    );
+
+    let registry = crate::actions::ActionRegistry::defaults();
+    let dashboard = app.dashboard.as_mut().unwrap();
+    let down = Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert!(matches!(
+        dashboard.handle_input(&down, &registry),
+        InputOutcome::Changed
+    ));
+    let ActiveModal::DocViewer { scroll, .. } = dashboard.guide_modal.as_ref().unwrap() else {
+        panic!("down must scroll the notes, not the dashboard rows");
+    };
+    assert_eq!(*scroll, 3);
+    let esc = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(
+        dashboard.handle_input(&esc, &registry),
+        InputOutcome::Changed
+    ));
+    assert!(dashboard.guide_modal.is_none());
+
+    let _ = dispatch_dashboard_dispatch_slash(&mut app, "/docs".into());
+    assert!(matches!(
+        app.dashboard.as_ref().unwrap().guide_modal,
+        Some(ActiveModal::DocPicker { .. })
+    ));
+    let (painted, cursor) = dashboard_buffer(&mut app);
+    assert!(cursor.is_none());
+    assert!(
+        painted.contains("How-to guides"),
+        "docs picker title must be painted: {painted}"
+    );
+    let dashboard = app.dashboard.as_mut().unwrap();
+    let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(
+        dashboard.handle_input(&enter, &registry),
+        InputOutcome::Changed
+    ));
+    let (title, content, standalone) = {
+        let ActiveModal::DocViewer {
+            title,
+            content,
+            standalone,
+            ..
+        } = dashboard.guide_modal.as_ref().expect("selected guide")
+        else {
+            panic!("Enter on /docs must open the selected guide");
+        };
+        (title.clone(), content.clone(), *standalone)
+    };
+    assert!(!standalone, "a picked guide returns to the list on Esc");
+    assert!(!title.is_empty());
+    assert!(
+        content.contains(title.as_str()),
+        "{title} missing from its body"
+    );
+    assert!(matches!(
+        dashboard.handle_input(&esc, &registry),
+        InputOutcome::Changed
+    ));
+    assert!(
+        matches!(dashboard.guide_modal, Some(ActiveModal::DocPicker { .. })),
+        "Esc from a guide returns to the list"
+    );
+    let _ = dispatch_dashboard_dispatch_slash(&mut app, "/docs".into());
+    assert!(app.dashboard.as_ref().unwrap().guide_modal.is_none());
+
+    let _ = dispatch_dashboard_dispatch_slash(&mut app, "/help".into());
+    assert!(matches!(
+        app.dashboard.as_ref().unwrap().guide_modal,
+        Some(ActiveModal::CommandPalette { .. })
+    ));
+    let (painted, cursor) = dashboard_buffer(&mut app);
+    assert!(cursor.is_none());
+    assert!(
+        painted.contains("Commands"),
+        "help palette title must be painted: {painted}"
+    );
+    let _ = dispatch_dashboard_dispatch_slash(&mut app, "/help".into());
+    assert!(app.dashboard.as_ref().unwrap().guide_modal.is_none());
+    assert_eq!(app.agents.len(), before);
+    assert!(matches!(app.active_view, ActiveView::AgentDashboard));
+}

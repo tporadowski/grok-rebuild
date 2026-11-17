@@ -755,7 +755,19 @@ pub(super) fn dispatch_show_release_notes(
                 standalone: true,
             });
         }
-        _ => {}
+        ActiveView::AgentDashboard => {
+            if let Some(dashboard) = app.dashboard.as_mut() {
+                dashboard.guide_modal = Some(crate::views::modal::ActiveModal::DocViewer {
+                    title,
+                    content,
+                    scroll: 0,
+                    window: crate::views::modal_window::ModalWindowState::new(),
+                    cached_lines: None,
+                    previous_palette: None,
+                    standalone: true,
+                });
+            }
+        }
     }
     vec![]
 }

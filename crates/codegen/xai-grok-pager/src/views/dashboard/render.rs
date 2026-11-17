@@ -365,6 +365,11 @@ pub(crate) fn render_dashboard(
         return None;
     }
 
+    if state.guide_modal.is_some() {
+        render_guide_modal(buf, area, state, &theme);
+        return None;
+    }
+
     // The location picker overlays everything too (mutually exclusive with the shortcuts modal in practice)
     // When open, input is routed to it, so the dispatch cursor is suppressed
     if let Some(modal) = state.location_picker.as_mut() {
@@ -384,6 +389,54 @@ pub(crate) fn render_dashboard(
         return Some(pos);
     }
     dispatch_cursor
+}
+
+fn render_guide_modal(buf: &mut Buffer, area: Rect, state: &mut DashboardState, theme: &Theme) {
+    use crate::views::modal::{
+        ActiveModal, render_command_palette_overlay, render_doc_picker_overlay,
+        render_doc_viewer_overlay,
+    };
+    let Some(modal) = state.guide_modal.as_mut() else {
+        return;
+    };
+    match modal {
+        ActiveModal::DocViewer {
+            title,
+            content,
+            scroll,
+            window,
+            cached_lines,
+            ..
+        } => {
+            render_doc_viewer_overlay(
+                buf,
+                area,
+                window,
+                title,
+                content,
+                scroll,
+                cached_lines,
+                false,
+                theme,
+            );
+        }
+        ActiveModal::DocPicker {
+            entries,
+            state: picker,
+            window,
+            ..
+        } => {
+            render_doc_picker_overlay(buf, area, window, entries, picker, false, theme);
+        }
+        ActiveModal::CommandPalette {
+            entries,
+            state: picker,
+            window,
+        } => {
+            render_command_palette_overlay(buf, area, window, entries, picker, false, theme);
+        }
+        _ => {}
+    }
 }
 
 const RENAME_PREFIX: &str = "rename: ";

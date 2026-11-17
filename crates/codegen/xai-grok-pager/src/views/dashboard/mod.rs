@@ -15,6 +15,7 @@
 //! - [`actions_focus`]: the keyboard cursor on the actions row and its `←`/`→` walk.
 //! - [`peek`]: peek panel state and rendering.
 //! - [`usage_modal`]: input routing for the dashboard-hosted `/usage` modal.
+//! - [`guide_modal`]: `/release-notes`, `/docs`, and `/help` while the dashboard is active.
 //!
 //! ## Lifetime
 //!
@@ -24,6 +25,7 @@
 mod actions_focus;
 pub(crate) mod animation;
 mod chrome;
+mod guide_modal;
 pub mod layout;
 pub mod peek;
 pub mod peek_tail;

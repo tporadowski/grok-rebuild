@@ -119,6 +119,29 @@ pub(crate) fn refresh_open_settings_modals(app: &mut AppView) {
 /// In minimal mode the overlay app-modal host renders it inline.
 pub(in crate::app::dispatch) fn dispatch_open_command_palette(app: &mut AppView) -> Vec<Effect> {
     use crate::views::modal::ActiveModal;
+    if matches!(app.active_view, ActiveView::AgentDashboard) {
+        let sharing_enabled = app.sharing_enabled;
+        let Some(dashboard) = app.dashboard.as_mut() else {
+            return vec![];
+        };
+        if matches!(
+            &dashboard.guide_modal,
+            Some(ActiveModal::CommandPalette { .. })
+        ) {
+            dashboard.guide_modal = None;
+            return vec![];
+        }
+        let entries = crate::views::modal::default_palette_entries(
+            sharing_enabled,
+            &dashboard.dispatch.slash_controller,
+        );
+        dashboard.guide_modal = Some(ActiveModal::CommandPalette {
+            entries,
+            state: crate::views::picker::PickerState::input_active(),
+            window: crate::views::modal_window::ModalWindowState::new(),
+        });
+        return vec![];
+    }
     let ActiveView::Agent(id) = app.active_view else {
         return vec![];
     };
@@ -147,6 +170,17 @@ pub(in crate::app::dispatch) fn dispatch_open_command_palette(app: &mut AppView)
 /// Open the How-to Guides doc picker (`/docs`). Toggles closed if already open.
 pub(in crate::app::dispatch) fn dispatch_open_howto_guides(app: &mut AppView) -> Vec<Effect> {
     use crate::views::modal::ActiveModal;
+    if matches!(app.active_view, ActiveView::AgentDashboard) {
+        let Some(dashboard) = app.dashboard.as_mut() else {
+            return vec![];
+        };
+        if matches!(&dashboard.guide_modal, Some(ActiveModal::DocPicker { .. })) {
+            dashboard.guide_modal = None;
+            return vec![];
+        }
+        dashboard.guide_modal = Some(crate::views::modal::howto_list_modal(None));
+        return vec![];
+    }
     let ActiveView::Agent(id) = app.active_view else {
         return vec![];
     };

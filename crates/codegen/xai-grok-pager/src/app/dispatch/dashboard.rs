@@ -157,6 +157,7 @@ fn configure_dashboard_state(app: &mut AppView) {
         d.close_popup();
         d.location_picker = None;
         d.usage_modal = None;
+        d.guide_modal = None;
         d.cwd = cwd.clone();
         d.cwd_has_git_ancestor = cwd_has_git_ancestor;
         d.multiline_mode = crate::appearance::cache::load_multiline_default();

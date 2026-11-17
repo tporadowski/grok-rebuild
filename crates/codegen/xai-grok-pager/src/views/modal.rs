@@ -617,22 +617,26 @@ pub(crate) fn default_palette_entries(
     }
     entries
 }
-#[allow(clippy::collapsible_if)]
 /// Filter palette entries for search, preserving section headers when any item in the section matches.
 pub(crate) fn filter_palette_entries(
     query: &str,
     sharing_enabled: bool,
     slash: &crate::slash::SlashController,
 ) -> Vec<PaletteEntry> {
-    let all = default_palette_entries(sharing_enabled, slash);
+    filter_palette_list(&default_palette_entries(sharing_enabled, slash), query)
+}
+
+/// Keep a section header when any row under it matches `query`.
+#[allow(clippy::collapsible_if)]
+pub(crate) fn filter_palette_list(entries: &[PaletteEntry], query: &str) -> Vec<PaletteEntry> {
     let query_lower = query.to_lowercase();
     if query_lower.is_empty() {
-        return all;
+        return entries.to_vec();
     }
     let mut result = Vec::new();
     let mut pending_header: Option<PaletteEntry> = None;
     let mut section_has_match = false;
-    for entry in all {
+    for entry in entries.iter().cloned() {
         if matches!(entry.command, PaletteCommand::SectionHeader(_)) {
             if let Some(h) = pending_header.take() {
                 if section_has_match {
@@ -1088,6 +1092,89 @@ fn fit_docs_ask_grok_tip(docs_path: &str, width: usize) -> String {
         crate::render::line_utils::shorten_path(docs_path, budget)
     )
 }
+/// Command palette (`/help`) inside a modal window. `entries` is the unfiltered snapshot from open time.
+pub fn render_command_palette_overlay(
+    buf: &mut ratatui::buffer::Buffer,
+    area: Rect,
+    window: &mut super::modal_window::ModalWindowState,
+    entries: &[PaletteEntry],
+    state: &mut super::picker::PickerState,
+    compact: bool,
+    theme: &Theme,
+) {
+    use super::modal_window::{self as mw, ModalSizing, ModalWindowConfig, Shortcut};
+    use super::picker::{self, PickerEntry, PickerRow};
+    let filtered = filter_palette_list(entries, state.query());
+    let non_sel: Vec<bool> = filtered
+        .iter()
+        .map(|e| matches!(e.command, PaletteCommand::SectionHeader(_)))
+        .collect();
+    let picker_entries: Vec<PickerEntry> = filtered
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            if matches!(e.command, PaletteCommand::SectionHeader(_)) {
+                PickerEntry::Header { label: &e.label }
+            } else {
+                PickerEntry::Row(PickerRow {
+                    label: &e.label,
+                    right_label: &e.shortcut,
+                    selected: state.hovered == Some(i)
+                        || (state.hovered.is_none() && i == state.selected),
+                    expanded: false,
+                    fields: &[],
+                    description_lines: &[],
+                    summary_lines: &[],
+                    dimmed: false,
+                    indent: 0,
+                    badge: "",
+                    badge_color: None,
+                    collapsible: false,
+                    underline_last_desc: false,
+                })
+            }
+        })
+        .collect();
+    let mut picker_shortcuts: Vec<Shortcut> = vec![
+        Shortcut {
+            label: "\u{2191}/\u{2193} nav",
+            clickable: false,
+            id: 0,
+        },
+        Shortcut {
+            label: "Enter select",
+            clickable: false,
+            id: 0,
+        },
+        Shortcut {
+            label: "Esc close",
+            clickable: false,
+            id: 0,
+        },
+    ];
+    mw::push_vim_nav_search_hint(&mut picker_shortcuts, state.search_active);
+    let modal_config = ModalWindowConfig {
+        title: "Commands",
+        tabs: None,
+        shortcuts: &picker_shortcuts,
+        sizing: ModalSizing::picker_at_settings_width(compact),
+        fold_info: None,
+    };
+    if let Some(mca) = mw::render_modal_window(buf, area, window, &modal_config, theme) {
+        picker::render_picker_in_modal(
+            buf,
+            mca.content,
+            mca.inner_x,
+            mca.inner_width,
+            theme,
+            state,
+            &picker_entries,
+            &non_sel,
+            false,
+        );
+    }
+}
+
 pub fn render_doc_picker_overlay(
     buf: &mut ratatui::buffer::Buffer,
     area: Rect,

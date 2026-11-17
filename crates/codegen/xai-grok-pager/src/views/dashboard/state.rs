@@ -589,6 +589,9 @@ pub struct DashboardState {
     /// `/usage` modal, hosted here because the dashboard has no agent to hang it on (session-less: no session id).
     /// Owns input while open; cleared on dashboard-open and on every overlay exit back to the list.
     pub usage_modal: Option<Box<crate::views::usage_modal::UsageInfoModalState>>,
+    /// `/release-notes`, `/docs`, and `/help` while the dashboard is the active view.
+    /// The dashboard has no agent modal slot, so these three stay here instead of spawning a session.
+    pub guide_modal: Option<crate::views::modal::ActiveModal>,
 }
 
 /// Mode staged for the next agent the dashboard spawns.
@@ -1297,6 +1300,7 @@ impl DashboardState {
             preview_enabled: xai_grok_shell::agent::config::UiConfig::default()
                 .dashboard_preview_enabled(),
             usage_modal: None,
+            guide_modal: None,
             // Fresh dashboard with no rows seeded, so the `+ New Agent` button is the default cursor target
             // Open sites that want a specific row seeded call `focus_row` after construction, which clears this atomically
             actions_focus: Some(ActionsFocus::NewAgent),
@@ -2320,6 +2324,10 @@ impl DashboardState {
 
         if self.usage_modal.is_some() {
             return self.handle_usage_modal_input(ev);
+        }
+
+        if self.guide_modal.is_some() {
+            return self.handle_guide_modal_input(ev);
         }
 
         // The location picker owns input while open; its query field, row nav, and chrome buttons would all be inconsistent if the dashboard's own
