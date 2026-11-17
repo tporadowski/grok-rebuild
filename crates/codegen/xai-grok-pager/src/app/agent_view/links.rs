@@ -27,8 +27,9 @@ use crate::scrollback::text_selection::{PendingTextDrag, RangeHit, ResolvedSelec
 use crate::views::plan_approval_view::PlanApprovalFocus;
 #[cfg(any(target_os = "macos", test))]
 use crossterm::event::KeyModifiers;
+use crossterm::event::KeyEvent;
 #[cfg(test)]
-use crossterm::event::{Event, KeyCode, KeyEvent};
+use crossterm::event::{Event, KeyCode};
 #[cfg(test)]
 use ratatui::buffer::Buffer;
 use ratatui::style::Style;
@@ -223,6 +224,16 @@ impl AgentView {
             false
         }
     }
+    /// Cmd/Ctrl going down or up while the pointer rests on a link.
+    /// The terminal drops the OSC 22 hand on that edge. Clearing the latch makes the next frame send it again.
+    /// The link under the pointer does not change.
+    pub(in crate::app) fn reassert_hand_pointer(&mut self, key: &KeyEvent) -> bool {
+        if self.hovered_link_idx.is_none() || !super::is_link_modifier_edge(key) {
+            return false;
+        }
+        self.last_pointer_on_link = false;
+        true
+    }
     /// How long after the last pointer movement the Cmd link-hover poll keeps running.
     /// After the window the poll (and the animation tick loop it holds) parks, so a pointer merely resting over the window costs zero CPU.
     /// Any pointer movement, including the reflexive nudge people make before Cmd+clicking, restarts the window via the mouse event.
@@ -261,7 +272,15 @@ impl AgentView {
     pub fn poll_link_modifier(&mut self) -> bool {
         #[cfg(target_os = "macos")]
         if self.needs_link_modifier_poll() {
-            return self.update_hovered_link(is_link_modifier_held(KeyModifiers::empty()));
+            let held = is_link_modifier_held(KeyModifiers::empty());
+            let hover_changed = self.update_hovered_link(held);
+            let modifier_changed = self.last_polled_link_modifier != Some(held);
+            self.last_polled_link_modifier = Some(held);
+            if self.hovered_link_idx.is_some() && modifier_changed {
+                self.last_pointer_on_link = false;
+                return true;
+            }
+            return hover_changed;
         }
         false
     }
@@ -2514,6 +2533,93 @@ mod link_click_tests {
             modifiers: KeyModifiers::empty(),
         };
         assert!(matches!(agent.handle_mouse(&away), InputOutcome::Changed));
+        assert_eq!(agent.hovered_link_idx, None);
+    }
+
+    /// Cmd or Ctrl going down or up while the pointer rests on a link clears the OSC 22 latch.
+    /// Draw sends the hand again when hover is still set and that latch is clear.
+    #[test]
+    fn cmd_press_and_release_keep_the_hand_pointer() {
+        if has_native_link_hover() {
+            return;
+        }
+        let reg = ActionRegistry::defaults();
+        let mut agent = make_agent();
+        setup_scrollback_area(&mut agent, Rect::new(0, 0, 80, 24));
+        add_multiple_links(&mut agent);
+        let moved = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 2,
+            row: 0,
+            modifiers: KeyModifiers::empty(),
+        };
+        assert!(matches!(agent.handle_mouse(&moved), InputOutcome::Changed));
+        assert_eq!(agent.hovered_link_idx, Some(0));
+        agent.last_pointer_on_link = true;
+
+        let press_and_release = |agent: &mut AgentView, code: KeyCode| {
+            let mut press = KeyEvent::new(code, KeyModifiers::empty());
+            press.kind = crossterm::event::KeyEventKind::Press;
+            assert!(
+                matches!(
+                    agent.handle_input(&Event::Key(press), &reg),
+                    InputOutcome::Changed
+                ),
+                "press must redraw so the hand is sent again"
+            );
+            assert_eq!(agent.hovered_link_idx, Some(0));
+            assert!(
+                !agent.last_pointer_on_link,
+                "press clears the latch while the pointer stays on the link"
+            );
+            agent.last_pointer_on_link = agent.hovered_link_idx.is_some();
+            let mut release = press;
+            release.kind = crossterm::event::KeyEventKind::Release;
+            assert!(matches!(
+                agent.handle_input(&Event::Key(release), &reg),
+                InputOutcome::Changed
+            ));
+            assert_eq!(agent.hovered_link_idx, Some(0));
+            assert!(!agent.last_pointer_on_link);
+            agent.last_pointer_on_link = true;
+        };
+        press_and_release(
+            &mut agent,
+            KeyCode::Modifier(crossterm::event::ModifierKeyCode::LeftSuper),
+        );
+        press_and_release(
+            &mut agent,
+            KeyCode::Modifier(crossterm::event::ModifierKeyCode::LeftControl),
+        );
+
+        let letter = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        let _ = agent.handle_input(&Event::Key(letter), &reg);
+        assert!(
+            agent.last_pointer_on_link,
+            "a typed character leaves the hand latch alone"
+        );
+        assert_eq!(agent.hovered_link_idx, Some(0));
+
+        let away = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 40,
+            row: 20,
+            modifiers: KeyModifiers::empty(),
+        };
+        assert!(matches!(agent.handle_mouse(&away), InputOutcome::Changed));
+        assert_eq!(agent.hovered_link_idx, None);
+        agent.last_pointer_on_link = true;
+        let mut off = KeyEvent::new(
+            KeyCode::Modifier(crossterm::event::ModifierKeyCode::LeftSuper),
+            KeyModifiers::empty(),
+        );
+        off.kind = crossterm::event::KeyEventKind::Press;
+        let outcome = agent.handle_input(&Event::Key(off), &reg);
+        assert!(
+            !matches!(outcome, InputOutcome::Changed),
+            "a modifier with no link under the pointer does not ask for a hand redraw"
+        );
+        assert!(agent.last_pointer_on_link);
         assert_eq!(agent.hovered_link_idx, None);
     }
 

@@ -469,6 +469,24 @@ pub(super) fn is_link_modifier_held(_mouse_modifiers: KeyModifiers) -> bool {
 pub(super) fn is_link_modifier_held(mouse_modifiers: KeyModifiers) -> bool {
     mouse_modifiers.contains(KeyModifiers::CONTROL)
 }
+/// Cmd/Ctrl itself going down or up. Other keys, even with the modifier held, are not this edge.
+fn is_link_modifier_edge(key: &KeyEvent) -> bool {
+    matches!(
+        key.kind,
+        crossterm::event::KeyEventKind::Press | crossterm::event::KeyEventKind::Release
+    ) && matches!(
+        key.code,
+        KeyCode::Modifier(
+            crossterm::event::ModifierKeyCode::LeftSuper
+                | crossterm::event::ModifierKeyCode::RightSuper
+                | crossterm::event::ModifierKeyCode::LeftMeta
+                | crossterm::event::ModifierKeyCode::RightMeta
+                | crossterm::event::ModifierKeyCode::LeftControl
+                | crossterm::event::ModifierKeyCode::RightControl
+        )
+    )
+}
+
 /// Determine whether the link modifier is held during a key event.
 /// On macOS, polls CoreGraphics directly (independent of the event's modifier bits).
 /// On Linux/Windows, derives from the key event's modifier flags, with a special case for Ctrl-key release events (where the modifier bit is still set in the event but the physical key is no longer held).
@@ -1049,7 +1067,11 @@ pub struct AgentView {
     /// Link index under the mouse cursor (for hover highlight).
     pub hovered_link_idx: Option<usize>,
     /// Last emitted OSC 22 pointer state (avoids re-emitting every frame).
+    /// Cleared when Cmd/Ctrl is pressed or released over a link so the next frame sends the hand again.
     pub last_pointer_on_link: bool,
+    /// Last Cmd state sampled by [`Self::poll_link_modifier`]. `None` until the first sample.
+    #[cfg(target_os = "macos")]
+    last_polled_link_modifier: Option<bool>,
     /// Selection model for the /btw overlay panel (populated each frame).
     pub last_btw_selection_model: ResolvedSelectionModel,
     /// Cached screen rect of the /btw overlay panel from the last render.

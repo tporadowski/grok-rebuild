@@ -1243,6 +1243,10 @@ impl AgentView {
                 return self.handle_agent_action_with_registry(action_id, registry);
             }
         }
+        if let Event::Key(key) = ev && self.reassert_hand_pointer(key) {
+            let _ = self.update_hovered_link(is_link_modifier_for_key(key));
+            return InputOutcome::Changed;
+        }
         if let Event::Key(key) = ev
             && self.update_hovered_link(is_link_modifier_for_key(key))
         {

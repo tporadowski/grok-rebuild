@@ -288,6 +288,8 @@ impl AgentView {
             highlighted_link_idx: None,
             hovered_link_idx: None,
             last_pointer_on_link: false,
+            #[cfg(target_os = "macos")]
+            last_polled_link_modifier: None,
             last_btw_selection_model: ResolvedSelectionModel::default(),
             last_btw_area: Rect::default(),
             pending_scrollback_click: None,
