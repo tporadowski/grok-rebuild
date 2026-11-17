@@ -583,6 +583,30 @@ impl ListItem for TaskEntry {
     }
 }
 /// Temporary data for the overlay pass (avoids borrowing entries during mutation).
+fn overlay_entry_data(entry: &TaskEntry) -> Option<OverlayEntryData> {
+    match entry {
+        TaskEntry::BgTask { task_id, .. } => Some(OverlayEntryData::BgTask(task_id.clone())),
+        TaskEntry::Agent {
+            subagent_id,
+            child_session_id,
+            ..
+        } => Some(OverlayEntryData::Agent(
+            subagent_id.clone(),
+            child_session_id.clone(),
+        )),
+        TaskEntry::Scheduled {
+            task_id,
+            linked_subagent,
+            ..
+        } => Some(OverlayEntryData::Scheduled(
+            task_id.clone(),
+            linked_subagent.clone(),
+        )),
+        TaskEntry::Workflow { name, .. } => Some(OverlayEntryData::Workflow(name.clone())),
+        TaskEntry::Header { .. } => None,
+    }
+}
+
 enum OverlayEntryData {
     BgTask(String),
     Agent(String, String),
@@ -1162,6 +1186,42 @@ impl TasksPane {
         };
         self.render_overlay(overlay_area, buf, bg_tasks, subagents, scheduled);
     }
+    /// Rows that receive status chrome, in the same order and at the same `y` as `ListPane` paints those items.
+    /// A filter's visible map drops hidden entries, so this does not walk `entries` from `scroll_offset`.
+    /// The icon lives on an item's first line; a scrolled-off first line does not get chrome on the continuation.
+    fn overlay_rows(&self, area: Rect) -> Vec<(u16, OverlayEntryData)> {
+        let visible = self.list_state.visible_range();
+        if visible.is_empty() || area.height == 0 {
+            return Vec::new();
+        }
+        let skip_rows = self.list_state.first_item_skip_rows();
+        let first_vi = visible.start;
+        let mut cursor_y = area.y;
+        let viewport_bottom = area.y.saturating_add(area.height);
+        let mut placed = Vec::new();
+        for vi in visible {
+            if cursor_y >= viewport_bottom {
+                break;
+            }
+            let pi = self.list_state.to_physical(vi);
+            let Some(entry) = self.entries.get(pi) else {
+                continue;
+            };
+            let item_h = self.list_state.layout().item_height(vi);
+            let skip = if vi == first_vi { skip_rows } else { 0 };
+            let visible_h = item_h.saturating_sub(skip);
+            let rows_available = viewport_bottom.saturating_sub(cursor_y);
+            let rows_to_render = visible_h.min(rows_available);
+            if rows_to_render == 0 {
+                continue;
+            }
+            if skip == 0 && let Some(data) = overlay_entry_data(entry) {
+                placed.push((cursor_y, data));
+            }
+            cursor_y = cursor_y.saturating_add(rows_to_render);
+        }
+        placed
+    }
     fn render_overlay(
         &mut self,
         area: Rect,
@@ -1171,35 +1231,12 @@ impl TasksPane {
         _scheduled: &HashMap<String, ScheduledTaskInfo>,
     ) {
         let theme = Theme::current();
-        let scroll_offset = self.list_state.scroll_offset();
         self.kill_button_rects.clear();
         self.view_button_rects.clear();
-        let visible: Vec<(u16, OverlayEntryData)> = self
-            .entries
-            .iter()
-            .skip(scroll_offset)
-            .enumerate()
-            .take_while(|(vis_row, _)| area.y + (*vis_row as u16) < area.y + area.height)
-            .filter_map(|(vis_row, entry)| {
-                let y = area.y + vis_row as u16;
-                let data = match entry {
-                    TaskEntry::BgTask { task_id, .. } => OverlayEntryData::BgTask(task_id.clone()),
-                    TaskEntry::Agent {
-                        subagent_id,
-                        child_session_id,
-                        ..
-                    } => OverlayEntryData::Agent(subagent_id.clone(), child_session_id.clone()),
-                    TaskEntry::Scheduled {
-                        task_id,
-                        linked_subagent,
-                        ..
-                    } => OverlayEntryData::Scheduled(task_id.clone(), linked_subagent.clone()),
-                    TaskEntry::Workflow { name, .. } => OverlayEntryData::Workflow(name.clone()),
-                    TaskEntry::Header { .. } => return None,
-                };
-                Some((y, data))
-            })
-            .collect();
+        // The list paints `visible_range()` (filter hides non-matches; search does not).
+        // Chrome has to use that same walk. Skipping `scroll_offset` entries paints the
+        // icon, timer, and buttons on a hidden row once a filter drops earlier items.
+        let visible = self.overlay_rows(area);
         for (y, data) in visible {
             match data {
                 OverlayEntryData::BgTask(ref task_id) => {
@@ -2118,6 +2155,97 @@ mod tests {
                 "button {rect:?} covers the status icon at {content_x}"
             );
         }
+    }
+
+    /// A filter hides non-matching rows. The status icon, elapsed time, and buttons stay on the row that still shows that task.
+    #[test]
+    fn filtered_tasks_row_keeps_its_icon_time_and_buttons() {
+        let mut pane = TasksPane::new();
+        pane.overlay.show();
+        let mut bg_tasks = std::collections::BTreeMap::new();
+        bg_tasks.insert(
+            "hidden".into(),
+            make_bg_task("hidden", "echo hidden-alpha", BgTaskStatus::Running),
+        );
+        bg_tasks.insert(
+            "shown".into(),
+            make_bg_task("shown", "echo visible-needle", BgTaskStatus::Running),
+        );
+        pane.sync(&bg_tasks, &HashMap::new(), &HashMap::new(), &[]);
+        assert!(
+            pane.handle_key(&crate::key!('f').to_key_event()),
+            "f opens the tasks filter",
+        );
+        assert!(pane.handle_paste("visible-needle"));
+
+        let width = 80u16;
+        let height = 12u16;
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        let layout = crate::appearance::LayoutConfig::default();
+        pane.render(
+            area,
+            &mut buf,
+            false,
+            &layout,
+            &bg_tasks,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let rows: Vec<String> = (0..height)
+            .map(|y| {
+                (0..width)
+                    .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol().to_string()))
+                    .collect()
+            })
+            .collect();
+        let joined = rows.join("\n");
+        assert!(
+            joined.contains("filter:"),
+            "the filter bar must be open, got:\n{joined}"
+        );
+        assert!(
+            !joined.contains("hidden-alpha"),
+            "the filter must hide the other task, got:\n{joined}"
+        );
+        let icon = crate::glyphs::dot_spinner_frames()
+            .first()
+            .copied()
+            .unwrap_or("");
+        let kill = crate::glyphs::ballot_x_button();
+        let view = crate::glyphs::enlarge_button();
+        let needle_y = rows.iter().position(|row| row.contains("visible-needle"));
+        let Some(needle_y) = needle_y else {
+            panic!("filtered pane did not paint the matching task:\n{joined}");
+        };
+        let needle = &rows[needle_y];
+        assert!(
+            needle.contains(icon),
+            "status icon left the filtered row {needle:?}"
+        );
+        assert!(
+            needle.contains(kill) && needle.contains(view),
+            "buttons left the filtered row {needle:?}"
+        );
+        assert!(
+            needle.chars().any(|ch| ch.is_ascii_digit()),
+            "elapsed time left the filtered row {needle:?}"
+        );
+        let icon_rows: Vec<usize> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.contains(icon))
+            .map(|(y, _)| y)
+            .collect();
+        assert_eq!(
+            icon_rows,
+            vec![needle_y],
+            "spinner painted off the matching row:\n{joined}"
+        );
+        assert_eq!(pane.kill_button_rects.len(), 1, "{:?}", pane.kill_button_rects);
+        assert_eq!(pane.view_button_rects.len(), 1, "{:?}", pane.view_button_rects);
+        assert_eq!(pane.kill_button_rects[0].1.y, needle_y as u16);
+        assert_eq!(pane.view_button_rects[0].1.y, needle_y as u16);
     }
 
     #[test]
