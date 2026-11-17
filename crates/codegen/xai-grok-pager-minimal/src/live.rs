@@ -564,10 +564,12 @@ fn render_minimal_status(
     if let Some((done, total)) = transcript_progress {
         let style = theme.primary().bg(Color::Reset);
         buf.set_style(area, style);
+        let progress = format!("Rendering transcript… {done}/{total}");
+        let text = fit_row_text(&progress, area.width);
         buf.set_span(
             area.x,
             area.y,
-            &Span::styled(format!("rendering transcript… {done}/{total}"), style),
+            &Span::styled(text, style),
             area.width,
         );
         return;
@@ -659,7 +661,13 @@ fn render_idle_hint(buf: &mut Buffer, area: Rect, theme: &Theme) {
         (false, true) => "minimal · /fullscreen to go back · /help",
         (false, false) => "minimal · /help",
     };
-    buf.set_span(area.x, area.y, &Span::styled(hint, style), area.width);
+    let hint = fit_row_text(hint, area.width);
+    buf.set_span(
+        area.x,
+        area.y,
+        &Span::styled(hint, style),
+        area.width,
+    );
 }
 /// Without it the folded conversation has no visible way back to the full view. The mode flag keeps its accent
 /// color so the Shift+Tab cycle, otherwise invisible in minimal mode, stays visible. Drawn only when no
@@ -739,7 +747,15 @@ fn render_prompt_info(
         }
         spans.push(Span::styled(text, style));
     }
-    buf.set_line(area.x, area.y, &Line::from(spans), area.width);
+    let line = xai_grok_pager::render::line_utils::truncate_line(
+        Line::from(spans),
+        area.width as usize,
+    );
+    buf.set_line(area.x, area.y, &line, area.width);
+}
+
+fn fit_row_text(text: &str, width: u16) -> String {
+    xai_grok_pager::render::line_utils::truncate_str(text, width as usize)
 }
 /// The double-press confirmation hint to show under the prompt (e.g. "press Ctrl+Q again to quit").
 /// `None` when nothing is pending, the hint expired, or the pending action has no label (silent).
@@ -761,10 +777,11 @@ fn minimal_pending_hint(
 pub(super) fn render_warning_hint(buf: &mut Buffer, area: Rect, theme: &Theme, hint: &str) {
     let style = Style::default().fg(theme.warning).bg(Color::Reset);
     buf.set_style(area, style);
+    let hint = fit_row_text(hint, area.width);
     buf.set_span(
         area.x,
         area.y,
-        &Span::styled(hint.to_string(), style),
+        &Span::styled(hint, style),
         area.width,
     );
 }
@@ -1224,6 +1241,92 @@ mod tests {
         let text = render(&a);
         assert!(text.contains("auto"), "auto flag: {text:?}");
     }
+    #[test]
+    fn narrow_status_and_info_rows_end_with_an_ellipsis() {
+        let theme = Theme::current();
+        let read = |buf: &Buffer, width: u16| -> String {
+            (0..width)
+                .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_string()))
+                .collect()
+        };
+        xai_grok_pager::app::set_minimal_show_switch_back_to_fullscreen_for_test(true);
+        let area = Rect::new(0, 0, 12, 1);
+        let mut buf = Buffer::empty(area);
+        render_minimal_status(&mut buf, area, &agent(), &None, None, &theme);
+        let status = read(&buf, area.width);
+        assert!(
+            status.trim_end().ends_with('\u{2026}'),
+            "a clipped status row ends with an ellipsis: {status:?}"
+        );
+        assert!(
+            !status.contains("help"),
+            "the ellipsis replaces the tail of the status row: {status:?}"
+        );
+        xai_grok_pager::app::set_minimal_show_switch_back_to_fullscreen_for_test(false);
+
+        let wide = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(wide);
+        render_minimal_status(
+            &mut buf,
+            wide,
+            &agent(),
+            &None,
+            Some((3, 10)),
+            &theme,
+        );
+        let progress = read(&buf, wide.width);
+        assert!(
+            progress.contains("Rendering transcript… 3/10"),
+            "transcript progress is sentence case: {progress:?}"
+        );
+        assert!(
+            !progress.contains("rendering transcript"),
+            "the progress line does not stay lowercase: {progress:?}"
+        );
+
+        let narrow = Rect::new(0, 0, 8, 1);
+        let mut buf = Buffer::empty(narrow);
+        render_minimal_status(
+            &mut buf,
+            narrow,
+            &agent(),
+            &None,
+            Some((3, 10)),
+            &theme,
+        );
+        let clipped = read(&buf, narrow.width);
+        assert!(
+            clipped.trim_end().ends_with('\u{2026}'),
+            "a clipped progress row ends with an ellipsis: {clipped:?}"
+        );
+
+        let mut info_agent = agent();
+        info_agent.context_state = Some(xai_grok_shell::session::ContextInfo {
+            used: 276_000,
+            total: 2_000_000,
+            ..Default::default()
+        });
+        let info_area = Rect::new(0, 0, 18, 1);
+        let mut buf = Buffer::empty(info_area);
+        render_prompt_info(
+            &mut buf,
+            info_area,
+            &info_agent,
+            3,
+            "Ctrl+O transcript",
+            &theme,
+        );
+        let info = read(&buf, info_area.width);
+        assert!(
+            info.trim_end().ends_with('\u{2026}'),
+            "a clipped info row ends with an ellipsis: {info:?}"
+        );
+        assert!(
+            !info.contains("transcript"),
+            "the ellipsis replaces the info row's trailing hint: {info:?}"
+        );
+    }
+
     #[test]
     fn pending_hint_formats_press_again() {
         use crossterm::event::{KeyCode, KeyModifiers};
