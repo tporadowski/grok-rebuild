@@ -1388,6 +1388,65 @@
         );
     }
 
+    /// A saved `TurnCompleted` can land in the late replay tail after `SessionLoaded` already
+    /// adopted that prompt. The TUI must stop waiting and must not adopt the same id again.
+    #[test]
+    fn saved_turn_that_already_ended_is_not_waited_on_or_readopted() {
+        let mut app = make_app_with_agent("sess-1");
+        let id = AgentId(0);
+        {
+            let agent = app.agents.get_mut(&id).unwrap();
+            agent.arm_late_replay_grace();
+            agent.adopt_running_prompt("p-saved".into());
+            assert!(
+                agent.session.state.is_turn_running(),
+                "adoption starts the wait"
+            );
+        }
+
+        let affected = handle_ext_notification(
+            &xai_turn_completed_notif("sess-1", "p-saved", "end_turn", true),
+            &mut app,
+        );
+        assert!(affected, "ending the wait must redraw");
+        let agent = app.agents.get(&id).unwrap();
+        assert!(
+            agent.session.state.is_idle(),
+            "a saved turn that already ended must not stay on Waiting…"
+        );
+        assert!(agent.session.current_prompt_id.is_none());
+        assert!(agent.pending_turn_end_reconcile.is_none());
+        assert!(agent.replayed_terminal_prompts.contains("p-saved"));
+
+        assert!(handle_queue_changed(
+            &queue_changed_running("sess-1", &[], Some("p-saved")),
+            &mut app
+        ));
+        let agent = app.agents.get(&id).unwrap();
+        assert!(
+            agent.session.current_prompt_id.is_none(),
+            "the ended saved turn must not be adopted again"
+        );
+        assert!(agent.session.state.is_idle());
+        assert!(!app.pending_running_adoptions.contains_key(&id));
+
+        // The same saved terminal, seen before any adoption, also blocks a later adopt.
+        let mut app = make_app_with_agent("sess-2");
+        let id = AgentId(0);
+        app.agents.get_mut(&id).unwrap().arm_late_replay_grace();
+        let _ = handle_ext_notification(
+            &xai_turn_completed_notif("sess-2", "p-saved", "end_turn", true),
+            &mut app,
+        );
+        assert!(handle_queue_changed(
+            &queue_changed_running("sess-2", &[], Some("p-saved")),
+            &mut app
+        ));
+        let agent = app.agents.get(&id).unwrap();
+        assert!(agent.session.current_prompt_id.is_none());
+        assert!(agent.session.state.is_idle());
+    }
+
     /// Arming the lost-RPC reconcile from a live `TurnCompleted` must STILL report a change.
     /// Otherwise `event_loop` skips `schedule_tick` and `reconcile_overdue_turn_ends` never fires, stranding the turn on "Waiting…".
     /// The reconcile-arm return must NOT be gated on `is_active`.

@@ -377,8 +377,29 @@ pub(super) fn handle_session_notification_with_origin(
             ..
         } => {
             let error_kind = crate::app::error_display::wire_error_kind(error_kind.as_deref());
-            if agent.session.loading_replay {
+            // A saved turn's `TurnCompleted` can arrive in the load replay or in the late
+            // replay tail after `SessionLoaded` already adopted `runningPromptId`. Record
+            // the id either way. If this client is already waiting on that turn, end it
+            // now instead of arming the live reconcile grace.
+            let historical = meta.is_replay || agent.session.loading_replay;
+            if historical {
                 let first = agent.replayed_terminal_prompts.insert(prompt_id.clone());
+                let waiting_on_this_turn = agent.session.current_prompt_id.as_deref()
+                    == Some(prompt_id.as_str())
+                    && (agent.session.state.is_turn_running()
+                        || agent.session.state.is_cancelling());
+                if waiting_on_this_turn {
+                    if stop_reason == "cancelled" {
+                        agent
+                            .session
+                            .finish_cancelled_turn(&mut agent.scrollback);
+                    } else {
+                        agent.session.finish_turn(&mut agent.scrollback);
+                    }
+                    agent.scrollback.finish_all_running();
+                    agent.pending_turn_end_reconcile = None;
+                    agent.mark_turn_finished(crate::app::cancel_latency::TurnEnd::Completed);
+                }
                 if first
                     && !prompt_id.is_empty()
                     && let Some(event) = synthesize_replay_turn_marker(
@@ -393,7 +414,7 @@ pub(super) fn handle_session_notification_with_origin(
                 {
                     agent.push_end_marker_block(event);
                 }
-                false
+                waiting_on_this_turn
             } else if is_wake_prompt(&prompt_id) {
                 if agent
                     .running_wake_turn
