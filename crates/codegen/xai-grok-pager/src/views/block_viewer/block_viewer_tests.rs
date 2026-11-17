@@ -432,6 +432,113 @@ fn a_failed_tool_search_viewer_shows_the_error() {
     assert_eq!(text, ["0 results", "", "no such server"]);
 }
 
+/// The search bar, the accepted search status, and the visual-mode status sit under a divider.
+/// None of those rows may cover a content line.
+#[test]
+fn search_bar_and_status_stay_below_the_last_content_line() {
+    use crate::actions::ActionRegistry;
+    use crate::app::agent_view::test_fixtures::make_agent;
+    use crate::scrollback::render::ScratchBuffer;
+    use crossterm::event::Event;
+    use ratatui::buffer::Buffer;
+
+    let body = (0..50)
+        .map(|i| format!("LINE{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut agent = make_agent();
+    agent.block_viewer = Some(BlockViewerPane::for_plain_text("notes", &body));
+    let reg = ActionRegistry::defaults();
+    let area = Rect::new(0, 0, 100, 40);
+
+    let draw = |agent: &mut crate::app::agent_view::AgentView| {
+        let mut buf = Buffer::empty(area);
+        let mut scratch = ScratchBuffer::new();
+        let _ = agent.draw(
+            area,
+            &mut buf,
+            &reg,
+            &mut scratch,
+            None,
+            false,
+            crate::app::agent_view::BannerSlotParams::none(),
+            false,
+            &mut Vec::new(),
+            crate::app::agent_view::AppRenderParams::default(),
+        );
+        buf
+    };
+    let row_text = |buf: &Buffer, y: u16| -> String {
+        (0..buf.area.width)
+            .map(|x| buf.cell((x, y)).map(|c| c.symbol()).unwrap_or(""))
+            .collect()
+    };
+    let find_row = |buf: &Buffer, needle: &str| -> u16 {
+        (0..buf.area.height)
+            .find(|&y| row_text(buf, y).contains(needle))
+            .unwrap_or_else(|| panic!("missing {needle}"))
+    };
+    let key = |code| {
+        Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    };
+
+    let _ = draw(&mut agent);
+    agent.handle_input(&key(KeyCode::Char('/')), &reg);
+    let buf = draw(&mut agent);
+    let search_y = find_row(&buf, "search:");
+    let divider = row_text(&buf, search_y - 1);
+    let content = row_text(&buf, search_y - 2);
+    assert!(
+        divider.contains('─'),
+        "a divider sits above the search bar: {divider:?}"
+    );
+    assert!(
+        content.contains("LINE"),
+        "the last content line stays above the divider: {content:?}"
+    );
+    assert!(
+        !divider.contains("LINE"),
+        "the divider must not cover a content line: {divider:?}"
+    );
+    assert!(
+        !row_text(&buf, search_y).contains("LINE"),
+        "the search bar must not cover a content line"
+    );
+
+    agent.handle_input(&key(KeyCode::Char('L')), &reg);
+    agent.handle_input(&key(KeyCode::Enter), &reg);
+    let buf = draw(&mut agent);
+    let status_y = find_row(&buf, "[search:");
+    let divider = row_text(&buf, status_y - 1);
+    let content = row_text(&buf, status_y - 2);
+    assert!(divider.contains('─'), "a divider sits above the search status: {divider:?}");
+    assert!(
+        content.contains("LINE"),
+        "content stays above the search status: {content:?}"
+    );
+    assert!(!divider.contains("LINE"), "{divider:?}");
+    assert!(!row_text(&buf, status_y).contains("LINE"));
+
+    let mut agent = make_agent();
+    agent.block_viewer = Some(BlockViewerPane::for_plain_text("notes", &body));
+    let _ = draw(&mut agent);
+    agent.handle_input(&key(KeyCode::Char('v')), &reg);
+    let buf = draw(&mut agent);
+    let selected_y = find_row(&buf, "Selected:");
+    let divider = row_text(&buf, selected_y - 1);
+    let content = row_text(&buf, selected_y - 2);
+    assert!(
+        divider.contains('─'),
+        "a divider sits above the selection status: {divider:?}"
+    );
+    assert!(
+        content.contains("LINE"),
+        "content stays above the selection status: {content:?}"
+    );
+    assert!(!divider.contains("LINE"), "{divider:?}");
+    assert!(!row_text(&buf, selected_y).contains("LINE"));
+}
+
 /// `y` copies the unified diff and the hint says so. `Y` copies the path and the hint says so.
 #[test]
 fn edit_copy_hint_names_the_patch_that_copy_text_returns() {

@@ -1521,6 +1521,17 @@ impl BlockViewerPane {
     }
 }
 
+/// Rows the frame paints on top of the list. The list already reserves its search bar.
+/// Visual mode also paints a status row, and both cases paint a divider on the last content row.
+fn layout_height_above_chrome(state: &ListPaneState, height: u16) -> u16 {
+    let has_bar = state.input_mode().is_some() || state.matcher().is_some();
+    if !(has_bar || state.visual_mode) || height <= 2 {
+        return height;
+    }
+    let covered = if has_bar { 1 } else { 2 };
+    height.saturating_sub(covered)
+}
+
 impl BlockViewerPane {
     // -- Rendering -----------------------------------------------------------
 
@@ -1587,21 +1598,25 @@ impl BlockViewerPane {
                 content_area
             };
 
+            let layout_height = layout_height_above_chrome(&self.list_state, render_area.height);
             self.list_state.prepare_layout(
                 &self.cached_unified,
                 render_area.width,
-                render_area.height,
+                layout_height,
             );
 
             let render_area = if !likely_scrollbar
-                && self.list_state.total_height() > render_area.height as usize
+                && self.list_state.total_height() > layout_height as usize
             {
                 let wider = Rect {
                     width: content_area.width + SCROLLBAR_TOTAL_COLS.min(2),
                     ..content_area
                 };
-                self.list_state
-                    .prepare_layout(&self.cached_unified, wider.width, wider.height);
+                self.list_state.prepare_layout(
+                    &self.cached_unified,
+                    wider.width,
+                    layout_height_above_chrome(&self.list_state, wider.height),
+                );
                 wider
             } else {
                 render_area
