@@ -641,15 +641,43 @@ fn blank_content_keeping_background(buf: &mut Buffer, area: Rect) {
     }
 }
 
+/// The status icon occupies this many columns at the left of a task row.
+const STATUS_ICON_WIDTH: u16 = 2;
+
+fn status_icon_end(area: Rect) -> u16 {
+    area.x.saturating_add(STATUS_ICON_WIDTH).min(area.right())
+}
+
+/// Reserve `width` columns ending at `rx`. The span stays to the right of `floor`
+/// (the status icon). A span that would cover the icon is left unpainted.
+fn take_right_slot(rx: &mut u16, width: u16, floor: u16) -> Option<u16> {
+    if width == 0 {
+        return Some(*rx);
+    }
+    let start = rx.checked_sub(width)?;
+    if start < floor {
+        return None;
+    }
+    *rx = start;
+    Some(start)
+}
+
 /// Fill overlay cells with spaces so label text doesn't bleed through. The user then sees that the
-/// row was truncated rather than just clipped silently.
-fn clear_overlay_area(buf: &mut Buffer, area: Rect, y: u16, overlay_w: u16) {
-    let clamped = overlay_w.min(area.width);
-    if clamped == 0 {
+/// row was truncated rather than just clipped silently. `left_limit` keeps the status icon.
+fn clear_overlay_area(buf: &mut Buffer, area: Rect, y: u16, overlay_w: u16, left_limit: u16) {
+    if area.width == 0 || overlay_w == 0 {
         return;
     }
-    let clear_x = area.x + area.width - clamped;
-    let needs_ellipsis = clear_x > area.x
+    let right = area.right();
+    let mut clear_x = right.saturating_sub(overlay_w.min(area.width));
+    if clear_x < left_limit {
+        clear_x = left_limit;
+    }
+    if clear_x >= right {
+        return;
+    }
+    let clamped = right - clear_x;
+    let needs_ellipsis = clear_x > left_limit
         && buf
             .cell((clear_x, y))
             .map(|c| !c.symbol().trim().is_empty())
@@ -1241,14 +1269,13 @@ impl TasksPane {
             )
         };
         let right_text = format!("{elapsed} ");
-        buf.set_span(area.x, y, &Span::styled(icon, icon_style), 2);
         let right_text_w = right_text.width() as u16;
         let kill_w: u16 = if stoppable { 3 } else { 0 };
         let overlay_w = kill_w + right_text_w + 1;
-        clear_overlay_area(buf, area, y, overlay_w);
-        let mut rx = area.x + area.width;
-        if stoppable {
-            rx = rx.saturating_sub(3);
+        let floor = status_icon_end(area);
+        clear_overlay_area(buf, area, y, overlay_w, floor);
+        let mut rx = area.right();
+        if stoppable && let Some(x) = take_right_slot(&mut rx, 3, floor) {
             let is_hovered = matches!(
                 &self.hovered_kill,
                 Some(TaskEntryId::Workflow(n)) if n == &run.name
@@ -1259,23 +1286,25 @@ impl TasksPane {
                 Style::default().fg(theme.gray)
             };
             buf.set_span(
-                rx,
+                x,
                 y,
                 &Span::styled(crate::glyphs::ballot_x_button(), kill_style),
                 3,
             );
             self.kill_button_rects.push((
                 TaskEntryId::Workflow(run.name.clone()),
-                Rect::new(rx, y, 3, 1),
+                Rect::new(x, y, 3, 1),
             ));
         }
-        rx = rx.saturating_sub(right_text_w);
-        buf.set_span(
-            rx,
-            y,
-            &Span::styled(right_text, Style::default().fg(theme.gray)),
-            right_text_w,
-        );
+        if let Some(x) = take_right_slot(&mut rx, right_text_w, floor) {
+            buf.set_span(
+                x,
+                y,
+                &Span::styled(right_text, Style::default().fg(theme.gray)),
+                right_text_w,
+            );
+        }
+        buf.set_span(area.x, y, &Span::styled(icon, icon_style), STATUS_ICON_WIDTH);
     }
     fn render_bg_task_overlay(
         &mut self,
@@ -1328,7 +1357,6 @@ impl TasksPane {
                 }
             }
         };
-        buf.set_span(area.x, y, &Span::styled(icon, icon_style), 2);
         let badge = format_line_count_badge(task.stdout_line_count, task.truncated);
         let lines_text = if badge.is_empty() {
             String::new()
@@ -1343,10 +1371,12 @@ impl TasksPane {
             0
         };
         let bg_overlay_w = bg_kill_w + 3 + right_text_w + lines_w + 1;
-        clear_overlay_area(buf, area, y, bg_overlay_w);
-        let mut rx = area.x + area.width;
-        if task.status == BgTaskStatus::Running {
-            rx = rx.saturating_sub(3);
+        let floor = status_icon_end(area);
+        clear_overlay_area(buf, area, y, bg_overlay_w, floor);
+        let mut rx = area.right();
+        if task.status == BgTaskStatus::Running
+            && let Some(x) = take_right_slot(&mut rx, 3, floor)
+        {
             let is_hovered = matches!(
                 &self.hovered_kill,
                 Some(TaskEntryId::BgTask(tid)) if tid == task_id
@@ -1357,51 +1387,53 @@ impl TasksPane {
                 Style::default().fg(theme.gray)
             };
             buf.set_span(
-                rx,
+                x,
                 y,
                 &Span::styled(crate::glyphs::ballot_x_button(), kill_style),
                 3,
             );
             self.kill_button_rects.push((
                 TaskEntryId::BgTask(task_id.to_string()),
-                Rect::new(rx, y, 3, 1),
+                Rect::new(x, y, 3, 1),
             ));
         }
-        rx = rx.saturating_sub(3);
-        let is_view_hovered = matches!(
-            &self.hovered_view,
-            Some(TaskEntryId::BgTask(tid)) if tid == task_id
-        );
-        let view_style = if is_view_hovered {
-            Style::default().fg(theme.text_primary)
-        } else {
-            Style::default().fg(theme.gray)
-        };
-        buf.set_span(
-            rx,
-            y,
-            &Span::styled(crate::glyphs::enlarge_button(), view_style),
-            3,
-        );
-        self.view_button_rects.push((
-            TaskEntryId::BgTask(task_id.to_string()),
-            Rect::new(rx, y, 3, 1),
-        ));
-        let right_width = right_text.width() as u16;
-        rx = rx.saturating_sub(right_width);
-        buf.set_span(rx, y, &Span::styled(right_text, right_style), right_width);
-        if lines_w > 0 {
-            rx = rx.saturating_sub(lines_w);
+        if let Some(x) = take_right_slot(&mut rx, 3, floor) {
+            let is_view_hovered = matches!(
+                &self.hovered_view,
+                Some(TaskEntryId::BgTask(tid)) if tid == task_id
+            );
+            let view_style = if is_view_hovered {
+                Style::default().fg(theme.text_primary)
+            } else {
+                Style::default().fg(theme.gray)
+            };
             buf.set_span(
-                rx,
+                x,
+                y,
+                &Span::styled(crate::glyphs::enlarge_button(), view_style),
+                3,
+            );
+            self.view_button_rects.push((
+                TaskEntryId::BgTask(task_id.to_string()),
+                Rect::new(x, y, 3, 1),
+            ));
+        }
+        let right_width = right_text.width() as u16;
+        if let Some(x) = take_right_slot(&mut rx, right_width, floor) {
+            buf.set_span(x, y, &Span::styled(right_text, right_style), right_width);
+        }
+        if lines_w > 0 && let Some(x) = take_right_slot(&mut rx, lines_w, floor) {
+            buf.set_span(
+                x,
                 y,
                 &Span::styled(lines_text, Style::default().fg(theme.gray)),
                 lines_w,
             );
         }
-        if rx > area.x {
+        if rx > floor {
             buf.set_span(rx - 1, y, &Span::raw(" "), 1);
         }
+        buf.set_span(area.x, y, &Span::styled(icon, icon_style), STATUS_ICON_WIDTH);
     }
     fn render_agent_overlay(
         &mut self,
@@ -1448,7 +1480,6 @@ impl TasksPane {
                 Style::default().fg(theme.gray),
             )
         };
-        buf.set_span(area.x, y, &Span::styled(icon, icon_style), 2);
         let badge = format_context_badge(info);
         let model_text = info
             .attempt
@@ -1470,10 +1501,10 @@ impl TasksPane {
             model_text.width() as u16 + 1
         };
         let overlay_w = kill_w + 3 + right_text_w + model_w + badge_w + 1;
-        clear_overlay_area(buf, area, y, overlay_w);
-        let mut rx = area.x + area.width;
-        if info.is_running() {
-            rx = rx.saturating_sub(3);
+        let floor = status_icon_end(area);
+        clear_overlay_area(buf, area, y, overlay_w, floor);
+        let mut rx = area.right();
+        if info.is_running() && let Some(x) = take_right_slot(&mut rx, 3, floor) {
             let is_hovered = matches!(
                 &self.hovered_kill,
                 Some(TaskEntryId::Agent(sid)) if sid == subagent_id
@@ -1484,57 +1515,58 @@ impl TasksPane {
                 Style::default().fg(theme.gray)
             };
             buf.set_span(
-                rx,
+                x,
                 y,
                 &Span::styled(crate::glyphs::ballot_x_button(), kill_style),
                 3,
             );
             self.kill_button_rects.push((
                 TaskEntryId::Agent(subagent_id.to_string()),
-                Rect::new(rx, y, 3, 1),
+                Rect::new(x, y, 3, 1),
             ));
         }
-        rx = rx.saturating_sub(3);
-        let is_view_hovered = matches!(
-            &self.hovered_view,
-            Some(TaskEntryId::Agent(sid)) if sid == subagent_id
-        );
-        let view_style = if is_view_hovered {
-            Style::default().fg(theme.text_primary)
-        } else {
-            Style::default().fg(theme.gray)
-        };
-        buf.set_span(
-            rx,
-            y,
-            &Span::styled(crate::glyphs::enlarge_button(), view_style),
-            3,
-        );
-        self.view_button_rects.push((
-            TaskEntryId::Agent(subagent_id.to_string()),
-            Rect::new(rx, y, 3, 1),
-        ));
+        if let Some(x) = take_right_slot(&mut rx, 3, floor) {
+            let is_view_hovered = matches!(
+                &self.hovered_view,
+                Some(TaskEntryId::Agent(sid)) if sid == subagent_id
+            );
+            let view_style = if is_view_hovered {
+                Style::default().fg(theme.text_primary)
+            } else {
+                Style::default().fg(theme.gray)
+            };
+            buf.set_span(
+                x,
+                y,
+                &Span::styled(crate::glyphs::enlarge_button(), view_style),
+                3,
+            );
+            self.view_button_rects.push((
+                TaskEntryId::Agent(subagent_id.to_string()),
+                Rect::new(x, y, 3, 1),
+            ));
+        }
         let right_width = right_text.width() as u16;
-        rx = rx.saturating_sub(right_width);
-        buf.set_span(rx, y, &Span::styled(right_text, right_style), right_width);
-        if !model_text.is_empty() {
-            rx = rx.saturating_sub(model_w);
+        if let Some(x) = take_right_slot(&mut rx, right_width, floor) {
+            buf.set_span(x, y, &Span::styled(right_text, right_style), right_width);
+        }
+        if !model_text.is_empty() && let Some(x) = take_right_slot(&mut rx, model_w, floor) {
             let mstyle = Style::default().fg(theme.gray);
             buf.set_span(
-                rx,
+                x,
                 y,
                 &Span::styled(format!("{model_text} "), mstyle),
                 model_w,
             );
         }
-        if !badge.is_empty() {
-            rx = rx.saturating_sub(badge_w);
+        if !badge.is_empty() && let Some(x) = take_right_slot(&mut rx, badge_w, floor) {
             let bstyle = Style::default().fg(theme.gray).add_modifier(Modifier::DIM);
-            buf.set_span(rx, y, &Span::styled(format!("{badge} "), bstyle), badge_w);
+            buf.set_span(x, y, &Span::styled(format!("{badge} "), bstyle), badge_w);
         }
-        if rx > area.x {
+        if rx > floor {
             buf.set_span(rx - 1, y, &Span::raw(" "), 1);
         }
+        buf.set_span(area.x, y, &Span::styled(icon, icon_style), STATUS_ICON_WIDTH);
     }
     fn render_scheduled_overlay(
         &mut self,
@@ -1547,40 +1579,33 @@ impl TasksPane {
     ) {
         let frames = crate::glyphs::dot_spinner_frames();
         let frame_idx = (self.tick / SPINNER_DIVISOR) as usize % frames.len();
-        buf.set_span(
-            area.x,
-            y,
-            &Span::styled(
-                frames.get(frame_idx).copied().unwrap_or(""),
-                Style::default().fg(theme.accent_running),
-            ),
-            2,
-        );
+        let icon = frames.get(frame_idx).copied().unwrap_or("");
         let overlay_cols = if linked_subagent.is_some() { 7 } else { 4 };
-        clear_overlay_area(buf, area, y, overlay_cols);
-        let mut rx = area.x + area.width;
-        rx = rx.saturating_sub(3);
-        let is_hovered = matches!(
-            &self.hovered_kill,
-            Some(TaskEntryId::Scheduled(tid)) if tid == task_id
-        );
-        let kill_style = if is_hovered {
-            Style::default().fg(theme.accent_error)
-        } else {
-            Style::default().fg(theme.gray)
-        };
-        buf.set_span(
-            rx,
-            y,
-            &Span::styled(crate::glyphs::ballot_x_button(), kill_style),
-            3,
-        );
-        self.kill_button_rects.push((
-            TaskEntryId::Scheduled(task_id.to_string()),
-            Rect::new(rx, y, 3, 1),
-        ));
-        if linked_subagent.is_some() {
-            rx = rx.saturating_sub(3);
+        let floor = status_icon_end(area);
+        clear_overlay_area(buf, area, y, overlay_cols, floor);
+        let mut rx = area.right();
+        if let Some(x) = take_right_slot(&mut rx, 3, floor) {
+            let is_hovered = matches!(
+                &self.hovered_kill,
+                Some(TaskEntryId::Scheduled(tid)) if tid == task_id
+            );
+            let kill_style = if is_hovered {
+                Style::default().fg(theme.accent_error)
+            } else {
+                Style::default().fg(theme.gray)
+            };
+            buf.set_span(
+                x,
+                y,
+                &Span::styled(crate::glyphs::ballot_x_button(), kill_style),
+                3,
+            );
+            self.kill_button_rects.push((
+                TaskEntryId::Scheduled(task_id.to_string()),
+                Rect::new(x, y, 3, 1),
+            ));
+        }
+        if linked_subagent.is_some() && let Some(x) = take_right_slot(&mut rx, 3, floor) {
             let is_view_hovered = matches!(
                 &self.hovered_view,
                 Some(TaskEntryId::Scheduled(tid)) if tid == task_id
@@ -1591,19 +1616,25 @@ impl TasksPane {
                 Style::default().fg(theme.gray)
             };
             buf.set_span(
-                rx,
+                x,
                 y,
                 &Span::styled(crate::glyphs::enlarge_button(), view_style),
                 3,
             );
             self.view_button_rects.push((
                 TaskEntryId::Scheduled(task_id.to_string()),
-                Rect::new(rx, y, 3, 1),
+                Rect::new(x, y, 3, 1),
             ));
         }
-        if rx > area.x {
+        if rx > floor {
             buf.set_span(rx - 1, y, &Span::raw(" "), 1);
         }
+        buf.set_span(
+            area.x,
+            y,
+            &Span::styled(icon, Style::default().fg(theme.accent_running)),
+            STATUS_ICON_WIDTH,
+        );
     }
 }
 #[cfg(test)]
@@ -2001,6 +2032,94 @@ mod tests {
             "expected `(42+)` badge in rendered buffer, got:\n{joined}",
         );
     }
+    #[test]
+    #[serial_test::serial]
+    fn narrow_tasks_row_keeps_buttons_and_timer_off_the_status_icon() {
+        let _guard = crate::theme::cache::pin_theme();
+        crate::theme::cache::set_terminal_native_lock(false);
+        let mut pane = TasksPane::new();
+        pane.overlay.show();
+        let mut bg_tasks = std::collections::BTreeMap::new();
+        bg_tasks.insert(
+            "t1".into(),
+            make_bg_task("t1", "sleep", BgTaskStatus::Running),
+        );
+        pane.sync(&bg_tasks, &HashMap::new(), &HashMap::new(), &[]);
+
+        let wide = render_pane_to_strings(&mut pane, &bg_tasks, 80, 8);
+        let wide_row = wide
+            .iter()
+            .find(|row| row.contains("sleep"))
+            .expect("wide row");
+        assert!(
+            wide_row.contains('s') && wide_row.contains('['),
+            "a wide row still shows the timer and a button, got {wide_row:?}"
+        );
+
+        let width = 11u16;
+        let height = 8u16;
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        let layout = crate::appearance::LayoutConfig::default();
+        pane.render(
+            area,
+            &mut buf,
+            false,
+            &layout,
+            &bg_tasks,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        let content_x = HorizontalLayout::ACCENT + layout.block_pad_left;
+        let icon = crate::glyphs::dot_spinner_frames()
+            .first()
+            .copied()
+            .unwrap_or("");
+        let row_y = (0..height).find(|y| {
+            buf.cell((content_x, *y))
+                .map(|cell| cell.symbol() == icon)
+                .unwrap_or(false)
+        });
+        let Some(row_y) = row_y else {
+            let rows: Vec<String> = (0..height)
+                .map(|y| {
+                    (0..width)
+                        .filter_map(|x| buf.cell((x, y)).map(|cell| cell.symbol().to_string()))
+                        .collect()
+                })
+                .collect();
+            panic!("narrow pane did not paint the status icon: {rows:?}");
+        };
+        let icon_cell = buf
+            .cell((content_x, row_y))
+            .map(|cell| cell.symbol().to_string())
+            .unwrap_or_default();
+        assert_eq!(
+            icon_cell, icon,
+            "the status icon stays in the first column"
+        );
+        for x in content_x..content_x + STATUS_ICON_WIDTH {
+            let symbol = buf
+                .cell((x, row_y))
+                .map(|cell| cell.symbol().to_string())
+                .unwrap_or_default();
+            assert!(
+                !symbol.contains('[') && !symbol.chars().any(|ch| ch.is_ascii_digit()),
+                "column {x} of the status icon holds chrome {symbol:?}"
+            );
+        }
+        for (_id, rect) in pane
+            .kill_button_rects
+            .iter()
+            .chain(pane.view_button_rects.iter())
+        {
+            assert!(
+                rect.x >= content_x + STATUS_ICON_WIDTH,
+                "button {rect:?} covers the status icon at {content_x}"
+            );
+        }
+    }
+
     #[test]
     fn render_hides_badge_when_stdout_empty() {
         let mut pane = TasksPane::new();
