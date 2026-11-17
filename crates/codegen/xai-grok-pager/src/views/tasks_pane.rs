@@ -2416,6 +2416,95 @@ mod tests {
         );
     }
 
+    /// The search and filter status row is not a task. Clicking it leaves the highlight where it was.
+    #[test]
+    fn status_row_click_does_not_select_a_hidden_task() {
+        use crossterm::event::MouseButton;
+        let mut pane = TasksPane::new();
+        pane.overlay.show();
+        let mut bg_tasks = std::collections::BTreeMap::new();
+        let mut shown = make_bg_task("shown", "echo visible-needle", BgTaskStatus::Running);
+        shown.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2);
+        let mut hidden = make_bg_task("hidden", "echo hidden-alpha", BgTaskStatus::Running);
+        hidden.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        bg_tasks.insert("shown".into(), shown);
+        bg_tasks.insert("hidden".into(), hidden);
+        pane.sync(&bg_tasks, &HashMap::new(), &HashMap::new(), &[]);
+        assert!(pane.handle_key(&crate::key!('f').to_key_event()));
+        assert!(pane.handle_paste("visible-needle"));
+        let width = 60u16;
+        let height = 8u16;
+        let area = Rect::new(0, 0, width, height);
+        let rows = render_pane_to_strings(&mut pane, &bg_tasks, width, height);
+        let joined = rows.join("\n");
+        let filter_y = rows
+            .iter()
+            .position(|row| row.contains("filter:"))
+            .unwrap_or_else(|| panic!("filter bar missing:\n{joined}")) as u16;
+        assert_eq!(pane.selected_task_id(), Some("shown"), "{joined}");
+        pane.handle_mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            4,
+            filter_y,
+            area,
+        );
+        assert_eq!(
+            pane.selected_task_id(),
+            Some("shown"),
+            "clicking the filter row must not select the hidden task:\n{joined}"
+        );
+        assert!(pane.handle_key(&crate::key!(Enter).to_key_event()));
+        let accepted = render_pane_to_strings(&mut pane, &bg_tasks, width, height);
+        let accepted_joined = accepted.join("\n");
+        let status_y = accepted
+            .iter()
+            .position(|row| row.contains("[filter:"))
+            .unwrap_or_else(|| panic!("accepted filter status missing:\n{accepted_joined}"))
+            as u16;
+        pane.handle_mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            width.saturating_sub(2),
+            status_y,
+            area,
+        );
+        assert_eq!(
+            pane.selected_task_id(),
+            Some("shown"),
+            "clicking the filter status must not select the hidden task:\n{accepted_joined}"
+        );
+
+        let mut search_pane = TasksPane::new();
+        search_pane.overlay.show();
+        let mut many = std::collections::BTreeMap::new();
+        for i in 0..8u64 {
+            let mut task = make_bg_task(&format!("s{i}"), &format!("cmd {i}"), BgTaskStatus::Running);
+            task.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(i);
+            many.insert(format!("s{i}"), task);
+        }
+        search_pane.sync(&many, &HashMap::new(), &HashMap::new(), &[]);
+        let _ = render_pane_to_strings(&mut search_pane, &many, width, height);
+        search_pane.list_state.set_scroll_offset(3);
+        assert!(search_pane.handle_key(&crate::key!('/').to_key_event()));
+        let search_rows = render_pane_to_strings(&mut search_pane, &many, width, height);
+        let search_joined = search_rows.join("\n");
+        let search_y = search_rows
+            .iter()
+            .position(|row| row.contains("search:"))
+            .unwrap_or_else(|| panic!("search bar missing:\n{search_joined}")) as u16;
+        let before = search_pane.selected_task_id().map(str::to_string);
+        search_pane.handle_mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            4,
+            search_y,
+            area,
+        );
+        assert_eq!(
+            search_pane.selected_task_id().map(str::to_string),
+            before,
+            "clicking the search row must not move onto a scrolled-off task:\n{search_joined}"
+        );
+    }
+
     #[test]
     fn render_hides_badge_when_stdout_empty() {
         let mut pane = TasksPane::new();
