@@ -556,6 +556,30 @@ impl ScrollbackState {
         self.enable_follow_with_preserve();
     }
 
+    /// The first user prompt, and every row above it, fits in the viewport.
+    /// Later prompts still page-flip. A missing layout falls through to the flip.
+    fn first_prompt_keeps_earlier_rows(&self, prompt_idx: usize) -> bool {
+        if self.viewport_height == 0 {
+            return false;
+        }
+        let earlier_prompt = self.entries.iter().take(prompt_idx).any(|(_, entry)| {
+            matches!(entry.block, RenderBlock::UserPrompt(_))
+        });
+        if earlier_prompt {
+            return false;
+        }
+        let Some(cache) = self.layout_cache.as_ref() else {
+            return false;
+        };
+        let Some(&top) = cache.virtual_y.get(prompt_idx) else {
+            return false;
+        };
+        let Some(info) = cache.entries.get(prompt_idx) else {
+            return false;
+        };
+        top.saturating_add(info.height as usize) <= self.viewport_height as usize
+    }
+
     /// First system note in the run directly above `prompt_idx`.
     /// Page-flip keeps that run on screen: a model-switch result, a `Worktree ready` line, and the lines between it and the prompt.
     /// A system note with a non-system entry between it and the prompt does not move the anchor.
@@ -586,8 +610,16 @@ impl ScrollbackState {
         }
         if page_flip {
             if let Some(idx) = prompt_idx {
-                let anchor = self.queued_prompt_note_anchor(idx);
-                self.page_flip_showing(anchor, idx);
+                if self.first_prompt_keeps_earlier_rows(idx) {
+                    // Hook notes and other rows above the first prompt stay on screen when the page can hold them.
+                    // A page-flip would pin the prompt to the top and scroll those rows off.
+                    self.release_pin_reserve();
+                    self.scroll_offset = 0;
+                    self.enable_follow_with_preserve();
+                } else {
+                    let anchor = self.queued_prompt_note_anchor(idx);
+                    self.page_flip_showing(anchor, idx);
+                }
             } else {
                 self.release_pin_reserve();
                 self.enable_follow_with_preserve();
@@ -1332,6 +1364,64 @@ mod tests {
         assert!(state.is_follow_mode());
         assert!(state.is_follow_preserve_scroll());
         assert_eq!(state.scroll_offset(), reading);
+    }
+
+    #[test]
+    fn first_prompt_keeps_hook_notes_when_they_fit_on_the_page() {
+        use crate::scrollback::blocks::SessionEvent;
+
+        let mut state = ScrollbackState::new();
+        state.push_block(RenderBlock::session_event(SessionEvent::HookAnnotation {
+            message: "hook note: ran the linter".into(),
+        }));
+        state.push_block(RenderBlock::session_event(SessionEvent::HookAnnotation {
+            message: "hook note: loaded the skill".into(),
+        }));
+        state.prepare_layout(80, 24);
+        state.push_block(user_block("first question"));
+        let prompt_idx = state.len() - 1;
+        state.follow_new_turn(Some(prompt_idx), true);
+
+        assert_eq!(
+            state.scroll_offset(),
+            0,
+            "earlier rows stay on screen when the first prompt still fits"
+        );
+        assert!(
+            !state.is_pin_reserve_active(),
+            "a fitting first page must not pin the prompt over the notes"
+        );
+        let ys = state.get_cached_virtual_y().expect("layout");
+        let note_top = *ys.first().expect("hook note");
+        let prompt_top = *ys.get(prompt_idx).expect("prompt");
+        let prompt_h = state
+            .get_cached_entry_layouts()
+            .and_then(|rows| rows.get(prompt_idx))
+            .map(|info| info.height as usize)
+            .expect("prompt height");
+        assert_eq!(note_top, 0);
+        assert!(
+            prompt_top + prompt_h <= 24,
+            "the prompt bottom {} is on the page",
+            prompt_top + prompt_h
+        );
+
+        let mut state = ScrollbackState::new();
+        for i in 0..30 {
+            state.push_block(RenderBlock::session_event(SessionEvent::HookAnnotation {
+                message: format!("hook note {i}"),
+            }));
+        }
+        state.prepare_layout(80, 8);
+        state.push_block(user_block("first question"));
+        let prompt_idx = state.len() - 1;
+        state.follow_new_turn(Some(prompt_idx), true);
+        assert!(
+            state.scroll_offset() > 0,
+            "a first prompt below the fold still page-flips"
+        );
+        assert!(state.is_pin_reserve_active());
+        assert_eq!(state.selected(), Some(prompt_idx));
     }
 
     #[test]
