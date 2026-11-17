@@ -17,6 +17,7 @@ use xai_grok_pager::theme::Theme;
 /// Computed before the draw closure so the closure can own it.
 pub(super) enum MinimalAuthHint {
     /// Interactive sign-in underway: show the URL (when known) and the device code (when the URL carries one).
+    /// The code is the line by itself. The caption under it is the same sentence the full sign-in screen uses.
     /// Covers device flow and the external command flow, where the provider opens its own browser and `url` may be `None`.
     SigningIn {
         url: Option<String>,
@@ -79,7 +80,12 @@ pub(super) fn auth_hint_rows(hint: &MinimalAuthHint, width: u16) -> u16 {
             code,
         } => {
             let url_rows = wrapped_char_rows(url, width);
-            let code_rows = if code.is_some() { 2 } else { 0 }; // blank + "Code: …"
+            // blank + the code alone + the caption under it
+            let code_rows = if code.is_some() {
+                2 + wrapped_word_rows(DEVICE_CODE_CAPTION, width)
+            } else {
+                0
+            };
             3 + url_rows + code_rows + 2
         }
         // The error message only. A heading would repeat it.
@@ -133,6 +139,9 @@ fn wrapped_char_rows(text: &str, width: u16) -> u16 {
     }
     chars.div_ceil(width) as u16
 }
+
+/// Same sentence as the full sign-in screen's device-code caption.
+const DEVICE_CODE_CAPTION: &str = "Make sure your browser shows this code.";
 
 /// Parse the device-flow `user_code` from a verification URL (`None` if absent or malformed).
 /// Mirrors `views::welcome::extract_user_code`, kept local so minimal does not depend on welcome-screen internals.
@@ -250,11 +259,17 @@ pub(super) fn render_auth(buf: &mut Buffer, area: Rect, theme: &Theme, hint: &Mi
                             area,
                             y,
                             bottom,
-                            Line::from(vec![
-                                Span::styled("Code: ", gray),
-                                Span::styled(code.clone(), bold),
-                            ]),
+                            Line::from(Span::styled(code.clone(), bold)),
                         );
+                        for line in wrap_words(DEVICE_CODE_CAPTION, area.width) {
+                            y = put_line(
+                                buf,
+                                area,
+                                y,
+                                bottom,
+                                Line::from(Span::styled(line, gray)),
+                            );
+                        }
                     }
                     y = put_line(buf, area, y, bottom, Line::default());
                     let _ = put_line(
@@ -494,8 +509,53 @@ mod tests {
         assert!(text.contains("accounts.x.ai/device"), "url: {text:?}");
         assert!(text.contains("ABCD-EFGH"), "device code: {text:?}");
         assert!(
+            text.contains("Make sure your browser shows this code."),
+            "caption: {text:?}"
+        );
+        assert!(!text.contains("Code:"), "the code is not prefixed: {text:?}");
+        assert!(
             text.contains("Waiting for approval"),
             "waiting line: {text:?}"
+        );
+    }
+
+    #[test]
+    fn device_sign_in_shows_the_code_then_its_caption() {
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 80, 12);
+        let mut buf = Buffer::empty(area);
+        let hint = MinimalAuthHint::SigningIn {
+            url: Some("https://accounts.x.ai/device?user_code=ABCD-EFGH".into()),
+            code: Some("ABCD-EFGH".into()),
+        };
+        render_auth(&mut buf, area, &theme, &hint);
+        let rows: Vec<String> = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or_default())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        let code_row = rows
+            .iter()
+            .position(|row| row == "ABCD-EFGH")
+            .expect("the code is a row by itself");
+        let caption = rows
+            .iter()
+            .skip(code_row + 1)
+            .find(|row| !row.is_empty())
+            .expect("a caption follows the code");
+        assert_eq!(caption, "Make sure your browser shows this code.");
+        let code_cell = buf.cell((0, code_row as u16)).expect("code cell");
+        assert_eq!(code_cell.fg, theme.text_primary);
+        assert!(code_cell.modifier.contains(ratatui::style::Modifier::BOLD));
+        let narrow = auth_hint_rows(&hint, 16);
+        let wide = auth_hint_rows(&hint, 80);
+        assert!(
+            narrow > wide,
+            "a narrow caption takes another row: narrow {narrow}, wide {wide}"
         );
     }
 
