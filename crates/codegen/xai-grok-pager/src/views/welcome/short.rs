@@ -104,9 +104,13 @@ pub(super) fn paint_narrow_session_list(
                     width: area.width,
                     height: 1,
                 },
-                Style::default().bg(theme.bg_highlight),
+                Style::default().bg(
+                    super::menu::welcome_row_bg(theme, true, false).unwrap_or(theme.bg_highlight),
+                ),
             );
-            style.bg(theme.bg_highlight).add_modifier(Modifier::BOLD)
+            style
+                .bg(super::menu::welcome_row_bg(theme, true, false).unwrap_or(theme.bg_highlight))
+                .add_modifier(Modifier::BOLD)
         } else {
             style
         };
@@ -176,7 +180,7 @@ fn action_style(theme: &Theme, selected: bool) -> Style {
         .fg(theme.text_primary)
         .add_modifier(Modifier::BOLD);
     if selected {
-        style.bg(theme.bg_highlight)
+        style.bg(super::menu::welcome_row_bg(theme, true, false).unwrap_or(theme.bg_highlight))
     } else {
         style
     }
@@ -308,7 +312,9 @@ fn paint_action_label(
                 width: drawn,
                 height: 1,
             },
-            Style::default().bg(theme.bg_highlight),
+            Style::default().bg(
+                super::menu::welcome_row_bg(theme, true, false).unwrap_or(theme.bg_highlight),
+            ),
         );
     }
     buf.set_span_safe(
