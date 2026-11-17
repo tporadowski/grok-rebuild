@@ -868,6 +868,27 @@ pub fn hidden_external_hint(
     crate::views::session_picker::hidden_external_hint(entries, source_filter)
 }
 
+/// [`crate::views::session_picker::build_visible_picker_entries`].
+pub fn build_visible_picker_entries<'a>(
+    grouped: bool,
+    entries_data: &'a [SessionPickerEntry],
+    filtered_indices: &[usize],
+    built: &'a [SessionEntryData],
+    fields_vecs: &'a [Vec<PickerField<'a>>],
+    state: &PickerState,
+    current_repo: Option<&str>,
+) -> (Vec<PickerEntry<'a>>, Vec<bool>) {
+    crate::views::session_picker::build_visible_picker_entries(
+        grouped,
+        entries_data,
+        filtered_indices,
+        built,
+        fields_vecs,
+        state,
+        current_repo,
+    )
+}
+
 /// [`crate::views::session_picker::build_grouped_picker_entries`].
 pub fn build_grouped_picker_entries<'a>(
     entries_data: &'a [SessionPickerEntry],

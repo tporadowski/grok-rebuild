@@ -231,6 +231,7 @@ fn resume_body_rows(agent: &AgentView, width: u16) -> u16 {
         state,
         source_filter,
         entries_query,
+        grouped,
         ..
     }) = &agent.active_modal
     else {
@@ -255,7 +256,8 @@ fn resume_body_rows(agent: &AgentView, width: u16) -> u16 {
         })
         .collect();
     let current_repo = minimal_api::repo_name_from_cwd(&agent.session.cwd.to_string_lossy());
-    let (picker_entries, _) = minimal_api::build_grouped_picker_entries(
+    let (picker_entries, _) = minimal_api::build_visible_picker_entries(
+        *grouped,
         entries_data,
         &filtered,
         &built,
@@ -288,6 +290,7 @@ fn render_resume(
         loading,
         lanes,
         entries_query,
+        grouped,
         ..
     }) = &mut agent.active_modal
     else {
@@ -316,7 +319,8 @@ fn render_resume(
         })
         .collect();
     let current_repo = minimal_api::repo_name_from_cwd(&cwd);
-    let (picker_entries, non_sel) = minimal_api::build_grouped_picker_entries(
+    let (picker_entries, non_sel) = minimal_api::build_visible_picker_entries(
+        *grouped,
         entries_data,
         &filtered,
         &built,
@@ -1458,6 +1462,50 @@ mod tests {
         assert!(
             !text.contains("External"),
             "chat mode has no source filter to name:\n{text}"
+        );
+    }
+
+    /// Grouping off draws the sessions in list order with no repo headers (`v88-x45`).
+    #[test]
+    fn minimal_resume_flat_list_omits_repo_headers() {
+        let theme = Theme::groknight();
+        let mut zeta = session_entry("zeta-task");
+        zeta.summary = "zeta task".into();
+        zeta.repo_name = "zeta-repo".into();
+        let mut alpha = session_entry("alpha-task");
+        alpha.summary = "alpha task".into();
+        alpha.repo_name = "alpha-repo".into();
+
+        let mut flat = with_resume(vec![zeta.clone(), alpha.clone()]);
+        {
+            let Some(ActiveModal::SessionPicker { grouped, .. }) = &mut flat.active_modal else {
+                panic!("expected session picker");
+            };
+            *grouped = false;
+        }
+        let flat_text = render_resume_text(&mut flat, &theme, 0);
+        let zeta_at = flat_text.find("zeta task").expect("zeta row");
+        let alpha_at = flat_text.find("alpha task").expect("alpha row");
+        assert!(
+            zeta_at < alpha_at,
+            "a flat list keeps caller order:\n{flat_text}"
+        );
+        assert!(
+            !flat_text.contains("zeta-repo") && !flat_text.contains("alpha-repo"),
+            "a flat list has no repo headers:\n{flat_text}"
+        );
+
+        let mut grouped = with_resume(vec![zeta, alpha]);
+        let grouped_text = render_resume_text(&mut grouped, &theme, 0);
+        assert!(
+            grouped_text.contains("alpha-repo") && grouped_text.contains("zeta-repo"),
+            "grouping still paints repo headers:\n{grouped_text}"
+        );
+        let alpha_at = grouped_text.find("alpha task").expect("alpha row");
+        let zeta_at = grouped_text.find("zeta task").expect("zeta row");
+        assert!(
+            alpha_at < zeta_at,
+            "grouped rows follow repo order, not caller order:\n{grouped_text}"
         );
     }
 

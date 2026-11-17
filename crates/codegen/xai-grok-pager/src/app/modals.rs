@@ -978,8 +978,8 @@ impl AgentView {
                 let current_repo = crate::views::session_picker::repo_name_from_cwd(
                     &self.session.cwd.to_string_lossy(),
                 );
-                // Minimal /resume paints grouped session rows and no content-search hits.
-                // Keys use that list, so Down and Enter cannot land on a row the panel does not show.
+                // Minimal /resume paints no content-search hits, and it follows `grouped`
+                // so a flat list and these keys select the same rows (v88-x45).
                 let entry_map = build_entry_map(
                     entries.as_deref(),
                     if minimal_resume {
@@ -988,7 +988,7 @@ impl AgentView {
                         content_results.as_deref()
                     },
                     effective_filter_query(state.query(), entries_query.as_deref()),
-                    if minimal_resume { true } else { *grouped },
+                    *grouped,
                     !minimal_resume && *content_loading,
                     *source_filter,
                     Some(current_repo.as_str()),
@@ -2473,7 +2473,42 @@ mod session_picker_delete_tests {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
-    /// Minimal `/resume` paints grouped session rows and hides content-search hits.
+    /// Grouping off keeps Enter on the first listed session, which is the row the flat panel draws (`v88-x45`).
+    #[test]
+    fn minimal_resume_flat_keys_follow_caller_order() {
+        let mut zeta = entry("zeta-task");
+        zeta.summary = "zeta task".into();
+        zeta.repo_name = "zeta-repo".into();
+        let mut alpha = entry("alpha-task");
+        alpha.summary = "alpha task".into();
+        alpha.repo_name = "alpha-repo".into();
+
+        let mut flat = make_agent();
+        flat.prompt
+            .set_screen_mode(crate::app::ScreenMode::Minimal);
+        open_picker(&mut flat, vec![zeta.clone(), alpha.clone()]);
+        if let Some(ActiveModal::SessionPicker { grouped, .. }) = flat.active_modal.as_mut() {
+            *grouped = false;
+        }
+        let picked = flat.handle_modal_key(&arrow(KeyCode::Enter));
+        assert!(
+            matches!(picked, InputOutcome::Action(Action::PickSession(0))),
+            "flat Enter opens the first listed session, got {picked:?}"
+        );
+
+        let mut grouped = make_agent();
+        grouped
+            .prompt
+            .set_screen_mode(crate::app::ScreenMode::Minimal);
+        open_picker(&mut grouped, vec![zeta, alpha]);
+        let picked = grouped.handle_modal_key(&arrow(KeyCode::Enter));
+        assert!(
+            matches!(picked, InputOutcome::Action(Action::PickSession(1))),
+            "grouped Enter opens the first repo's session, got {picked:?}"
+        );
+    }
+
+    /// Minimal `/resume` paints no content-search hits.
     /// With grouping off, one Down used to select that hidden hit. It now lands on the shown session.
     #[test]
     fn minimal_resume_arrows_and_enter_stay_on_shown_rows() {
