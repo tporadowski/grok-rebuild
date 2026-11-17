@@ -503,23 +503,67 @@ fn non_wezterm_without_kitty_evidence_keeps_ordinary_fallback() {
         true,
     ));
 
-    assert_eq!(
-        report.facts.newline,
-        Some(NewlineFact::XtermJs {
-            terminal: TerminalName::VsCode,
-        })
+    assert!(
+        report.facts.newline.is_none(),
+        "missing runtime evidence does not claim the protocol is unused"
     );
-    let finding = report
+}
+
+#[test]
+fn confirmed_keyboard_protocol_not_in_use_is_reported() {
+    let terminal = TerminalContext {
+        brand: TerminalName::VsCode,
+        env_brand: TerminalName::VsCode,
+        ..Default::default()
+    };
+    let unused = view(snapshot(
+        &terminal,
+        plain_tmux(),
+        runtime(
+            RuntimeEvidence::Available(false),
+            RuntimeEvidence::Available(None),
+        ),
+        true,
+    ));
+    assert_eq!(
+        unused.facts.newline,
+        Some(NewlineFact::ConfirmedProtocolUnused)
+    );
+    let finding = unused
         .findings
         .iter()
         .find(|finding| finding.id == crate::diagnostics::NEWLINE_FALLBACK_ID)
         .expect("newline fallback finding");
     assert_eq!(finding.disposition, FindingDisposition::Recommendation);
     assert!(
+        finding.message.contains("not in use"),
+        "{}",
+        finding.message
+    );
+    assert!(
         finding
             .note
             .as_deref()
-            .is_some_and(|note| note.contains("Alt+Enter"))
+            .is_some_and(|note| note.contains("confirmed") && note.contains("Alt+Enter")),
+        "{:?}",
+        finding.note
+    );
+
+    let in_use = view(snapshot(
+        &terminal,
+        plain_tmux(),
+        runtime(
+            RuntimeEvidence::Available(true),
+            RuntimeEvidence::Available(None),
+        ),
+        true,
+    ));
+    assert!(in_use.facts.newline.is_none());
+    assert!(
+        !in_use
+            .findings
+            .iter()
+            .any(|finding| finding.id == crate::diagnostics::NEWLINE_FALLBACK_ID)
     );
 }
 

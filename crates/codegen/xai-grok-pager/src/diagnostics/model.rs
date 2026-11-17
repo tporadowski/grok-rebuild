@@ -164,6 +164,8 @@ pub enum NewlineFact {
     Vte { version: Option<String> },
     XtermJs { terminal: TerminalName },
     NoKittyKeyboardProtocol,
+    /// The terminal is one that confirms the Kitty keyboard protocol, and this session did not enable it.
+    ConfirmedProtocolUnused,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

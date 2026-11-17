@@ -187,8 +187,15 @@ fn facts(
         modifier_delivery: keyboard_capabilities.modifier_delivery,
         os: snapshot.host_os,
     });
-    let newline = (ctx.shift_enter_unavailable() && !suppress_newline).then(|| {
-        if ctx.vte_version.is_some() || ctx.brand == TerminalName::Vte {
+    let protocol_confirmed = ctx.kitty_skip_reason().is_none();
+    let protocol_unused = matches!(
+        snapshot.runtime.kitty_flags_pushed,
+        RuntimeEvidence::Available(false)
+    );
+    let newline = if !suppress_newline && protocol_unused && protocol_confirmed {
+        Some(NewlineFact::ConfirmedProtocolUnused)
+    } else if ctx.shift_enter_unavailable() && !suppress_newline {
+        Some(if ctx.vte_version.is_some() || ctx.brand == TerminalName::Vte {
             NewlineFact::Vte {
                 version: ctx.vte_version.clone(),
             }
@@ -198,8 +205,10 @@ fn facts(
             }
         } else {
             NewlineFact::NoKittyKeyboardProtocol
-        }
-    });
+        })
+    } else {
+        None
+    };
     let data_control = if !snapshot.common.wayland.is_wayland {
         DataControlFact::NotApplicable
     } else {
@@ -496,6 +505,12 @@ fn newline_finding(facts: &DiagnosticFacts) -> Option<DiagnosticFinding> {
             "Shift+Enter can't insert a newline because the keyboard protocol is unavailable",
             "Use Alt+Enter to insert a newline. If your terminal supports the Kitty keyboard \
              protocol, enable it and restart Grok."
+                .to_owned(),
+        ),
+        NewlineFact::ConfirmedProtocolUnused => (
+            "Shift+Enter can't insert a newline because the keyboard protocol is not in use",
+            "This terminal confirmed the Kitty keyboard protocol, but this session is not using \
+             it. Use Alt+Enter to insert a newline."
                 .to_owned(),
         ),
     };

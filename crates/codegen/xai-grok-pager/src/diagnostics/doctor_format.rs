@@ -70,6 +70,9 @@ pub fn format_doctor(report: &DiagnosticReport) -> String {
             NewlineFact::NoKittyKeyboardProtocol => {
                 "no Kitty keyboard protocol; Shift+Enter == Enter".to_owned()
             }
+            NewlineFact::ConfirmedProtocolUnused => {
+                "Kitty keyboard protocol confirmed, not in use".to_owned()
+            }
         };
         out.push_str(&format!("  newline      Alt+Enter ({detail})\n"));
     }

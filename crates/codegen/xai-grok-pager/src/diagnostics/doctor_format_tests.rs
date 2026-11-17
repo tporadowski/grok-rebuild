@@ -416,6 +416,7 @@ fn unavailable_and_error_probes_do_not_create_false_issues() {
             "  ssh          no\n",
             "  color        truecolor\n",
             "  themes       all\n",
+            "  newline      Alt+Enter (Kitty keyboard protocol confirmed, not in use)\n",
             "\n",
             "Clipboard\n",
             "  native       local (pbcopy)\n",
@@ -425,6 +426,11 @@ fn unavailable_and_error_probes_do_not_create_false_issues() {
             "  status       confirmed\n",
             "\n",
             "No issues found.\n",
+            "\n",
+            "Recommendations\n",
+            "\n",
+            "  i terminal.newline-fallback  Shift+Enter can't insert a newline because the keyboard protocol is not in use\n",
+            "      Note: This terminal confirmed the Kitty keyboard protocol, but this session is not using it. Use Alt+Enter to insert a newline.\n",
         )
     );
 }
@@ -455,7 +461,7 @@ fn vscode_newline_output_is_platform_neutral() {
             "  ssh          no\n",
             "  color        truecolor\n",
             "  themes       all\n",
-            "  newline      Alt+Enter (VS Code: xterm.js can't distinguish Shift+Enter)\n",
+            "  newline      Alt+Enter (Kitty keyboard protocol confirmed, not in use)\n",
             "\n",
             "Clipboard\n",
             "  native       local (pbcopy)\n",
@@ -468,8 +474,8 @@ fn vscode_newline_output_is_platform_neutral() {
             "\n",
             "Recommendations\n",
             "\n",
-            "  i terminal.newline-fallback  Shift+Enter can't insert a newline in this xterm.js terminal\n",
-            "      Note: Use Alt+Enter to insert a newline in VS Code. xterm.js sends Shift+Enter as Enter in this setup.\n",
+            "  i terminal.newline-fallback  Shift+Enter can't insert a newline because the keyboard protocol is not in use\n",
+            "      Note: This terminal confirmed the Kitty keyboard protocol, but this session is not using it. Use Alt+Enter to insert a newline.\n",
         )
     );
 }

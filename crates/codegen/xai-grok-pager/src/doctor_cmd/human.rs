@@ -240,6 +240,9 @@ fn format_newline(newline: &NewlineFact) -> String {
         NewlineFact::NoKittyKeyboardProtocol => {
             "no Kitty keyboard protocol; Shift+Enter equals Enter".to_owned()
         }
+        NewlineFact::ConfirmedProtocolUnused => {
+            "Kitty keyboard protocol confirmed, not in use".to_owned()
+        }
     };
     format!("Alt+Enter ({detail})")
 }

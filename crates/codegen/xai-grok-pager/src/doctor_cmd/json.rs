@@ -218,6 +218,7 @@ enum JsonNewlineFact<'a> {
     Vte { version: Option<&'a str> },
     XtermJs { terminal_name: &'static str },
     NoKittyKeyboardProtocol,
+    ConfirmedProtocolUnused,
 }
 
 impl<'a> From<&'a NewlineFact> for JsonNewlineFact<'a> {
@@ -230,6 +231,7 @@ impl<'a> From<&'a NewlineFact> for JsonNewlineFact<'a> {
                 terminal_name: terminal_name(*terminal),
             },
             NewlineFact::NoKittyKeyboardProtocol => Self::NoKittyKeyboardProtocol,
+            NewlineFact::ConfirmedProtocolUnused => Self::ConfirmedProtocolUnused,
         }
     }
 }
