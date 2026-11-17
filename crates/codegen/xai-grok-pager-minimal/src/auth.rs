@@ -348,7 +348,7 @@ pub(super) fn render_auth(buf: &mut Buffer, area: Rect, theme: &Theme, hint: &Mi
                 bottom,
                 Line::from(vec![
                     Span::styled("y", bold),
-                    Span::styled("  Yes, proceed", gray),
+                    Span::styled(" Yes, proceed", gray),
                 ]),
             );
             y = put_line(
@@ -358,7 +358,7 @@ pub(super) fn render_auth(buf: &mut Buffer, area: Rect, theme: &Theme, hint: &Mi
                 bottom,
                 Line::from(vec![
                     Span::styled("n", bold),
-                    Span::styled("  No, quit", gray),
+                    Span::styled(" No, quit", gray),
                 ]),
             );
             y = put_line(buf, area, y, bottom, Line::default());
@@ -528,8 +528,10 @@ mod tests {
             text.contains("/home/agent/project"),
             "workspace path: {text:?}"
         );
-        assert!(text.contains("Yes, proceed"), "yes option: {text:?}");
-        assert!(text.contains("No, quit"), "no option: {text:?}");
+        assert!(text.contains("y Yes, proceed"), "yes key: {text:?}");
+        assert!(text.contains("n No, quit"), "no key: {text:?}");
+        assert!(!text.contains("y  Yes"), "one space after y: {text:?}");
+        assert!(!text.contains("n  No"), "one space after n: {text:?}");
         assert!(text.contains("Enter or y to trust"), "hint line: {text:?}");
         assert!(text.contains("posing security risks"), "warning: {text:?}");
     }

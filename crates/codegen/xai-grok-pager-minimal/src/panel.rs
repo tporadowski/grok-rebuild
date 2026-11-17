@@ -866,6 +866,16 @@ mod tests {
         minimal_api::test_agent_view(Some("s1"), std::path::PathBuf::from("/tmp/repo"))
     }
 
+    fn render(
+        buf: &mut Buffer,
+        area: Rect,
+        agent: &mut AgentView,
+        kind: ListPanel,
+        theme: &Theme,
+    ) {
+        render_with_tick(buf, area, agent, kind, theme, 0);
+    }
+
     #[test]
     fn minimal_footer_hints_do_not_truncate_mid_word() {
         let source = "Tab tabs \u{00b7} r refresh \u{00b7} a add \u{00b7} Space enable/disable \u{00b7} Esc close";
