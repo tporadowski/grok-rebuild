@@ -3710,8 +3710,13 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
             vim_normal_first: crate::appearance::cache::load_vim_mode(),
             session_fold_keys: true,
         };
+        let rows_frozen =
+            crate::views::session_picker::session_rows_frozen(ctx.sp_loading, ctx.sp_paging);
         match crate::views::session_picker::handle_pending_delete_key(ctx.sp_pending_delete, ev) {
             crate::views::session_picker::PendingDeleteKey::Confirm(pd) => {
+                if rows_frozen {
+                    return InputOutcome::Changed;
+                }
                 return InputOutcome::Action(Action::DeleteSession {
                     source: pd.source,
                     session_id: pd.session_id,
@@ -3738,6 +3743,9 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                 ctx.sp_entries.as_deref(),
                 ctx.sp_content_results.as_deref(),
             ) {
+                if rows_frozen {
+                    return InputOutcome::Changed;
+                }
                 return InputOutcome::Action(match selection {
                     SessionPickerWorktreeSelection::Fuzzy(original_index) => {
                         Action::PickSessionInWorktree(original_index)
@@ -3768,7 +3776,11 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
             return InputOutcome::Action(Action::ResumeOlderSessions);
         }
         match outcome {
-            PickerOutcome::Selected(i) => match entry_map.get(i).and_then(|e| e.as_ref()) {
+            PickerOutcome::Selected(i) => {
+                if rows_frozen {
+                    return InputOutcome::Changed;
+                }
+                match entry_map.get(i).and_then(|e| e.as_ref()) {
                 Some(PickerItem::Fuzzy { original_index }) => {
                     return InputOutcome::Action(Action::PickSession(*original_index));
                 }
@@ -3784,7 +3796,8 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     return InputOutcome::Changed;
                 }
                 None => return InputOutcome::Changed,
-            },
+                }
+            }
             PickerOutcome::SubmitQuery => {
                 if let Some(sid) =
                     crate::views::session_picker::session_id_for_direct_load(ctx.sp_state.query())
@@ -3841,6 +3854,9 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                 );
             }
             PickerOutcome::Copy(i) => {
+                if rows_frozen {
+                    return InputOutcome::Changed;
+                }
                 if let Some(Some(PickerItem::Fuzzy { original_index })) = entry_map.get(i) {
                     return InputOutcome::Action(Action::CopySessionId(*original_index));
                 }
@@ -3874,6 +3890,9 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                 return InputOutcome::Action(Action::CycleSessionSourceFilter);
             }
             PickerOutcome::Action('d') => {
+                if rows_frozen {
+                    return InputOutcome::Changed;
+                }
                 *ctx.sp_pending_delete =
                     crate::views::session_picker::pending_delete_from_selection(
                         ctx.sp_state.selected,

@@ -1038,8 +1038,13 @@ impl AgentView {
                     session_fold_keys: true,
                 };
 
+                let rows_frozen =
+                    crate::views::session_picker::session_rows_frozen(*loading, *paging);
                 match crate::views::session_picker::handle_pending_delete_key(pending_delete, ev) {
                     crate::views::session_picker::PendingDeleteKey::Confirm(pd) => {
+                        if rows_frozen {
+                            return InputOutcome::Changed;
+                        }
                         return InputOutcome::Action(Action::DeleteSession {
                             source: pd.source,
                             session_id: pd.session_id,
@@ -1063,6 +1068,9 @@ impl AgentView {
                         content_results.as_deref(),
                     )
                 {
+                    if rows_frozen {
+                        return InputOutcome::Changed;
+                    }
                     return InputOutcome::Action(match selection {
                         SessionPickerWorktreeSelection::Fuzzy(original_index) => {
                             Action::PickSessionInWorktree(original_index)
@@ -1094,6 +1102,9 @@ impl AgentView {
                 }
                 match outcome {
                     PickerOutcome::Selected(i) => {
+                        if rows_frozen {
+                            return InputOutcome::Changed;
+                        }
                         match entry_map.get(i).and_then(|e| e.as_ref()) {
                             Some(PickerItem::Fuzzy { original_index }) => {
                                 // Don't clear active_modal here; dispatch_pick_session reads entries from it before clearing
@@ -1176,6 +1187,9 @@ impl AgentView {
                         content_results.as_deref(),
                     ),
                     PickerOutcome::Copy(i) => {
+                        if rows_frozen {
+                            return InputOutcome::Changed;
+                        }
                         if let Some(Some(PickerItem::Fuzzy { original_index })) = entry_map.get(i) {
                             InputOutcome::Action(Action::CopySessionId(*original_index))
                         } else {
@@ -1210,6 +1224,9 @@ impl AgentView {
                         InputOutcome::Action(Action::CycleSessionSourceFilter)
                     }
                     PickerOutcome::Action('d') => {
+                        if rows_frozen {
+                            return InputOutcome::Changed;
+                        }
                         *pending_delete =
                             crate::views::session_picker::pending_delete_from_selection(
                                 state.selected,
@@ -2419,7 +2436,9 @@ mod session_picker_delete_tests {
     use crate::app::agent_view::test_fixtures::make_agent;
     use crate::app::app_view::{InputOutcome, SessionPickerEntry};
     use crate::views::modal::ActiveModal;
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+    use crossterm::event::{
+        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
 
     fn entry(id: &str) -> SessionPickerEntry {
         SessionPickerEntry {
@@ -3006,6 +3025,76 @@ mod session_picker_delete_tests {
         assert!(
             agent.active_modal.is_some(),
             "refused actions keep picker open"
+        );
+    }
+
+    /// Enter, a row click, and Ctrl+W must not open a session while the list is reloading (`v88-x53`).
+    #[test]
+    fn reload_ignores_keys_and_clicks_on_sessions() {
+        fn arm_row(agent: &mut AgentView) {
+            let Some(ActiveModal::SessionPicker { state, .. }) = agent.active_modal.as_mut()
+            else {
+                panic!("expected session picker");
+            };
+            state.selected = 1;
+            state.hit_areas = Some(crate::views::picker::PickerHitAreas {
+                close_button: ratatui::layout::Rect::default(),
+                search_bar: ratatui::layout::Rect::default(),
+                item_rects: vec![ratatui::layout::Rect::new(0, 2, 20, 1)],
+                entry_indices: vec![1],
+                tab_rects: vec![],
+                filter_rect: None,
+            });
+        }
+        fn set_reload(agent: &mut AgentView, loading: bool, paging: bool) {
+            let Some(ActiveModal::SessionPicker {
+                loading: load, paging: page, ..
+            }) = agent.active_modal.as_mut()
+            else {
+                panic!("expected session picker");
+            };
+            *load = loading;
+            *page = paging;
+        }
+        let click = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        });
+        let worktree = Event::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+
+        for (loading, paging) in [(true, false), (false, true)] {
+            let mut agent = make_agent();
+            open_picker(&mut agent, vec![entry("s0")]);
+            set_reload(&mut agent, loading, paging);
+            arm_row(&mut agent);
+
+            let entered = agent.handle_palette_or_arg_input(&key_code(KeyCode::Enter));
+            assert!(
+                !matches!(entered, InputOutcome::Action(Action::PickSession(_))),
+                "Enter must not open a session while reloading ({loading}, {paging}), got {entered:?}"
+            );
+            let clicked = agent.handle_palette_or_arg_input(&click);
+            assert!(
+                !matches!(clicked, InputOutcome::Action(Action::PickSession(_))),
+                "a click must not open a session while reloading ({loading}, {paging}), got {clicked:?}"
+            );
+            let opened = agent.handle_palette_or_arg_input(&worktree);
+            assert!(
+                !matches!(opened, InputOutcome::Action(Action::PickSessionInWorktree(_))),
+                "Ctrl+W must not open a session while reloading ({loading}, {paging}), got {opened:?}"
+            );
+            assert!(agent.active_modal.is_some(), "the picker stays open");
+        }
+
+        let mut settled = make_agent();
+        open_picker(&mut settled, vec![entry("s0")]);
+        arm_row(&mut settled);
+        let entered = settled.handle_palette_or_arg_input(&key_code(KeyCode::Enter));
+        assert!(
+            matches!(entered, InputOutcome::Action(Action::PickSession(0))),
+            "Enter still opens the row once the list has settled, got {entered:?}"
         );
     }
 

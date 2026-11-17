@@ -71,6 +71,8 @@ impl AppView {
             vim_normal_first: crate::appearance::cache::load_vim_mode(),
             session_fold_keys: false,
         };
+        let rows_frozen =
+            crate::views::session_picker::session_rows_frozen(surface.loading, surface.paging);
         let outcome = handle_picker_input(ev, &mut surface.state, entry_map.len(), &config);
         if matches!(outcome, PickerOutcome::Changed | PickerOutcome::Unchanged)
             && !surface.loading
@@ -85,6 +87,9 @@ impl AppView {
         }
         Some(match outcome {
             PickerOutcome::Selected(index) => {
+                if rows_frozen {
+                    return Some(InputOutcome::Changed);
+                }
                 match entry_map.get(index).and_then(|item| item.as_ref()) {
                     Some(PickerItem::Fuzzy { original_index }) => {
                         InputOutcome::Action(Action::DashboardPickSession(*original_index))

@@ -1047,6 +1047,11 @@ pub(crate) fn loaded_sessions_label(count: usize) -> String {
     }
 }
 
+/// The list or its next page is in flight, so row indices must not open, copy, or delete a session.
+pub(crate) fn session_rows_frozen(loading: bool, paging: bool) -> bool {
+    loading || paging
+}
+
 /// `selected` is the last real row (group headers are `None` in the entry map).
 pub(crate) fn selection_is_last_loaded_row(
     selected: usize,
