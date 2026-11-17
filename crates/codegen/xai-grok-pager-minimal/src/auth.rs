@@ -75,7 +75,11 @@ pub(super) fn minimal_auth_hint(
 pub(super) fn auth_hint_rows(hint: &MinimalAuthHint, width: u16) -> u16 {
     match hint {
         // header + blank + "Opening browser…"
-        MinimalAuthHint::SigningIn { url: None, code: _ } => 3,
+        MinimalAuthHint::SigningIn { url: None, code: _ } => {
+            wrapped_word_rows(SIGN_IN_HEADER, width)
+                + 1
+                + wrapped_word_rows(OPENING_BROWSER, width)
+        }
         // header + blank + "Open this URL" + url rows + optional code block + blank + "Waiting…"
         MinimalAuthHint::SigningIn {
             url: Some(url),
@@ -88,7 +92,13 @@ pub(super) fn auth_hint_rows(hint: &MinimalAuthHint, width: u16) -> u16 {
             } else {
                 0
             };
-            3 + url_rows + code_rows + 2
+            wrapped_word_rows(SIGN_IN_HEADER, width)
+                + 1
+                + wrapped_word_rows(OPEN_URL_CAPTION, width)
+                + url_rows
+                + code_rows
+                + 1
+                + wrapped_word_rows(WAITING_FOR_APPROVAL, width)
         }
         // The error message only. A heading would repeat it.
         MinimalAuthHint::Failed(err) => wrapped_word_rows(err, width).max(1),
@@ -103,13 +113,28 @@ pub(super) fn auth_hint_rows(hint: &MinimalAuthHint, width: u16) -> u16 {
     }
 }
 
-/// Word-wrap `text` to `width` columns. A single word wider than `width` stays one line.
+/// Word-wrap `text` to `width` columns. A word wider than `width` breaks on display columns so the row stays inside the terminal.
 fn wrap_words(text: &str, width: u16) -> Vec<String> {
-    use unicode_width::UnicodeWidthStr;
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
     let w = width.max(1) as usize;
     let mut lines = Vec::new();
     let mut current = String::new();
     for word in text.split_whitespace() {
+        if word.width() > w {
+            if !current.is_empty() {
+                lines.push(std::mem::take(&mut current));
+            }
+            let mut chunk = String::new();
+            for ch in word.chars() {
+                let cw = UnicodeWidthChar::width(ch).unwrap_or(0).max(1);
+                if !chunk.is_empty() && chunk.width() + cw > w {
+                    lines.push(std::mem::take(&mut chunk));
+                }
+                chunk.push(ch);
+            }
+            current = chunk;
+            continue;
+        }
         if current.is_empty() {
             current = word.to_string();
         } else if current.width() + 1 + word.width() <= w {
@@ -143,6 +168,10 @@ fn wrapped_char_rows(text: &str, width: u16) -> u16 {
     chars.div_ceil(width) as u16
 }
 
+const SIGN_IN_HEADER: &str = "Sign in to Grok";
+const OPEN_URL_CAPTION: &str = "Open this URL in your browser to approve:";
+const OPENING_BROWSER: &str = "Opening your browser to sign in\u{2026}";
+const WAITING_FOR_APPROVAL: &str = "Waiting for approval\u{2026}";
 /// Same sentence as the full sign-in screen's device-code caption.
 const DEVICE_CODE_CAPTION: &str = "Make sure your browser shows this code.";
 
@@ -156,6 +185,27 @@ fn device_user_code(url: &str) -> Option<&str> {
         .find_map(|kv| kv.strip_prefix("user_code="))?;
     (!code.is_empty() && code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
         .then_some(code)
+}
+
+/// Write `text` wrapped to `area.width` and return the next row.
+fn put_wrapped(
+    buf: &mut Buffer,
+    area: Rect,
+    mut y: u16,
+    bottom: u16,
+    text: &str,
+    style: Style,
+) -> u16 {
+    for line in wrap_words(text, area.width) {
+        y = put_line(
+            buf,
+            area,
+            y,
+            bottom,
+            Line::from(Span::styled(line, style)),
+        );
+    }
+    y
 }
 
 /// Write `line` at row `y` (when it fits) and return the next row.
@@ -227,26 +277,11 @@ pub(super) fn render_auth(buf: &mut Buffer, area: Rect, theme: &Theme, hint: &Mi
 
     match hint {
         MinimalAuthHint::SigningIn { url, code } => {
-            y = put_line(
-                buf,
-                area,
-                y,
-                bottom,
-                Line::from(Span::styled("Sign in to Grok", bold)),
-            );
+            y = put_wrapped(buf, area, y, bottom, SIGN_IN_HEADER, bold);
             y = put_line(buf, area, y, bottom, Line::default());
             match url {
                 Some(url) => {
-                    y = put_line(
-                        buf,
-                        area,
-                        y,
-                        bottom,
-                        Line::from(Span::styled(
-                            "Open this URL in your browser to approve:",
-                            gray,
-                        )),
-                    );
+                    y = put_wrapped(buf, area, y, bottom, OPEN_URL_CAPTION, gray);
                     y = render_url(
                         buf,
                         area,
@@ -275,25 +310,10 @@ pub(super) fn render_auth(buf: &mut Buffer, area: Rect, theme: &Theme, hint: &Mi
                         }
                     }
                     y = put_line(buf, area, y, bottom, Line::default());
-                    let _ = put_line(
-                        buf,
-                        area,
-                        y,
-                        bottom,
-                        Line::from(Span::styled("Waiting for approval\u{2026}", gray)),
-                    );
+                    let _ = put_wrapped(buf, area, y, bottom, WAITING_FOR_APPROVAL, gray);
                 }
                 None => {
-                    let _ = put_line(
-                        buf,
-                        area,
-                        y,
-                        bottom,
-                        Line::from(Span::styled(
-                            "Opening your browser to sign in\u{2026}",
-                            gray,
-                        )),
-                    );
+                    let _ = put_wrapped(buf, area, y, bottom, OPENING_BROWSER, gray);
                 }
             }
         }
@@ -629,6 +649,54 @@ mod tests {
             narrow > wide,
             "a narrow caption takes another row: narrow {narrow}, wide {wide}"
         );
+    }
+
+    #[test]
+    fn sign_in_text_wraps_on_a_narrow_terminal() {
+        use unicode_width::UnicodeWidthStr;
+
+        let theme = Theme::current();
+        let width = 10u16;
+        let area = Rect::new(0, 0, width, 24);
+        let mut buf = Buffer::empty(area);
+        let hint = MinimalAuthHint::SigningIn {
+            url: Some("https://accounts.x.ai/device".into()),
+            code: Some("ABCD-EFGH".into()),
+        };
+        render_auth(&mut buf, area, &theme, &hint);
+        let rows: Vec<String> = (0..area.height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buf.cell((x, y)).map(|cell| cell.symbol()).unwrap_or_default())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .filter(|row| !row.is_empty())
+            .collect();
+        for row in &rows {
+            assert!(
+                row.width() <= width as usize,
+                "row spills past {width}: {row:?}"
+            );
+        }
+        let joined = rows.join(" ");
+        assert_eq!(
+            wrap_words(OPEN_URL_CAPTION, width).join(" "),
+            OPEN_URL_CAPTION,
+            "every word of the URL caption stays whole at this width"
+        );
+        assert!(joined.contains(OPEN_URL_CAPTION), "{joined}");
+        assert!(joined.contains("ABCD-EFGH"), "{joined}");
+        assert!(joined.contains("Waiting for approval"), "{joined}");
+        assert!(
+            auth_hint_rows(&hint, width) > auth_hint_rows(&hint, 80),
+            "the narrow sign-in needs more rows"
+        );
+
+        let broken = wrap_words("token supercalifragilistic end", 4);
+        assert!(broken.iter().all(|row| row.width() <= 4), "{broken:?}");
+        assert_eq!(broken.join(""), "tokensupercalifragilisticend");
     }
 
     #[test]
