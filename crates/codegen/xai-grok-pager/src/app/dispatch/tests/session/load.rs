@@ -2760,6 +2760,7 @@ fn welcome_server_search_hit_with_unrelated_title_is_pickable() {
     app.session_picker_state.set_query("hit");
     app.session_picker_entries_query = Some("hit".into());
     app.session_picker_state.selected = 0;
+    app.session_picker_state.visible_rows = 8;
     let out = app.handle_input(&enter);
     assert!(
         matches!(

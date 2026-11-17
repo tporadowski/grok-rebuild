@@ -893,8 +893,10 @@ fn open_session_picker_with(
     use crate::views::modal::ActiveModal;
     let generation = app.alloc_picker_generation();
     let agent = get_active_agent_mut(app).expect("active agent");
+    let mut state = crate::views::picker::PickerState::default();
+    state.visible_rows = 8;
     agent.active_modal = Some(ActiveModal::SessionPicker {
-        state: crate::views::picker::PickerState::default(),
+        state,
         entries: Some(entries),
         loading: false,
         lanes: Default::default(),

@@ -3710,6 +3710,9 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
             vim_normal_first: crate::appearance::cache::load_vim_mode(),
             session_fold_keys: true,
         };
+        if crate::views::session_picker::session_row_input_waits_for_paint(ctx.sp_state, ev) {
+            return InputOutcome::Unchanged;
+        }
         let rows_frozen =
             crate::views::session_picker::session_rows_frozen(ctx.sp_loading, ctx.sp_paging);
         match crate::views::session_picker::handle_pending_delete_key(ctx.sp_pending_delete, ev) {

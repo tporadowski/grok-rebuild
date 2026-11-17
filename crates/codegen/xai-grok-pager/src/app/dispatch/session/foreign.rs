@@ -260,6 +260,7 @@ pub(in crate::app::dispatch) fn dispatch_fetch_session_list_query(
     .then(|| app.alloc_picker_generation());
     app.session_picker_loading = true;
     app.session_picker_entries = None;
+    app.session_picker_state.visible_rows = 0;
     app.session_picker_state.selected = 0;
     app.session_picker_state.set_query("");
     app.session_picker_state.search_active = false;

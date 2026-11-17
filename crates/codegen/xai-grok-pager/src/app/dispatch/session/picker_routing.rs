@@ -304,6 +304,8 @@ impl PickerTarget<'_> {
             }
         };
         self.restore_selection(anchor);
+        // The rows on screen are the previous list until the next frame paints these.
+        self.state.visible_rows = 0;
         notice
     }
 
@@ -342,6 +344,7 @@ impl PickerTarget<'_> {
             Some(error_notice)
         };
         self.restore_selection(anchor);
+        self.state.visible_rows = 0;
         notice
     }
 
@@ -354,6 +357,7 @@ impl PickerTarget<'_> {
         self.lanes.foreign_loading = false;
         let notice = self.lanes.take_ready_notice(self.entries.is_some());
         self.restore_selection(anchor);
+        self.state.visible_rows = 0;
         notice
     }
 }

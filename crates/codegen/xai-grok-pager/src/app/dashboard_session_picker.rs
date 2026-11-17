@@ -71,6 +71,9 @@ impl AppView {
             vim_normal_first: crate::appearance::cache::load_vim_mode(),
             session_fold_keys: false,
         };
+        if crate::views::session_picker::session_row_input_waits_for_paint(&surface.state, ev) {
+            return Some(InputOutcome::Unchanged);
+        }
         let rows_frozen =
             crate::views::session_picker::session_rows_frozen(surface.loading, surface.paging);
         let outcome = handle_picker_input(ev, &mut surface.state, entry_map.len(), &config);

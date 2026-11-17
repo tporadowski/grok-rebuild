@@ -1052,6 +1052,68 @@ pub(crate) fn session_rows_frozen(loading: bool, paging: bool) -> bool {
     loading || paging
 }
 
+/// Row keys and row clicks wait until a frame has drawn the list.
+/// [`crate::views::picker::render_picker_content_inner`] sets `visible_rows` from the painted height; it stays 0 until then.
+pub(crate) fn session_row_input_waits_for_paint(
+    state: &crate::views::picker::PickerState,
+    ev: &crossterm::event::Event,
+) -> bool {
+    if state.visible_rows > 0 {
+        return false;
+    }
+    match ev {
+        crossterm::event::Event::Key(key) => {
+            if key.kind == crossterm::event::KeyEventKind::Release {
+                return false;
+            }
+            if state.search_active {
+                return matches!(
+                    key.code,
+                    crossterm::event::KeyCode::Up
+                        | crossterm::event::KeyCode::Down
+                        | crossterm::event::KeyCode::Enter
+                        | crossterm::event::KeyCode::PageUp
+                        | crossterm::event::KeyCode::PageDown
+                ) || (key.code == crossterm::event::KeyCode::Char('w')
+                    && key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL));
+            }
+            matches!(
+                key.code,
+                crossterm::event::KeyCode::Up
+                    | crossterm::event::KeyCode::Down
+                    | crossterm::event::KeyCode::PageUp
+                    | crossterm::event::KeyCode::PageDown
+                    | crossterm::event::KeyCode::Home
+                    | crossterm::event::KeyCode::End
+                    | crossterm::event::KeyCode::Enter
+                    | crossterm::event::KeyCode::Left
+                    | crossterm::event::KeyCode::Right
+            ) || (key.modifiers.is_empty()
+                && matches!(
+                    key.code,
+                    crossterm::event::KeyCode::Char('j' | 'k' | 'h' | 'l' | 'e' | 'E' | 'y' | 'd' | ' ')
+                ))
+                || (key.code == crossterm::event::KeyCode::Char('w')
+                    && key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL))
+        }
+        crossterm::event::Event::Mouse(mouse) => {
+            if !matches!(mouse.kind, crossterm::event::MouseEventKind::Down(_)) {
+                return false;
+            }
+            let Some(hit) = state.hit_areas.as_ref() else {
+                return false;
+            };
+            let pos = ratatui::layout::Position::new(mouse.column, mouse.row);
+            hit.item_rects.iter().any(|rect| rect.contains(pos))
+        }
+        _ => false,
+    }
+}
+
 /// `selected` is the last real row (group headers are `None` in the entry map).
 pub(crate) fn selection_is_last_loaded_row(
     selected: usize,

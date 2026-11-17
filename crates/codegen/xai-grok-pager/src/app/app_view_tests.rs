@@ -3162,6 +3162,7 @@ fn open_welcome_session_picker(app: &mut AppView) {
     crate::appearance::cache::set_vim_mode(false);
     app.session_picker_entries = Some(vec![welcome_session_entry("session-0")]);
     app.session_picker_state.search_active = true;
+    app.session_picker_state.visible_rows = 8;
 }
 #[test]
 fn welcome_session_picker_ctrl_w_resumes_in_worktree_while_search_is_focused() {
@@ -6661,6 +6662,7 @@ fn dashboard_picker_selection_uses_dashboard_cwd() {
     let mut surface = SessionPickerSurface::new(1);
     surface.entries = Some(vec![repo_b, repo_a]);
     surface.state.selected = 1;
+    surface.state.visible_rows = 8;
     app.dashboard_session_picker = Some(surface);
     let outcome =
         app.handle_dashboard_session_picker_input(&key_event(KeyCode::Enter, KeyModifiers::NONE));

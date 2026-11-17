@@ -1038,6 +1038,9 @@ impl AgentView {
                     session_fold_keys: true,
                 };
 
+                if crate::views::session_picker::session_row_input_waits_for_paint(state, ev) {
+                    return InputOutcome::Unchanged;
+                }
                 let rows_frozen =
                     crate::views::session_picker::session_rows_frozen(*loading, *paging);
                 match crate::views::session_picker::handle_pending_delete_key(pending_delete, ev) {
@@ -2463,8 +2466,11 @@ mod session_picker_delete_tests {
     }
 
     fn open_picker(agent: &mut AgentView, entries: Vec<SessionPickerEntry>) {
+        let mut state = crate::views::picker::PickerState::default();
+        // Helpers stand in for a picker whose list frame has already been drawn.
+        state.visible_rows = 8;
         agent.active_modal = Some(ActiveModal::SessionPicker {
-            state: crate::views::picker::PickerState::default(),
+            state,
             entries: Some(entries),
             loading: false,
             lanes: Default::default(),
@@ -3025,6 +3031,113 @@ mod session_picker_delete_tests {
         assert!(
             agent.active_modal.is_some(),
             "refused actions keep picker open"
+        );
+    }
+
+    /// Down, Enter, a row click, and Ctrl+W do nothing until a frame draws the list (`v88-x54`).
+    #[test]
+    fn session_picker_keys_wait_until_the_list_frame_draws_rows() {
+        let mut agent = make_agent();
+        open_picker(&mut agent, vec![entry("s0")]);
+        {
+            let Some(ActiveModal::SessionPicker { state, .. }) = agent.active_modal.as_mut()
+            else {
+                panic!("expected session picker");
+            };
+            state.visible_rows = 0;
+            state.selected = 0;
+            state.hit_areas = Some(crate::views::picker::PickerHitAreas {
+                close_button: ratatui::layout::Rect::default(),
+                search_bar: ratatui::layout::Rect::default(),
+                item_rects: vec![ratatui::layout::Rect::new(0, 2, 20, 1)],
+                entry_indices: vec![1],
+                tab_rects: vec![],
+                filter_rect: None,
+            });
+        }
+        let down = agent.handle_palette_or_arg_input(&key_code(KeyCode::Down));
+        assert!(
+            matches!(down, InputOutcome::Unchanged),
+            "Down before the list frame must do nothing, got {down:?}"
+        );
+        assert_eq!(picker_state(&agent).selected, 0);
+        let entered = agent.handle_palette_or_arg_input(&key_code(KeyCode::Enter));
+        assert!(
+            matches!(entered, InputOutcome::Unchanged),
+            "Enter before the list frame must not open a session, got {entered:?}"
+        );
+        let click = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        });
+        let clicked = agent.handle_palette_or_arg_input(&click);
+        assert!(
+            matches!(clicked, InputOutcome::Unchanged),
+            "a click before the list frame must not open a session, got {clicked:?}"
+        );
+        let worktree = Event::Key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        let opened = agent.handle_palette_or_arg_input(&worktree);
+        assert!(
+            matches!(opened, InputOutcome::Unchanged),
+            "Ctrl+W before the list frame must not open a session, got {opened:?}"
+        );
+        assert!(agent.active_modal.is_some());
+
+        {
+            let Some(ActiveModal::SessionPicker { state, .. }) = agent.active_modal.as_mut()
+            else {
+                panic!("expected session picker");
+            };
+            let area = ratatui::layout::Rect::new(0, 0, 40, 4);
+            let mut buf = ratatui::buffer::Buffer::empty(area);
+            let row = crate::views::picker::PickerRow {
+                label: "s0",
+                right_label: "",
+                selected: true,
+                expanded: false,
+                fields: &[],
+                description_lines: &[],
+                summary_lines: &[],
+                dimmed: false,
+                indent: 0,
+                badge: "",
+                badge_color: None,
+                collapsible: false,
+                underline_last_desc: false,
+            };
+            let entries = [crate::views::picker::PickerEntry::Row(row)];
+            crate::views::picker::render_picker_content(
+                &mut buf,
+                area,
+                &crate::theme::Theme::groknight(),
+                state,
+                &entries,
+                &[false],
+                &[],
+                None,
+                false,
+            );
+            let painted = (0..buf.area.height).any(|y| {
+                let mut text = String::new();
+                for x in 0..buf.area.width {
+                    if let Some(cell) = buf.cell((x, y)) {
+                        text.push_str(cell.symbol());
+                    }
+                }
+                text.contains("s0")
+            });
+            assert!(painted, "the list frame draws the session row");
+            assert!(
+                state.visible_rows > 0,
+                "the list frame records the painted height"
+            );
+        }
+        let entered = agent.handle_palette_or_arg_input(&key_code(KeyCode::Enter));
+        assert!(
+            matches!(entered, InputOutcome::Action(Action::PickSession(0))),
+            "Enter opens the row after the list frame draws, got {entered:?}"
         );
     }
 
