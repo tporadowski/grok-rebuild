@@ -221,9 +221,9 @@ fn format_by_model_row(
 ) -> String {
     let tokens = group_thousands(m.total_tokens);
     if m.cost_usd_ticks.is_some() {
-        format!("    {model}: {tokens} Tokens · {}", format_cost(m))
+        format!("    {model}: {tokens} tokens · {}", format_cost(m))
     } else {
-        format!("    {model}: {tokens} Tokens")
+        format!("    {model}: {tokens} tokens")
     }
 }
 /// Formats the cost cell. Ticks are 1e10 per USD; a partial sum is reported as absent.
@@ -344,8 +344,8 @@ mod tests {
         assert_eq!(
             rows,
             [
-                "    grok-4.7-build: 124,456 Tokens · $0.0020",
-                "    grok-4: 110 Tokens",
+                "    grok-4.7-build: 124,456 tokens · $0.0020",
+                "    grok-4: 110 tokens",
             ],
             "{text}"
         );
