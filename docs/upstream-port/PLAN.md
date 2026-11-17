@@ -1434,9 +1434,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 849. Pending: 62. Skipped: 10. Done: 629. Already: 115. Deferred: 33.
+Catalog rows: 849. Pending: 61. Skipped: 10. Done: 630. Already: 115. Deferred: 33.
 
-**Next:** v88-x19
+**Next:** v88-x30
 
 ## Waves
 
@@ -1450,7 +1450,7 @@ Pending: 0. Done: 11. Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs i
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 5. Done: 15 (`v88-x12`). Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
+Pending: 4. Done: 16 (`v88-x12`, `v88-x19`). Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
 
 ### W6 — Memory
 
@@ -2223,7 +2223,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x21 | deferred | W2 | Bug Fixes |  |  | Several CLI subcommand messages use consistent punctuation and path quoting.
 - v86-x22 | done | W3 | Bug Fixes |  |  | Key hints in permission cards are no longer cut off mid-word on narrow terminals.
 - v88-x12 | done | W3 | Bug Fixes |  |  | **Permission and question cards** now end long typed answers and form values with an ellipsis on narrow terminals.
-- v88-x19 | pending | W3 | Bug Fixes |  |  | **Permission cards** now show only the scope arrows that still move the scope.
+- v88-x19 | done | W3 | Bug Fixes |  |  | **Permission cards** now show only the scope arrows that still move the scope.
 - v88-x30 | pending | W3 | Bug Fixes |  |  | **Trust question keys in minimal mode** now read with single spacing after y/n.
 - v88-x35 | pending | W3 | Bug Fixes |  |  | The shortcuts bar now shows exactly the scope arrows the permission card above it names.
 - v88-x55 | pending | W3 | Bug Fixes |  |  | **Scrollbars in question cards** now size correctly when option descriptions wrap to the card width.
