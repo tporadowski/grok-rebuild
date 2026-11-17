@@ -230,6 +230,7 @@ fn resume_body_rows(agent: &AgentView, width: u16) -> u16 {
         entries,
         state,
         source_filter,
+        entries_query,
         ..
     }) = &agent.active_modal
     else {
@@ -237,8 +238,11 @@ fn resume_body_rows(agent: &AgentView, width: u16) -> u16 {
     };
     let entries_data = entries.as_deref().unwrap_or(&[]);
     let content_width = width.saturating_sub(2);
+    // Same query the key map uses, so a server search that matched message text stays in the list.
+    let filter_query =
+        minimal_api::effective_filter_query(state.query(), entries_query.as_deref());
     let filtered =
-        minimal_api::filter_session_entries(entries.as_deref(), state.query(), *source_filter);
+        minimal_api::filter_session_entries(entries.as_deref(), filter_query, *source_filter);
     let built =
         minimal_api::build_session_entry_data(entries_data, &filtered, state, content_width);
     let fields_vecs: Vec<Vec<PickerField>> = built
@@ -294,8 +298,12 @@ fn render_resume(
 
     let entries_data = entries.as_deref().unwrap_or(&[]);
     let content_width = area.width.saturating_sub(2);
+    // Keys call `effective_filter_query`. A matching server stamp skips the local title filter
+    // so message-text hits whose titles do not contain the query stay on screen.
+    let filter_query =
+        minimal_api::effective_filter_query(state.query(), entries_query.as_deref());
     let filtered =
-        minimal_api::filter_session_entries(entries.as_deref(), state.query(), *source_filter);
+        minimal_api::filter_session_entries(entries.as_deref(), filter_query, *source_filter);
     let built =
         minimal_api::build_session_entry_data(entries_data, &filtered, state, content_width);
     let fields_vecs: Vec<Vec<PickerField>> = built
@@ -1275,6 +1283,85 @@ mod tests {
         assert!(
             !text.contains("No sessions in this directory"),
             "a server search must not claim the directory is empty:\n{text}"
+        );
+    }
+
+    /// A server search matches message text as well as titles. Minimal `/resume` keeps those
+    /// rows when the stamp matches the live query, which is the query the keys already use (`v88-x39`).
+    #[test]
+    fn minimal_resume_keeps_message_text_matches_for_the_key_query() {
+        let theme = Theme::groknight();
+        let mut titled = session_entry("session-title");
+        titled.summary = "hit the deadline".into();
+        let mut message = session_entry("session-message");
+        message.summary = "Quarterly roadmap notes".into();
+
+        let mut local = with_resume(vec![titled.clone(), message.clone()]);
+        {
+            let Some(ActiveModal::SessionPicker { state, .. }) = &mut local.active_modal else {
+                panic!("expected session picker");
+            };
+            state.set_query("hit");
+        }
+        let text = render_resume_text(&mut local, &theme, 0);
+        assert!(
+            text.contains("hit the deadline"),
+            "a title match stays visible:\n{text}"
+        );
+        assert!(
+            !text.contains("Quarterly roadmap notes"),
+            "without a server stamp the local filter still hides an unrelated title:\n{text}"
+        );
+
+        let mut server = with_resume(vec![titled.clone(), message.clone()]);
+        {
+            let Some(ActiveModal::SessionPicker {
+                state,
+                entries_query,
+                ..
+            }) = &mut server.active_modal
+            else {
+                panic!("expected session picker");
+            };
+            state.set_query("hit");
+            *entries_query = Some("hit".into());
+        }
+        let text = render_resume_text(&mut server, &theme, 0);
+        assert!(
+            text.contains("hit the deadline"),
+            "the title match stays with the server stamp:\n{text}"
+        );
+        assert!(
+            text.contains("Quarterly roadmap notes"),
+            "a message-text match stays visible for the query the keys use:\n{text}"
+        );
+        assert!(
+            panel_height(&server, ListPanel::Resume, 80, 40)
+                > panel_height(&local, ListPanel::Resume, 80, 40),
+            "the extra message-text row takes a line in the panel"
+        );
+
+        let mut stale = with_resume(vec![titled, message]);
+        {
+            let Some(ActiveModal::SessionPicker {
+                state,
+                entries_query,
+                ..
+            }) = &mut stale.active_modal
+            else {
+                panic!("expected session picker");
+            };
+            state.set_query("hit");
+            *entries_query = Some("older query".into());
+        }
+        let text = render_resume_text(&mut stale, &theme, 0);
+        assert!(
+            text.contains("hit the deadline"),
+            "a stale stamp still shows title matches:\n{text}"
+        );
+        assert!(
+            !text.contains("Quarterly roadmap notes"),
+            "a stale server stamp must not keep an unrelated title:\n{text}"
         );
     }
 

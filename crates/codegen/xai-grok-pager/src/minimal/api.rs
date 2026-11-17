@@ -820,6 +820,11 @@ pub fn loading_spinner_active(
     crate::views::session_picker::loading_spinner_active(entries, source_filter, loading, lanes)
 }
 
+/// [`crate::views::session_picker::effective_filter_query`].
+pub fn effective_filter_query<'a>(live_query: &'a str, entries_query: Option<&str>) -> &'a str {
+    crate::views::session_picker::effective_filter_query(live_query, entries_query)
+}
+
 /// [`crate::views::session_picker::filter_session_entries`].
 pub fn filter_session_entries(
     entries: Option<&[SessionPickerEntry]>,
