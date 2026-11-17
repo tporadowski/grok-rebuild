@@ -337,20 +337,17 @@ fn render_resume(
         .flatten();
 
     render_title(buf, title_row, theme, "Resume session");
-    // Focus-aware search bar (cursor only when search is focused).
-    minimal_api::render_picker_search_bar(
-        buf,
-        Rect::new(
-            search_row.x + 1,
-            search_row.y,
-            search_row.width.saturating_sub(1),
-            1,
-        ),
-        theme,
-        state,
-        true,
-        None,
+    // The source-filter chip uses the full resume row: it stays when the width allows and stays off the query when it does not.
+    let search_area = Rect::new(
+        search_row.x + 1,
+        search_row.y,
+        search_row.width.saturating_sub(1),
+        1,
     );
+    let filter = (!chat_mode).then_some((source_filter.label(), "f", source_filter.is_active()));
+    let filter_area =
+        minimal_api::render_resume_search_row(buf, search_area, theme, state, filter);
+    state.filter_area = filter_area;
     render_divider(buf, divider_row, theme);
 
     // Pinned above the list so it stays visible regardless of list scroll.
@@ -1365,6 +1362,105 @@ mod tests {
         );
     }
 
+    /// The resume search row names the source filter when the row is wide enough, and drops the chip before it covers the query (`v88-x41`).
+    #[test]
+    fn minimal_resume_search_names_the_source_filter_when_it_fits() {
+        let theme = Theme::groknight();
+
+        let mut wide = with_resume(vec![session_entry("alpha-session")]);
+        {
+            let Some(ActiveModal::SessionPicker {
+                source_filter,
+                state,
+                ..
+            }) = &mut wide.active_modal
+            else {
+                panic!("expected session picker");
+            };
+            *source_filter = xai_grok_pager::views::session_picker::SourceFilter::External;
+            state.search_active = true;
+            state.set_query("alpha-session-query");
+        }
+        let text = render_resume_text(&mut wide, &theme, 0);
+        assert!(
+            text.contains("External"),
+            "a wide row names the active source filter:\n{text}"
+        );
+        assert!(
+            text.contains("alpha-session-query"),
+            "the chip must leave the query visible:\n{text}"
+        );
+        let Some(ActiveModal::SessionPicker { state, .. }) = &wide.active_modal else {
+            panic!("expected session picker");
+        };
+        assert!(
+            state.filter_area.is_some(),
+            "a wide row keeps the chip as a hit target"
+        );
+
+        let mut grok = with_resume(vec![session_entry("alpha-session")]);
+        {
+            let Some(ActiveModal::SessionPicker { state, .. }) = &mut grok.active_modal else {
+                panic!("expected session picker");
+            };
+            state.search_active = true;
+        }
+        let text = render_resume_text(&mut grok, &theme, 0);
+        assert!(
+            text.contains("Grok"),
+            "the default filter is named when the row has room:\n{text}"
+        );
+
+        let mut narrow = with_resume(vec![session_entry("alpha-session")]);
+        {
+            let Some(ActiveModal::SessionPicker {
+                source_filter,
+                state,
+                ..
+            }) = &mut narrow.active_modal
+            else {
+                panic!("expected session picker");
+            };
+            *source_filter = xai_grok_pager::views::session_picker::SourceFilter::External;
+            state.search_active = true;
+            state.set_query("project-alpha");
+        }
+        let area = Rect::new(0, 0, 16, 8);
+        let mut buf = Buffer::empty(area);
+        render_with_tick(&mut buf, area, &mut narrow, ListPanel::Resume, &theme, 0);
+        let text = crate::buffer_text(&buf);
+        assert!(
+            text.contains("alpha"),
+            "the narrow query tail stays visible:\n{text}"
+        );
+        assert!(
+            !text.contains("External"),
+            "a narrow row omits the chip instead of covering the query:\n{text}"
+        );
+        let Some(ActiveModal::SessionPicker { state, .. }) = &narrow.active_modal else {
+            panic!("expected session picker");
+        };
+        assert!(
+            state.filter_area.is_none(),
+            "a dropped chip is not a hit target"
+        );
+
+        let mut chat = with_resume(vec![session_entry("alpha-session")]);
+        chat.app_chat_mode = true;
+        {
+            let Some(ActiveModal::SessionPicker { source_filter, .. }) = &mut chat.active_modal
+            else {
+                panic!("expected session picker");
+            };
+            *source_filter = xai_grok_pager::views::session_picker::SourceFilter::External;
+        }
+        let text = render_resume_text(&mut chat, &theme, 0);
+        assert!(
+            !text.contains("External"),
+            "chat mode has no source filter to name:\n{text}"
+        );
+    }
+
     fn render_resume_text(agent: &mut AgentView, theme: &Theme, tick: u64) -> String {
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
@@ -1392,13 +1488,16 @@ mod tests {
             panic!("expected session picker");
         };
         let mut expected = Buffer::empty(area);
-        minimal_api::render_picker_search_bar(
+        let _ = minimal_api::render_resume_search_row(
             &mut expected,
             Rect::new(1, 1, 13, 1),
             &theme,
             state,
-            true,
-            None,
+            Some((
+                xai_grok_pager::views::session_picker::SourceFilter::Grok.label(),
+                "f",
+                false,
+            )),
         );
         for x in 1..14 {
             let actual_cell = actual.cell((x, 1)).expect("actual search cell");

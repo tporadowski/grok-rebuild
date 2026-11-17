@@ -773,6 +773,17 @@ pub fn render_picker_search_bar(
     );
 }
 
+/// [`crate::views::session_picker_surface::render_resume_search_row`].
+pub fn render_resume_search_row(
+    buf: &mut Buffer,
+    area: Rect,
+    theme: &Theme,
+    state: &crate::views::picker::PickerState,
+    filter: Option<(&str, &str, bool)>,
+) -> Option<Rect> {
+    crate::views::session_picker_surface::render_resume_search_row(buf, area, theme, state, filter)
+}
+
 /// Search bar that leaves `trailing_width` columns free for a filter label.
 pub fn render_picker_search_bar_with_trailing(
     buf: &mut Buffer,
