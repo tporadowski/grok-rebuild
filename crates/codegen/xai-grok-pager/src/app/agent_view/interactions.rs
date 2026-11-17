@@ -951,7 +951,6 @@ impl AgentView {
             delta,
             visible_h,
             qv.cursor(),
-            qv.phantom_freeform_h(),
         );
         if let Some(s) = qv.per_question_scroll.get_mut(qv.active_tab) {
             *s = new_scroll;

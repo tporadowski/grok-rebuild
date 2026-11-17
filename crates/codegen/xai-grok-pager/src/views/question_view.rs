@@ -415,8 +415,9 @@ impl QuestionViewState {
             return;
         };
 
+        // The freeform row is sticky, so it is not part of the scrolled list.
         let max_scroll = total_options_height(question, content_w, self.cursor())
-            .saturating_sub(self.phantom_freeform_h())
+            .saturating_sub(1)
             .saturating_sub(visible_h);
         if let Some(s) = self.per_question_scroll.get_mut(q_idx) {
             *s = (*s).min(max_scroll);
@@ -487,13 +488,12 @@ pub fn scroll_offset_for_item_delta(
     delta: i32,
     viewport_height: u16,
     cursor: usize,
-    phantom_freeform_h: u16,
 ) -> u16 {
     // Line-based scrolling: add delta directly to the scroll offset, clamped to [0, max_scroll]. Each
     // visual line (including wrapped description lines) is independent, so we scroll by individual
-    // lines instead of jumping whole items.
+    // lines instead of jumping whole items. The freeform row is not in this list.
     let max_scroll = total_options_height(question, content_w, cursor)
-        .saturating_sub(phantom_freeform_h)
+        .saturating_sub(1)
         .saturating_sub(viewport_height);
     ((current_scroll as i32) + delta).clamp(0, max_scroll as i32) as u16
 }
@@ -530,7 +530,9 @@ pub fn max_scroll_offset(
     preview_cap: u16,
     cursor: usize,
 ) -> u16 {
-    total_options_height(question, content_w, cursor).saturating_sub(visible_options_height(
+    total_options_height(question, content_w, cursor)
+        .saturating_sub(1)
+        .saturating_sub(visible_options_height(
         question,
         area_height,
         content_w,
@@ -1761,8 +1763,8 @@ pub fn render_question_scrollbar(
     let (scroll_top, scroll_bottom) = scroll_region;
     let visible_options_h = scroll_bottom.saturating_sub(scroll_top);
     // Descriptions wrap at the card width. The terminal is wider than the card.
-    let total_option_h = total_options_height(question, content_w, state.cursor())
-        .saturating_sub(state.phantom_freeform_h());
+    let total_option_h =
+        total_options_height(question, content_w, state.cursor()).saturating_sub(1);
 
     let scroll = state.per_question_scroll.get(q_idx).copied().unwrap_or(0);
 
@@ -3044,6 +3046,32 @@ mod tests {
     }
 
     #[test]
+    fn fitted_options_do_not_scroll_or_draw_a_bar() {
+        let q = make_question("Pick?", &["A", "B"], false);
+        let content_w = 80usize;
+        let cursor = 0usize;
+        let fitted = total_options_height(&q, content_w, cursor).saturating_sub(1);
+        let mut state =
+            QuestionViewState::new("tc".into(), vec![q.clone()], StashedPrompt::default());
+        if let Some(slot) = state.per_question_scroll.get_mut(0) {
+            *slot = 40;
+        }
+        state.clamp_scroll(fitted, content_w);
+        assert_eq!(*at(&state.per_question_scroll, 0), 0);
+        assert_eq!(
+            scroll_offset_for_item_delta(&q, content_w, 0, 5, fitted, cursor),
+            0
+        );
+        let theme = Theme::default();
+        let area = Rect::new(0, 0, 80, fitted.max(1));
+        let mut buf = Buffer::empty(area);
+        assert!(
+            render_question_scrollbar(&mut buf, 0, &state, &theme, (0, fitted), content_w)
+                .is_none()
+        );
+    }
+
+    #[test]
     fn clamp_scroll_limits_offset_to_viewport() {
         let q = make_question("Pick?", &["A", "B", "C", "D"], true);
         let mut state =
@@ -3054,8 +3082,9 @@ mod tests {
 
         let visible_h = 2;
         let content_w = 80;
-        let expected_max =
-            total_options_height(&q, content_w, state.cursor()).saturating_sub(visible_h);
+        let expected_max = total_options_height(&q, content_w, state.cursor())
+            .saturating_sub(1)
+            .saturating_sub(visible_h);
         state.clamp_scroll(visible_h, content_w);
 
         assert_eq!(*at(&state.per_question_scroll, 0), expected_max);
