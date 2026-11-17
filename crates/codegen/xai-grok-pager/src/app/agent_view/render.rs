@@ -354,8 +354,8 @@ impl AgentView {
                 if perm.options.len() > 1 {
                     hints.push(HintItem::new(key!(Tab), "next option"));
                 }
-                if perm.has_adjustable_scope() {
-                    hints.push(HintItem::paired(key!(Left), key!(Right), "scope"));
+                if let Some(scope) = Self::permission_scope_bar_hint(perm) {
+                    hints.push(scope);
                 }
                 if perm.has_editable_bash_pattern() {
                     hints.push(HintItem::new(key!('e'), "edit pattern"));
@@ -368,6 +368,17 @@ impl AgentView {
                 hints.push(self.card_esc_hint());
                 hints
             }
+        }
+    }
+    /// The bar names the same arrows the permission card paints: both, only left, only right, or none.
+    fn permission_scope_bar_hint(
+        perm: &crate::views::permission_view::PermissionViewState,
+    ) -> Option<HintItem> {
+        match perm.scope_arrow_directions() {
+            (true, true) => Some(HintItem::paired(key!(Left), key!(Right), "scope")),
+            (true, false) => Some(HintItem::new(key!(Left), "scope")),
+            (false, true) => Some(HintItem::new(key!(Right), "scope")),
+            (false, false) => None,
         }
     }
     /// Returns the *exact* hints the bottom shortcuts bar would render right now.
@@ -5703,5 +5714,91 @@ mod auto_review_prompt_tint {
         assert_eq!(border_colors(&buf, prompt).0, ask_border);
         assert_eq!(prefix_fg(&buf, prompt), theme.accent_success);
         assert_ne!(ask_border, blue);
+    }
+}
+
+#[cfg(test)]
+mod permission_scope_bar {
+    use super::AgentView;
+    use crate::views::permission_view::{PermissionFocus, PermissionViewState};
+    use crate::views::shortcuts_bar::ShortcutsBar;
+    use agent_client_protocol as acp;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::widgets::Widget;
+    use std::sync::Arc;
+    use xai_grok_workspace::permission::bash_command_splitting::BashCommandHighlights;
+
+    fn allow_state(words: &[&str], count: usize) -> PermissionViewState {
+        let (response_tx, _rx) = tokio::sync::oneshot::channel();
+        let request = acp::RequestPermissionRequest::new(
+            acp::SessionId::new(Arc::from("test")),
+            acp::ToolCallUpdate::new(
+                acp::ToolCallId::new(Arc::from("call-1")),
+                acp::ToolCallUpdateFields::default(),
+            ),
+            vec![],
+        );
+        PermissionViewState {
+            request: xai_acp_lib::AcpArgs {
+                request,
+                response_tx,
+            },
+            id: 0,
+            focus: PermissionFocus::Options,
+            options: vec![acp::PermissionOption::new(
+                acp::PermissionOptionId::new(Arc::from("allow-always-command")),
+                "Always allow".to_owned(),
+                acp::PermissionOptionKind::AllowAlways,
+            )],
+            active_idx: 0,
+            bash_highlights: Some(BashCommandHighlights {
+                prefix: vec![],
+                highlighted_words: words.iter().map(|w| (*w).to_owned()).collect(),
+                suffix: vec![],
+            }),
+            bash_selection_count: count,
+            bash_deny_selection_count: 0,
+            bash_command_raw: None,
+            mcp_scope: None,
+            title: String::new(),
+            description: vec![],
+            args_expanded: false,
+            desc_scroll: 0,
+            subagent_label: None,
+            options_area_height: 0,
+            options_scroll_offset: 0,
+            auto_review: None,
+            auto_review_explanation_open: false,
+        }
+    }
+
+    fn bar_text(state: &PermissionViewState) -> String {
+        let hint = AgentView::permission_scope_bar_hint(state).expect("scope hint");
+        let card = state.scope_arrow_label().expect("card arrows");
+        let hint_left = hint.keys.iter().any(|k| k.display().contains('\u{2190}'));
+        let hint_right = hint.keys.iter().any(|k| k.display().contains('\u{2192}'));
+        assert_eq!(card.contains('\u{2190}'), hint_left, "left {card}");
+        assert_eq!(card.contains('\u{2192}'), hint_right, "right {card}");
+        let area = Rect::new(0, 0, 24, 1);
+        let mut buf = Buffer::empty(area);
+        ShortcutsBar::new(std::slice::from_ref(&hint)).render(area, &mut buf);
+        (0..area.width)
+            .map(|x| buf.cell((x, 0)).unwrap().symbol().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn shortcuts_bar_names_the_same_scope_arrows_as_the_card() {
+        let narrow = allow_state(&["git", "status"], 1);
+        let wide = allow_state(&["git", "status"], 2);
+        let middle = allow_state(&["git", "status", "--short"], 2);
+        let narrow_bar = bar_text(&narrow);
+        let wide_bar = bar_text(&wide);
+        let middle_bar = bar_text(&middle);
+        assert!(narrow_bar.contains('\u{2192}') && !narrow_bar.contains('\u{2190}'), "{narrow_bar}");
+        assert!(wide_bar.contains('\u{2190}') && !wide_bar.contains('\u{2192}'), "{wide_bar}");
+        assert!(middle_bar.contains('\u{2190}') && middle_bar.contains('\u{2192}'), "{middle_bar}");
+        assert!(narrow_bar.contains("scope") && wide_bar.contains("scope"));
     }
 }

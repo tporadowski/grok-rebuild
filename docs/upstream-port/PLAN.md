@@ -1418,7 +1418,7 @@ Refresh these numbers at the end of a session.
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 0 | 0 | 11 | 0 | 1 |
-| W3 | Permissions, sandbox, and config | 3 | 0 | 17 | 12 | 8 |
+| W3 | Permissions, sandbox, and config | 2 | 0 | 18 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 1 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 2 | 0 | 30 | 6 | 0 |
@@ -1434,9 +1434,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 849. Pending: 60. Skipped: 10. Done: 631. Already: 115. Deferred: 33.
+Catalog rows: 849. Pending: 59. Skipped: 10. Done: 632. Already: 115. Deferred: 33.
 
-**Next:** v88-x35
+**Next:** v88-x55
 
 ## Waves
 
@@ -1450,7 +1450,7 @@ Pending: 0. Done: 11. Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs i
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 3. Done: 17 (`v88-x12`, `v88-x19`, `v88-x30`). Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
+Pending: 2. Done: 18 (`v88-x12`, `v88-x19`, `v88-x30`, `v88-x35`). Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
 
 ### W6 — Memory
 
@@ -2225,7 +2225,7 @@ id | status | wave | kind | flag | covered | note
 - v88-x12 | done | W3 | Bug Fixes |  |  | **Permission and question cards** now end long typed answers and form values with an ellipsis on narrow terminals.
 - v88-x19 | done | W3 | Bug Fixes |  |  | **Permission cards** now show only the scope arrows that still move the scope.
 - v88-x30 | done | W3 | Bug Fixes |  |  | **Trust question keys in minimal mode** now read with single spacing after y/n.
-- v88-x35 | pending | W3 | Bug Fixes |  |  | The shortcuts bar now shows exactly the scope arrows the permission card above it names.
+- v88-x35 | done | W3 | Bug Fixes |  |  | The shortcuts bar now shows exactly the scope arrows the permission card above it names.
 - v88-x55 | pending | W3 | Bug Fixes |  |  | **Scrollbars in question cards** now size correctly when option descriptions wrap to the card width.
 - v88-x56 | pending | W3 | Bug Fixes |  |  | **Question option lists** no longer show a scrollbar or allow overscroll when every option fits.
 - v86-x23 | done | W9 | Bug Fixes |  |  | The file-search and prompt-history panels no longer crash on very short terminals.
