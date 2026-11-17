@@ -143,6 +143,13 @@ impl AgentView {
         }
     }
 
+    /// Leaving the scrollback would put the keyboard on a parked card or the plan approval.
+    /// Only a bare `Tab` takes that step.
+    pub(crate) fn scrollback_tab_returns_to_waiting(&self) -> bool {
+        self.parked_card().is_some()
+            || self.key_owner_when_parked(false) == KeyOwner::PlanApproval
+    }
+
     /// A card that is still drawn and still waiting, with the keyboard handed to the scrollback so the context behind it can be read.
     /// The keyboard would come back to this card.
     /// Asked through the same ranking as [`Self::key_owner`], because the scrollback's focus hint names where `Tab` goes.

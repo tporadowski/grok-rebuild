@@ -45,26 +45,32 @@ impl AgentView {
             && (matches!(key.code, KeyCode::Tab | KeyCode::Char(' '))
                 || (allow_i_alt && matches!(key.code, KeyCode::Char('i'))))
         {
-            if self.parked_card().is_some() {
-                self.set_active_pane(AgentPane::Prompt, false);
-                return InputOutcome::Changed;
+            // A parked card or plan approval comes back on bare Tab only.
+            // Space, vim `i`, and shifted Tab stay with the scrollback.
+            let bare_tab = key.code == KeyCode::Tab && key.modifiers.is_empty();
+            if self.scrollback_tab_returns_to_waiting() {
+                if bare_tab {
+                    self.set_active_pane(AgentPane::Prompt, false);
+                    return InputOutcome::Changed;
+                }
+            } else {
+                if key.code == KeyCode::Tab
+                    && self.dock_shown
+                    && !self.dock_hidden
+                    && self.set_active_pane(AgentPane::Dock, false)
+                {
+                    self.dock_cursor = 0;
+                    return InputOutcome::Changed;
+                }
+                if key.code == KeyCode::Tab
+                    && self.tasks.overlay.visible
+                    && self.set_active_pane(AgentPane::Tasks, false)
+                {
+                    self.tasks.overlay.focused = true;
+                    return InputOutcome::Changed;
+                }
+                return InputOutcome::Action(Action::FocusPrompt);
             }
-            if key.code == KeyCode::Tab
-                && self.dock_shown
-                && !self.dock_hidden
-                && self.set_active_pane(AgentPane::Dock, false)
-            {
-                self.dock_cursor = 0;
-                return InputOutcome::Changed;
-            }
-            if key.code == KeyCode::Tab
-                && self.tasks.overlay.visible
-                && self.set_active_pane(AgentPane::Tasks, false)
-            {
-                self.tasks.overlay.focused = true;
-                return InputOutcome::Changed;
-            }
-            return InputOutcome::Action(Action::FocusPrompt);
         }
         if key!(Enter).matches(key)
             && let Some(target) = self.highlighted_link_target().cloned()

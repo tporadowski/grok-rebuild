@@ -182,6 +182,54 @@ fn permission_esc_parks_focus_without_answering() {
     );
 }
 
+/// Space, vim `i`, and Shift+Tab stay in the scrollback. Bare Tab is the way back (`v88-x20`).
+#[test]
+fn only_tab_returns_to_a_parked_card_or_plan_approval() {
+    let registry = ActionRegistry::defaults();
+    let press = |agent: &mut AgentView, code: KeyCode, modifiers: KeyModifiers| {
+        let _ = agent.handle_scrollback_key(&KeyEvent::new(code, modifiers), &registry);
+    };
+
+    let mut agent = make_agent();
+    open_permission(&mut agent);
+    agent.park_focused_card();
+    assert_eq!(agent.parked_card(), Some(BlockingCard::Permission));
+
+    press(&mut agent, KeyCode::Char(' '), KeyModifiers::NONE);
+    assert_eq!(agent.active_pane, AgentPane::Scrollback);
+    assert_eq!(agent.parked_card(), Some(BlockingCard::Permission));
+
+    agent.vim_mode = true;
+    press(&mut agent, KeyCode::Char('i'), KeyModifiers::NONE);
+    assert_eq!(
+        agent.active_pane,
+        AgentPane::Scrollback,
+        "vim insert does not reopen the card"
+    );
+    press(&mut agent, KeyCode::Tab, KeyModifiers::SHIFT);
+    assert_eq!(agent.active_pane, AgentPane::Scrollback);
+
+    press(&mut agent, KeyCode::Tab, KeyModifiers::NONE);
+    assert_eq!(agent.active_pane, AgentPane::Prompt);
+    assert_eq!(
+        agent.key_owner(),
+        KeyOwner::Card(BlockingCard::Permission)
+    );
+
+    let mut agent = make_agent();
+    open_plan(&mut agent);
+    agent.set_active_pane(AgentPane::Scrollback, true);
+    assert_eq!(agent.key_owner(), KeyOwner::Pane);
+
+    press(&mut agent, KeyCode::Char(' '), KeyModifiers::NONE);
+    assert_eq!(agent.active_pane, AgentPane::Scrollback);
+    assert_ne!(agent.key_owner(), KeyOwner::PlanApproval);
+
+    press(&mut agent, KeyCode::Tab, KeyModifiers::NONE);
+    assert_eq!(agent.active_pane, AgentPane::Prompt);
+    assert_eq!(agent.key_owner(), KeyOwner::PlanApproval);
+}
+
 #[test]
 fn parking_releases_a_focused_side_pane() {
     let mut agent = make_agent();
