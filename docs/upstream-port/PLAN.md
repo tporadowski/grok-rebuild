@@ -1418,7 +1418,7 @@ Refresh these numbers at the end of a session.
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 0 | 0 | 11 | 0 | 1 |
-| W3 | Permissions, sandbox, and config | 5 | 0 | 15 | 12 | 8 |
+| W3 | Permissions, sandbox, and config | 4 | 0 | 16 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 1 | 0 | 24 | 10 | 3 |
 | W5 | Workflows and goals | 2 | 0 | 30 | 6 | 0 |

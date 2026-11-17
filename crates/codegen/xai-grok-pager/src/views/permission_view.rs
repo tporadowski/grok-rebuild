@@ -262,6 +262,64 @@ impl PermissionViewState {
         .unwrap_or(current)
     }
 
+    /// Arrows that still change the scope from here. The other end of the range is omitted.
+    pub fn scope_arrow_directions(&self) -> (bool, bool) {
+        if let Some(scope) = &self.mcp_scope {
+            if scope.server_prefix.is_none() {
+                return (false, false);
+            }
+            return match scope.selected {
+                McpScope::Server => (false, true),
+                McpScope::Tool => (true, false),
+            };
+        }
+        let Some(h) = self.bash_highlights.as_ref() else {
+            return (false, false);
+        };
+        let len = h.highlighted_words.len();
+        let active = self
+            .options
+            .get(self.active_idx)
+            .map(|o| o.option_id.0.as_ref());
+        let on_deny = active == Some(REJECT_ALWAYS_COMMAND_OPTION_ID);
+        let on_allow = active == Some(ALLOW_ALWAYS_COMMAND_OPTION_ID);
+        if on_deny {
+            return (
+                self.bash_deny_selection_count > 1,
+                self.bash_deny_selection_count < len,
+            );
+        }
+        if on_allow || self.scoped_allow_row_idx().is_some() {
+            let current = self.bash_selection_count;
+            return (
+                self.step_persisting_allow_scope(false) != current,
+                self.step_persisting_allow_scope(true) != current,
+            );
+        }
+        if self
+            .options
+            .iter()
+            .any(|o| o.option_id.0.as_ref() == REJECT_ALWAYS_COMMAND_OPTION_ID)
+            && len > 1
+        {
+            return (
+                self.bash_deny_selection_count > 1,
+                self.bash_deny_selection_count < len,
+            );
+        }
+        (false, false)
+    }
+
+    /// `←`, `→`, or `← →` when that direction still moves the scope.
+    pub fn scope_arrow_label(&self) -> Option<&'static str> {
+        match self.scope_arrow_directions() {
+            (true, true) => Some("\u{2190} \u{2192}"),
+            (true, false) => Some("\u{2190}"),
+            (false, true) => Some("\u{2192}"),
+            (false, false) => None,
+        }
+    }
+
     pub fn has_collapsible_bash(&self, content_w: usize) -> bool {
         self.bash_command_raw.as_deref().is_some_and(|raw| {
             count_raw_bash_rows(raw, content_w, PERMISSION_COLLAPSED_ROWS + 1)
@@ -338,7 +396,7 @@ fn permission_chrome_height(state: &PermissionViewState, content_w: usize) -> u1
     h = h.saturating_add(args_rows);
     if state.focus == PermissionFocus::PatternEdit {
         h = h.saturating_add(2);
-    } else if state.has_adjustable_scope() || state.has_editable_bash_pattern() {
+    } else if state.scope_arrow_label().is_some() || state.has_editable_bash_pattern() {
         h = h.saturating_add(1);
     }
     h.saturating_add(1)
@@ -568,7 +626,8 @@ pub fn render_permission_view(
         }
     }
 
-    let show_scope_hint = state.has_adjustable_scope();
+    let scope_arrows = state.scope_arrow_label();
+    let show_scope_hint = scope_arrows.is_some();
     let show_edit_hint = state.has_editable_bash_pattern();
     let header_extra_h: u16 = if pattern_edit.is_some() {
         2
@@ -621,7 +680,7 @@ pub fn render_permission_view(
             .add_modifier(Modifier::DIM);
         let key_style = Style::default().fg(theme.accent_user);
         let line = permission_key_hint_line(
-            show_scope_hint,
+            scope_arrows,
             show_edit_hint,
             content_width as usize,
             key_style,
@@ -766,30 +825,31 @@ pub fn render_permission_view(
 /// Key hints on the permission card (`← → narrow scope`, `e edit pattern`).
 /// A narrow row keeps whole words. It does not slice `narrow` or `pattern`.
 fn permission_key_hint_line(
-    show_scope: bool,
+    scope_arrows: Option<&str>,
     show_edit: bool,
     width: usize,
     key_style: Style,
     hint_style: Style,
 ) -> Line<'static> {
-    let mut tokens: Vec<(&str, Style)> = Vec::new();
-    if show_scope {
-        tokens.push(("\u{2190} \u{2192}", key_style));
-        tokens.push((" narrow", hint_style));
-        tokens.push((" scope", hint_style));
+    let mut tokens: Vec<(String, Style)> = Vec::new();
+    let show_scope = scope_arrows.is_some();
+    if let Some(arrows) = scope_arrows {
+        tokens.push((arrows.to_owned(), key_style));
+        tokens.push((" narrow".to_owned(), hint_style));
+        tokens.push((" scope".to_owned(), hint_style));
     }
     if show_edit {
         if show_scope {
-            tokens.push(("  \u{00b7}  ", hint_style));
+            tokens.push(("  \u{00b7}  ".to_owned(), hint_style));
         }
-        tokens.push(("e", key_style));
-        tokens.push((" edit", hint_style));
-        tokens.push((" pattern", hint_style));
+        tokens.push(("e".to_owned(), key_style));
+        tokens.push((" edit".to_owned(), hint_style));
+        tokens.push((" pattern".to_owned(), hint_style));
     }
     let mut used = 0usize;
     let mut taken = 0usize;
     for (i, (text, _)) in tokens.iter().enumerate() {
-        let w = UnicodeWidthStr::width(*text);
+        let w = UnicodeWidthStr::width(text.as_str());
         if used + w > width {
             break;
         }
@@ -798,7 +858,7 @@ fn permission_key_hint_line(
     }
     // A key with its label word missing, or a separator with nothing after it, is not a hint.
     while taken > 0 {
-        let text = tokens[taken - 1].0;
+        let text = tokens[taken - 1].0.as_str();
         let orphan_key = !text.contains(' ') && taken < tokens.len();
         let dangling_sep = text.contains('\u{00b7}');
         if orphan_key || dangling_sep {
@@ -1789,8 +1849,8 @@ mod tests {
             .collect()
     }
 
-    fn hint_text(show_scope: bool, show_edit: bool, width: usize) -> String {
-        permission_key_hint_line(show_scope, show_edit, width, Style::default(), Style::default())
+    fn hint_text(scope_arrows: Option<&str>, show_edit: bool, width: usize) -> String {
+        permission_key_hint_line(scope_arrows, show_edit, width, Style::default(), Style::default())
             .spans
             .iter()
             .map(|span| span.content.as_ref())
@@ -1810,23 +1870,47 @@ mod tests {
 
     #[test]
     fn permission_card_key_hint_keeps_whole_words() {
-        let wide = hint_text(true, true, 80);
+        let wide = hint_text(Some("\u{2190} \u{2192}"), true, 80);
         assert!(wide.contains("narrow scope"), "{wide}");
         assert!(wide.contains("edit pattern"), "{wide}");
         assert!(UnicodeWidthStr::width(wide.as_str()) <= 80);
 
-        let scope_only = hint_text(true, true, 12);
+        let scope_only = hint_text(Some("\u{2190} \u{2192}"), true, 12);
         assert_eq!(scope_only, "\u{2190} \u{2192} narrow");
         assert!(!scope_only.contains("sco"));
         assert!(!scope_only.contains('e'));
 
-        let arrows = hint_text(true, true, 8);
+        let arrows = hint_text(Some("\u{2190} \u{2192}"), true, 8);
         assert_eq!(arrows, "\u{2190} \u{2192}");
 
-        let edit = hint_text(false, true, 8);
+        let edit = hint_text(None, true, 8);
         assert_eq!(edit, "e edit");
         assert!(!edit.contains("pat"));
         assert!(UnicodeWidthStr::width(edit.as_str()) <= 8);
+    }
+
+    #[test]
+    fn scope_arrows_hide_the_direction_that_does_not_move() {
+        let mut state = empty_view_state(None);
+        state.bash_highlights = Some(BashCommandHighlights {
+            prefix: vec![],
+            highlighted_words: vec!["git".into(), "status".into()],
+            suffix: vec![],
+        });
+        state.options = vec![acp::PermissionOption::new(
+            acp::PermissionOptionId::new(Arc::from("allow-always-command")),
+            "Always allow".to_owned(),
+            acp::PermissionOptionKind::AllowAlways,
+        )];
+        state.bash_selection_count = 1;
+        assert_eq!(state.scope_arrow_label(), Some("\u{2192}"));
+        state.bash_selection_count = 2;
+        assert_eq!(state.scope_arrow_label(), Some("\u{2190}"));
+
+        state.mcp_scope = Some(mcp_state("linear__list", Some("linear"), McpScope::Server));
+        assert_eq!(state.scope_arrow_label(), Some("\u{2192}"));
+        state.mcp_scope = Some(mcp_state("linear__list", Some("linear"), McpScope::Tool));
+        assert_eq!(state.scope_arrow_label(), Some("\u{2190}"));
     }
 
     #[test]
