@@ -224,7 +224,7 @@ pub(super) fn open_capture_stream(
 
     let default_config = device.default_input_config().map_err(|e| {
         VoiceError::Config(format!(
-            "default input config for {device_name}: {e} (grant mic permission in System Settings)"
+            "default input config for {device_name}: {e}"
         ))
     })?;
 

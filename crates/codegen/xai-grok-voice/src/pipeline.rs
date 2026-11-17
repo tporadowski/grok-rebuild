@@ -230,11 +230,10 @@ async fn open_session(
     match start_capture_session(config, routes, events).await {
         Ok(session) => Some(session),
         Err(e) => {
+            let message = e.to_string();
+            let hint = crate::probe::mic_block_hint(std::env::consts::OS, &message);
             let _ = events
-                .send(VoiceEvent::Error {
-                    message: e.to_string(),
-                    hint: None,
-                })
+                .send(VoiceEvent::Error { message, hint })
                 .await;
             None
         }

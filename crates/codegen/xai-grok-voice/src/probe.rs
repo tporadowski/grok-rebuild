@@ -157,15 +157,34 @@ pub fn mic_fix_help() -> String {
     mic_permission_help(std::env::consts::OS, current_terminal_host_app())
 }
 
+/// Hint for a capture error that means the OS or the device refused the microphone.
+/// Other voice failures stay hint-free. `os` is `std::env::consts::OS`.
+pub fn mic_block_hint(os: &str, error: &str) -> Option<String> {
+    if !is_microphone_block(error) {
+        return None;
+    }
+    Some(mic_permission_help(os, None))
+}
+
+fn is_microphone_block(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("microphone")
+        || lower.contains("mic permission")
+        || lower.contains("input config")
+        || lower.contains("input device")
+        || lower.contains("input audio")
+        || lower.contains("no default input")
+}
+
 /// The `/voice` permission sentence for `os` (`"macos"`, `"windows"`, or anything else).
 /// `app` is the terminal macOS lists under Microphone, when this process can tell.
 pub fn mic_permission_help(os: &str, app: Option<&str>) -> String {
     if os == "macos" {
         macos_microphone_permission_sentence(app)
     } else if os == "windows" {
-        "allow microphone access in Settings → Privacy & security → \
-         Microphone, and check the input device and level in Settings → \
-         System → Sound."
+        "Windows is blocking the microphone. Turn access on in Settings → \
+         Privacy & security → Microphone. If access is already on, check the \
+         input device and level in Settings → System → Sound."
             .to_string()
     } else {
         "check the default input device and its volume in your sound settings \
@@ -367,6 +386,41 @@ mod tests {
         assert!(
             unnamed.contains("System Settings"),
             "an unknown host still says how to fix it: {unnamed}"
+        );
+    }
+
+    #[test]
+    fn windows_blocked_microphone_names_the_settings_page() {
+        let help = mic_permission_help("windows", Some("Windows Terminal"));
+        assert!(
+            help.contains("Settings → Privacy & security → Microphone"),
+            "windows has to name the page where microphone access is turned on: {help}"
+        );
+        assert!(
+            help.to_lowercase().contains("turn access on"),
+            "the sentence has to say to turn access on: {help}"
+        );
+        assert!(
+            !help.contains("System Settings"),
+            "windows must not send the user to the macOS settings app: {help}"
+        );
+        assert!(
+            !help.contains("Windows Terminal"),
+            "the windows sentence does not depend on the macOS host app: {help}"
+        );
+
+        let blocked = mic_block_hint(
+            "windows",
+            "default input config for Microphone: Access is denied",
+        );
+        let blocked = blocked.expect("a refused input device is a microphone block");
+        assert!(
+            blocked.contains("Privacy & security → Microphone"),
+            "the block hint uses the windows page: {blocked}"
+        );
+        assert!(
+            mic_block_hint("windows", "configuration: bad STT URL").is_none(),
+            "an unrelated voice error does not grow a microphone walkthrough"
         );
     }
 }
