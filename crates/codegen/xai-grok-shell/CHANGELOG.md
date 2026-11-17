@@ -1,5 +1,80 @@
 # Changelog
 
+# 1.0.88 — 2026-11-16
+
+## Features
+
+- **`/release-notes`**, `/docs` and `/help` now open when the dashboard is active.
+- **MCP servers** can now specify a `headers_helper` command to provide dynamic request headers.
+- **Links** keep showing the hand pointer when Cmd is pressed or released while the pointer rests on them.
+
+## Bug Fixes
+
+- The dashboard peek now highlights the selected permission or question option with the same caret and band used elsewhere.
+- **Prompt border** and mode banner now truncate long model or mode names with an ellipsis.
+- **Tokyo Night theme** now dims the unfocused input border correctly.
+- Selecting a multi-line field in a persona now highlights every row, and the collapsed-instructions hint shows the true remaining line count.
+- **Dashboard** now labels actions "Resume Session" and "Enable Worktree", and the free-text row says "Type your answer here".
+- **Welcome bar** on narrow terminals keeps the current folder name visible by shortening the branch first.
+- **`/resume`** search bar on narrow terminals no longer lets the filter chip cover the query text.
+- **Scrollback** now applies the same selection highlight to Task, Subagent and Workflow rows.
+- **Tasks pane** on narrow terminals no longer paints buttons or timers over the status icon.
+- On the `/agents` modal the Personas tab now colors badges by scope, and empty tool or prompt-extension fields read (empty).
+- **Tips** and answered-question text now dim to match the terminal theme.
+- **Permission and question cards** now end long typed answers and form values with an ellipsis on narrow terminals.
+- **Block viewer** search bar and status no longer overlap the last lines of content.
+- The `/tasks` block now shows scheduled loops with the same next-fire suffix and empty message as the Tasks pane.
+- **`/resume` in minimal mode** now lets arrow keys and Enter act only on rows that are actually shown.
+- **File search, history and image preview** now show an animated "Loading…" indicator.
+- **Minimal mode** no longer shows an [Open] button on media rows, which that mode cannot click.
+- **Scrollback** on narrow terminals no longer drops wrapped text or group headers.
+- **Permission cards** now show only the scope arrows that still move the scope.
+- **Tab** is now the only key that returns to a parked card or plan approval.
+- An empty or whitespace-only hook file now loads without error.
+- The first prompt now keeps earlier rows (such as hook notes) visible when they fit on the page.
+- **Pasted images** now attach to the correct input field on the dashboard without waiting for other fields.
+- **Keyboard navigation** in todo, tasks and queue panes now works correctly after the pane changes while hidden.
+- **Loaded sessions** now keep their saved model and effort even if the first model list fetch fails.
+- **Voice dictation** on Windows now tells you where to turn on microphone access when the OS blocks it.
+- **Welcome screen** rows on light themes now use lighter selection and hover colors.
+- Plan revise refusals now appear in minimal mode instead of leaving the review stuck with no message.
+- **Failed sign-in in minimal mode** now shows only the error message in red.
+- **Trust question keys in minimal mode** now read with single spacing after y/n.
+- **Minimal mode** status and info rows now end in an ellipsis; transcript progress uses sentence case.
+- **Device sign-in in minimal mode** now shows the code by itself with the explanatory caption underneath.
+- **Sign-in starting in minimal mode** now shows "Connecting…" until the flow type is known.
+- **Sign-in text in minimal mode** now wraps cleanly on narrow terminals.
+- The shortcuts bar now shows exactly the scope arrows the permission card above it names.
+- `/doctor` now correctly says when a confirmed keyboard protocol is not actually in use.
+- **Limit-box model switch** now applies the exact settings the backend suggested.
+- **`/resume` in minimal mode** now shows the same loading spinner and empty states as the full picker.
+- **`/resume` in minimal mode** now keeps message-text matches visible, using the same query the keys use.
+- **Filtering the Tasks pane** now keeps each row's icon, time and buttons on its own row.
+- **`/resume`** search bar now shows which source filter is active when width permits.
+- **`/queue` output** now prefixes bash commands with "! " and uses the pane's line-count suffix.
+- **`/usage` by-model rows** now say "tokens" in lowercase for consistency.
+- Keys in a filtered **Tasks pane** now act on the highlighted row.
+- **`/resume` in minimal mode** now draws a flat list when session grouping is off, so selection matches the keys.
+- The **MCP form card** in minimal mode now fits the width it draws, so every field stays visible.
+- **Clicks in a scrolled Tasks pane** now select the task under the pointer.
+- **Tasks pane** no longer loses its search bar or shows stale rows after a filter update.
+- The **MCP URL rejection card** now shows the full rejected URL even when the error reason wraps to two rows.
+- **Tasks pane** no longer selects a hidden task when clicking the search or filter status row.
+- The TUI no longer waits on a saved turn that has already ended.
+- **`/resume` panel** now shows all fields even when a session's CWD wraps at narrow widths.
+- **Session picker** no longer lets keys or clicks act on sessions while reloading the list.
+- **Session picker keys** now do nothing until the next frame actually draws list rows.
+- **Scrollbars in question cards** now size correctly when option descriptions wrap to the card width.
+- **Question option lists** no longer show a scrollbar or allow overscroll when every option fits.
+- **Limit-hit model switches** now show the exact settings they will select (for example "Switch to Auto (Standard, Terse)").
+- **`/resume` and full-screen pickers** no longer truncate cards when a long CWD contains an early space.
+
+## Performance
+
+- **Startup** now overlaps terminal protocol queries with the agent connection for a faster first frame.
+- **Inline and minimal mode** startup no longer delays the first frame on terminals that answer the cursor question slowly.
+
+
 # 1.0.87 — 2026-11-14
 
 ## Bug Fixes
