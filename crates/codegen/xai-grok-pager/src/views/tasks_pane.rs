@@ -875,6 +875,11 @@ impl TasksPane {
                 .retain(|g| present.get(g.order() as usize).copied().unwrap_or(false));
         }
         self.rebuild_entries();
+        // Same length is not "same rows": a running task can be replaced without the count changing.
+        // The open search or filter has to match the new text, and the bar stays up.
+        if self.list_state.matcher().is_some() {
+            self.list_state.mark_items_changed();
+        }
         let counts = Self::status_counts_from(bg_tasks, subagents, scheduled, workflow_runs);
         let running_count = counts.running.saturating_sub(
             bg_tasks
@@ -2353,6 +2358,61 @@ mod tests {
             pane.selected_task_id(),
             Some("t4"),
             "the up arrow is not a task row:\n{joined}"
+        );
+    }
+
+    /// Replacing the task list without changing its length must reapply the filter. The bar stays, and a row that no longer matches disappears.
+    #[test]
+    fn filter_update_keeps_the_bar_and_drops_stale_rows() {
+        let mut pane = TasksPane::new();
+        pane.overlay.show();
+        let mut first = std::collections::BTreeMap::new();
+        let mut alpha = make_bg_task("a", "alpha-one", BgTaskStatus::Running);
+        alpha.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2);
+        let mut beta = make_bg_task("b", "beta-two", BgTaskStatus::Running);
+        beta.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        first.insert("a".into(), alpha);
+        first.insert("b".into(), beta);
+        pane.sync(&first, &HashMap::new(), &HashMap::new(), &[]);
+        assert!(pane.handle_key(&crate::key!('f').to_key_event()));
+        assert!(pane.handle_paste("alpha"));
+        let before = render_pane_to_strings(&mut pane, &first, 60, 8);
+        let before_joined = before.join("\n");
+        assert!(
+            before_joined.contains("filter:"),
+            "filter bar open:\n{before_joined}"
+        );
+        assert!(before_joined.contains("alpha-one"), "{before_joined}");
+        assert!(
+            !before_joined.contains("beta-two"),
+            "filter hides beta:\n{before_joined}"
+        );
+
+        let mut next = std::collections::BTreeMap::new();
+        let mut gamma = make_bg_task("a", "gamma-three", BgTaskStatus::Running);
+        gamma.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2);
+        let mut still = make_bg_task("b", "alpha-four", BgTaskStatus::Running);
+        still.start_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        next.insert("a".into(), gamma);
+        next.insert("b".into(), still);
+        pane.sync(&next, &HashMap::new(), &HashMap::new(), &[]);
+        let after = render_pane_to_strings(&mut pane, &next, 60, 8);
+        let joined = after.join("\n");
+        assert!(
+            joined.contains("filter:"),
+            "filter bar stays after the task list changes:\n{joined}"
+        );
+        assert!(
+            joined.contains("alpha-four"),
+            "the new match is shown:\n{joined}"
+        );
+        assert!(
+            !joined.contains("gamma-three"),
+            "a replaced row that no longer matches stays hidden:\n{joined}"
+        );
+        assert!(
+            !joined.contains("alpha-one"),
+            "the old match text is gone:\n{joined}"
         );
     }
 

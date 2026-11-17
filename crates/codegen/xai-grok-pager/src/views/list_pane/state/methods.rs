@@ -482,6 +482,12 @@ impl ListPaneState {
         self.filter_dirty = true;
     }
 
+    /// The item slice changed under an existing matcher. The next [`prepare_layout`] rebuilds matches
+    /// even when the slice length is unchanged, so a filter does not keep painting the previous rows.
+    pub fn mark_items_changed(&mut self) {
+        self.filter_dirty = true;
+    }
+
     /// Set or clear the filter (backward-compatible).
     pub fn set_filter(&mut self, matcher: Option<ListMatcher>) {
         self.set_matcher(matcher);
