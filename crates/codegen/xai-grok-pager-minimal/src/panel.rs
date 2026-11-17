@@ -73,7 +73,7 @@ pub(super) fn panel_height(agent: &AgentView, kind: ListPanel, width: u16, ceili
 }
 
 /// Render the active list panel into `area` (the whole live region).
-/// `tick` advances the `/mcps` loading spinner the same way the full extensions modal does.
+/// `tick` advances the `/mcps` and `/resume` loading spinners the same way the full views do.
 /// Returns the text cursor for the panel's search bar when search is focused, else `None`.
 pub(super) fn render_with_tick(
     buf: &mut Buffer,
@@ -87,7 +87,7 @@ pub(super) fn render_with_tick(
         return None;
     }
     match kind {
-        ListPanel::Resume => render_resume(buf, area, agent, theme),
+        ListPanel::Resume => render_resume(buf, area, agent, theme, tick),
         ListPanel::Mcps => render_mcps(buf, area, agent, theme, tick),
     }
 }
@@ -272,6 +272,7 @@ fn render_resume(
     area: Rect,
     agent: &mut AgentView,
     theme: &Theme,
+    tick: u64,
 ) -> Option<(u16, u16)> {
     let cwd = agent.session.cwd.to_string_lossy().to_string();
     let chat_mode = agent.app_chat_mode;
@@ -280,6 +281,9 @@ fn render_resume(
         state,
         source_filter,
         pending_delete,
+        loading,
+        lanes,
+        entries_query,
         ..
     }) = &mut agent.active_modal
     else {
@@ -311,6 +315,14 @@ fn render_resume(
         &fields_vecs,
         state,
         Some(current_repo.as_str()),
+    );
+    state.empty_label =
+        minimal_api::session_picker_empty_label(entries.as_deref(), entries_query.as_deref());
+    let show_spinner = minimal_api::loading_spinner_active(
+        entries.as_deref(),
+        *source_filter,
+        *loading,
+        lanes,
     );
     let hidden_hint = (!chat_mode)
         .then(|| minimal_api::hidden_external_hint(entries.as_deref(), *source_filter))
@@ -349,7 +361,7 @@ fn render_resume(
     }
 
     let nsc = vec![false; picker_entries.len()];
-    let hit = picker::render_picker_content(
+    let hit = picker::render_picker_content_with_tick(
         buf,
         list_area,
         theme,
@@ -358,7 +370,8 @@ fn render_resume(
         &non_sel,
         &nsc,
         None,
-        false,
+        show_spinner,
+        tick,
     );
     state.hit_areas = Some(PickerHitAreas {
         close_button: Rect::default(),
@@ -1165,6 +1178,111 @@ mod tests {
             !text.contains("r refresh"),
             "resume footer must stay session-picker copy:\n{text}"
         );
+        assert!(
+            !text.contains("Loading\u{2026}"),
+            "a settled list must not show the loading spinner:\n{text}"
+        );
+    }
+
+    /// Minimal `/resume` uses the full picker's spinner and empty copy (`v88-x38`).
+    #[test]
+    fn minimal_resume_loading_and_empty_match_the_full_picker() {
+        let theme = Theme::groknight();
+        let frames = xai_grok_pager::glyphs::dot_spinner_frames();
+        let frame0 = frames.first().copied().unwrap_or("");
+        let frame2 = frames.get(2).copied().unwrap_or("");
+        assert_ne!(frame0, frame2, "the spinner must move between tick 0 and tick 8");
+
+        let mut loading = with_resume(vec![]);
+        {
+            let Some(ActiveModal::SessionPicker {
+                loading, entries, ..
+            }) = &mut loading.active_modal
+            else {
+                panic!("expected session picker");
+            };
+            *loading = true;
+            *entries = None;
+        }
+        let text = render_resume_text(&mut loading, &theme, 0);
+        assert!(
+            text.contains(&format!("{frame0} Loading\u{2026}")),
+            "a loading resume paints the full-picker spinner:\n{text}"
+        );
+        assert!(
+            !text.contains(&format!("{frame2} Loading\u{2026}")),
+            "tick 0 must not show the later spinner frame:\n{text}"
+        );
+        assert!(
+            !text.contains("No sessions"),
+            "loading is not an empty directory:\n{text}"
+        );
+        assert!(
+            !text.contains("No matches"),
+            "loading is not a search miss:\n{text}"
+        );
+        let later = render_resume_text(&mut loading, &theme, 8);
+        assert!(
+            later.contains(&format!("{frame2} Loading\u{2026}")),
+            "the spinner advances with the same tick as the full picker:\n{later}"
+        );
+
+        let mut empty = with_resume(vec![]);
+        let text = render_resume_text(&mut empty, &theme, 0);
+        assert!(
+            text.contains("No sessions in this directory"),
+            "an empty directory uses the full picker's empty line:\n{text}"
+        );
+        assert!(
+            !text.contains("Loading\u{2026}"),
+            "a settled empty directory is not still loading:\n{text}"
+        );
+        assert!(
+            !text.contains("No matches"),
+            "an empty directory is not a search miss:\n{text}"
+        );
+
+        let mut missed = with_resume(vec![session_entry("alpha-session")]);
+        {
+            let Some(ActiveModal::SessionPicker { state, .. }) = &mut missed.active_modal else {
+                panic!("expected session picker");
+            };
+            state.set_query("zzzz-no-such-session");
+        }
+        let text = render_resume_text(&mut missed, &theme, 0);
+        assert!(
+            text.contains("No matches"),
+            "a local filter over real rows stays a miss:\n{text}"
+        );
+        assert!(
+            !text.contains("No sessions in this directory"),
+            "a filtered list must not claim the directory is empty:\n{text}"
+        );
+
+        let mut searched = with_resume(vec![]);
+        {
+            let Some(ActiveModal::SessionPicker { entries_query, .. }) = &mut searched.active_modal
+            else {
+                panic!("expected session picker");
+            };
+            *entries_query = Some("roadmap".into());
+        }
+        let text = render_resume_text(&mut searched, &theme, 0);
+        assert!(
+            text.contains("No matches"),
+            "a server search that returned nothing stays a miss:\n{text}"
+        );
+        assert!(
+            !text.contains("No sessions in this directory"),
+            "a server search must not claim the directory is empty:\n{text}"
+        );
+    }
+
+    fn render_resume_text(agent: &mut AgentView, theme: &Theme, tick: u64) -> String {
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+        render_with_tick(&mut buf, area, agent, ListPanel::Resume, theme, tick);
+        crate::buffer_text(&buf)
     }
 
     #[test]

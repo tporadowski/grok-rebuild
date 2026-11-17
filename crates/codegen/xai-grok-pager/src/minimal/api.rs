@@ -802,6 +802,24 @@ pub fn repo_name_from_cwd(cwd: &str) -> String {
     crate::views::session_picker::repo_name_from_cwd(cwd)
 }
 
+/// [`crate::views::session_picker::session_picker_empty_label`].
+pub fn session_picker_empty_label(
+    sessions: Option<&[SessionPickerEntry]>,
+    entries_query: Option<&str>,
+) -> &'static str {
+    crate::views::session_picker::session_picker_empty_label(sessions, entries_query)
+}
+
+/// [`crate::views::session_picker::loading_spinner_active`].
+pub fn loading_spinner_active(
+    entries: Option<&[SessionPickerEntry]>,
+    source_filter: SourceFilter,
+    loading: bool,
+    lanes: &crate::views::session_picker::SessionPickerLanes,
+) -> bool {
+    crate::views::session_picker::loading_spinner_active(entries, source_filter, loading, lanes)
+}
+
 /// [`crate::views::session_picker::filter_session_entries`].
 pub fn filter_session_entries(
     entries: Option<&[SessionPickerEntry]>,
