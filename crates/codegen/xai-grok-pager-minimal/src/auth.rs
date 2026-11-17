@@ -82,8 +82,8 @@ pub(super) fn auth_hint_rows(hint: &MinimalAuthHint, width: u16) -> u16 {
             let code_rows = if code.is_some() { 2 } else { 0 }; // blank + "Code: …"
             3 + url_rows + code_rows + 2
         }
-        // "Sign-in failed" + blank + wrapped error
-        MinimalAuthHint::Failed(err) => 2 + wrapped_word_rows(err, width),
+        // The error message only. A heading would repeat it.
+        MinimalAuthHint::Failed(err) => wrapped_word_rows(err, width).max(1),
         // question + path rows + blank + 2 warning + blank + 2 menu + blank + hint
         MinimalAuthHint::TrustFolder { workspace } => {
             let path = workspace.display().to_string();
@@ -280,25 +280,14 @@ pub(super) fn render_auth(buf: &mut Buffer, area: Rect, theme: &Theme, hint: &Mi
             }
         }
         MinimalAuthHint::Failed(err) => {
-            let failed = Style::default()
-                .fg(theme.accent_error)
-                .add_modifier(Modifier::BOLD)
-                .bg(Color::Reset);
-            y = put_line(
-                buf,
-                area,
-                y,
-                bottom,
-                Line::from(Span::styled("Sign-in failed", failed)),
-            );
-            y = put_line(buf, area, y, bottom, Line::default());
+            let failed = Style::default().fg(theme.accent_error).bg(Color::Reset);
             for line in wrap_words(err, area.width) {
                 y = put_line(
                     buf,
                     area,
                     y,
                     bottom,
-                    Line::from(Span::styled(line, gray)),
+                    Line::from(Span::styled(line, failed)),
                 );
             }
         }
@@ -546,15 +535,37 @@ mod tests {
         let mut buf = Buffer::empty(area);
         render_auth(&mut buf, area, &theme, &hint);
         let text = crate::buffer_text(&buf);
-        assert!(text.contains("Sign-in failed"), "{text:?}");
+        assert!(
+            !text.contains("Sign-in failed"),
+            "the heading is not painted: {text:?}"
+        );
         assert!(text.contains("endpoint"), "{text:?}");
         assert!(text.contains("login"), "{text:?}");
-        let title = buf.cell((0, 0)).expect("title cell");
-        assert_eq!(title.symbol(), "S");
+        let message = buf.cell((0, 0)).expect("error cell");
+        assert_eq!(message.symbol(), "t");
         assert_eq!(
-            title.fg, theme.accent_error,
-            "Sign-in failed must use the error color"
+            message.fg, theme.accent_error,
+            "the error message must be red"
         );
+    }
+
+    #[test]
+    fn failed_sign_in_shows_only_the_error_in_red() {
+        let err = "the token endpoint refused this refresh token";
+        let hint = MinimalAuthHint::Failed(err.to_string());
+        let theme = Theme::current();
+        let area = Rect::new(0, 0, 80, 8);
+        let mut buf = Buffer::empty(area);
+        render_auth(&mut buf, area, &theme, &hint);
+        let text = crate::buffer_text(&buf);
+        assert!(text.contains(err), "{text:?}");
+        assert!(!text.contains("Sign-in failed"), "{text:?}");
+        let rows = auth_hint_rows(&hint, 80);
+        assert_eq!(rows, 1, "one line, no heading or blank row");
+        for x in 0..err.len() as u16 {
+            let cell = buf.cell((x, 0)).expect("message cell");
+            assert_eq!(cell.fg, theme.accent_error, "column {x}");
+        }
     }
 
     #[test]
