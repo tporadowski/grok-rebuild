@@ -1926,48 +1926,79 @@ fn dashboard_dispatch_send_before_paste_probe_keeps_image() {
         "the dispatched prompt carries the pasted image"
     );
 }
-/// Per-surface stashes: a dispatch send AND a peek reply stashed during the same probe window must both survive (the old single slot let the second stash silently overwrite the first) and both re-issue on completion:
-/// dispatch first, then peek.
-#[test]
-fn dashboard_second_stash_does_not_overwrite_first() {
+fn clipboard_image(bytes: Vec<u8>) -> crate::prompt_images::PastedImage {
+    crate::prompt_images::from_clipboard_data(&crate::clipboard::ImageData {
+        data: bytes,
+        mime_type: "image/png".into(),
+    })
+}
+
+fn take_paste_probe(app: &mut AppView) -> crate::app::actions::ClipboardPasteContext {
+    let pending = std::mem::take(&mut app.dashboard.as_mut().unwrap().pending_effects);
+    pending
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::ProbeClipboardAttachment { ctx, .. } => Some(ctx),
+            _ => None,
+        })
+        .expect("Ctrl+V of an image must defer a probe")
+}
+
+fn ctrl_v(app: &mut AppView) {
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    let mut app = test_app_with_agent();
-    open_dashboard(&mut app);
+    let reg = crate::actions::ActionRegistry::defaults();
+    let d = app.dashboard.as_mut().unwrap();
+    let _ = d.handle_input(
+        &Event::Key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+        &reg,
+    );
+}
+
+fn open_peek(app: &mut AppView) -> crate::views::dashboard::DashboardRowId {
     let row = crate::views::dashboard::DashboardRowId::TopLevel(AgentId(0));
     let fields = crate::views::dashboard::peek::compute_peek_fields(&row, &app.agents)
         .expect("agent must be peekable");
+    let d = app.dashboard.as_mut().unwrap();
+    d.focus_row(row.clone());
+    d.peek = Some(crate::views::dashboard::peek::PeekPanelState::new(
+        row.clone(),
+        fields,
+    ));
+    row
+}
+
+fn prompt_image_lengths(app: &AppView, id: AgentId) -> Vec<usize> {
+    let agent = test_agent(app, id);
+    let mut lengths = Vec::new();
+    if let Some(prompt) = &agent.session.in_flight_prompt {
+        lengths.extend(prompt.images.iter().map(|image| image.byte_len));
+    }
+    for entry in &agent.session.pending_prompts {
+        lengths.extend(entry.images.iter().map(|image| image.byte_len));
+    }
+    lengths
+}
+
+/// A paste into the peek reply must not hold the dispatch field, and each image stays on the field that received it.
+#[test]
+fn pasted_image_attaches_to_its_dashboard_field_without_waiting() {
+    let mut app = test_app_with_agent();
+    open_dashboard(&mut app);
+    let row = open_peek(&mut app);
     if let Some(d) = app.dashboard.as_mut() {
-        d.focus_row(row.clone());
-        d.peek = Some(crate::views::dashboard::peek::PeekPanelState::new(
-            row.clone(),
-            fields,
-        ));
         d.dispatch.set_text("spawn a fixer");
         d.peek_reply.set_text("please look");
     }
     crate::clipboard::set_clipboard_probe_hook(crate::clipboard::ClipboardProbeHook::with_raster(
         None,
     ));
-    {
-        let reg = crate::actions::ActionRegistry::defaults();
-        let d = app.dashboard.as_mut().unwrap();
-        let _ = d.handle_input(
-            &Event::Key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
-            &reg,
-        );
-    }
-    let ctx = app
-        .dashboard
-        .as_ref()
-        .unwrap()
-        .pending_effects
-        .iter()
-        .find_map(|e| match e {
-            Effect::ProbeClipboardAttachment { ctx, .. } => Some(ctx.clone()),
-            _ => None,
-        })
-        .expect("Cmd+V of an image must defer a probe");
+    ctrl_v(&mut app);
+    let peek_ctx = take_paste_probe(&mut app);
     crate::clipboard::clear_clipboard_probe_hook();
+    assert_eq!(app.dashboard.as_ref().unwrap().peek_paste_probes, 1);
+    assert_eq!(app.dashboard.as_ref().unwrap().dispatch_paste_probes, 0);
+
+    let before = app.agents.len();
     let effects = dispatch(
         Action::DashboardDispatch {
             text: "spawn a fixer".into(),
@@ -1975,7 +2006,22 @@ fn dashboard_second_stash_does_not_overwrite_first() {
         },
         &mut app,
     );
-    assert!(effects.is_empty());
+    assert!(
+        !effects.is_empty(),
+        "the dispatch field must not wait on the peek paste"
+    );
+    assert!(
+        app.dashboard
+            .as_ref()
+            .unwrap()
+            .deferred_dispatch_send
+            .is_none()
+    );
+    assert_eq!(app.agents.len(), before + 1);
+    assert!(
+        prompt_image_lengths(&app, AgentId(1)).is_empty(),
+        "the new session must not take the peek image"
+    );
     let effects = dispatch(
         Action::DashboardPeekReply {
             row: row.clone(),
@@ -1984,46 +2030,156 @@ fn dashboard_second_stash_does_not_overwrite_first() {
         },
         &mut app,
     );
-    assert!(effects.is_empty());
-    {
-        let d = app.dashboard.as_ref().unwrap();
-        assert!(
-            d.deferred_dispatch_send.is_some() && d.deferred_peek_send.is_some(),
-            "each surface keeps its own stash"
-        );
-    }
-    let before = app.agents.len();
-    let pasted = crate::prompt_images::from_clipboard_data(&crate::clipboard::ImageData {
-        data: vec![1, 2, 3],
-        mime_type: "image/png".into(),
-    });
+    assert!(effects.is_empty(), "the peek reply waits for its own paste");
+    assert!(
+        app.dashboard
+            .as_ref()
+            .unwrap()
+            .deferred_peek_send
+            .is_some()
+    );
+
     let effects = dispatch(
         Action::TaskComplete(TaskResult::ClipboardAttachmentProbed {
-            ctx,
-            image: crate::app::actions::ProbedAttachment::Image(pasted),
+            ctx: peek_ctx,
+            image: crate::app::actions::ProbedAttachment::Image(clipboard_image(vec![9, 9, 9, 9])),
             file_urls: None,
         }),
         &mut app,
     );
-    let d = app.dashboard.as_ref().unwrap();
-    assert!(d.deferred_dispatch_send.is_none() && d.deferred_peek_send.is_none());
-    assert_eq!(
-        app.agents.len(),
-        before + 1,
-        "the stashed dispatch spawned its session"
-    );
-    let reply_sent = effects.iter().any(|e| {
-        matches!(
-            e,
-            Effect::SendPromptBlocks { agent_id, blocks, .. }
-                if *agent_id == AgentId(0)
-                    && blocks.iter().any(|b| matches!(b, acp::ContentBlock::Image(_)))
-        )
-    });
     assert!(
-        reply_sent,
-        "the stashed peek reply must reach the peeked agent with the image; effects = {effects:?}"
+        app.dashboard
+            .as_ref()
+            .unwrap()
+            .deferred_peek_send
+            .is_none()
     );
+    assert!(
+        effects.iter().any(|e| {
+            matches!(
+                e,
+                Effect::SendPromptBlocks { agent_id, blocks, .. }
+                    if *agent_id == AgentId(0)
+                        && blocks.iter().any(|b| matches!(b, acp::ContentBlock::Image(_)))
+            )
+        }),
+        "the peek image reaches the peeked agent; effects = {effects:?}"
+    );
+    assert_eq!(prompt_image_lengths(&app, AgentId(1)), Vec::<usize>::new());
+    assert!(app.dashboard.as_ref().unwrap().dispatch.images.is_empty());
+
+    // Each field still waits for its own probe, and the other field's completion does not move that image.
+    let mut app = test_app_with_agent();
+    open_dashboard(&mut app);
+    if let Some(d) = app.dashboard.as_mut() {
+        d.dispatch.set_text("spawn a fixer");
+    }
+    crate::clipboard::set_clipboard_probe_hook(crate::clipboard::ClipboardProbeHook::with_raster(
+        None,
+    ));
+    ctrl_v(&mut app);
+    let dispatch_ctx = take_paste_probe(&mut app);
+    let row = open_peek(&mut app);
+    if let Some(d) = app.dashboard.as_mut() {
+        d.peek_reply.set_text("please look");
+    }
+    ctrl_v(&mut app);
+    let peek_ctx = take_paste_probe(&mut app);
+    crate::clipboard::clear_clipboard_probe_hook();
+    {
+        let d = app.dashboard.as_ref().unwrap();
+        assert_eq!(d.dispatch_paste_probes, 1);
+        assert_eq!(d.peek_paste_probes, 1);
+    }
+    let before = app.agents.len();
+    assert!(
+        dispatch(
+            Action::DashboardDispatch {
+                text: "spawn a fixer".into(),
+                attach: false,
+            },
+            &mut app,
+        )
+        .is_empty()
+    );
+    assert!(
+        dispatch(
+            Action::DashboardPeekReply {
+                row: row.clone(),
+                text: "please look".into(),
+                attach: false,
+            },
+            &mut app,
+        )
+        .is_empty()
+    );
+    assert!(
+        app.dashboard
+            .as_ref()
+            .unwrap()
+            .deferred_dispatch_send
+            .is_some()
+            && app
+                .dashboard
+                .as_ref()
+                .unwrap()
+                .deferred_peek_send
+                .is_some()
+    );
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::ClipboardAttachmentProbed {
+            ctx: peek_ctx,
+            image: crate::app::actions::ProbedAttachment::Image(clipboard_image(vec![9, 9, 9, 9])),
+            file_urls: None,
+        }),
+        &mut app,
+    );
+    {
+        let d = app.dashboard.as_ref().unwrap();
+        assert!(d.deferred_peek_send.is_none());
+        assert!(
+            d.deferred_dispatch_send.is_some(),
+            "the dispatch send keeps waiting for its own image"
+        );
+        assert!(d.dispatch.images.is_empty());
+        assert!(!d.dispatch.text().contains("[Image"));
+    }
+    assert_eq!(app.agents.len(), before);
+    assert!(
+        effects.iter().any(|e| {
+            matches!(
+                e,
+                Effect::SendPromptBlocks { agent_id, blocks, .. }
+                    if *agent_id == AgentId(0)
+                        && blocks.iter().any(|b| matches!(b, acp::ContentBlock::Image(_)))
+            )
+        }),
+        "the peek image is sent while the dispatch probe is still running; effects = {effects:?}"
+    );
+    let _ = dispatch(
+        Action::TaskComplete(TaskResult::ClipboardAttachmentProbed {
+            ctx: dispatch_ctx,
+            image: crate::app::actions::ProbedAttachment::Image(clipboard_image(vec![1, 2, 3])),
+            file_urls: None,
+        }),
+        &mut app,
+    );
+    assert!(
+        app.dashboard
+            .as_ref()
+            .unwrap()
+            .deferred_dispatch_send
+            .is_none()
+    );
+    assert_eq!(app.agents.len(), before + 1);
+    let entry = test_agent(&app, AgentId(1))
+        .session
+        .pending_prompts
+        .back()
+        .expect("the new session has a queued prompt");
+    assert_eq!(entry.images.len(), 1);
+    assert_eq!(entry.images[0].byte_len, 3);
+    assert_ne!(prompt_image_lengths(&app, AgentId(0)), vec![3]);
 }
 /// The staged-mode write sits outside `set_yolo_mode_inner`; its own
 /// backstop must downgrade Always-Approve under the pin and stay the

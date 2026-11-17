@@ -1058,7 +1058,7 @@ pub(super) fn dispatch_dashboard_dispatch(
 ) -> Vec<Effect> {
     let text = merge_prompt_with_voice_interim(text, voice_stop_on_submit(app));
     if let Some(d) = app.dashboard.as_mut()
-        && d.paste_probe_in_flight > 0
+        && d.dispatch_paste_probes > 0
     {
         d.deferred_dispatch_send =
             Some(crate::views::dashboard::state::DeferredDispatchSend { attach });
@@ -1472,7 +1472,7 @@ pub(super) fn dispatch_dashboard_peek_reply(
     use crate::views::dashboard::DashboardRowId;
     let text = merge_prompt_with_voice_interim(text, voice_stop_on_submit(app));
     if let Some(d) = app.dashboard.as_mut()
-        && d.paste_probe_in_flight > 0
+        && d.peek_paste_probes > 0
     {
         d.deferred_peek_send =
             Some(crate::views::dashboard::state::DeferredPeekSend { row, attach });

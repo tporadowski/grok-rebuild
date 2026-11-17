@@ -403,12 +403,16 @@ pub struct DashboardState {
     pub dispatch: PromptWidget,
     /// Effects queued by dashboard input (e.g. slash MRU persist after Tab accept).
     pub(crate) pending_effects: Vec<crate::app::actions::Effect>,
-    /// In-flight deferred clipboard attachment probes for this dashboard.
-    /// A send while `> 0` is stashed per surface so a paste-then-immediate-send never builds content blocks before the image attaches.
+    /// In-flight deferred clipboard attachment probes for this dashboard (dispatch plus peek).
+    /// A send waits only for the probes on its own field, so a paste into the other field cannot hold it.
     pub(crate) paste_probe_in_flight: usize,
-    /// A dispatch-input send deferred until the in-flight paste probe(s) complete; re-issued (with the now-updated widget text) on completion.
+    /// Probes whose image belongs on the new-session dispatch input.
+    pub(crate) dispatch_paste_probes: usize,
+    /// Probes whose image belongs on the peek reply.
+    pub(crate) peek_paste_probes: usize,
+    /// A dispatch-input send deferred until that field's paste probes complete; re-issued (with the now-updated widget text) on completion.
     pub(crate) deferred_dispatch_send: Option<DeferredDispatchSend>,
-    /// A peek-reply send deferred the same way; per-surface slots so stashing one surface can never overwrite the other's pending send.
+    /// A peek-reply send deferred until that field's paste probes complete. A separate slot so one field cannot overwrite the other's pending send.
     pub(crate) deferred_peek_send: Option<DeferredPeekSend>,
     /// When the dispatch input last sent its text.
     /// `AppView` clears it on any key other than Enter.
@@ -1234,6 +1238,8 @@ impl DashboardState {
             dispatch,
             pending_effects: Vec::new(),
             paste_probe_in_flight: 0,
+            dispatch_paste_probes: 0,
+            peek_paste_probes: 0,
             deferred_dispatch_send: None,
             deferred_peek_send: None,
             last_send_at: None,
@@ -2557,7 +2563,12 @@ impl DashboardState {
         } else {
             crate::app::actions::ClipboardPasteTarget::DashboardDispatch
         };
-        self.paste_probe_in_flight += 1;
+        if peek {
+            self.peek_paste_probes += 1;
+        } else {
+            self.dispatch_paste_probes += 1;
+        }
+        self.paste_probe_in_flight = self.dispatch_paste_probes + self.peek_paste_probes;
         self.pending_effects
             .push(crate::app::actions::Effect::ProbeClipboardAttachment {
                 ctx: crate::app::actions::ClipboardPasteContext { target, source },
@@ -2695,7 +2706,12 @@ impl DashboardState {
             _ => None,
         };
         let peek = peek_row.is_some();
-        self.paste_probe_in_flight = self.paste_probe_in_flight.saturating_sub(1);
+        if peek {
+            self.peek_paste_probes = self.peek_paste_probes.saturating_sub(1);
+        } else {
+            self.dispatch_paste_probes = self.dispatch_paste_probes.saturating_sub(1);
+        }
+        self.paste_probe_in_flight = self.dispatch_paste_probes + self.peek_paste_probes;
         // Drop a peek completion if the panel closed OR moved to another row between enqueue and now, so the attachment can't land in the hidden
         // reply buffer or a different agent's reply (mirrors the agent's agent-id-gone guard in dispatch)
         if let Some(row) = &peek_row
@@ -2777,21 +2793,21 @@ impl DashboardState {
         completion
     }
 
-    /// After a deferred paste probe completes, take the sends stashed while the probe(s) were in flight
-    /// (dispatch first, then peek), rebuilding each from its now-updated widget text so a freshly
-    /// attached image chip (and its aligned range) travels with it.
+    /// After a deferred paste probe completes, take each field's stashed send once that field has no probes left.
+    /// The other field's probe does not hold this one. Each action is rebuilt from its widget so a freshly attached image travels with it.
     pub(crate) fn take_deferred_sends_after_paste(&mut self) -> Vec<crate::app::actions::Action> {
-        if self.paste_probe_in_flight != 0 {
-            return Vec::new();
-        }
         let mut actions = Vec::new();
-        if let Some(DeferredDispatchSend { attach }) = self.deferred_dispatch_send.take() {
+        if self.dispatch_paste_probes == 0
+            && let Some(DeferredDispatchSend { attach }) = self.deferred_dispatch_send.take()
+        {
             actions.push(crate::app::actions::Action::DashboardDispatch {
                 text: self.dispatch.text().to_string(),
                 attach,
             });
         }
-        if let Some(DeferredPeekSend { row, attach }) = self.deferred_peek_send.take() {
+        if self.peek_paste_probes == 0
+            && let Some(DeferredPeekSend { row, attach }) = self.deferred_peek_send.take()
+        {
             let same_row = self.peek.as_ref().is_some_and(|p| p.row == row);
             let in_question = self.peek.as_ref().is_some_and(|p| p.question.is_some());
             if same_row && !in_question {
