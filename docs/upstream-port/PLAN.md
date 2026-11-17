@@ -1466,7 +1466,7 @@ Pending: 0. Done: 11. Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs i
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 0. Done: 20 (`v88-x12`, `v88-x19`, `v88-x30`, `v88-x35`, `v88-x55`, `v88-x56`). Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
+Pending: 0. Done: 20 (`v88-x12`, `v88-x19`, `v88-x30`, `v88-x35`, `v88-x55`, `v88-x56`). Already: 12. Deferred: 8 (D-026, D-224, D-245). A bottom click on a question scrollbar, with the freeform row showing, stops on the last option. The click uses the same options-only total as the painted bar (`bottom_scrollbar_click_keeps_the_last_option_when_freeform_is_shown`). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
 
 ### W6 — Memory
 

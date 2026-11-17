@@ -978,9 +978,11 @@ impl AgentView {
         let Some(question) = qv.questions.get(qv.active_tab) else {
             return;
         };
+        // Same options-only total the painted bar uses. The freeform row is sticky (or
+        // absent), so it is the extra line in `total_options_height`, not part of this list.
         let total_h =
             crate::views::question_view::total_options_height(question, content_w, qv.cursor())
-                .saturating_sub(qv.phantom_freeform_h());
+                .saturating_sub(1);
         let visible_h = question_visible_h(
             self.question_scroll_region,
             self.pane_areas.prompt.height,
@@ -2645,6 +2647,56 @@ mod question_no_freeform_tests {
         let one = KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE);
         let _ = agent.handle_question_key(&one);
         assert!(agent.question_view.is_none());
+    }
+
+    /// The sticky freeform row is on screen, so it is not part of the scrolled option list.
+    /// A bottom click must stop on the last option, the same total the painted bar uses.
+    #[test]
+    fn bottom_scrollbar_click_keeps_the_last_option_when_freeform_is_shown() {
+        use crate::views::question_view::{QUESTION_VIEW_HPAD, total_options_height};
+        let mut agent = make_agent();
+        let opt = |label: &str| QuestionOption {
+            label: label.into(),
+            description: String::new(),
+            preview: None,
+            id: None,
+        };
+        agent.question_view = Some(QuestionViewState::new(
+            "tc-scroll".into(),
+            vec![Question {
+                question: "Pick one".into(),
+                options: (0..10).map(|i| opt(&format!("option {i}"))).collect(),
+                multi_select: Some(false),
+                id: None,
+            }],
+            StashedPrompt::default(),
+        ));
+        assert!(!qv(&agent).no_freeform, "the freeform row is shown");
+        agent.pane_areas.prompt = Rect::new(0, 0, 80, 20);
+        let visible = 4u16;
+        let track_y = 10u16;
+        agent.question_scroll_region = Some((track_y, track_y + visible));
+        agent
+            .hit_question_scrollbar
+            .set(Some(Rect::new(79, track_y, 1, visible)));
+        let content_w = 80usize.saturating_sub(QUESTION_VIEW_HPAD as usize);
+        let question = &qv(&agent).questions[0];
+        assert_eq!(
+            total_options_height(question, content_w, 0),
+            11,
+            "10 option lines plus the sticky freeform row"
+        );
+        agent.apply_question_scrollbar_click(track_y + visible - 1);
+        let scroll = qv(&agent).per_question_scroll[0];
+        assert_eq!(
+            scroll, 6,
+            "options-only height is 10 and the viewport is 4, so the bottom click stops at 6"
+        );
+        assert_eq!(
+            scroll + visible,
+            10,
+            "the window ends on the last option line"
+        );
     }
 }
 #[cfg(test)]
