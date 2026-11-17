@@ -1434,9 +1434,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 849. Pending: 59. Skipped: 10. Done: 632. Already: 115. Deferred: 33.
+Catalog rows: 849. Pending: 58. Skipped: 10. Done: 633. Already: 115. Deferred: 33.
 
-**Next:** v88-x55
+**Next:** v88-x56
 
 ## Waves
 
@@ -1450,7 +1450,7 @@ Pending: 0. Done: 11. Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs i
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 2. Done: 18 (`v88-x12`, `v88-x19`, `v88-x30`, `v88-x35`). Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
+Pending: 1. Done: 19 (`v88-x12`, `v88-x19`, `v88-x30`, `v88-x35`, `v88-x55`). Already: 12. Deferred: 8 (D-026, D-224, D-245). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
 
 ### W6 — Memory
 
@@ -2226,7 +2226,7 @@ id | status | wave | kind | flag | covered | note
 - v88-x19 | done | W3 | Bug Fixes |  |  | **Permission cards** now show only the scope arrows that still move the scope.
 - v88-x30 | done | W3 | Bug Fixes |  |  | **Trust question keys in minimal mode** now read with single spacing after y/n.
 - v88-x35 | done | W3 | Bug Fixes |  |  | The shortcuts bar now shows exactly the scope arrows the permission card above it names.
-- v88-x55 | pending | W3 | Bug Fixes |  |  | **Scrollbars in question cards** now size correctly when option descriptions wrap to the card width.
+- v88-x55 | done | W3 | Bug Fixes |  |  | **Scrollbars in question cards** now size correctly when option descriptions wrap to the card width.
 - v88-x56 | pending | W3 | Bug Fixes |  |  | **Question option lists** no longer show a scrollbar or allow overscroll when every option fits.
 - v86-x23 | done | W9 | Bug Fixes |  |  | The file-search and prompt-history panels no longer crash on very short terminals.
 - v86-x24 | done | W14 | Bug Fixes |  |  | Plan approval text in minimal mode matches the fullscreen version.
