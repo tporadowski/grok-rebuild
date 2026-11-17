@@ -267,7 +267,7 @@ pub(super) fn render_actions_row(
     let worktree_label = if worktree_armed {
         "Disable Worktree"
     } else {
-        "Worktree"
+        "Enable Worktree"
     };
     let worktree_hint = hint_line(
         Span::styled(
@@ -289,7 +289,7 @@ pub(super) fn render_actions_row(
     if workspace_dashboard_enabled && worktree_rect.is_some() {
         let open_previous = hint_line(
             Span::styled(
-                "Open Previous",
+                "Resume Session",
                 bg.fg(button_fg(
                     state.open_session_button_focused(),
                     state.open_session_button_hit.hovered,

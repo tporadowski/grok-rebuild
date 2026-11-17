@@ -250,8 +250,11 @@ fn actions_labels_reflect_worktree_mode() {
     render_actions_only(&mut buf, area, &theme, &mut off, false);
     let text = buf_to_text(&buf);
     assert!(
-        text.contains("+ New Agent ") && !text.contains("in Worktree") && !text.contains("Disable"),
-        "worktree mode off → + New Agent / Worktree, got: {text:?}",
+        text.contains("+ New Agent ")
+            && text.contains("Enable Worktree")
+            && !text.contains("in Worktree")
+            && !text.contains("Disable"),
+        "worktree mode off → + New Agent / Enable Worktree, got: {text:?}",
     );
     let mut armed = DashboardState::new();
     armed.cwd_has_git_ancestor = true;
@@ -291,7 +294,7 @@ fn actions_worktree_hint_shows_chord_and_toggles_on_click() {
         .key_for(crate::actions::ActionId::DashboardToggleWorktree)
         .expect("worktree toggle has a dashboard binding")
         .display();
-    let expected = format!("Worktree {key}");
+    let expected = format!("Enable Worktree {key}");
     assert!(text.contains(&expected), "got: {text:?}");
     let hit = state
         .worktree_toggle_hit
@@ -347,8 +350,8 @@ fn actions_row_keeps_worktree_and_drops_open_previous_with_divider() {
     let text = buf_to_text(&buf);
     assert!(text.contains("Worktree"), "got: {text:?}");
     assert!(
-        !text.contains("Open Previous") && !text.contains('│'),
-        "Open Previous and its divider must both go, got: {text:?}",
+        !text.contains("Resume Session") && !text.contains('│'),
+        "Resume Session and its divider must both go, got: {text:?}",
     );
     let worktree = state
         .worktree_toggle_hit
@@ -424,7 +427,8 @@ fn actions_row_right_items_follow_strict_priority_at_every_width() {
     assert_eq!(armed_at(47), (false, false));
     assert_eq!(armed_at(48), (true, false));
     assert_eq!(armed_at(71), (true, false));
-    assert_eq!(armed_at(72), (true, true));
+    assert_eq!(armed_at(72), (true, false));
+    assert_eq!(armed_at(73), (true, true));
 }
 /// The header pairs the location label (cwd and git info) on the left with right-aligned, labelled state-count chips.
 /// The glyph carries the state colour and the `{count} {label}` text keeps each chip readable without colour.

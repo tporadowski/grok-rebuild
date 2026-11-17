@@ -523,7 +523,7 @@ pub fn render_peek_panel(
                         // Permission reject vs. ask-tool "Other" free-text.
                         // Painted manually (not via the widget's unfocused-only placeholder) so the hint stays visible while the caret sits on the row
                         let placeholder_text = if panel.is_ask_question() {
-                            "Other (type your own answer)"
+                            "Type your answer here"
                         } else {
                             "No, reject (type to add feedback)"
                         };
@@ -1855,7 +1855,7 @@ mod tests {
         }
         assert!(panel.is_ask_question());
         assert!(
-            content.contains("Other (type your own answer)"),
+            content.contains("Type your answer here"),
             "got: {content:?}"
         );
         // Not the permission placeholder.

@@ -405,7 +405,7 @@ fn open_previous_actions_button_is_v2_only_and_follows_new_agent() {
 
     let (v2, mut v2_state) = render(true, 100);
     assert!(
-        v2.contains("Open Previous /resume"),
+        v2.contains("Resume Session /resume"),
         "the button names the slash command that opens the picker, got: {v2:?}"
     );
     let open = v2_state
@@ -480,7 +480,7 @@ fn open_previous_actions_button_is_v2_only_and_follows_new_agent() {
     assert!(!v2_state.open_session_button_focused());
 
     let (v1, mut v1_state) = render(false, 100);
-    assert!(!v1.contains("Open Previous"));
+    assert!(!v1.contains("Resume Session"));
     assert!(v1_state.open_session_button_hit.rect.is_none());
     v1_state.list_focused = true;
     assert!(matches!(
