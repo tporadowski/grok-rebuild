@@ -209,6 +209,7 @@ pub trait BlockContent {
     /// For media blocks on terminals without inline-graphics support, returns `(path, is_video)`.
     /// The block uses it to render a clickable text `[Open]` line.
     /// `None` on graphics terminals (the overlay hosts its own buttons).
+    /// `None` in minimal mode: that mode cannot click, so the path line is enough.
     fn inline_open_button(&self) -> Option<(std::path::PathBuf, bool)> {
         None
     }

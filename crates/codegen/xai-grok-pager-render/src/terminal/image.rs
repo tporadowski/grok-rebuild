@@ -45,7 +45,7 @@ impl GraphicsProtocol {
 
 static GRAPHICS_PROTOCOL: OnceLock<GraphicsProtocol> = OnceLock::new();
 
-/// Minimal mode never runs the draw loop, so overlays stay off and media uses the text affordance instead of blank image rows.
+/// Minimal mode never runs the draw loop, so overlays stay off. Media rows keep the path and omit the `[Open]` button.
 static INLINE_OVERLAY_FORCE_OFF: AtomicBool = AtomicBool::new(false);
 
 /// Force scrollback inline-media overlays off (`off = true`) or restore the capability-based default (`off = false`) process-wide.
@@ -84,7 +84,7 @@ pub fn detect_graphics_protocol() -> GraphicsProtocol {
 
 /// Narrower than Kitty graphics support. Warp accepts some escapes but not the placement/scrollback model, leaving stale pixels.
 pub fn scrollback_inline_overlay_active() -> bool {
-    // Minimal mode forces this off process-wide: it never paints inline images, so media must always use the text affordance
+    // Minimal mode forces this off process-wide: it never paints inline images.
     if INLINE_OVERLAY_FORCE_OFF.load(Ordering::Relaxed) {
         return false;
     }

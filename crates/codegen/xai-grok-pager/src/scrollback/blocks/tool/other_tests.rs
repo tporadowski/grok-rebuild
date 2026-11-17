@@ -108,6 +108,71 @@ fn generated_media_path_fits_the_row_and_keeps_the_file_name() {
 }
 
 #[test]
+fn minimal_mode_media_rows_omit_the_open_button() {
+    use crate::scrollback::block::BlockContent;
+    use crate::terminal::image::{GraphicsProtocol, set_protocol_for_test};
+
+    // Same lock the mode-switch test holds while it flips this process-wide flag.
+    let _theme = crate::theme::cache::pin_theme();
+    let previous = crate::terminal::image::scrollback_inline_overlay_forced_off();
+    struct OverlayGuard(bool);
+    impl Drop for OverlayGuard {
+        fn drop(&mut self) {
+            crate::terminal::image::set_inline_overlay_force_off(self.0);
+        }
+    }
+    let _overlay = OverlayGuard(previous);
+    // A graphics terminal would host the overlay button instead of this text row.
+    let _protocol = set_protocol_for_test(GraphicsProtocol::None);
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let image_path = dir.path().join("shot.png");
+    let video_path = dir.path().join("clip.mp4");
+    std::fs::write(&image_path, PNG_BYTES).expect("png");
+    std::fs::write(&video_path, b"clip").expect("mp4");
+    let image = OtherToolCallBlock::new("image_gen", "saved").with_media_ref(&image_path, false);
+    let video = OtherToolCallBlock::new("video_gen", "saved").with_media_ref(&video_path, true);
+
+    crate::terminal::image::set_inline_overlay_force_off(false);
+    let full_image = rendered(&image, DisplayMode::Expanded);
+    let full_video = rendered(&video, DisplayMode::Expanded);
+    assert!(
+        full_image.contains("[Open Image]"),
+        "a clickable terminal keeps the image button: {full_image}"
+    );
+    assert!(
+        full_video.contains("[Open Video]"),
+        "a clickable terminal keeps the video button: {full_video}"
+    );
+    assert!(full_image.contains("shot.png"), "{full_image}");
+    assert!(full_video.contains("clip.mp4"), "{full_video}");
+    assert!(image.inline_open_button().is_some());
+    assert!(video.inline_open_button().is_some());
+
+    crate::terminal::image::set_inline_overlay_force_off(true);
+    let min_image = rendered(&image, DisplayMode::Expanded);
+    let min_video = rendered(&video, DisplayMode::Expanded);
+    assert!(
+        !min_image.contains("[Open"),
+        "minimal mode cannot click an image button: {min_image}"
+    );
+    assert!(
+        !min_video.contains("[Open"),
+        "minimal mode cannot click a video button: {min_video}"
+    );
+    assert!(
+        min_image.contains("shot.png"),
+        "the image path stays: {min_image}"
+    );
+    assert!(
+        min_video.contains("clip.mp4"),
+        "the video path stays: {min_video}"
+    );
+    assert!(image.inline_open_button().is_none());
+    assert!(video.inline_open_button().is_none());
+}
+
+#[test]
 fn failed_call_expands_to_its_error() {
     let block = OtherToolCallBlock::new("computer_use__computer_apps", "")
         .with_error("the helper did not answer within 15s");

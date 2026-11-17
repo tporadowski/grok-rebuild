@@ -505,6 +505,10 @@ impl BlockContent for OtherToolCallBlock {
     }
 
     fn inline_open_button(&self) -> Option<(std::path::PathBuf, bool)> {
+        // Minimal mode commits the path and cannot click, so it does not paint `[Open]`.
+        if crate::terminal::image::scrollback_inline_overlay_forced_off() {
+            return None;
+        }
         // Only used when there is no inline-graphics overlay to host the button row
         // When the overlay is active it draws its own button row instead
         if crate::terminal::image::scrollback_inline_overlay_active() {
