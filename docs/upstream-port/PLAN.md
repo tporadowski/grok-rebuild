@@ -1421,7 +1421,7 @@ Refresh these numbers at the end of a session.
 | W3 | Permissions, sandbox, and config | 0 | 0 | 20 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 25 | 10 | 3 |
-| W5 | Workflows and goals | 1 | 0 | 31 | 6 | 0 |
+| W5 | Workflows and goals | 0 | 0 | 32 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 16 | 0 | 56 | 14 | 3 |
 | W9 | Prompt, mentions, and keyboard | 5 | 0 | 53 | 7 | 1 |

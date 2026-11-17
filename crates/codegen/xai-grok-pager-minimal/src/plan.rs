@@ -123,8 +123,9 @@ pub fn height(agent: &AgentView) -> u16 {
     } else {
         0
     };
-    // header (1) + controls (1) + input (0/1)
-    2u16.saturating_add(input)
+    let refusal = u16::from(minimal_api::plan_revise_refusal(agent).is_some());
+    // refusal (0/1) + header (1) + controls (1) + input (0/1)
+    2u16.saturating_add(input).saturating_add(refusal)
 }
 
 /// Render the compact plan-approval controls strip into `area`. This only draws the header, the decision hint, and
@@ -159,9 +160,22 @@ pub fn render(
         Rect { height: 1, ..area },
         Style::default().bg(Color::Reset),
     );
+    let mut header_y = area.y;
+    if let Some(refusal) = minimal_api::plan_revise_refusal(agent) {
+        let refusal_style = Style::default()
+            .fg(theme.accent_error)
+            .bg(Color::Reset);
+        buf.set_span(
+            area.x,
+            area.y,
+            &Span::styled(refusal, refusal_style),
+            area.width,
+        );
+        header_y = area.y.saturating_add(1);
+    }
     buf.set_span(
         area.x,
-        area.y,
+        header_y,
         &Span::styled(plan_header(has_plan), header_style),
         area.width,
     );
@@ -261,6 +275,21 @@ mod tests {
             "a approve w/ comments \u{00b7} s request changes \u{00b7} q quit plan"
         );
         assert_eq!(plan_header(true), "Waiting for plan approval");
+
+        let mut agent = minimal_api::test_agent_view(Some("s1"), std::path::PathBuf::from("/tmp/repo"));
+        minimal_api::open_test_plan_approval(&mut agent);
+        agent.show_toast("Wait for the current turn to end before revising the plan");
+        let theme = Theme::current();
+        let h = height(&agent);
+        let area = Rect::new(0, 0, 80, h);
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &mut agent, &theme);
+        let text = crate::buffer_text(&buf);
+        assert!(
+            text.contains("Wait for the current turn to end before revising the plan"),
+            "a revise refusal must show on the plan strip:\n{text}"
+        );
+        assert!(text.contains("Waiting for plan approval"), "{text}");
         assert_eq!(
             plan_header(false),
             "No plan written: approve or request changes"

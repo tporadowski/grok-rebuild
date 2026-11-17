@@ -377,6 +377,17 @@ pub fn plan_approval_view(v: &AgentView) -> Option<&PlanApprovalViewState> {
     v.plan_approval_view.as_ref()
 }
 
+/// A plan-revise refusal toast. Minimal mode has no toast row, so the plan strip paints this.
+pub fn plan_revise_refusal(v: &AgentView) -> Option<&str> {
+    let (msg, _) = v.toast.as_ref()?;
+    const NOTICES: &[&str] = &[
+        crate::app::agent_view::BUILD_IN_FLIGHT_REVISE_NOTICE,
+        crate::app::agent_view::LEAVE_PLAN_REVISE_NOTICE,
+        "Type revision notes, or press a to approve",
+    ];
+    NOTICES.contains(&msg.as_str()).then_some(msg.as_str())
+}
+
 /// Whether the minimal `/btw` panel is the painted input owner. Keeping the whole owner check in this file gives
 /// paint and minimal input the same answer without changing the fullscreen router.
 pub fn minimal_btw_surface_available(v: &AgentView) -> bool {
