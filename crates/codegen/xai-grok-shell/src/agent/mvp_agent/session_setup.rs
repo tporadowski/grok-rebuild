@@ -1822,14 +1822,21 @@ impl MvpAgent {
         initial_reasoning_effort: Option<ReasoningEffort>,
     ) {
         let session_id = session_id.clone();
-        let catalog_ready = summary.context_window.is_none()
-            || self
-                .models_manager
-                .wait_for_first_catalog(self.models_manager.is_models_fetch_enabled())
-                .await;
-        let model_id = self
-            .resolve_restored_model(&session_id, summary.current_model_id.clone())
+        let fetch_enabled = self.models_manager.is_models_fetch_enabled();
+        let fetch_ready = self
+            .models_manager
+            .wait_for_first_catalog(fetch_enabled)
             .await;
+        // A failed fetch must not be treated as "this model is gone". The saved id and effort stay.
+        let fetch_failed = self.models_manager.first_catalog_failed();
+        let catalog_ready = summary.context_window.is_none() || fetch_ready;
+        let persisted_model = summary.current_model_id.clone();
+        let model_id = if fetch_failed {
+            persisted_model
+        } else {
+            self.resolve_restored_model(&session_id, persisted_model)
+                .await
+        };
         tracing::debug!(
             session_id = %session_id.0,
             final_model_id = %model_id.0,
@@ -1851,20 +1858,42 @@ impl MvpAgent {
                 }
                 crate::agent::handlers::model_switch::SwitchContextWindow::Preserve
             };
+            let effort = if fetch_failed {
+                crate::agent::handlers::model_switch::SwitchEffort::KeepSaved(restore_effort)
+            } else {
+                crate::agent::handlers::model_switch::SwitchEffort::Set(restore_effort)
+            };
             if let Err(err) = crate::agent::handlers::model_switch::apply(
                 self,
-                acp::SetSessionModelRequest::new(session_id.to_owned(), model_id),
-                crate::agent::handlers::model_switch::SwitchEffort::Set(restore_effort),
+                acp::SetSessionModelRequest::new(session_id.to_owned(), model_id.clone()),
+                effort,
                 restore_window,
                 crate::agent::handlers::model_switch::ConfigNotice::Skip,
             )
             .await
             {
-                tracing::warn!(
-                    session_id = %session_id.0,
-                    error = ?err,
-                    "load_session: restoring persisted model/effort failed; session keeps spawn defaults"
-                );
+                if fetch_failed {
+                    tracing::warn!(
+                        session_id = %session_id.0,
+                        model = %model_id.0,
+                        error = ?err,
+                        "load_session: model list fetch failed; keeping the saved model and effort"
+                    );
+                    crate::agent::handlers::model_switch::apply_saved_without_catalog(
+                        self,
+                        &session_id,
+                        &model_id,
+                        restore_effort,
+                        restore_window,
+                    )
+                    .await;
+                } else {
+                    tracing::warn!(
+                        session_id = %session_id.0,
+                        error = ?err,
+                        "load_session: restoring persisted model/effort failed; session keeps spawn defaults"
+                    );
+                }
             }
         }
     }

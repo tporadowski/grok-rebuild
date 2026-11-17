@@ -24,6 +24,9 @@ pub(crate) enum SwitchEffort {
     Preserve,
     /// Use this effort; `None` falls back to the new model's default (session setup and restore).
     Set(Option<ReasoningEffort>),
+    /// Use this effort even when the catalog does not yet say the model supports it.
+    /// A failed model-list fetch must not drop the effort saved on the session.
+    KeepSaved(Option<ReasoningEffort>),
 }
 /// Apply a model switch to a session (no gate; `set_session_model` gates first).
 pub(crate) async fn apply(
@@ -151,22 +154,30 @@ pub(crate) async fn apply(
             }
         }
     }
-    let effective_effort = match effort {
-        SwitchEffort::Set(explicit) => explicit,
-        SwitchEffort::Preserve => handle
-            .chat_state_handle
-            .get_sampling_config()
-            .await
-            .and_then(|cfg| cfg.reasoning_effort),
+    let (effective_effort, keep_saved) = match effort {
+        SwitchEffort::Set(explicit) => (explicit, false),
+        SwitchEffort::KeepSaved(explicit) => (explicit, true),
+        SwitchEffort::Preserve => (
+            handle
+                .chat_state_handle
+                .get_sampling_config()
+                .await
+                .and_then(|cfg| cfg.reasoning_effort),
+            false,
+        ),
     };
     let mut model_sampling =
         agent.prepare_sampling_config_for_model(&model, handle.origin_client.clone());
-    agent.models_manager.apply_supported_effort(
-        &mut model_sampling,
-        effective_effort,
-        &session_id,
-        EffortTarget::ModelSwitch,
-    );
+    if keep_saved {
+        model_sampling.reasoning_effort = effective_effort;
+    } else {
+        agent.models_manager.apply_supported_effort(
+            &mut model_sampling,
+            effective_effort,
+            &session_id,
+            EffortTarget::ModelSwitch,
+        );
+    }
     let applied_effort = model_sampling.reasoning_effort;
     let supported_context_windows = std::iter::once(model.info().context_window)
         .chain(model.info().context_windows.iter().copied())
@@ -298,6 +309,50 @@ pub(crate) async fn apply(
         .cloned(),
     ))
 }
+/// Keep a loaded session's saved model id and effort when the model list fetch failed and the id is not in the catalog yet.
+pub(crate) async fn apply_saved_without_catalog(
+    agent: &MvpAgent,
+    session_id: &acp::SessionId,
+    model_id: &acp::ModelId,
+    effort: Option<ReasoningEffort>,
+    context_window: SwitchContextWindow,
+) {
+    let Some(handle) = agent.resident_handle(session_id) else {
+        return;
+    };
+    let threshold = {
+        let cfg = agent.cfg.borrow();
+        crate::util::config::resolve_auto_compact_threshold_percent(
+            &cfg,
+            model_id.0.as_ref(),
+            None,
+        )
+    };
+    let mut sampling = xai_grok_sampler::SamplerConfig::default();
+    sampling.model = model_id.0.to_string();
+    sampling.reasoning_effort = effort;
+    let (tx, rx) = oneshot::channel();
+    let _ = handle.cmd_tx.send(SessionCommand::SetSessionModel {
+        switch: SessionModelSwitch {
+            sampling_config: sampling,
+            use_concise: false,
+            is_family_switch: false,
+            apply_prompt_override: false,
+            skip_prompt_rewrite: true,
+            auto_compact_threshold_percent: threshold,
+            system_prompt_label: String::new(),
+            context_window_selection: context_window,
+            supported_context_windows: Vec::new(),
+        },
+        responds_to: tx,
+    });
+    let _ = rx.await;
+    agent.with_resident_mut(session_id, |handle| {
+        handle.model_id = model_id.clone();
+        handle.reasoning_effort = effort;
+    });
+}
+
 /// Apply a reasoning-effort change to a session's current model, without a model switch (see [`SessionCommand::SetReasoningEffort`]).
 /// `value_id` is the selector the client picked; it is resolved under the config lock so the level is validated against the model the effort will actually run on, and the command goes to that model's live actor even if a switch or reload landed while this request was blocked.
 pub(crate) async fn apply_reasoning_effort(

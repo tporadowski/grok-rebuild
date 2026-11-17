@@ -1884,6 +1884,46 @@ async fn restore_keeps_the_saved_context_window_selection_without_a_catalog() {
         selection.load(std::sync::atomic::Ordering::Relaxed)
     );
 }
+/// A failed model-list fetch must not replace the saved model or drop its effort.
+#[tokio::test]
+async fn restore_keeps_saved_model_and_effort_when_the_model_list_fetch_fails() {
+    use xai_grok_sampling_types::ReasoningEffort;
+    let agent = build_minimal_agent_for_tests();
+    agent.models_manager.settle_first_catalog_for_tests(false);
+    let sid = acp::SessionId::new("restore-failed-catalog-sess");
+    let (handle, _cmd_tx, mut cmd_rx) = make_live_session_handle(&sid, None);
+    let (switch_tx, switch_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        while let Some(cmd) = cmd_rx.recv().await {
+            if let crate::session::SessionCommand::SetSessionModel {
+                switch,
+                responds_to,
+            } = cmd
+            {
+                let model = switch.sampling_config.model.clone();
+                let _ = switch_tx.send((model.clone(), switch.sampling_config.reasoning_effort));
+                let _ = responds_to.send(Ok(acp::ModelId::new(model)));
+                break;
+            }
+        }
+    });
+    agent.insert_resident(&sid, handle);
+    let info = crate::session::info::Info {
+        id: sid.clone(),
+        cwd: "/tmp".to_string(),
+    };
+    let mut summary =
+        crate::session::persistence::Summary::new(&info, acp::ModelId::new("saved-model"))
+            .unwrap();
+    summary.reasoning_effort = Some(ReasoningEffort::Low);
+    agent.restore_persisted_model(&sid, &summary, None).await;
+    let (model, effort) = switch_rx.await.expect("restore still switches the model");
+    assert_eq!(model, "saved-model");
+    assert_eq!(effort, Some(ReasoningEffort::Low));
+    let handle = agent.resident_handle(&sid).expect("session stays loaded");
+    assert_eq!(handle.model_id.0.as_ref(), "saved-model");
+    assert_eq!(handle.reasoning_effort, Some(ReasoningEffort::Low));
+}
 /// An editor that can read and write files gets one transcript notice. Read-only does not.
 #[tokio::test(flavor = "current_thread")]
 async fn file_access_notice_is_one_session_message_when_the_editor_offers_both() {

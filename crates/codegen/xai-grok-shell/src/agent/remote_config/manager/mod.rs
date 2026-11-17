@@ -662,6 +662,11 @@ impl ModelsManager {
         self.inner.catalog.read().has_fetched_real_catalog
     }
 
+    /// The first model-list fetch ended in failure. Pending and ready are not failures.
+    pub(crate) fn first_catalog_failed(&self) -> bool {
+        *self.inner.catalog_progress.borrow() == CatalogProgress::Failed
+    }
+
     /// Wait, bounded by one auth refresh plus one fetch, for the first fetch outcome; never triggers a fetch.
     pub(crate) async fn wait_for_first_catalog(&self, remote_fetch_enabled: bool) -> bool {
         const BUDGET: std::time::Duration = crate::http::STARTUP_AUTH_REFRESH_TIMEOUT
