@@ -5,9 +5,10 @@ description: >
   package version with the alpha channel pointer (stable only when the
   user asks), fetch each missing version's changelog, extend
   docs/upstream-port/PLAN.md with a feasibility call on every bullet,
-  commit that plan, implement each new row in its own commit, and after
+  commit that plan, capture each version's official system prompt from
+  a throwaway run, implement every new row in its own commit, and after
   each version stamp the lockstep packages and CHANGELOG.md and tag that
-  commit `v<version>`. Use when
+  commit `v<version>`. The run finishes every version in the fetch. Use when
   the user runs /port-grok-release, says "port the latest grok release",
   "update from release notes", "catch up to stable", "catch up to
   alpha", or asks to continue the upstream port plan from the official
@@ -33,18 +34,24 @@ around the fork behavior, not taken as a deletion.
 
 Follow PLAN.md for status words, the decision rules under "Decisions you
 take while executing", catalog row shape, and the item commit subject.
-This skill overrides three of its session rules:
+This skill overrides four of its session rules:
 
 - Work **version by version, oldest first**, not one wave per session.
+- Finish **every** version in this fetch before the completion report.
+  A handful of item commits is not a finished run. Do not stop to ask
+  whether to continue. This is the same bar as `/goal`: the run stays
+  open until every new row is terminal and every version is stamped.
 - After a version's new rows are all terminal, **do** stamp that version
   and update `CHANGELOG.md`, in their own commit. PLAN.md's "do not commit
   a version bump" applies to item commits, not to this boundary commit.
 - D-223's "embedded changelog stays 1.0.45" is history. The stamp commit
   inserts the version's own notes into `crates/codegen/xai-grok-shell/CHANGELOG.md`.
 
-Never decompile an official `grok` binary. Never download or commit one.
-Never push unless the user asks. Never change git identity. If `git commit`
-fails because `user.name` is unset, stop and ask. Do not set it yourself.
+Never decompile an official `grok` binary. Never commit one, and never
+install one into the user's `~/.grok`. The only download is the throwaway
+capture in section 5. Never push unless the user asks. Never change git
+identity. If `git commit` fails because `user.name` is unset, stop and
+ask. Do not set it yourself.
 
 Stay on the branch already checked out. Do not switch to `main`.
 
@@ -196,17 +203,94 @@ port: plan <first> through <last> from <channel>
 
 Body: one line per version with its new-row counts. Wrap near 72 columns.
 
-If every new row is terminal, skip implementation and still make the
-stamp commits in section 6 for each version that has notes, oldest first.
-A version whose every bullet was `skipped` for "Minor bug fixes." still
-gets its changelog section and version stamp, so the embedded history
+If every new row is terminal, skip section 6 and still run section 5 and
+the stamp in section 7 for each version, oldest first. A version whose
+every bullet was `skipped` for "Minor bug fixes." still gets its prompt
+capture, changelog section, and version stamp, so the embedded history
 does not grow a hole.
 
-## 5. Implement
+## 5. Capture the official prompt
 
-Take the oldest version that still has `pending` rows. Inside it, follow
-wave order from PLAN.md (W1, W2, W3, W6, W4, W5, W7–W15), then catalog
-order.
+Release notes do not mention the system prompt or the built-in user rule.
+Those live in the official binary. For the package version already in the
+tree, then for each version `V` being ported, oldest first, download that
+binary into a throwaway directory and run it so it writes the rendered
+prompt. Do this before section 6 for that `V`. The package-version run is
+only the diff baseline. Do not commit it.
+
+The artifact is one file, the same one
+`crates/codegen/xai-grok-pager/scripts/install.sh` fetches.
+Platform is `linux-x86_64`, `linux-aarch64`, `macos-x86_64`, or
+`macos-aarch64` from `uname`. URL, on the same CLI base as section 1:
+
+```text
+<base>/grok-<V>-<platform>
+```
+
+Try that URL with a `.zst` suffix, then `.gz`, then the raw file. Put the
+binary outside the repo. `chmod +x` it and require `--version` to run.
+Do not point the installer at the user's home.
+
+Run it with a fresh `GROK_HOME` and an empty working directory that is
+not inside this repo or any other git checkout, so this tree's `AGENTS.md`
+is not part of the prompt. Write `[cli]\nauto_update = false` into that
+home's `config.toml` before the run. Do not set `HOME`. Do not pass
+through `XAI_API_KEY`. A short headless prompt is enough; bound the wait
+so a sign-in prompt cannot hang the run:
+
+```bash
+env -u XAI_API_KEY GROK_HOME="$HOME_DIR" timeout 45 "$BIN" -p "ping" || true
+```
+
+Then find, under that `GROK_HOME`:
+
+- `system_prompt.txt` — the rendered system prompt, written at session
+  start.
+- `chat_history.jsonl` — the `<user_info>` preamble, written when the
+  first prompt is accepted. The built-in user rule is the `<user_rule>`
+  whose name is empty.
+
+`system_prompt.txt` is one rendered expansion. Dates, the kernel line,
+the shell, and the workspace path change every run. Branches that were
+off (memory, for example) are absent. It is not `templates/prompt.md`.
+
+Diff `V` against the previous capture after ignoring those per-run lines.
+When the stable prose or the built-in user rule changed, edit the source
+so a render can still produce every branch:
+
+- `crates/codegen/xai-grok-agent/templates/prompt.md` keeps its `${{ }}`
+  placeholders and `{% %}` branches. Add or rewrite the prose this render
+  shows. Do not delete a branch merely because this run left it out, and
+  do not replace the file with `system_prompt.txt`.
+- `built_in_user_rules()` in
+  `crates/codegen/xai-grok-agent/src/prompt/user_message.rs` when that
+  sentence changed.
+
+From `crates/codegen/xai-grok-agent` run
+`python3 scripts/encrypt_templates.py`, then:
+
+```bash
+cargo test -p xai-grok-agent --lib -- test_encrypted_templates_not_stale
+```
+
+One commit when those sources changed, and only those files:
+
+```text
+port: take the V system prompt
+```
+
+No commit when the stable prose matches. Delete the throwaway home and
+the binary when the diff is recorded. If `system_prompt.txt` was never
+written, record that in the decision log and continue. Do not invent the
+missing text.
+
+## 6. Implement
+
+For the version just captured, follow wave order from PLAN.md (W1, W2,
+W3, W6, W4, W5, W7–W15), then catalog order. Implement every `pending`
+row of that version before the stamp. Do not switch versions in the
+middle of a wave, and do not end the run while any row from this fetch
+is still `pending` or `in_progress`.
 
 For each `pending` row:
 
@@ -231,14 +315,17 @@ For each `pending` row:
    Do not put two rows in one commit. Do not put the version stamp in
    an item commit.
 
-Clear `in_progress` before the session ends. If you stop mid-version,
-commit finished rows first, refresh the summary and **Next**, and name
-the next id in the report.
+The only reasons to leave a row unfinished are the hard stops already
+in this skill: a dirty tree that is not this run, a `404` hole, a `vV`
+tag that points somewhere else, or git identity being unset. Anything
+else, including a long list, is still in this run. Commit each finished
+row before starting the next. If the conversation is compacted, the
+next step is the oldest id that is still `pending`.
 
 Windows-only or macOS-only notes: implement the shared code, run the
 Linux tests, and record that the platform itself was not verified.
 
-## 6. Stamp the version
+## 7. Stamp the version
 
 When every row you added for version `V` is `done`, `already`, `skipped`,
 or `deferred`:
@@ -285,8 +372,9 @@ somewhere else, stop before the next version and report both commits.
 A branch push does not send the tag. Push the tag only when the user
 asks to push, together with the branch.
 
-Then start section 5 on the next version. Do not stamp `V+1` before its
-rows are terminal.
+Then go back to section 5 for the next version. Do not stamp `V+1`
+before its prompt capture is done and its rows are terminal. The
+completion report comes after the last version in the fetch.
 
 Do not rebuild `target/release/xai-grok-pager` unless the user asks. The
 binary embeds the version at compile time and stays on the previous
@@ -298,13 +386,15 @@ stamp until that build.
    channel was planned.
 2. **Notes:** versions fetched, any `404`, any JSON/markdown mismatch.
 3. **Plan:** commit, new row counts by status. Or "no newer release".
-4. **Items:** each id → `done` / `already` / `skipped` / `deferred`,
-   with the commit. Name anything left `pending`.
-5. **Stamps:** version-bump commits and their `vV` tags, or "not reached".
+4. **Prompt:** for each version, the `port: take the V system prompt`
+   commit, or "unchanged", or "system_prompt.txt was not written".
+5. **Items:** each id → `done` / `already` / `skipped` / `deferred`,
+   with the commit. A row still `pending` means this report is early.
+6. **Stamps:** version-bump commits and their `vV` tags, or "not reached".
    A tag that already pointed elsewhere is named here.
-6. **Fork:** any protected behavior a note touched, and whether it
+7. **Fork:** any protected behavior a note touched, and whether it
    stayed.
-7. **Unpushed:** `git status -sb`. Push only if the user asks.
-8. **Skill drift:** one line. If a URL, file, or rule above was wrong
+8. **Unpushed:** `git status -sb`. Push only if the user asks.
+9. **Skill drift:** one line. If a URL, file, or rule above was wrong
    on this run, say what to change. Otherwise say the skill matched
    the run.
