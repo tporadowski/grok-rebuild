@@ -37,10 +37,13 @@ take while executing", catalog row shape, and the item commit subject.
 This skill overrides four of its session rules:
 
 - Work **version by version, oldest first**, not one wave per session.
-- Finish **every** version in this fetch before the completion report.
-  A handful of item commits is not a finished run. Do not stop to ask
-  whether to continue. This is the same bar as `/goal`: the run stays
-  open until every new row is terminal and every version is stamped.
+- Finish **every** version in this fetch before any report to the user.
+  This command does not arm `/goal`. The host does not start another
+  turn when you stop. A status message is the end of the run. After
+  each commit, the next action is a tool call on the next row. Do not
+  send the user a count of what remains, a partial report, or a
+  handoff. The completion report is the last thing you send, and only
+  after the last stamp.
 - After a version's new rows are all terminal, **do** stamp that version
   and update `CHANGELOG.md`, in their own commit. PLAN.md's "do not commit
   a version bump" applies to item commits, not to this boundary commit.
@@ -235,11 +238,18 @@ Run it with a fresh `GROK_HOME` and an empty working directory that is
 not inside this repo or any other git checkout, so this tree's `AGENTS.md`
 is not part of the prompt. Write `[cli]\nauto_update = false` into that
 home's `config.toml` before the run. Do not set `HOME`. Do not pass
-through `XAI_API_KEY`. A short headless prompt is enough; bound the wait
-so a sign-in prompt cannot hang the run:
+through `XAI_API_KEY`.
+
+A signed-out binary exits before it creates a session, so it never writes
+the prompt. Copy only `auth.json` from the user's grok home (the default
+`~/.grok`, or `$GROK_HOME` when that variable is already set) into the
+throwaway home, mode `600`. Do not copy the rest of that home, and do not
+print the file. If `auth.json` is missing, record that and continue. A
+short headless prompt is enough. A signed-in run waits for the model, so
+bound the wait:
 
 ```bash
-env -u XAI_API_KEY GROK_HOME="$HOME_DIR" timeout 45 "$BIN" -p "ping" || true
+env -u XAI_API_KEY GROK_HOME="$HOME_DIR" timeout 90 "$BIN" -p "ping" || true
 ```
 
 Then find, under that `GROK_HOME`:
@@ -318,9 +328,12 @@ For each `pending` row:
 The only reasons to leave a row unfinished are the hard stops already
 in this skill: a dirty tree that is not this run, a `404` hole, a `vV`
 tag that points somewhere else, or git identity being unset. Anything
-else, including a long list, is still in this run. Commit each finished
-row before starting the next. If the conversation is compacted, the
-next step is the oldest id that is still `pending`.
+else, including a long list, is still this turn. Commit the row, then
+start the next one. The next row is **Next** in PLAN.md, in wave order.
+Do not skip ahead to an easier later row and then stop.
+
+A compaction does not end the run and is not a place to write a status.
+The first action after it is that same next row.
 
 Windows-only or macOS-only notes: implement the shared code, run the
 Linux tests, and record that the platform itself was not verified.
@@ -382,6 +395,12 @@ stamp until that build.
 
 ## Completion report
 
+Send this only after every version in the fetch is stamped, or after a
+hard stop. A row still `pending` or `in_progress` means you are not
+here: go back to section 6. Do not send these headings early. The
+previous run did, after one item, and the session ended with the rest
+of the catalog open.
+
 1. **Channel:** package version, stable pointer, alpha pointer, which
    channel was planned.
 2. **Notes:** versions fetched, any `404`, any JSON/markdown mismatch.
@@ -389,7 +408,7 @@ stamp until that build.
 4. **Prompt:** for each version, the `port: take the V system prompt`
    commit, or "unchanged", or "system_prompt.txt was not written".
 5. **Items:** each id → `done` / `already` / `skipped` / `deferred`,
-   with the commit. A row still `pending` means this report is early.
+   with the commit.
 6. **Stamps:** version-bump commits and their `vV` tags, or "not reached".
    A tag that already pointed elsewhere is named here.
 7. **Fork:** any protected behavior a note touched, and whether it
