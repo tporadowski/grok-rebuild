@@ -386,6 +386,20 @@ impl QuestionViewState {
         let cursor = self.cursor();
         let heights = option_heights(question, content_w, cursor);
         let scroll = self.per_question_scroll.get(q_idx).copied().unwrap_or(0);
+        // The freeform row is sticky, and while typing it is the editor under the list.
+        // Chasing that row scrolls a blank line in past the last option.
+        let option_lines: u16 = heights
+            .get(..question.options.len())
+            .unwrap_or(&[])
+            .iter()
+            .sum();
+        let max_scroll = option_lines.saturating_sub(visible_h);
+        if self.is_on_freeform_row() || self.focus == QuestionFocus::InputMode {
+            if let Some(slot) = self.per_question_scroll.get_mut(q_idx) {
+                *slot = scroll.min(max_scroll);
+            }
+            return;
+        }
 
         // Compute the visual Y range of the cursor item.
         let cursor_top: u16 = heights.get(..cursor).unwrap_or(&[]).iter().sum();
@@ -404,7 +418,7 @@ impl QuestionViewState {
         }
 
         if let Some(s) = self.per_question_scroll.get_mut(q_idx) {
-            *s = new_scroll;
+            *s = new_scroll.min(max_scroll);
         }
     }
 
@@ -3069,6 +3083,37 @@ mod tests {
             render_question_scrollbar(&mut buf, 0, &state, &theme, (0, fitted), content_w)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn typing_an_answer_does_not_scroll_past_the_last_option() {
+        let q = make_question("Pick?", &["A", "B", "C", "D", "E", "F"], false);
+        let mut state =
+            QuestionViewState::new("tc".into(), vec![q.clone()], StashedPrompt::default());
+        let content_w = 80usize;
+        let visible_h = 2u16;
+        state.set_cursor(q.options.len());
+        if let Some(slot) = state.per_question_scroll.get_mut(0) {
+            *slot = 100;
+        }
+        state.ensure_cursor_visible(visible_h, content_w);
+        let option_lines: u16 = option_heights(&q, content_w, state.cursor())
+            .get(..q.options.len())
+            .unwrap_or(&[])
+            .iter()
+            .sum();
+        let max_scroll = option_lines.saturating_sub(visible_h);
+        assert!(
+            *at(&state.per_question_scroll, 0) <= max_scroll,
+            "scroll {} past the last option (max {max_scroll})",
+            *at(&state.per_question_scroll, 0)
+        );
+        let _ = state.activate_freeform_input();
+        if let Some(slot) = state.per_question_scroll.get_mut(0) {
+            *slot = 100;
+        }
+        state.ensure_cursor_visible(visible_h, content_w);
+        assert!(*at(&state.per_question_scroll, 0) <= max_scroll);
     }
 
     #[test]
