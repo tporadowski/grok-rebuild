@@ -23,6 +23,7 @@ use xai_grok_tools::implementations::skills::types::SkillInfo;
 
 mod skills_tab;
 mod workflows_picker_rows;
+pub(crate) use workflows_picker_rows::workflow_path_at;
 use workflows_picker_rows::build_workflows_picker_rows;
 
 /// Check if a name fuzzy-matches the search query.
@@ -3265,8 +3266,7 @@ pub fn render_extensions_modal(
                     entry_is_header.push(false);
                     entry_dimmed.push(row.dimmed);
                     entry_indent.push(0);
-                    // Browse-only rows: no data indices, no group keys.
-                    entry_data_indices.push(None);
+                    entry_data_indices.push(row.source_index);
                     entry_group_keys.push(None);
                     entry_badge_text.push(String::new());
                     entry_badge_color.push(None);

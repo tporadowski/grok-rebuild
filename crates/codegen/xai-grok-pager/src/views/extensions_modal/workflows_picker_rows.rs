@@ -12,6 +12,8 @@ pub(super) struct WorkflowRow {
     pub(super) desc_lines: Vec<String>,
     pub(super) fields: Vec<(String, String)>,
     pub(super) dimmed: bool,
+    /// Index into the loaded catalog. `None` for a notice row.
+    pub(super) source_index: Option<usize>,
 }
 
 impl WorkflowRow {
@@ -23,8 +25,22 @@ impl WorkflowRow {
             desc_lines: Vec::new(),
             fields: Vec::new(),
             dimmed: true,
+            source_index: None,
         }
     }
+}
+
+/// Path of the workflow under the cursor, when that row is a real catalog entry with a file.
+pub(crate) fn workflow_path_at(
+    data: &TabDataState<Vec<WorkflowInfo>>,
+    indices: &[Option<usize>],
+    selected: usize,
+) -> Option<String> {
+    let TabDataState::Loaded(workflows) = data else {
+        return None;
+    };
+    let index = indices.get(selected).copied().flatten()?;
+    workflows.get(index).and_then(|workflow| workflow.path.clone())
 }
 
 /// Build the Workflows-tab rows, A-Z by name, fuzzy-filtered on name and description like the Hooks/Plugins tabs.
@@ -42,14 +58,15 @@ pub(super) fn build_workflows_picker_rows(
     if workflows.is_empty() {
         return vec![WorkflowRow::notice(WORKFLOWS_EMPTY_PLACEHOLDER.to_string())];
     }
-    let mut visible: Vec<&WorkflowInfo> = workflows
+    let mut visible: Vec<(usize, &WorkflowInfo)> = workflows
         .iter()
-        .filter(|w| fuzzy_matches(&w.name, query) || fuzzy_matches(&w.description, query))
+        .enumerate()
+        .filter(|(_, w)| fuzzy_matches(&w.name, query) || fuzzy_matches(&w.description, query))
         .collect();
-    visible.sort_by(|a, b| cmp_str_ci(&a.name, &b.name));
+    visible.sort_by(|(_, a), (_, b)| cmp_str_ci(&a.name, &b.name));
     visible
         .into_iter()
-        .map(|wf| {
+        .map(|(source_index, wf)| {
             let mut fields = Vec::new();
             if let Some(ref p) = wf.path {
                 fields.push(("path".to_string(), p.clone()));
@@ -67,6 +84,7 @@ pub(super) fn build_workflows_picker_rows(
                 },
                 fields,
                 dimmed: false,
+                source_index: Some(source_index),
             }
         })
         .collect()
@@ -112,6 +130,11 @@ mod tests {
         );
         let by_name = build_workflows_picker_rows(&workflows, "beta");
         assert_eq!(labels(&by_name), ["beta-wf"]);
+        let indices: Vec<Option<usize>> = by_desc.iter().map(|row| row.source_index).collect();
+        assert_eq!(
+            workflow_path_at(&workflows, &indices, 0).as_deref(),
+            Some("/home/u/.grok/workflows/alpha-wf.rhai")
+        );
         // Subsequence match, same as the Hooks/Plugins tabs.
         let by_subsequence = build_workflows_picker_rows(&workflows, "alphawf");
         assert_eq!(labels(&by_subsequence), ["alpha-wf"]);

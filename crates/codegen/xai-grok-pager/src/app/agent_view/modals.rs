@@ -2226,8 +2226,24 @@ impl AgentView {
                                 }
                             }
                         }
-                        // Workflows rows carry no group keys, so only the detail-expansion branch applies on that tab
-                        ExtensionsTab::Skills | ExtensionsTab::Workflows => {
+                        ExtensionsTab::Workflows => {
+                            let sel = state.picker_state.selected;
+                            let path = crate::views::extensions_modal::workflow_path_at(
+                                &state.workflows_data,
+                                &state.entry_data_indices,
+                                sel,
+                            );
+                            if let Some(path) = path {
+                                self.open_line_viewer(std::path::Path::new(&path), None);
+                                return InputOutcome::Changed;
+                            }
+                            if state.picker_state.expanded.contains(&sel) {
+                                state.picker_state.expanded.remove(&sel);
+                            } else {
+                                state.picker_state.expanded.insert(sel);
+                            }
+                        }
+                        ExtensionsTab::Skills => {
                             let sel = state.picker_state.selected;
                             if let Some(gk) = state
                                 .entry_group_keys
