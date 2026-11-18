@@ -92,6 +92,49 @@ fn hook_row_label(hook: &xai_hooks_plugins_types::HookInfo) -> String {
     format!("on:{}{matcher}", hook.event)
 }
 
+/// File stem stamped on the hook name (`global/block-hihi:event[0].hooks[0]` → `block-hihi`).
+fn hook_file_name(hook: &xai_hooks_plugins_types::HookInfo) -> String {
+    let source = match hook.name.rsplit_once(':') {
+        Some((source, tail)) if is_hook_spec_tail(tail) => source,
+        _ => hook.name.as_str(),
+    };
+    let file = source
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or(source);
+    if file.is_empty() {
+        "hook".to_string()
+    } else {
+        file.to_string()
+    }
+}
+
+fn is_hook_spec_tail(tail: &str) -> bool {
+    let Some((_, rest)) = tail.split_once('[') else {
+        return false;
+    };
+    rest.contains("].hooks[")
+}
+
+/// Settings for one hook, without the raw command or URL.
+fn hook_setting_fields(hook: &xai_hooks_plugins_types::HookInfo) -> Vec<(String, String)> {
+    let handler = match hook.handler_type {
+        xai_hooks_plugins_types::HookHandlerType::Http => "HTTP",
+        xai_hooks_plugins_types::HookHandlerType::Command => "command",
+    };
+    vec![
+        ("file".to_string(), hook_file_name(hook)),
+        ("event".to_string(), hook.event.to_string()),
+        (
+            "matcher".to_string(),
+            hook.matcher.clone().unwrap_or_else(|| "all".to_string()),
+        ),
+        ("timeout".to_string(), format!("{} ms", hook.timeout_ms)),
+        ("handler".to_string(), handler.to_string()),
+    ]
+}
+
 /// Logical source kind for hook group rank (independent of display copy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum HookSourceKind {
@@ -3384,14 +3427,10 @@ pub fn render_extensions_modal(
                                 continue;
                             };
                             entry_labels.push(hook_row_label(hook));
-                            let cmd = hook
-                                .command
-                                .as_deref()
-                                .unwrap_or(hook.url.as_deref().unwrap_or("(no command)"));
                             entry_right_labels.push(String::new());
-                            entry_desc_lines.push(vec![format!("\u{2192} {}", cmd)]);
+                            entry_desc_lines.push(vec![hook_file_name(hook)]);
                             entry_summary_lines.push(vec![]);
-                            entry_fields.push(vec![]);
+                            entry_fields.push(hook_setting_fields(hook));
                             entry_is_header.push(false);
                             entry_dimmed.push(hook.disabled);
                             entry_indent.push(1);
@@ -4561,6 +4600,39 @@ mod tests {
             derive_source_label("/repo/work/.grok/installed-plugins/vendor-abc123/skills");
         assert_eq!(label, "Plugin: vendor-abc123");
         assert!(!is_custom);
+    }
+
+    #[test]
+    fn hook_row_names_the_file_and_lists_settings() {
+        let hook = xai_hooks_plugins_types::HookInfo {
+            name: "global/block-hihi:pre_tool_use[0].hooks[0]".into(),
+            event: xai_hooks_plugins_types::HookEvent::PreToolUse,
+            handler_type: xai_hooks_plugins_types::HookHandlerType::Command,
+            matcher: Some("Bash".into()),
+            command: Some("python -c 'print(1)'".into()),
+            url: None,
+            timeout_ms: 5_000,
+            source_dir: "/home/user/.grok/hooks".into(),
+            disabled: false,
+            pinned: false,
+            removable: true,
+        };
+        assert_eq!(hook_file_name(&hook), "block-hihi");
+        let fields = hook_setting_fields(&hook);
+        let joined = fields
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(joined.contains("file=block-hihi"), "{joined}");
+        assert!(joined.contains("event=Pre-Tool Use"), "{joined}");
+        assert!(joined.contains("matcher=Bash"), "{joined}");
+        assert!(joined.contains("timeout=5000 ms"), "{joined}");
+        assert!(joined.contains("handler=command"), "{joined}");
+        assert!(
+            !joined.contains("python"),
+            "the raw command must not be a field: {joined}"
+        );
     }
 
     /// String-prefix `strip_prefix($HOME)` would collapse a neighbor profile (`$HOMEbar`) into `Custom: ~bar`.

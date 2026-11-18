@@ -1452,7 +1452,7 @@ Refresh these numbers at the end of a session.
 | W2 | CLI surface | 0 | 0 | 12 | 1 | 1 |
 | W3 | Permissions, sandbox, and config | 4 | 0 | 22 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
-| W4 | Hooks | 1 | 0 | 25 | 10 | 3 |
+| W4 | Hooks | 0 | 0 | 26 | 10 | 3 |
 | W5 | Workflows and goals | 3 | 0 | 32 | 6 | 0 |
 | W7 | Worktrees | 1 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 10 | 0 | 72 | 14 | 4 |
@@ -1466,9 +1466,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 896. Pending: 41. Skipped: 10. Done: 691. Already: 117. Deferred: 37.
+Catalog rows: 896. Pending: 40. Skipped: 10. Done: 692. Already: 117. Deferred: 37.
 
-**Next:** `v89-f03`
+**Next:** `v89-f05`
 
 ## Waves
 
@@ -1490,7 +1490,7 @@ Pending: 0. Done: 6. Already: 1 (`v73-x12`, D-056). Look first: Do this after W1
 
 ### W4 — Hooks
 
-Pending: 1. Done: 25 (`v88-x21`). Already: 10. Deferred: 3 (`v51-x37`, `v52-x17`, D-041; `v82-x02`, D-232). Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema. Nothing names Grok's own Node settings, and a batch start still shares its outcome identity on purpose (`v82-x02`, D-232).
+Pending: 0. Done: 26 (`v89-f03`; `v88-x21`). Already: 10. Deferred: 3 (`v51-x37`, `v52-x17`, D-041; `v82-x02`, D-232). Look first: Search `xai-grok-hooks` and the shell hook loader. `fail_closed` already exists for managed requirements; hook JSON `failClosed` is a different flag until you find it in the hook schema. Nothing names Grok's own Node settings, and a batch start still shares its outcome identity on purpose (`v82-x02`, D-232).
 
 ### W5 — Workflows and goals
 
@@ -1634,7 +1634,7 @@ id | status | wave | kind | flag | covered | note
 - v75-x18 | done | W4 | Bug Fixes |  |  | **Disabling a project's hook** in `/hooks` applies only to that repository, instead of also skipping hooks with the same name in other repositories.
 - v82-x02 | deferred | W4 | Bug Fixes |  |  | **Hooks** no longer share an identity when Grok's own Node settings are present.
 - v88-x21 | done | W4 | Bug Fixes |  |  | An empty or whitespace-only hook file now loads without error.
-- v89-f03 | pending | W4 | Features |  |  | **/hooks** rows now show the hook file name and list settings in readable fields instead of dumping raw commands.
+- v89-f03 | done | W4 | Features |  |  | **/hooks** rows now show the hook file name and list settings in readable fields instead of dumping raw commands.
 - v47-x02 | done | W5 | Bug Fixes |  |  | **Clicking the Goal chip** now opens the goal panel even when workflow runs are present.
 - v50-x28 | done | W5 | Bug Fixes |  |  | A workflow file that fails to parse now reports the exact file and parse error instead of 'unknown workflow'.
 - v51-f02 | done | W5 | Features |  |  | Headless `grok -p` now waits for background goals to finish and reports their outcome.
