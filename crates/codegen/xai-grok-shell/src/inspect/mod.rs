@@ -1969,6 +1969,74 @@ mod tests {
     use xai_grok_agent::prompt::skills::{SkillInfo, SkillsConfig};
     use xai_grok_tools::implementations::skills::types::SkillScope;
 
+    #[test]
+    fn project_mcp_servers_name_their_declaring_file() {
+        let home = tempfile::tempdir().expect("home");
+        let _home = xai_grok_test_support::EnvGuard::set(
+            "GROK_HOME",
+            home.path().to_str().expect("utf-8 home"),
+        );
+        let repo = tempfile::tempdir().expect("repo");
+        git2::Repository::init(repo.path()).expect("git init");
+        let root = repo.path();
+        let pkg = root.join("pkg");
+        std::fs::create_dir_all(root.join(".grok")).unwrap();
+        std::fs::create_dir_all(pkg.join(".grok")).unwrap();
+        let root_toml = root.join(".grok/config.toml");
+        let pkg_toml = pkg.join(".grok/config.toml");
+        let root_json = root.join(".mcp.json");
+        let pkg_json = pkg.join(".mcp.json");
+        std::fs::write(
+            &root_toml,
+            "[mcp_servers.from-root-toml]\ncommand = \"root-toml\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &pkg_toml,
+            "[mcp_servers.from-pkg-toml]\ncommand = \"pkg-toml\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &root_json,
+            r#"{"mcpServers":{"from-root-json":{"command":"root-json"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            &pkg_json,
+            r#"{"mcpServers":{"from-pkg-json":{"command":"pkg-json"}}}"#,
+        )
+        .unwrap();
+
+        let entries = list_mcp_servers(&pkg, &xai_grok_agent::plugins::PluginRegistry::empty());
+        let mut got: Vec<(String, String)> = entries
+            .iter()
+            .filter(|entry| entry.name.starts_with("from-"))
+            .map(|entry| (entry.name.clone(), entry.source.display_short()))
+            .collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    "from-pkg-json".to_owned(),
+                    format!(".mcp.json: {}", pkg_json.display())
+                ),
+                (
+                    "from-pkg-toml".to_owned(),
+                    format!("config: {}", pkg_toml.display())
+                ),
+                (
+                    "from-root-json".to_owned(),
+                    format!(".mcp.json: {}", root_json.display())
+                ),
+                (
+                    "from-root-toml".to_owned(),
+                    format!("config: {}", root_toml.display())
+                ),
+            ]
+        );
+    }
+
     fn discovered_plugin(
         manifest: xai_grok_agent::plugins::PluginManifest,
     ) -> xai_grok_agent::plugins::DiscoveredPlugin {

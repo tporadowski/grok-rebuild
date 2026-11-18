@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-335 — Inspect already names the project MCP file
+
+`grok inspect` reports the file that defined a project MCP server (`v89-x07`). `list_mcp_servers` in `crates/codegen/xai-grok-shell/src/inspect/mod.rs` keeps the origin from `merge_managed_mcp_servers_sourced`. A server in `pkg/.grok/config.toml` renders `config: …/pkg/.grok/config.toml`. A server in `pkg/.mcp.json` renders `.mcp.json: …/pkg/.mcp.json`. Repo-root files stay on the root paths. `project_mcp_servers_name_their_declaring_file` locks that.
+
 ### D-334 — The official binary writes no prompt before sign-in
 
 `grok-1.0.88-linux-x86_64`, `grok-1.0.89-linux-x86_64`, and `grok-1.0.90-linux-x86_64` were downloaded from `https://x.ai/cli` (gzip; `zstd` is not installed) and run with a fresh `GROK_HOME`, `[cli] auto_update = false`, and no `XAI_API_KEY`. Each binary printed its version and then exited with "Not signed in" before creating a session. No `system_prompt.txt` and no `chat_history.jsonl` were written. The rendered system prompt and the built-in user rule were not taken from those binaries. The throwaway homes and binaries were deleted.
@@ -1445,7 +1449,7 @@ Refresh these numbers at the end of a session.
 | Wave | Name | Pending | Skipped | Done | Already | Deferred |
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
-| W2 | CLI surface | 1 | 0 | 12 | 0 | 1 |
+| W2 | CLI surface | 0 | 0 | 12 | 1 | 1 |
 | W3 | Permissions, sandbox, and config | 6 | 0 | 20 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 1 | 0 | 25 | 10 | 3 |
@@ -1462,9 +1466,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 896. Pending: 44. Skipped: 10. Done: 689. Already: 116. Deferred: 37.
+Catalog rows: 896. Pending: 43. Skipped: 10. Done: 689. Already: 117. Deferred: 37.
 
-**Next:** `v89-x07`
+**Next:** `v89-x02`
 
 ## Waves
 
@@ -1474,7 +1478,7 @@ Pending: 0. Done: 5. Deferred: 1 (`v51-b01`, D-020). Look first: Share: `crates/
 
 ### W2 — CLI surface
 
-Pending: 1. Done: 12 (`v89-f02`). Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. `grok -p --resume` with another flag names that flag (`v86-x32`, D-266). Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
+Pending: 0. Done: 12 (`v89-f02`). Already: 1 (`v89-x07`, D-335). Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. `grok -p --resume` with another flag names that flag (`v86-x32`, D-266). Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
 
 ### W3 — Permissions, sandbox, and config
 
@@ -2286,7 +2290,7 @@ id | status | wave | kind | flag | covered | note
 - v90-x07 | pending | W5 | Bug Fixes |  |  | **Goal paused after 3 rounds without progress** explains why it stopped itself.
 - v86-x32 | done | W2 | Bug Fixes |  |  | Error messages for `grok -p --resume` when other flags are present are clearer.
 - v89-f02 | done | W2 | Features |  |  | **New /models command** refreshes the available model list from the server.
-- v89-x07 | pending | W2 | Bug Fixes |  |  | **`grok inspect`** now reports the correct project `.grok/config.toml` or `.mcp.json` file for project-defined MCP servers.
+- v89-x07 | already | W2 | Bug Fixes |  |  | **`grok inspect`** now reports the correct project `.grok/config.toml` or `.mcp.json` file for project-defined MCP servers.
 - v86-x33 | done | W10 | Bug Fixes |  |  | **Double-click** on a thinking block folds or expands it again.
 - v86-x34 | done | W9 | Bug Fixes |  |  | **Change directory picker** keeps the folder name visible when a path is too long.
 - v86-x35 | done | W14 | Bug Fixes |  |  | **Persona Source path** keeps the filename visible when the full path is too long.
