@@ -105,6 +105,10 @@ Switch models. Accepts a model ID or display name (case-insensitive). When the m
 /model Reasoning X 500k high
 ```
 
+### `/models`
+
+Refresh the available model list from the server. `/model` and the model picker use the list this command brings back. It does not switch the current model.
+
 ### `/effort <level>`
 
 Set reasoning effort on the **current** model without reselecting it. Levels are `low`, `medium`, `high`, and `xhigh`, and it only applies when the active model supports reasoning effort.

@@ -437,6 +437,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         } => super::interject::dispatch_send_prompt_now(app, text, images, image_notice),
         Action::EnableVoiceMode => dispatch_enable_voice_mode(app, true),
         Action::VoiceToggle => dispatch_voice_toggle(app),
+        Action::RefreshModels => vec![Effect::RefreshModels],
         Action::VoiceStop => dispatch_voice_stop(app),
         Action::SendBashCommand(cmd) => dispatch_send_bash_command(app, cmd),
         Action::ShowUndoTip => dispatch_show_undo_tip(app),

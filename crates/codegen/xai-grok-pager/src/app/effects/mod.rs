@@ -1773,6 +1773,25 @@ pub(crate) fn execute(
                     }
                 });
         }
+        Effect::RefreshModels => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let params = serde_json::json!({});
+                let req = acp::ExtRequest::new(
+                    "x.ai/models/refresh",
+                    serde_json::value::to_raw_value(&params)
+                        .expect("serialize models refresh params")
+                        .into(),
+                );
+                let result = match acp_send(req, &tx).await {
+                    Ok(resp) => {
+                        crate::slash::commands::models::models_refresh_outcome(resp.0.get())
+                    }
+                    Err(error) => Err(error.to_string()),
+                };
+                TaskResult::ModelsRefreshed { result }
+            });
+        }
         Effect::Compact { agent_id, session_id } => {
             let tx = acp_tx.clone();
             tasks

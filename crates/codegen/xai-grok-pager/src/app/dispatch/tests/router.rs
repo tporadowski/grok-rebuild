@@ -1,6 +1,12 @@
 //! Tests for the action router, model switching, slash commands, and other cross-cutting dispatch behavior.
 use super::*;
 #[test]
+fn models_refresh_dispatches_a_server_fetch() {
+    let mut app = test_app();
+    let effects = dispatch(Action::RefreshModels, &mut app);
+    assert!(matches!(effects.as_slice(), [Effect::RefreshModels]));
+}
+#[test]
 fn auth_copy_dispatch_preserves_all_delivery_states() {
     for delivery in [
         crate::clipboard::ClipboardDelivery::Confirmed,

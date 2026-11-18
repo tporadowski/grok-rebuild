@@ -419,10 +419,11 @@ async fn first_catalog_wait_observes_inline_fetch() {
             delay: crate::http::STARTUP_FETCH_TIMEOUT / 2,
         }),
     );
-    let ((), ready) = tokio::join!(
+    let (refreshed, ready) = tokio::join!(
         mgr.fetch_and_apply_inner(/*remote_fetch_enabled*/ true),
         mgr.wait_for_first_catalog(/*remote_fetch_enabled*/ true),
     );
+    assert!(refreshed, "the inline fetch must publish the catalog");
     assert!(ready, "the wait must observe the inline fetch's outcome");
 }
 #[tokio::test(start_paused = true)]
@@ -1927,6 +1928,49 @@ fn external_provider_login_fetches_models_with_remote_fetch_off() {
         Some(&GrokAuth::test_default())
     ));
     assert!(models_fetch_enabled(&endpoints, Some(&provider_login)));
+}
+#[tokio::test]
+async fn refresh_from_server_publishes_the_fetched_catalog() {
+    struct OneModel;
+    impl ModelsEndpoint for OneModel {
+        fn fetch_models(
+            &self,
+            _endpoints: config::EndpointsConfig,
+            _auth: Option<GrokAuth>,
+            _fetch_auth: ModelFetchAuth,
+        ) -> ModelsFetchFuture {
+            Box::pin(async { Some(make_prefetched(&["fresh-model"])) })
+        }
+    }
+    let mgr = cold_manager(config::Config::default(), Arc::new(OneModel));
+    let count = mgr.refresh_from_server_inner(true).await.expect("refresh");
+    assert!(count >= 1, "the picker list must include the fetched model");
+    assert!(
+        mgr.models().contains_key("fresh-model"),
+        "the catalog must keep the server model"
+    );
+}
+#[tokio::test]
+async fn refresh_from_server_reports_a_failed_fetch() {
+    let mgr = cold_manager(config::Config::default(), Arc::new(FailingEndpoint));
+    let err = mgr
+        .refresh_from_server_inner(true)
+        .await
+        .expect_err("a failed fetch");
+    assert_eq!(err, "could not refresh the model list");
+    assert!(
+        !mgr.models().contains_key("fresh-model"),
+        "a failed refresh must leave the catalog alone"
+    );
+}
+#[tokio::test]
+async fn refresh_from_server_stays_off_when_fetching_is_disabled() {
+    let mgr = cold_manager(config::Config::default(), Arc::new(FailingEndpoint));
+    let err = mgr
+        .refresh_from_server_inner(false)
+        .await
+        .expect_err("disabled");
+    assert_eq!(err, "model list refresh is off");
 }
 #[tokio::test]
 async fn fetch_and_apply_degrades_offline_when_remote_fetch_disabled() {

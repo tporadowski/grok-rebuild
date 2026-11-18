@@ -1147,13 +1147,33 @@ impl ModelsManager {
 
     async fn fetch_and_apply(&self) {
         self.fetch_and_apply_inner(self.is_models_fetch_enabled())
+            .await;
+    }
+
+    /// Fetch `/v1/models` now and publish the catalog. `Err` when fetching is off or the server returns nothing.
+    pub(crate) async fn refresh_from_server(&self) -> Result<usize, &'static str> {
+        self.refresh_from_server_inner(self.is_models_fetch_enabled())
             .await
     }
 
-    async fn fetch_and_apply_inner(&self, remote_fetch_enabled: bool) {
+    async fn refresh_from_server_inner(
+        &self,
+        remote_fetch_enabled: bool,
+    ) -> Result<usize, &'static str> {
+        if !remote_fetch_enabled {
+            return Err("model list refresh is off");
+        }
+        if !self.fetch_and_apply_inner(true).await {
+            return Err("could not refresh the model list");
+        }
+        self.notify_models_updated();
+        Ok(self.available().len())
+    }
+
+    async fn fetch_and_apply_inner(&self, remote_fetch_enabled: bool) -> bool {
         if !remote_fetch_enabled {
             tracing::info!("model catalog refresh skipped: remote_fetch disabled");
-            return;
+            return false;
         }
         let attempt = FetchAttemptGuard::begin(&self.inner);
         let generation = attempt.generation;
@@ -1195,6 +1215,7 @@ impl ModelsManager {
                 })),
             );
         }
+        success
     }
 
     /// Publish a resolved catalog under one atomic write, then reselect the model (default on first real catalog, else keep current if present).

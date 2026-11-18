@@ -40,6 +40,7 @@ pub mod mcps;
 pub mod memory;
 pub mod memory_ops;
 pub mod model;
+pub mod models;
 pub mod multiline;
 pub mod new;
 pub mod personas;
@@ -89,6 +90,7 @@ pub fn builtin_commands() -> Vec<Arc<dyn SlashCommand>> {
         Arc::new(effort::EffortCommand),
         Arc::new(context_window::ContextWindowCommand),
         Arc::new(model::ModelCommand),
+        Arc::new(models::ModelsCommand),
         Arc::new(context::ContextCommand),
         Arc::new(compact::CompactCommand),
         Arc::new(fork::ForkCommand),
@@ -220,6 +222,7 @@ mod tests {
         assert!(reg.get("new").is_some());
         assert!(reg.get("compact").is_some());
         assert!(reg.get("model").is_some());
+        assert!(reg.get("models").is_some());
         assert!(reg.get("home").is_some());
         assert!(reg.get("view-plan").is_some());
         reg.set_available_tools(std::collections::HashSet::from([
@@ -354,6 +357,19 @@ mod tests {
         match result {
             CommandResult::QueueCommand(text) => assert_eq!(text, "/compact"),
             other => panic!("expected QueueCommand, got {other:?}"),
+        }
+    }
+    #[test]
+    fn models_command_asks_the_server_to_refresh() {
+        let models = ModelState::default();
+        let mut ctx = make_ctx(&models);
+        match models::ModelsCommand.run(&mut ctx, "") {
+            CommandResult::Action(Action::RefreshModels) => {}
+            other => panic!("expected RefreshModels, got {other:?}"),
+        }
+        match models::ModelsCommand.run(&mut ctx, "grok") {
+            CommandResult::Error(text) => assert_eq!(text, "/models takes no arguments"),
+            other => panic!("expected Error, got {other:?}"),
         }
     }
     #[test]

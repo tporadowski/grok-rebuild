@@ -1004,6 +1004,12 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             }
             vec![]
         }
+        TaskResult::ModelsRefreshed { result } => {
+            app.show_toast(&crate::slash::commands::models::models_refresh_notice(
+                &result,
+            ));
+            vec![]
+        }
         TaskResult::CompactComplete { agent_id, result } => {
             handle_compact_complete(app, agent_id, result)
         }

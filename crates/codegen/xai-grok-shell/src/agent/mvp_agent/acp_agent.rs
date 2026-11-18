@@ -2011,7 +2011,7 @@ impl acp::Agent for MvpAgent {
             "x.ai/workspaces/list" => {
                 crate::agent::handlers::workspaces::handle(self, &args).await
             }
-            "x.ai/models/list" => {
+            "x.ai/models/list" | "x.ai/models/refresh" => {
                 crate::agent::handlers::models::handle(self, &args).await
             }
             "x.ai/session/updates" => {

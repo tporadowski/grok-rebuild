@@ -200,6 +200,8 @@ pub enum Action {
     /// Toggle capture (`/voice`, Ctrl+Space, Esc while listening, recording-row `[stop]`, and Ctrl+Space on terminals without key releases).
     /// Stops if recording, otherwise starts.
     VoiceToggle,
+    /// Fetch the available model list from the server (`/models`).
+    RefreshModels,
     /// Stop capture unconditionally (Ctrl+Space hold-to-talk key release).
     /// Clears any pending cold-start so a release during pipeline spawn can't leave a hot mic.
     VoiceStop,
@@ -1616,6 +1618,8 @@ pub enum Effect {
         /// Set only when the pager restored the prompt into the composer.
         rewind_prompt_id: Option<String>,
     },
+    /// Fetch `/v1/models` and publish the catalog (`/models`).
+    RefreshModels,
     /// Run a manual `/compact` command.
     Compact {
         agent_id: AgentId,
@@ -2688,6 +2692,10 @@ pub enum TaskResult {
     },
     PreferredModelPersisted {
         result: Result<(), String>,
+    },
+    /// `/models` finished. The catalog itself arrives on `x.ai/models/update`.
+    ModelsRefreshed {
+        result: Result<usize, String>,
     },
     /// Manual `/compact` command completed.
     CompactComplete {
