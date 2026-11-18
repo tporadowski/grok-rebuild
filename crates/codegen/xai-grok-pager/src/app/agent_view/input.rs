@@ -960,11 +960,17 @@ impl AgentView {
                 }
                 Event::Mouse(mouse) => self.handle_question_mouse(mouse),
                 Event::Paste(text) => {
-                    let in_input = self
-                        .question_view
-                        .as_ref()
-                        .map(|qv| qv.focus == crate::views::question_view::QuestionFocus::InputMode)
-                        .unwrap_or(false);
+                    let enter_answer = self.question_view.as_ref().is_some_and(|qv| {
+                        qv.focus != crate::views::question_view::QuestionFocus::InputMode
+                            && qv.is_on_freeform_row()
+                    });
+                    if enter_answer && let Some(qv) = self.question_view.as_mut() {
+                        let existing = qv.activate_freeform_input();
+                        self.prompt.set_text_preserving(&existing);
+                    }
+                    let in_input = self.question_view.as_ref().is_some_and(|qv| {
+                        qv.focus == crate::views::question_view::QuestionFocus::InputMode
+                    });
                     if in_input {
                         self.route_popup_paste(text)
                     } else {

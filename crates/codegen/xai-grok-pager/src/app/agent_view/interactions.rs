@@ -2722,6 +2722,28 @@ mod question_freeform_chip_tests {
     /// Multi-line paste folds into a chip; Esc out and Enter back in must keep the chip folded (not raw expanded text).
     /// The string slot keeps the full paste for the submit payload.
     #[test]
+    fn paste_on_the_freeform_row_is_the_answer() {
+        use crossterm::event::Event;
+        let mut agent = make_agent();
+        open_question(&mut agent, false);
+        {
+            let qv = agent.question_view.as_mut().expect("question");
+            let idx = qv.total_items(qv.active_tab).saturating_sub(1);
+            qv.set_cursor(idx);
+            assert!(qv.is_on_freeform_row());
+            assert_ne!(qv.focus, QuestionFocus::InputMode);
+        }
+        let reg = crate::actions::ActionRegistry::defaults();
+        let _ = agent.handle_input(&Event::Paste("1 yes".to_string()), &reg);
+        let qv = agent.question_view.as_ref().expect("question stays open");
+        assert_eq!(qv.focus, QuestionFocus::InputMode);
+        assert!(
+            agent.prompt.text().contains("1 yes"),
+            "paste must be the answer, got {:?}",
+            agent.prompt.text()
+        );
+    }
+    #[test]
     fn paste_chip_survives_input_mode_round_trip() {
         let mut agent = make_agent();
         open_question(&mut agent, false);

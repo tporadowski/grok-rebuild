@@ -2913,7 +2913,12 @@ impl DashboardState {
         // Number keys 1–9 SELECT (toggle) the matching option when a question is showing; they no longer answer directly
         // Selecting focuses the panel so it becomes an answer surface (`Enter` then
         // answers); pressing the selected option's key again deselects it (back to navigation)
-        if let KeyCode::Char(c) = key.code
+        // The free-text row is an answer, so a digit typed or pasted there stays in the text.
+        let typing_freeform = self.peek.as_ref().is_some_and(|p| {
+            p.question.is_some() && p.reject_option.is_some() && p.selected_option == p.reject_option
+        });
+        if !typing_freeform
+            && let KeyCode::Char(c) = key.code
             && let Some(d) = c.to_digit(10)
             && (1..=9).contains(&d)
             && self.peek.as_ref().is_some_and(|p| p.question.is_some())

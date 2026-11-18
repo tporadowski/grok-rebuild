@@ -2075,6 +2075,11 @@ fn peek_paste_in_question_mode_gated_on_reject_selection() {
     let outcome = state.handle_input(&Event::Paste("real feedback".to_string()), &reg);
     assert!(matches!(outcome, InputOutcome::Changed));
     assert_eq!(state.peek_reply.text(), "real feedback");
+
+    // A digit in that answer is text, not another option shortcut.
+    let _ = state.handle_key(&KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE), &reg);
+    assert_eq!(state.peek.as_ref().unwrap().selected_option, Some(1));
+    assert_eq!(state.peek_reply.text(), "real feedback1");
 }
 
 /// The Ask tool (`AskUserQuestion`) is answered from the peek too: selecting an option emits
