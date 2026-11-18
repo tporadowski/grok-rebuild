@@ -539,6 +539,17 @@ fn render_bottom_bar(
             super::state::InputBarMode::GotoLine => "go to: ",
             super::state::InputBarMode::Comment => "comment: ",
         };
+        let bad_pattern = matches!(
+            mode,
+            super::state::InputBarMode::Search | super::state::InputBarMode::Filter
+        ) && !state.input_textarea().text().is_empty()
+            && crate::search::TextMatcher::new(
+                state.input_textarea().text(),
+                crate::search::QueryKind::Regex,
+            )
+            .is_error();
+        let badge = if bad_pattern { "bad pattern" } else { "" };
+        let badge_w = badge.len() as u16;
         let label_style = Style::default()
             .fg(style.input_bar_prompt_fg)
             .bg(style.input_bar_bg);
@@ -547,14 +558,26 @@ fn render_bottom_bar(
         buf.set_line_safe(area.x, area.y, &label_line, label_w);
 
         // Textarea fills the rest. Multi-line for comment mode.
+        // A bad regex keeps "bad pattern" on the right of this same row.
         let ta_area = Rect {
             x: area.x + label_w,
             y: area.y,
-            width: area.width.saturating_sub(label_w),
+            width: area
+                .width
+                .saturating_sub(label_w)
+                .saturating_sub(badge_w),
             height: area.height,
         };
         if ta_area.width > 0 {
             state.render_input_textarea(ta_area, buf);
+        }
+        if bad_pattern {
+            let badge_style = Style::default()
+                .fg(style.input_bar_text_fg)
+                .bg(style.input_bar_bg);
+            let badge_line = Line::from(Span::styled(badge, badge_style));
+            let x = area.x.saturating_add(area.width.saturating_sub(badge_w));
+            buf.set_line_safe(x, area.y, &badge_line, badge_w);
         }
     } else if let Some(matcher) = state.matcher() {
         // Accepted matcher: right-aligned, dim
@@ -562,7 +585,11 @@ fn render_bottom_bar(
             super::state::MatchMode::Filter => "filter",
             super::state::MatchMode::Search => "search",
         };
-        let raw = format!("[{mode_word}: {}]  ", matcher.query());
+        let raw = if matcher.is_error() {
+            "bad pattern".to_string()
+        } else {
+            format!("[{mode_word}: {}]  ", matcher.query())
+        };
         // Display columns keep a wide query flush with the right edge.
         let status = if crate::util::display_columns(&raw) > area.width as usize {
             crate::util::truncate_to_width(&raw, area.width as usize).into_owned()
@@ -1466,6 +1493,48 @@ mod tests {
         assert!(
             rendered.contains("15000"),
             "Rendered should contain '15000'"
+        );
+    }
+
+    #[test]
+    fn invalid_regex_on_the_filter_bar_says_bad_pattern() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let items: [RenderTestItem; 0] = [];
+        let mut config = crate::views::list_pane::ListPaneConfig::default();
+        config.search_enabled = true;
+        config.filter_enabled = true;
+        let mut state = ListPaneState::new_with_config(WrapMode::NoWrap, false, config);
+        let press = |state: &mut ListPaneState, ch: char| {
+            let event = KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
+            state.handle_key_event(&event, &items);
+        };
+        press(&mut state, 'f');
+        press(&mut state, '(');
+        let area = Rect::new(0, 0, 40, 1);
+        let mut buf = Buffer::empty(area);
+        render_bottom_bar(area, &mut buf, &mut state, &ListPaneStyle::default());
+        let text: String = (0..area.width)
+            .filter_map(|col| buf.cell((col, 0)).map(|cell| cell.symbol().to_string()))
+            .collect();
+        assert!(
+            text.contains("filter:") && text.contains("bad pattern"),
+            "open filter bar should name the bad regex, got {text:?}"
+        );
+
+        let mut accepted = ListPaneState::new(WrapMode::NoWrap, false);
+        accepted.set_matcher(Some(ListMatcher::new(
+            "(",
+            QueryKind::Regex,
+            MatchMode::Filter,
+        )));
+        let mut buf = Buffer::empty(area);
+        render_bottom_bar(area, &mut buf, &mut accepted, &ListPaneStyle::default());
+        let text: String = (0..area.width)
+            .filter_map(|col| buf.cell((col, 0)).map(|cell| cell.symbol().to_string()))
+            .collect();
+        assert!(
+            text.contains("bad pattern"),
+            "accepted filter should name the bad regex, got {text:?}"
         );
     }
 
