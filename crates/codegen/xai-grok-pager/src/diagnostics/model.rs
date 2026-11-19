@@ -42,6 +42,8 @@ pub(crate) const FOCUS_TRACKING_UNAVAILABLE_ID: DiagnosticId =
     DiagnosticId::new("notifications", "focus-tracking-unavailable");
 pub(crate) const SANDBOX_PROFILE_CONFLICT_ID: DiagnosticId =
     DiagnosticId::new("sandbox", "profile-conflict");
+pub(crate) const SANDBOX_PROFILE_FAILURE_ID: DiagnosticId =
+    DiagnosticId::new("sandbox", "profile-failure");
 pub(crate) const CLIPBOARD_DELIVERY_UNVERIFIED_ID: DiagnosticId =
     DiagnosticId::new("clipboard", "delivery-unverified");
 pub(crate) const CLIPBOARD_DELIVERY_UNAVAILABLE_ID: DiagnosticId =

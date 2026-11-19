@@ -560,6 +560,9 @@ pub(crate) const fn id_for(category: WarningCategory) -> Option<DiagnosticId> {
         WarningCategory::SandboxProfileConflict => {
             return Some(crate::diagnostics::SANDBOX_PROFILE_CONFLICT_ID);
         }
+        WarningCategory::SandboxProfileFailure => {
+            return Some(crate::diagnostics::SANDBOX_PROFILE_FAILURE_ID);
+        }
     };
     Some(DiagnosticId::new("terminal", item))
 }

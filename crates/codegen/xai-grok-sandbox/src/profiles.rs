@@ -132,6 +132,57 @@ pub fn load_sandbox_config(workspace: &Path) -> SandboxConfig {
     config
 }
 
+/// A `sandbox.toml` that exists but cannot be read or parsed.
+/// A missing file is not a failure. Callers keep running and report these on stderr, the welcome screen, and `/doctor`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxConfigLoadError {
+    pub path: std::path::PathBuf,
+    pub message: String,
+}
+
+/// Parse failures for the user and project `sandbox.toml` files of `workspace`.
+pub fn sandbox_config_load_errors(workspace: &Path) -> Vec<SandboxConfigLoadError> {
+    sandbox_config_load_errors_at(
+        &grok_home().join(SANDBOX_CONFIG_FILENAME),
+        &workspace.join(".grok").join(SANDBOX_CONFIG_FILENAME),
+    )
+}
+
+/// Same as [`sandbox_config_load_errors`] with explicit file paths.
+pub fn sandbox_config_load_errors_at(
+    global: &Path,
+    project: &Path,
+) -> Vec<SandboxConfigLoadError> {
+    [global, project]
+        .into_iter()
+        .filter_map(config_load_error)
+        .collect()
+}
+
+/// Stderr lines for [`sandbox_config_load_errors`]. Empty when both files are missing or valid.
+pub fn sandbox_config_failure_lines(workspace: &Path) -> Vec<String> {
+    sandbox_config_load_errors(workspace)
+        .iter()
+        .map(sandbox_config_failure_line)
+        .collect()
+}
+
+/// Stderr lines for [`sandbox_config_load_errors_at`].
+pub fn sandbox_config_failure_lines_at(global: &Path, project: &Path) -> Vec<String> {
+    sandbox_config_load_errors_at(global, project)
+        .iter()
+        .map(sandbox_config_failure_line)
+        .collect()
+}
+
+fn sandbox_config_failure_line(error: &SandboxConfigLoadError) -> String {
+    format!(
+        "error: sandbox profile settings in {} could not be read: {}",
+        error.path.display(),
+        error.message
+    )
+}
+
 /// `Some` when `profile_name` cannot write `<grok home>/worktrees`. The text is the
 /// refusal `grok -w`, `grok worktree create`, forks, and subagent worktrees show
 /// before they create a directory. `off` and a profile that can write that
@@ -194,16 +245,43 @@ fn merge_project_profiles(config: &mut SandboxConfig, project: SandboxConfig) {
 }
 
 fn load_config_file(path: &Path) -> Option<SandboxConfig> {
-    let content = std::fs::read_to_string(path).ok()?;
-    if content.trim().is_empty() {
-        return Some(SandboxConfig::default());
-    }
-    match toml::from_str(&content) {
-        Ok(config) => Some(config),
-        Err(e) => {
-            tracing::warn!(path = %path.display(), error = %e, "Failed to parse sandbox config");
+    match read_sandbox_config(path) {
+        Ok(config) => config,
+        Err(error) => {
+            tracing::warn!(path = %error.path.display(), error = %error.message, "Failed to parse sandbox config");
             None
         }
+    }
+}
+
+fn config_load_error(path: &Path) -> Option<SandboxConfigLoadError> {
+    match read_sandbox_config(path) {
+        Ok(_) => None,
+        Err(error) => Some(error),
+    }
+}
+
+/// `Ok(None)` when the file is absent. `Ok(Some)` for an empty or parsed file. `Err` when it exists but cannot be used.
+fn read_sandbox_config(path: &Path) -> Result<Option<SandboxConfig>, SandboxConfigLoadError> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(SandboxConfigLoadError {
+                path: path.to_path_buf(),
+                message: error.to_string(),
+            });
+        }
+    };
+    if content.trim().is_empty() {
+        return Ok(Some(SandboxConfig::default()));
+    }
+    match toml::from_str(&content) {
+        Ok(config) => Ok(Some(config)),
+        Err(error) => Err(SandboxConfigLoadError {
+            path: path.to_path_buf(),
+            message: error.to_string(),
+        }),
     }
 }
 

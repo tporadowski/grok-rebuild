@@ -45,8 +45,9 @@ pub use network_policy::{
     NetworkPolicySnapshotError, WebsiteAction, WebsiteOrigin, WebsiteOriginError, WebsitePolicy,
 };
 pub use profiles::{
-    ProfileName, SandboxConfig, SandboxProfile, load_sandbox_config, sandbox_profile_conflicts,
-    worktree_create_refusal,
+    ProfileName, SandboxConfig, SandboxConfigLoadError, SandboxProfile, load_sandbox_config,
+    sandbox_config_failure_lines, sandbox_config_failure_lines_at, sandbox_config_load_errors,
+    sandbox_config_load_errors_at, sandbox_profile_conflicts, worktree_create_refusal,
 };
 pub use read_deny_verify::{verify_data_write_deny_enforced, verify_read_deny_enforced};
 pub use types::{SandboxEvent, SandboxEventType, SandboxMetrics};

@@ -136,6 +136,7 @@ fn warning_category_ids_are_stable() {
         WarningCategory::NotificationProtocolFallback,
         WarningCategory::FocusTrackingUnavailable,
         WarningCategory::SandboxProfileConflict,
+        WarningCategory::SandboxProfileFailure,
     ]
     .map(|category| id_for(category).expect("diagnostic category must have an ID"))
     .map(|id| id.to_string());
@@ -157,6 +158,7 @@ fn warning_category_ids_are_stable() {
             "notifications.protocol-fallback",
             "notifications.focus-tracking-unavailable",
             "sandbox.profile-conflict",
+            "sandbox.profile-failure",
         ]
     );
 }

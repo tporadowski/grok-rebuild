@@ -1466,7 +1466,7 @@ Refresh these numbers at the end of a session.
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
 | W2 | CLI surface | 0 | 0 | 12 | 1 | 1 |
-| W3 | Permissions, sandbox, and config | 2 | 0 | 24 | 12 | 8 |
+| W3 | Permissions, sandbox, and config | 1 | 0 | 25 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 26 | 10 | 3 |
 | W5 | Workflows and goals | 1 | 0 | 34 | 6 | 0 |
@@ -1482,9 +1482,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 896. Pending: 22. Skipped: 10. Done: 709. Already: 118. Deferred: 37.
+Catalog rows: 896. Pending: 21. Skipped: 10. Done: 710. Already: 118. Deferred: 37.
 
-**Next:** `v90-x16`
+**Next:** `v90-x17`
 
 ## Waves
 
@@ -1498,7 +1498,7 @@ Pending: 0. Done: 12 (`v89-f02`). Already: 1 (`v89-x07`, D-335). Deferred: 1 (`v
 
 ### W3 — Permissions, sandbox, and config
 
-Pending: 2. Done: 24 (`v90-x09`; `v90-x06`; `v89-x10`; `v89-x02`; `v88-x12`, `v88-x19`, `v88-x30`, `v88-x35`, `v88-x55`, `v88-x56`). Already: 12. Deferred: 8 (D-026, D-224, D-245). A bottom click on a question scrollbar, with the freeform row showing, stops on the last option. The click uses the same options-only total as the painted bar (`bottom_scrollbar_click_keeps_the_last_option_when_freeform_is_shown`). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
+Pending: 1. Done: 25 (`v90-x16`; `v90-x09`; `v90-x06`; `v89-x10`; `v89-x02`; `v88-x12`, `v88-x19`, `v88-x30`, `v88-x35`, `v88-x55`, `v88-x56`). Already: 12. Deferred: 8 (D-026, D-224, D-245). A bottom click on a question scrollbar, with the freeform row showing, stops on the last option. The click uses the same options-only total as the painted bar (`bottom_scrollbar_click_keeps_the_last_option_when_freeform_is_shown`). Look first: `xai-grok-permission-rules`, `xai-grok-workspace/src/permission`, and config types under `xai-grok-config` / `xai-grok-config-types`. Auto-review is the name this tree already uses for auto mode. Rejecting or cancelling a permission prompt leaves queued follow-ups in the queue for the next turn (`v84-x08`).
 
 ### W6 — Memory
 
@@ -2288,7 +2288,7 @@ id | status | wave | kind | flag | covered | note
 - v89-x10 | done | W3 | Bug Fixes |  |  | **Question card lists** no longer scroll past the last option while typing an answer.
 - v90-x06 | done | W3 | Bug Fixes |  |  | **Local question cards** no longer show an unused free-text input.
 - v90-x09 | done | W3 | Bug Fixes |  |  | **Settings saves** write only the keys you changed, and clearing a setting removes its key from config.toml.
-- v90-x16 | pending | W3 | Bug Fixes |  |  | **Sandbox profile failures** are reported on stderr, the welcome screen, and `/doctor` instead of failing silently.
+- v90-x16 | done | W3 | Bug Fixes |  |  | **Sandbox profile failures** are reported on stderr, the welcome screen, and `/doctor` instead of failing silently.
 - v90-x17 | pending | W3 | Bug Fixes |  |  | **Sandbox allow paths** containing ~ expand to your home directory, and unknown keys in sandbox.toml are reported as errors.
 - v86-x23 | done | W9 | Bug Fixes |  |  | The file-search and prompt-history panels no longer crash on very short terminals.
 - v86-x24 | done | W14 | Bug Fixes |  |  | Plan approval text in minimal mode matches the fullscreen version.

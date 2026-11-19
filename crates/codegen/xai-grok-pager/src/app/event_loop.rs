@@ -1533,10 +1533,13 @@ pub(crate) async fn run(
             .find(|w| w.category == crate::diagnostics::WarningCategory::WaylandNoDataControl);
         let sandbox_profile_warning =
             crate::diagnostics::sandbox_profile_conflict_warning(&app.cwd);
+        let sandbox_profile_failure =
+            crate::diagnostics::sandbox_profile_failure_warning(&app.cwd);
         app.startup_warnings = crate::diagnostics::assemble_startup_warnings(
             wezterm_warning.as_ref(),
             wayland_clipboard_warning,
             sandbox_profile_warning.as_ref(),
+            sandbox_profile_failure.as_ref(),
             crate::diagnostics::summarize_warnings(&all_warnings, snapshot.terminal.is_ssh)
                 .into_iter()
                 .collect(),

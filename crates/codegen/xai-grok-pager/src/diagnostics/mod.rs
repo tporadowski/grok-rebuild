@@ -34,6 +34,7 @@ pub(crate) use model::{
     CLIPBOARD_DELIVERY_UNAVAILABLE_ID, CLIPBOARD_DELIVERY_UNVERIFIED_ID, CONFIG_LEGACY_UI_ID,
     CONFIG_STARTUP_ID, FOCUS_TRACKING_UNAVAILABLE_ID, ITERM2_CLIPBOARD_PERMISSION_ID,
     NEWLINE_FALLBACK_ID, NOTIFICATION_PROTOCOL_FALLBACK_ID, SANDBOX_PROFILE_CONFLICT_ID,
+    SANDBOX_PROFILE_FAILURE_ID,
     VOICE_NO_INPUT_DEVICE_ID, VSCODE_SSH_NON_ASCII_ID,
 };
 pub use model::{
@@ -122,6 +123,8 @@ pub enum WarningCategory {
     /// tmux is attached to a client it believes cannot render 24-bit color, so it rewrites every truecolor cell to the client terminfo's palette.
     TmuxColorReduced,
     SandboxProfileConflict,
+    /// A `sandbox.toml` exists but could not be read or parsed, so its profiles were not applied.
+    SandboxProfileFailure,
     /// The session runs over SSH without `grok wrap` on the local end.
     /// Clipboard forwarding and terminal-mode restore on dropped connections are then not guaranteed.
     /// An informational recommendation, not a breakage.
@@ -414,6 +417,39 @@ pub fn sandbox_profile_conflict_warning(workspace: &Path) -> Option<TerminalWarn
     sandbox_profile_conflict_warning_from(xai_grok_sandbox::sandbox_profile_conflicts(workspace))
 }
 
+pub fn sandbox_profile_failure_warning(workspace: &Path) -> Option<TerminalWarning> {
+    sandbox_profile_failure_warning_from(xai_grok_sandbox::sandbox_config_load_errors(workspace))
+}
+
+fn sandbox_profile_failure_warning_from(
+    errors: Vec<xai_grok_sandbox::SandboxConfigLoadError>,
+) -> Option<TerminalWarning> {
+    if errors.is_empty() {
+        return None;
+    }
+    let detail = errors
+        .iter()
+        .map(|error| {
+            format!(
+                "sandbox profile settings in {} could not be read: {}",
+                error.path.display(),
+                error.message
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(TerminalWarning {
+        category: WarningCategory::SandboxProfileFailure,
+        message: detail,
+        fix: None,
+        config_path: None,
+        note: Some(
+            "Grok continued without the profiles in that file. Fix the file, then start again."
+                .to_string(),
+        ),
+    })
+}
+
 fn sandbox_profile_conflict_warning_from(conflicts: Vec<String>) -> Option<TerminalWarning> {
     if conflicts.is_empty() {
         return None;
@@ -471,8 +507,16 @@ fn actionable_assembled_warnings(
     wezterm_warning: Option<&TerminalWarning>,
     wayland_clipboard_warning: Option<&TerminalWarning>,
     sandbox_profile_warning: Option<&TerminalWarning>,
+    sandbox_profile_failure: Option<&TerminalWarning>,
 ) -> Vec<crate::startup::ActionableStartupWarning> {
     let mut warnings = Vec::new();
+    if sandbox_profile_failure.is_some() {
+        warnings.push(crate::startup::ActionableStartupWarning::new(
+            crate::startup::WarningSeverity::Warning,
+            "Sandbox profile settings could not be read.",
+            [SANDBOX_PROFILE_FAILURE_ID],
+        ));
+    }
     if sandbox_profile_warning.is_some() {
         warnings.push(crate::startup::ActionableStartupWarning::new(
             crate::startup::WarningSeverity::Warning,
@@ -507,12 +551,14 @@ pub fn assemble_startup_warnings(
     wezterm_warning: Option<&TerminalWarning>,
     wayland_clipboard_warning: Option<&TerminalWarning>,
     sandbox_profile_warning: Option<&TerminalWarning>,
+    sandbox_profile_failure: Option<&TerminalWarning>,
     mut summarized: Vec<crate::startup::StartupWarning>,
 ) -> Vec<crate::startup::StartupWarning> {
     let actionable = actionable_assembled_warnings(
         wezterm_warning,
         wayland_clipboard_warning,
         sandbox_profile_warning,
+        sandbox_profile_failure,
     );
     for warning in actionable.into_iter().rev() {
         summarized.insert(0, warning.into_warning());
@@ -636,6 +682,7 @@ pub(crate) fn collect_tui_runtime_findings(
         .into_iter()
         .filter_map(view::finding_from_warning)
         .chain(sandbox_profile_conflict_warning(workspace).and_then(view::finding_from_warning))
+        .chain(sandbox_profile_failure_warning(workspace).and_then(view::finding_from_warning))
         .collect()
 }
 
@@ -1946,7 +1993,7 @@ mod tests {
     fn wezterm_banner_goes_first() {
         // The welcome screen renders only the first warning; the WezTerm banner (broken local input) must displace clipboard advisories
         let w = wezterm_kitty_keyboard_warning(&wezterm_ctx(), false, None).unwrap();
-        let out = assemble_startup_warnings(Some(&w), None, None, vec![clipboard_banner()]);
+        let out = assemble_startup_warnings(Some(&w), None, None, None, vec![clipboard_banner()]);
         assert_eq!(out.len(), 2);
         assert!(
             nth(&out, 0).message.contains("WezTerm"),
@@ -1958,7 +2005,7 @@ mod tests {
 
     #[test]
     fn no_wezterm_warning_leaves_summarized_untouched() {
-        let out = assemble_startup_warnings(None, None, None, vec![clipboard_banner()]);
+        let out = assemble_startup_warnings(None, None, None, None, vec![clipboard_banner()]);
         assert_eq!(out.len(), 1);
         assert!(nth(&out, 0).message.contains("Clipboard"));
     }
@@ -1967,7 +2014,7 @@ mod tests {
     fn wayland_banner_surfaces_without_ssh_gate() {
         // `summarize_warnings` is SSH-gated, so the Wayland warning reaches the welcome banner through the assemble bypass instead
         let w = diagnose_wayland_data_control(true, false, true).unwrap();
-        let out = assemble_startup_warnings(None, Some(&w), None, vec![clipboard_banner()]);
+        let out = assemble_startup_warnings(None, Some(&w), None, None, vec![clipboard_banner()]);
         assert_eq!(out.len(), 2);
         assert!(
             nth(&out, 0).message.contains("focused"),
@@ -1981,11 +2028,60 @@ mod tests {
     fn wezterm_banner_outranks_wayland_banner() {
         let wez = wezterm_kitty_keyboard_warning(&wezterm_ctx(), false, None).unwrap();
         let way = diagnose_wayland_data_control(true, false, true).unwrap();
-        let out = assemble_startup_warnings(Some(&wez), Some(&way), None, vec![clipboard_banner()]);
+        let out = assemble_startup_warnings(Some(&wez), Some(&way), None, None, vec![clipboard_banner()]);
         assert_eq!(out.len(), 3);
         assert!(nth(&out, 0).message.contains("WezTerm"));
         assert!(nth(&out, 1).message.contains("focused"));
         assert!(nth(&out, 2).message.contains("Clipboard"));
+    }
+
+    #[test]
+    fn unreadable_sandbox_profile_is_reported_on_stderr_welcome_and_doctor() {
+        let root = std::env::temp_dir().join(format!(
+            "grok-sandbox-profile-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let project_dir = root.join(".grok");
+        std::fs::create_dir_all(&project_dir).expect("temp project dir");
+        let project_file = project_dir.join(xai_grok_config::SANDBOX_CONFIG_FILENAME);
+        std::fs::write(&project_file, "[profiles.broken\nallow = [\n").expect("broken sandbox.toml");
+        let missing_global = root.join("missing-user-sandbox.toml");
+
+        let errors =
+            xai_grok_sandbox::sandbox_config_load_errors_at(&missing_global, &project_file);
+        let parsed = errors.first().expect("the broken project file is a load failure");
+        assert_eq!(parsed.path, project_file);
+        assert!(!parsed.message.is_empty());
+        let detail = parsed.message.clone();
+        let path_text = parsed.path.display().to_string();
+
+        let stderr =
+            xai_grok_sandbox::sandbox_config_failure_lines_at(&missing_global, &project_file);
+        let line = stderr.first().expect("stderr line");
+        assert!(line.starts_with("error: "), "{line}");
+        assert!(line.contains(&path_text), "{line}");
+        assert!(line.contains(&detail), "{line}");
+        assert_eq!(stderr.len(), 1);
+
+        let warning = sandbox_profile_failure_warning_from(errors).expect("welcome warning");
+        assert_eq!(warning.category, WarningCategory::SandboxProfileFailure);
+        assert!(warning.message.contains(&detail), "{}", warning.message);
+        let welcome = assemble_startup_warnings(None, None, None, Some(&warning), vec![]);
+        assert_eq!(
+            nth(&welcome, 0).message,
+            "Sandbox profile settings could not be read."
+        );
+
+        let finding = view::finding_from_warning(warning).expect("doctor finding");
+        assert_eq!(finding.id, SANDBOX_PROFILE_FAILURE_ID);
+        assert!(finding.message.contains(&detail), "{}", finding.message);
+        assert!(finding.message.contains(&path_text), "{}", finding.message);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2019,6 +2115,7 @@ mod tests {
             Some(&wezterm),
             Some(&wayland),
             Some(&sandbox),
+            None,
             vec![clipboard_banner()],
         );
 
@@ -2054,7 +2151,7 @@ mod tests {
             ),
         ];
         let mut actionable =
-            actionable_assembled_warnings(Some(&wezterm), Some(&wayland), Some(&sandbox));
+            actionable_assembled_warnings(Some(&wezterm), Some(&wayland), Some(&sandbox), None);
         actionable.push(actionable_warning_summary(&tmux, true).unwrap());
         let report_findings = [wezterm, wayland, sandbox]
             .into_iter()
@@ -2081,12 +2178,12 @@ mod tests {
     fn sandbox_banner_sits_below_terminal_banners() {
         let sandbox = sandbox_profile_conflict_warning_from(vec!["dev".to_string()]).unwrap();
 
-        let out = assemble_startup_warnings(None, None, Some(&sandbox), vec![]);
+        let out = assemble_startup_warnings(None, None, Some(&sandbox), None, vec![]);
         assert_eq!(out.len(), 1);
         assert!(nth(&out, 0).message.contains("sandbox settings"));
 
         let wez = wezterm_kitty_keyboard_warning(&wezterm_ctx(), false, None).unwrap();
-        let out = assemble_startup_warnings(Some(&wez), None, Some(&sandbox), vec![]);
+        let out = assemble_startup_warnings(Some(&wez), None, Some(&sandbox), None, vec![]);
         assert_eq!(out.len(), 2);
         assert!(nth(&out, 0).message.contains("WezTerm"));
         assert!(nth(&out, 1).message.contains("sandbox settings"));

@@ -1385,6 +1385,9 @@ pub fn apply_sandbox(
         .and_then(|p| dunce::canonicalize(p).ok())
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
+    for line in xai_grok_sandbox::sandbox_config_failure_lines(&workspace) {
+        eprintln!("{line}");
+    }
     xai_grok_sandbox::set_confinement_root(&workspace);
     #[cfg(target_os = "linux")]
     let requires_read_deny = xai_grok_sandbox::requires_read_deny(&sandbox_profile, &workspace);
