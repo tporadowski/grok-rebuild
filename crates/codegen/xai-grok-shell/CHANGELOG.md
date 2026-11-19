@@ -1,5 +1,38 @@
 # Changelog
 
+# 1.0.90 — 2026-11-18
+
+## Features
+
+- **/mcps** shows the hosted connectors section even before any have been added.
+- **/mcps** lets you re-authenticate a hosted connector with `i` then `y` to choose fresh permissions.
+- **Answering No with text** on a subagent card shows that subagent's reply in the main chat.
+- **Sessions** switch models when their model is removed from the available list.
+- **Queued subagent messages** no longer show the queued label or surrounding quotes; the marker reads read-only.
+
+## Bug Fixes
+
+- **Caret** no longer disappears when typing fills the last row of the prompt.
+- **LaTeX math** renders paired bars, \middle, and angle brackets correctly.
+- **Terms notice** disappears automatically once the matching account is known.
+- **Account, tier and access gate** from a slow sign-in are applied even if they arrive after the first frame.
+- **Resumed long sessions** show older history before queued prompts are sent.
+- **Local question cards** no longer show an unused free-text input.
+- **Goal paused after 3 rounds without progress** explains why it stopped itself.
+- **Tab completion list** on very short terminals no longer hides the selected entry.
+- **Settings saves** write only the keys you changed, and clearing a setting removes its key from config.toml.
+- **Background tasks** interrupted by quitting a session show as cancelled.
+- **Headless --continue** gives a clearer message when the local session list is permanently incomplete instead of always suggesting a retry.
+- **Outcome line** for /compact appears before any prompt typed during the compaction.
+- **Worktree forks** preserve the original session title even when the source is renamed during creation.
+- **Subagent views** send slash-like notes as text instead of refusing them.
+- **Dashboard modals and pickers** keep keyboard focus and swallow Ctrl+\ until closed.
+- **Sandbox profile failures** are reported on stderr, the welcome screen, and `/doctor` instead of failing silently.
+- **Sandbox allow paths** containing ~ expand to your home directory, and unknown keys in sandbox.toml are reported as errors.
+- **Dashboard row highlights** render correctly in Apple Terminal.
+- **Tasks pane** no longer shows an invented duration for a shell that is no longer running.
+
+
 # 1.0.89 — 2026-11-17
 
 ## Features
