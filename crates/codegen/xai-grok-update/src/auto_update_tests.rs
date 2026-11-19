@@ -1,5 +1,21 @@
 use super::*;
 
+#[test]
+fn update_channel_error_names_no_config_file_or_experiment() {
+    let message = unsupported_channel_message("nightly", "1.0.88", "1.0.89");
+    assert!(message.contains("nightly"));
+    assert!(message.contains("--stable"));
+    let lower = message.to_ascii_lowercase();
+    assert!(
+        !lower.contains("config"),
+        "grok update must not name a config file: {message}"
+    );
+    assert!(
+        !lower.contains("experiment"),
+        "grok update must not name an experiment: {message}"
+    );
+}
+
 #[cfg(unix)]
 fn write_exec(path: &std::path::Path, body: &[u8]) {
     if let Some(parent) = path.parent() {

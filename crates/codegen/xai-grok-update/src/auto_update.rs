@@ -383,6 +383,16 @@ fn has_version_cap(policy: &config::VersionPolicy) -> bool {
     policy.maximum.is_some() || policy.required_maximum.is_some()
 }
 
+/// User-facing text for a channel `grok update` does not understand.
+/// Names the channel and the versions only. Experiment ids and config files stay out of the output.
+fn unsupported_channel_message(channel: &str, current: &str, target: &str) -> String {
+    format!(
+        "Unsupported release channel '{channel}' (current={current}, target={target}). \
+         Supported channels: stable, alpha, enterprise. \
+         Use --stable or --alpha to override."
+    )
+}
+
 fn skipped_update_notice(latest: &str, current: &str) -> String {
     format!(
         "The latest release ({latest}) is not an allowed update; \
@@ -2956,12 +2966,12 @@ pub async fn run_update(
                     && semver::Version::parse(&install_target).is_ok();
                 if parse_ok {
                     anyhow::bail!(
-                        "Unsupported release channel '{}' (current={}, target={}). \
-                         Supported channels: stable, alpha, enterprise. \
-                         Use --stable or --alpha to override, or set [cli] channel in config.toml.",
-                        update_config.channel,
-                        effective_current,
-                        install_target
+                        "{}",
+                        unsupported_channel_message(
+                            &update_config.channel,
+                            &effective_current,
+                            &install_target
+                        )
                     );
                 } else {
                     anyhow::bail!(
