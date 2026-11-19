@@ -193,23 +193,11 @@ fn render_command(cursor: &mut Cursor<'_>, out: &mut MathBox, depth: usize, mode
             // Stray \end without matching \begin: drop its argument.
             let _ = take_brace_arg(cursor);
         }
-        "left" | "right" => {
-            // Keep the delimiter that follows; `.` means "no delimiter".
-            cursor.skip_ws();
-            match cursor.peek() {
-                Some('.') => {
-                    cursor.bump();
-                }
-                Some('\\') => {
-                    cursor.bump();
-                    render_command(cursor, out, depth, mode);
-                }
-                Some(c) => {
-                    cursor.bump();
-                    out.push(c);
-                }
-                None => {}
-            }
+        "left" | "right" | "middle" | "big" | "Big" | "bigg" | "Bigg" | "bigl" | "Bigl"
+        | "biggl" | "Biggl" | "bigr" | "Bigr" | "biggr" | "Biggr" | "bigm" | "Bigm" | "biggm"
+        | "Biggm" => {
+            // These commands take the following delimiter. `.` means "no delimiter".
+            push_delimiter(cursor, out, depth, mode);
         }
 
         // ── Fractions / binomials / roots ────────────────────────────────
@@ -393,9 +381,8 @@ fn render_command(cursor: &mut Cursor<'_>, out: &mut MathBox, depth: usize, mode
 
         // ── No-ops (sizing/styling/structure hints) ──────────────────────
         "limits" | "nolimits" | "displaystyle" | "textstyle" | "scriptstyle"
-        | "scriptscriptstyle" | "big" | "Big" | "bigg" | "Bigg" | "bigl" | "Bigl" | "biggl"
-        | "Biggl" | "bigr" | "Bigr" | "biggr" | "Biggr" | "bigm" | "Bigm" | "biggm" | "Biggm"
-        | "mathstrut" | "strut" | "allowbreak" | "nonumber" | "notag" | "mathopen"
+        | "scriptscriptstyle" | "mathstrut" | "strut" | "allowbreak" | "nonumber" | "notag"
+        | "mathopen"
         | "mathclose" | "mathbin" | "mathrel" | "mathord" | "mathpunct" | "mathinner"
         | "mathop" | "ensuremath" | "label" | "tag" => {
             // \label/\tag carry non-visual arguments: drop them.
@@ -413,6 +400,34 @@ fn render_command(cursor: &mut Cursor<'_>, out: &mut MathBox, depth: usize, mode
                 out.push_str(name);
             }
         }
+    }
+}
+
+/// Emit the delimiter that follows `\left`, `\right`, `\middle`, or a `\big…` size.
+/// `<` and `>` are angle brackets here; a bare `<` in `a < b` is unchanged.
+fn push_delimiter(cursor: &mut Cursor<'_>, out: &mut MathBox, depth: usize, mode: Mode) {
+    cursor.skip_ws();
+    match cursor.peek() {
+        Some('.') => {
+            cursor.bump();
+        }
+        Some('\\') => {
+            cursor.bump();
+            render_command(cursor, out, depth, mode);
+        }
+        Some('<') => {
+            cursor.bump();
+            out.push('⟨');
+        }
+        Some('>') => {
+            cursor.bump();
+            out.push('⟩');
+        }
+        Some(c) => {
+            cursor.bump();
+            out.push(c);
+        }
+        None => {}
     }
 }
 

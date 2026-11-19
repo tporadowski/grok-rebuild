@@ -151,6 +151,27 @@ fn left_right_and_spacing() {
     assert_eq!(inline("a \\quad b"), "a   b");
 }
 
+/// Paired bars (`\lvert`/`\rvert`, `\lVert`/`\rVert`), `\middle`, and angle brackets
+/// (`\left<` / `\langle`) render as the delimiter, not the command name.
+#[test]
+fn paired_bars_middle_and_angle_brackets() {
+    assert_eq!(inline("\\lvert x \\rvert"), "| x |");
+    assert_eq!(inline("\\lVert x \\rVert"), "‖ x ‖");
+    assert_eq!(inline("\\left| a \\middle| b \\right|"), "| a | b |");
+    assert_eq!(
+        inline("\\left\\vert a \\middle\\vert b \\right\\vert"),
+        "| a | b |"
+    );
+    assert_eq!(inline("\\left< x, y \\right>"), "⟨ x, y ⟩");
+    assert_eq!(inline("\\bigl< x \\bigr>"), "⟨ x ⟩");
+    assert_eq!(inline("\\langle x, y \\rangle"), "⟨ x, y ⟩");
+    assert_eq!(inline("a < b"), "a < b");
+    assert_eq!(
+        display("\\left| a \\middle| b \\right|"),
+        vec!["| a | b |".to_string()]
+    );
+}
+
 #[test]
 fn named_function_operators() {
     assert_eq!(inline("\\sin(x) + \\cos(y)"), "sin(x) + cos(y)");

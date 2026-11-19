@@ -385,8 +385,8 @@ pub(super) fn symbol(name: &str) -> Option<&'static str> {
         "surd" => "√",
         "AA" => "Å",
         // Delimiters
-        "langle" => "⟨",
-        "rangle" => "⟩",
+        "langle" | "lang" => "⟨",
+        "rangle" | "rang" => "⟩",
         "lceil" => "⌈",
         "rceil" => "⌉",
         "lfloor" => "⌊",
@@ -395,8 +395,8 @@ pub(super) fn symbol(name: &str) -> Option<&'static str> {
         "rbrace" => "}",
         "lbrack" => "[",
         "rbrack" => "]",
-        "vert" => "|",
-        "Vert" | "|" => "‖",
+        "vert" | "lvert" | "rvert" => "|",
+        "Vert" | "lVert" | "rVert" | "|" => "‖",
         "backslash" => "\\",
         "setbslash" => "∖",
         // Escaped literals
