@@ -1111,3 +1111,117 @@
         acp_fixtures::ext_notification("x.ai/session_notification", &notif)
     }
 
+    fn bg_ctx() -> crate::scrollback::types::BlockContext {
+        crate::scrollback::types::BlockContext {
+            mode: crate::scrollback::types::DisplayMode::Collapsed,
+            is_running: false,
+            width: 120,
+            raw: false,
+            max_lines: None,
+            appearance: crate::appearance::AppearanceConfig::default(),
+            is_selected: false,
+            cwd: None,
+        }
+    }
+
+    fn bg_line(block: &crate::scrollback::blocks::BgTaskBlock) -> String {
+        use crate::scrollback::block::BlockContent;
+        let output = block.output(&bg_ctx());
+        let Some(line) = output.lines.first() else {
+            panic!("expected a background-task line");
+        };
+        line.content
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    /// Quitting a session kills still-running background tasks with the cancelled signal.
+    /// The transcript and the `/tasks` list say cancelled. A real failure and a single-task stop do not.
+    #[test]
+    fn session_quit_completion_shows_the_background_task_as_cancelled() {
+        let mut app = make_app_with_agent("sess-quit");
+        assert!(handle_task_backgrounded(
+            &make_task_backgrounded_notif("sess-quit", "tc-quit", "task-quit", "sleep 60"),
+            &mut app,
+        ));
+        assert!(handle_task_completed(
+            &make_task_completed_notif_with_signal(
+                "sess-quit",
+                "task-quit",
+                "sleep 60",
+                None,
+                Some(xai_grok_tools::computer::types::CANCELLED_SIGNAL),
+            ),
+            &mut app,
+        ));
+
+        {
+            let agent = app.agents.get(&AgentId(0)).unwrap();
+            let task = agent.session.bg_tasks.get("task-quit").expect("quit task");
+            assert!(task.quit_cancelled());
+            let tasks = crate::app::status_blocks::tasks_block_text(agent);
+            assert!(
+                tasks.contains("cancelled"),
+                "tasks list must say cancelled: {tasks}"
+            );
+            assert!(
+                !tasks.contains("failed"),
+                "a quit must not list the task as failed: {tasks}"
+            );
+            let crate::scrollback::block::RenderBlock::BgTask(done) =
+                &agent.scrollback.get(1).expect("completion row").block
+            else {
+                panic!("expected the completion block");
+            };
+            let text = bg_line(done);
+            assert!(text.contains("cancelled"), "{text}");
+            assert!(!text.contains("failed"), "{text}");
+            assert!(!text.contains("killed"), "{text}");
+        }
+
+        assert!(handle_task_backgrounded(
+            &make_task_backgrounded_notif("sess-quit", "tc-fail", "task-fail", "false"),
+            &mut app,
+        ));
+        assert!(handle_task_completed(
+            &make_task_completed_notif("sess-quit", "task-fail", "false", Some(1)),
+            &mut app,
+        ));
+        assert!(handle_task_backgrounded(
+            &make_task_backgrounded_notif("sess-quit", "tc-kill", "task-kill", "sleep 5"),
+            &mut app,
+        ));
+        assert!(handle_task_completed(
+            &make_task_completed_notif_with_signal(
+                "sess-quit",
+                "task-kill",
+                "sleep 5",
+                None,
+                Some("killed"),
+            ),
+            &mut app,
+        ));
+        {
+            let agent = app.agents.get(&AgentId(0)).unwrap();
+            let crate::scrollback::block::RenderBlock::BgTask(failed) =
+                &agent.scrollback.get(3).expect("failed row").block
+            else {
+                panic!("failed block");
+            };
+            assert_eq!(failed.task_id, "task-fail");
+            let failed_text = bg_line(failed);
+            assert!(failed_text.contains("failed"), "{failed_text}");
+            let crate::scrollback::block::RenderBlock::BgTask(killed) =
+                &agent.scrollback.get(5).expect("killed row").block
+            else {
+                panic!("killed block");
+            };
+            assert_eq!(killed.task_id, "task-kill");
+            let killed_text = bg_line(killed);
+            assert!(killed_text.contains("killed"), "{killed_text}");
+            assert!(!killed_text.contains("cancelled"), "{killed_text}");
+        }
+    }
+

@@ -199,6 +199,10 @@ pub struct BackgroundHandle {
 /// The `signal` of a task that was lost, not failed. The pager finalizes it without a failed block
 pub const SESSION_RESTART_SIGNAL: &str = "session_restart";
 
+/// The `signal` of a background task stopped by a bulk teardown (session quit, session delete, owner sweep).
+/// A model or single-task UI kill keeps the `killed` signal.
+pub const CANCELLED_SIGNAL: &str = "cancelled";
+
 /// Full snapshot of a task's state.
 /// Used by both local and ACP backends.
 #[derive(

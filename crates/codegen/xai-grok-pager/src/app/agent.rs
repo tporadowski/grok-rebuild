@@ -208,6 +208,10 @@ pub struct BgTaskState {
     pub restored_from_replay: bool,
 }
 impl BgTaskState {
+    /// A bulk teardown (session quit) recorded this task as cancelled.
+    pub(crate) fn quit_cancelled(&self) -> bool {
+        self.signal.as_deref() == Some(xai_grok_tools::computer::types::CANCELLED_SIGNAL)
+    }
     /// Elapsed duration (from start to end, or start to now if running).
     pub fn elapsed(&self) -> Duration {
         let end = self.end_time.unwrap_or_else(SystemTime::now);

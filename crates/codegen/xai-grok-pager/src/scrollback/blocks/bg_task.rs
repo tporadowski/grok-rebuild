@@ -12,9 +12,19 @@ use crate::scrollback::block::BlockContent;
 use crate::scrollback::types::{AccentStyle, BlockContext, BlockLine, BlockOutput, DisplayMode};
 use crate::theme::Theme;
 use crate::util::format_duration;
+use xai_grok_tools::computer::types::CANCELLED_SIGNAL;
 
 /// The signal recorded on a task the user stopped.
 pub(crate) const KILLED_SIGNAL: &str = "killed";
+
+/// Word for a background task that was stopped, not one that failed on its own.
+fn stopped_verb(signal: Option<&str>) -> Option<&'static str> {
+    match signal {
+        Some(signal) if signal == CANCELLED_SIGNAL => Some("cancelled"),
+        Some(KILLED_SIGNAL | "SIGTERM" | "SIGKILL" | "oom") => Some("killed"),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum BgTaskKind {
@@ -155,12 +165,10 @@ impl BlockContent for BgTaskBlock {
                 exit_code,
                 signal,
             } => {
-                // Detect kill signals to show "killed" instead of "failed"
-                let is_killed = signal
-                    .as_deref()
-                    .is_some_and(|s| matches!(s, KILLED_SIGNAL | "SIGTERM" | "SIGKILL" | "oom"));
-                let verb = if is_killed { "killed" } else { "failed" };
-                let detail = if is_killed {
+                // A session quit records `cancelled`. A user or model stop records `killed`.
+                // Either is a stop, not a failure of the command.
+                let verb = stopped_verb(signal.as_deref()).unwrap_or("failed");
+                let detail = if stopped_verb(signal.as_deref()).is_some() {
                     String::new()
                 } else {
                     match (exit_code, signal) {
@@ -204,6 +212,9 @@ impl BlockContent for BgTaskBlock {
                 }
             }
             BgTaskKind::Completed { .. } => Some(AccentStyle::static_color(theme.accent_success)),
+            BgTaskKind::Failed { signal, .. } if signal.as_deref() == Some(CANCELLED_SIGNAL) => {
+                Some(AccentStyle::static_color(theme.gray))
+            }
             BgTaskKind::Failed { .. } => Some(AccentStyle::static_color(theme.accent_error)),
         }
     }

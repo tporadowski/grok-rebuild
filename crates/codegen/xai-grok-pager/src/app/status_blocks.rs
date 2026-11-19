@@ -133,6 +133,7 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
             match task.status {
                 BgTaskStatus::Running => "running",
                 BgTaskStatus::Done => "done",
+                BgTaskStatus::Failed if task.quit_cancelled() => "cancelled",
                 BgTaskStatus::Failed => "failed",
             }
         };

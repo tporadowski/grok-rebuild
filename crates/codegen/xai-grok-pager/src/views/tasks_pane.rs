@@ -1418,6 +1418,15 @@ impl TasksPane {
                         Style::default().fg(theme.gray),
                     )
                 }
+                BgTaskStatus::Failed if task.quit_cancelled() => {
+                    let elapsed = format_duration(task.elapsed());
+                    (
+                        crate::glyphs::idle_mark(),
+                        Style::default().fg(theme.gray),
+                        format!("{elapsed} "),
+                        Style::default().fg(theme.gray),
+                    )
+                }
                 BgTaskStatus::Failed => {
                     let elapsed = format_duration(task.elapsed());
                     (

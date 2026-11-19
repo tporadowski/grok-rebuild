@@ -18,8 +18,8 @@ use crate::computer::local::cgroup::{
 };
 use crate::computer::task_log;
 use crate::computer::types::{
-    BackgroundHandle, BackgroundedForeground, ComputerError, KillOutcome, KillSource, TaskSnapshot,
-    TerminalBackend, TerminalRunRequest, TerminalRunResult,
+    BackgroundHandle, BackgroundedForeground, CANCELLED_SIGNAL, ComputerError, KillOutcome,
+    KillSource, TaskSnapshot, TerminalBackend, TerminalRunRequest, TerminalRunResult,
 };
 use crate::notification::types::{BashNotificationBase, BashOutputChunk, ToolNotificationHandle};
 use crate::util::truncate::FRONT_BACK_TRUNCATION_MARKER;
@@ -1431,7 +1431,7 @@ impl LocalTerminalActor {
         // Must precede the kill signal so the exit watcher's snapshot carries the flag.
         process.explicitly_killed = true;
 
-        let outcome = kill_and_finalize(process).await;
+        let outcome = kill_and_finalize(process, source).await;
 
         // Resolve waiters here so wait_for_completion unblocks immediately.
         let mut any_delivered = false;
@@ -3281,26 +3281,36 @@ async fn graceful_kill_and_wait(process: &mut ProcessState) {
     drain_remaining_output(process).await;
 }
 
+fn synthetic_kill_signal(source: KillSource) -> &'static str {
+    match source {
+        // Session quit and the other bulk teardowns interrupt the task. They are not a failure
+        // and not the user stopping that one task.
+        KillSource::Teardown => CANCELLED_SIGNAL,
+        KillSource::ModelTool | KillSource::ClientUi => "killed",
+    }
+}
+
 #[tracing::instrument(
     name = "terminal.kill_and_finalize",
     skip_all,
     fields(pid = process.child.id())
 )]
-async fn kill_and_finalize(process: &mut ProcessState) -> KillOutcome {
+async fn kill_and_finalize(process: &mut ProcessState, source: KillSource) -> KillOutcome {
     // Reaped between the caller's check and here (race with poll_process).
     if process.lifecycle.has_exited() {
         return KillOutcome::AlreadyExited;
     }
 
+    let synthetic = synthetic_kill_signal(source);
     match process.child.try_wait() {
         Ok(Some(status)) => {
             drain_remaining_output(process).await;
-            finalize_process(process, Some(status)).await;
+            finalize_process(process, Some(status), synthetic).await;
             return KillOutcome::AlreadyExited;
         }
         Err(_) => {
             drain_remaining_output(process).await;
-            finalize_process(process, None).await;
+            finalize_process(process, None, synthetic).await;
             return KillOutcome::AlreadyExited;
         }
         Ok(None) => {}
@@ -3320,13 +3330,18 @@ async fn kill_and_finalize(process: &mut ProcessState) -> KillOutcome {
         handle.abort();
     }
 
-    finalize_process(process, None).await;
+    finalize_process(process, None, synthetic).await;
     KillOutcome::Killed
 }
 
 /// Callers read the remaining output first. A process that could not be
 /// collected stays unsettled, so the poll loop keeps trying.
-async fn finalize_process(process: &mut ProcessState, status: Option<std::process::ExitStatus>) {
+/// `synthetic_signal` is the label when this kill did not observe a real exit status.
+async fn finalize_process(
+    process: &mut ProcessState,
+    status: Option<std::process::ExitStatus>,
+    synthetic_signal: &'static str,
+) {
     if process.lifecycle.has_exited() {
         return;
     }
@@ -3335,7 +3350,7 @@ async fn finalize_process(process: &mut ProcessState, status: Option<std::proces
         Some(s) => extract_exit_status(s),
         None => ExitStatus {
             exit_code: None,
-            signal: Some("killed".to_owned()),
+            signal: Some(synthetic_signal.to_owned()),
         },
     });
     if process.end_wall_time.is_none() {
@@ -6248,6 +6263,40 @@ mod tests {
         assert!(
             snap.kill_result_delivered && snap.is_auto_wake_suppressed(),
             "global teardown must suppress auto-wake"
+        );
+    }
+
+    #[tokio::test]
+    async fn session_teardown_marks_running_background_tasks_cancelled() {
+        let backend = LocalTerminalBackend::new();
+        let mut quitting = make_request("sleep 60");
+        quitting.tool_call_id = "quit-bg".into();
+        let quitting = backend.run_background(quitting).await.expect("spawn");
+
+        backend.kill_all_background_tasks().await;
+        let snap = backend
+            .get_task(&quitting.task_id)
+            .await
+            .expect("task interrupted by session teardown");
+        assert!(snap.completed && snap.explicitly_killed);
+        assert_eq!(
+            snap.signal.as_deref(),
+            Some(CANCELLED_SIGNAL),
+            "a session quit must record the task as cancelled, not killed"
+        );
+
+        let mut stopped = make_request("sleep 60");
+        stopped.tool_call_id = "user-stop".into();
+        let stopped = backend.run_background(stopped).await.expect("spawn");
+        assert_eq!(
+            backend.kill_task(&stopped.task_id).await,
+            KillOutcome::Killed
+        );
+        let snap = backend.get_task(&stopped.task_id).await.expect("user kill");
+        assert_eq!(
+            snap.signal.as_deref(),
+            Some("killed"),
+            "a single-task stop stays killed"
         );
     }
 
