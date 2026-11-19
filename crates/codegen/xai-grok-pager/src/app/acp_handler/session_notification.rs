@@ -527,6 +527,7 @@ pub(super) fn handle_session_notification_with_origin(
             parent_prompt_id,
             parent_session_id,
             workflow_run_id,
+            agent_address,
             ..
         } => {
             tracing::info!(
@@ -743,9 +744,14 @@ pub(super) fn handle_session_notification_with_origin(
                     .registry()
                     .restricted_commands();
                 child_view.set_restricted_commands(&restricted);
-                let link = crate::app::agent_view::ChildLink::unaddressable(acp::SessionId::new(
-                    parent_session_id,
-                ));
+                let parent_sid = acp::SessionId::new(parent_session_id);
+                let link = match agent_address.as_deref().map(str::trim).filter(|s| !s.is_empty())
+                {
+                    Some(address) => {
+                        crate::app::agent_view::ChildLink::addressable(parent_sid, address)
+                    }
+                    None => crate::app::agent_view::ChildLink::unaddressable(parent_sid),
+                };
                 agent.insert_subagent_view(child_session_id.clone(), Box::new(child_view), link);
             }
             if workflow_run_id.is_none() {

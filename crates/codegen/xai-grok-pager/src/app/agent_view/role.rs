@@ -2,6 +2,7 @@
 //! The role is set once, by [`AgentView::insert_subagent_view`]; every child-specific read site
 //! derives its answer from it here instead of keeping a second flag that could drift.
 
+use crate::app::actions::Action;
 use crate::app::agent_view::AgentView;
 use agent_client_protocol as acp;
 
@@ -28,8 +29,28 @@ impl ChildLink {
         }
     }
 
+    /// A live child the parent can send a note to. The address is the opaque `agentAddress`.
+    pub(crate) fn addressable(
+        parent_session_id: acp::SessionId,
+        agent_address: impl Into<String>,
+    ) -> Self {
+        Self {
+            parent_session_id,
+            messaging: ChildMessaging::Addressable {
+                agent_address: agent_address.into(),
+            },
+        }
+    }
+
     pub(crate) fn parent_session_id(&self) -> &acp::SessionId {
         &self.parent_session_id
+    }
+
+    pub(crate) fn agent_address(&self) -> Option<&str> {
+        match &self.messaging {
+            ChildMessaging::Addressable { agent_address } => Some(agent_address.as_str()),
+            ChildMessaging::Unaddressable => None,
+        }
     }
 }
 
@@ -37,6 +58,7 @@ impl ChildLink {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ChildMessaging {
     Unaddressable,
+    Addressable { agent_address: String },
 }
 
 /// Which chrome the view paints: its own session's, or the framed takeover a parent draws around a child.
@@ -50,6 +72,8 @@ pub(crate) enum ViewSurface {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ComposerRoute {
     RootSession,
+    /// A note to an addressable subagent. Slash-like text is the note, not a pager command.
+    Note,
     /// No route exists, so the composer gets zero rows and can't take focus.
     Hidden,
 }
@@ -70,13 +94,30 @@ impl AgentView {
         }
     }
 
+    /// A note from this view. `None` unless the composer is the subagent note box.
+    /// The text is kept whole, including a leading slash.
+    pub(crate) fn subagent_note_action(&self, text: &str) -> Option<Action> {
+        if self.composer_route() != ComposerRoute::Note {
+            return None;
+        }
+        let link = self.child_link()?;
+        let agent_address = link.agent_address()?.to_owned();
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        Some(Action::SendSubagentNote {
+            parent_session_id: link.parent_session_id().clone(),
+            agent_address,
+            text: text.to_owned(),
+        })
+    }
+
     pub(crate) fn composer_route(&self) -> ComposerRoute {
         match &self.role {
             AgentRole::Root => ComposerRoute::RootSession,
-            AgentRole::Child(ChildLink {
-                messaging: ChildMessaging::Unaddressable,
-                ..
-            }) => ComposerRoute::Hidden,
+            AgentRole::Child(link) if link.agent_address().is_some() => ComposerRoute::Note,
+            AgentRole::Child(_) => ComposerRoute::Hidden,
         }
     }
 }

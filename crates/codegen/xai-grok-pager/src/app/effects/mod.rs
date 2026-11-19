@@ -120,6 +120,26 @@ async fn create_session_in_backend_rpc(
     stamp_span_traceparent(&mut meta, rpc_span.span());
     helpers::acp_send_bounded(request.meta(meta), tx, action).await
 }
+/// `None` when the shell accepted the note. Any other outcome is a short refusal.
+fn subagent_note_refusal(body: &str) -> Option<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return Some("Could not send the note".to_owned());
+    };
+    let kind = value
+        .pointer("/result/kind")
+        .or_else(|| value.get("kind"))
+        .and_then(|kind| kind.as_str())
+        .unwrap_or("");
+    if kind == "accepted" {
+        return None;
+    }
+    if kind.is_empty() {
+        Some("Could not send the note".to_owned())
+    } else {
+        Some(format!("Could not send the note ({kind})"))
+    }
+}
+
 pub(crate) fn execute(
     effect: Effect,
     tasks: &mut JoinSet<TaskResult>,
@@ -1790,6 +1810,31 @@ pub(crate) fn execute(
                     Err(error) => Err(error.to_string()),
                 };
                 TaskResult::ModelsRefreshed { result }
+            });
+        }
+        Effect::SendSubagentMessage {
+            session_id,
+            agent_address,
+            text,
+        } => {
+            let tx = acp_tx.clone();
+            tasks.spawn(async move {
+                let params = serde_json::json!({
+                    "sessionId": session_id.0.to_string(),
+                    "agentAddress": agent_address,
+                    "content": [{ "type": "text", "text": text }],
+                });
+                let req = acp::ExtRequest::new(
+                    "x.ai/subagent/message",
+                    serde_json::value::to_raw_value(&params)
+                        .expect("serialize subagent message")
+                        .into(),
+                );
+                let detail = match acp_send(req, &tx).await {
+                    Ok(response) => subagent_note_refusal(response.0.get()),
+                    Err(error) => Some(error.to_string()),
+                };
+                TaskResult::SubagentNoteSent { detail }
             });
         }
         Effect::Compact { agent_id, session_id } => {

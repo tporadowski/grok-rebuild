@@ -960,6 +960,12 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             tracing::trace!("Cancel notification sent successfully");
             vec![]
         }
+        TaskResult::SubagentNoteSent { detail } => {
+            if let Some(detail) = detail.as_deref().filter(|detail| !detail.is_empty()) {
+                app.show_toast(detail);
+            }
+            vec![]
+        }
         TaskResult::SetSessionModeFailed { session_id } => {
             if let Some(agent) = find_agent_by_session_id(&mut app.agents, session_id.0.as_ref()) {
                 agent.plan_mode_pending = None;

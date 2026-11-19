@@ -75,6 +75,44 @@ fn child_unaddressable_hides_composer_and_refuses_prompt_pane() {
             .active_pane
     );
 }
+/// An addressable subagent view sends a slash-like note as text. The same text on the root is a command.
+#[test]
+fn addressable_child_sends_slash_like_note_as_text() {
+    use crate::app::actions::Action;
+    use crate::app::agent_view::{ChildLink, ComposerRoute};
+    use crate::app::app_view::InputOutcome;
+    let registry = ActionRegistry::defaults();
+    let mut parent = make_agent();
+    parent.insert_subagent_view(
+        "child".into(),
+        Box::new(make_agent()),
+        ChildLink::addressable(agent_client_protocol::SessionId::new("parent-sess"), "opaque-addr"),
+    );
+    parent.open_subagent_fullscreen("child".into());
+    {
+        let child = parent.subagent_view_mut("child").expect("child");
+        assert_eq!(ComposerRoute::Note, child.composer_route());
+        assert!(child.set_active_pane(AgentPane::Prompt, false));
+        child.prompt.set_text("/compact focus on auth");
+    }
+    let outcome = parent.handle_input(
+        &Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+        &registry,
+    );
+    match outcome {
+        InputOutcome::Action(Action::SendSubagentNote {
+            parent_session_id,
+            agent_address,
+            text,
+        }) => {
+            assert_eq!(parent_session_id.0.as_ref(), "parent-sess");
+            assert_eq!(agent_address, "opaque-addr");
+            assert_eq!(text, "/compact focus on auth");
+        }
+        other => panic!("slash-like note must be sent as text, got {other:?}"),
+    }
+}
+
 /// A child's bg-task kill would be sent on the root session, so the child surface never advertises `x kill`; the root keeps it.
 #[test]
 fn child_surface_never_advertises_kill() {

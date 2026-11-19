@@ -152,7 +152,11 @@ impl AgentView {
         // Completion changes text only; it does NOT execute commands
         // This flag bypasses the multiline-mode swap of Enter to newline so the command is actually sent
         let mut slash_accepted_send = false;
-        if key.code == KeyCode::Enter
+        // A subagent note is literal text. A leading `/` must not open the command menu or run a pager command.
+        if self.composer_route() == super::ComposerRoute::Note {
+            self.prompt.slash_close();
+        }
+        if self.composer_route() != super::ComposerRoute::Note && key.code == KeyCode::Enter
             && key.modifiers.is_empty()
             && !self.prompt.slash_open()
             && crate::slash::is_command_complete(
@@ -162,7 +166,10 @@ impl AgentView {
         {
             slash_accepted_send = true;
         }
-        if self.prompt.slash_open() && !self.prompt.file_search_visible() {
+        if self.composer_route() != super::ComposerRoute::Note
+            && self.prompt.slash_open()
+            && !self.prompt.file_search_visible()
+        {
             if prompt_paging && registry.matches_id(ActionId::PageUp, key) {
                 self.prompt
                     .slash_scroll_selection(-(crate::slash::MAX_VISIBLE_SUGGESTIONS as isize));
@@ -553,6 +560,10 @@ impl AgentView {
                         return InputOutcome::Changed;
                     }
                     if let Some(text) = self.prompt.try_send() {
+                        if let Some(note) = self.subagent_note_action(&text) {
+                            self.prompt_input_mode = PromptInputMode::Normal;
+                            return InputOutcome::Action(note);
+                        }
                         // Remember mode with slash_accepted_send: treat as normal SendPrompt (the slash path accepted a no-arg command)
                         let action_mode = if self.prompt_input_mode == PromptInputMode::Remember
                             && slash_accepted_send

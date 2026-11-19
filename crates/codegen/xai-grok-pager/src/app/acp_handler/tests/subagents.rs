@@ -117,6 +117,43 @@
         }
     }
 
+    /// A live `agentAddress` opens the note composer. A slash-like note is text for that child.
+    #[test]
+    fn spawn_address_makes_slash_like_note_sendable() {
+        use crate::app::agent_view::ComposerRoute;
+        let mut app = make_app_with_agent("sess-1");
+        let mut spawned = test_subagent_spawned("sess-1", "child-1");
+        let XaiSessionUpdate::SubagentSpawned { agent_address, .. } = &mut spawned else {
+            unreachable!();
+        };
+        *agent_address = Some("opaque-addr".into());
+        assert!(handle(
+            make_ext_session_notification("sess-1", spawned),
+            &mut app,
+        ));
+        let child = app
+            .agents
+            .get(&AgentId(0))
+            .expect("root")
+            .subagent_view("child-1")
+            .expect("child");
+        assert_eq!(ComposerRoute::Note, child.composer_route());
+        let note = child
+            .subagent_note_action("/nope look at the other file")
+            .expect("note");
+        match note {
+            crate::app::actions::Action::SendSubagentNote {
+                agent_address,
+                text,
+                ..
+            } => {
+                assert_eq!(agent_address, "opaque-addr");
+                assert_eq!(text, "/nope look at the other file");
+            }
+            other => panic!("expected a note, got {other:?}"),
+        }
+    }
+
     /// The spawn arm links the child to the wire's parent session; nothing on the wire makes it addressable.
     #[test]
     fn spawn_links_child_to_wire_parent_session() {

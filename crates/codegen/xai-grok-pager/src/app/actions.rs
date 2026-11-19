@@ -158,6 +158,12 @@ pub enum Action {
     },
     /// Send the current prompt text to the agent.
     SendPrompt(String),
+    /// A note typed in an addressable subagent view. The text is literal, including a leading `/`.
+    SendSubagentNote {
+        parent_session_id: acp::SessionId,
+        agent_address: String,
+        text: String,
+    },
     /// Post-turn plan revise: send notes without consuming the pre-review draft.
     /// [`Self::SendPrompt`] would wipe that draft and drain its images into the
     /// revision turn.
@@ -1441,6 +1447,12 @@ pub enum AfterSessionDelete {
 pub enum Effect {
     /// Run a `command` status line.
     RunStatusLineCommand(StatusLineRun),
+    /// Queue a literal note to an owned subagent (`x.ai/subagent/message`).
+    SendSubagentMessage {
+        session_id: acp::SessionId,
+        agent_address: String,
+        text: String,
+    },
     /// Create a new ACP session.
     CreateSession {
         agent_id: AgentId,
@@ -2700,6 +2712,8 @@ pub enum TaskResult {
     ModelsRefreshed {
         result: Result<usize, String>,
     },
+    /// `x.ai/subagent/message` finished. `detail` is set when the note was not accepted.
+    SubagentNoteSent { detail: Option<String> },
     /// Manual `/compact` command completed.
     CompactComplete {
         agent_id: AgentId,

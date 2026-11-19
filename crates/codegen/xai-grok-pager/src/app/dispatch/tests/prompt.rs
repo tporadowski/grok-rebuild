@@ -801,6 +801,32 @@ fn focus_prompt_switches_pane() {
 
 /// `FocusPrompt` resolves to the child under a takeover, whose hidden composer refuses the pane; the root keeps its focus too.
 #[test]
+fn dispatch_slash_like_note_is_a_subagent_message() {
+    let mut app = test_app_with_agent();
+    let effects = dispatch(
+        Action::SendSubagentNote {
+            parent_session_id: acp::SessionId::new("parent-sess"),
+            agent_address: "opaque-addr".into(),
+            text: "/compact focus on auth".into(),
+        },
+        &mut app,
+    );
+    assert_eq!(effects.len(), 1);
+    match effects.first() {
+        Some(Effect::SendSubagentMessage {
+            session_id,
+            agent_address,
+            text,
+        }) => {
+            assert_eq!(session_id.0.as_ref(), "parent-sess");
+            assert_eq!(agent_address, "opaque-addr");
+            assert_eq!(text, "/compact focus on auth");
+        }
+        other => panic!("the note must stay literal text, got {other:?}"),
+    }
+}
+
+#[test]
 fn focus_prompt_under_takeover_is_refused_on_the_child() {
     let mut app = test_app_with_agent();
     let parent_id = AgentId(0);
