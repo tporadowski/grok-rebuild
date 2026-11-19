@@ -1800,6 +1800,39 @@ impl AgentView {
                 InputOutcome::Action(Action::ExecutePluginsAction(plugins_action))
             }
             ButtonAction::McpAuthTrigger => {
+                // Hosted connectors re-authenticate only after `y`, so `i` cannot open a fresh
+                // permission grant by itself. Resolved before the mutable borrow below.
+                let hosted_reauth = self.extensions_modal.as_ref().and_then(|state| {
+                    let TabDataState::Loaded(ref servers) = state.mcps_data else {
+                        return None;
+                    };
+                    let idx = state.selected_data_index()?;
+                    let server = servers.get(idx)?;
+                    if server.setup_required {
+                        return None;
+                    }
+                    if crate::views::mcps_modal::section_for(server)
+                        != crate::views::mcps_modal::McpSectionId::Managed
+                    {
+                        return None;
+                    }
+                    let label = server
+                        .display_name
+                        .as_deref()
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or(server.name.as_str())
+                        .to_string();
+                    Some((server.name.clone(), server.is_managed_gateway, label))
+                });
+                if let Some((server_name, open_connectors, label)) = hosted_reauth {
+                    return self.prompt_extensions_confirm(
+                        format!("Re-authenticate \"{label}\" and choose fresh permissions?"),
+                        crate::views::extensions_modal::ConfirmationAction::ReauthHostedConnector {
+                            server_name,
+                            open_connectors,
+                        },
+                    );
+                }
                 if let Some(ref mut state) = self.extensions_modal {
                     state.modal_message = None;
                     // `selected_data_index()` resolves to the parent server for both server and tool rows
@@ -1809,9 +1842,6 @@ impl AgentView {
                         && let Some(idx) = state.selected_data_index()
                         && let Some(server) = servers.get(idx)
                     {
-                        if server.is_managed_gateway {
-                            return InputOutcome::Action(Action::OpenManagedConnectors);
-                        }
                         if server.setup_required
                             && let Some(form) =
                                 crate::views::extensions_modal::McpSetupFormState::new(server)
@@ -2407,6 +2437,19 @@ impl AgentView {
                     s.pending_action = Some("Removing\u{2026}".into());
                 }
                 InputOutcome::Action(Action::DeleteMcpServer { server_name })
+            }
+            ConfirmationAction::ReauthHostedConnector {
+                server_name,
+                open_connectors,
+            } => {
+                if open_connectors {
+                    InputOutcome::Action(Action::OpenManagedConnectors)
+                } else {
+                    if let Some(ref mut s) = self.extensions_modal {
+                        s.pending_action = Some("Authenticating\u{2026}".into());
+                    }
+                    InputOutcome::Action(Action::McpAuthTrigger { server_name })
+                }
             }
         };
         // Low-level arms stamp picker_state.selected; overwrite with the row captured when the prompt opened
@@ -4683,6 +4726,135 @@ mod extensions_modal_confirmation_tests {
         assert_eq!(state.pending_action.as_deref(), Some("Removing\u{2026}"));
         assert_eq!(state.pending_entry_index, Some(0));
         assert!(state.modal_message.is_none());
+    }
+
+    fn mcp_rows(servers: Vec<crate::views::mcps_modal::McpServerInfo>) -> ExtensionsModalState {
+        let n = servers.len();
+        let mut modal = ExtensionsModalState::new(ExtensionsTab::McpServers);
+        modal.mcps_data = TabDataState::Loaded(servers);
+        modal.entry_data_indices = (0..n).map(Some).collect();
+        modal.entry_group_keys = vec![None; n];
+        modal.picker_state.selected = 0;
+        modal
+    }
+
+    /// `i` on a hosted connector asks before opening the permission grant. `y` uses the
+    /// connector captured when the prompt opened, even after the selection moves.
+    #[test]
+    fn mcp_reauth_hosted_i_then_y_chooses_fresh_permissions() {
+        let mut gateway = server_info(
+            "managed_gateway:linear",
+            crate::views::mcps_modal::McpWireSource::Managed,
+        );
+        gateway.is_managed_gateway = true;
+        gateway.display_name = Some("Linear".into());
+        gateway.source = "managed".into();
+        let local = server_info("alpha", crate::views::mcps_modal::McpWireSource::Local);
+
+        let mut agent = super::test_fixtures::make_agent();
+        agent.extensions_modal = Some(mcp_rows(vec![gateway, local]));
+
+        assert_no_action(agent.execute_modal_button_action(ButtonAction::McpAuthTrigger));
+        assert_prompt(
+            agent.extensions_modal.as_ref().unwrap(),
+            "Re-authenticate \"Linear\" and choose fresh permissions?",
+            &ConfirmationAction::ReauthHostedConnector {
+                server_name: "managed_gateway:linear".into(),
+                open_connectors: true,
+            },
+            0,
+        );
+
+        agent
+            .extensions_modal
+            .as_mut()
+            .unwrap()
+            .picker_state
+            .selected = 1;
+        match agent.handle_extensions_modal_key(&key(KeyCode::Char('y'))) {
+            InputOutcome::Action(Action::OpenManagedConnectors) => {}
+            other => panic!("expected OpenManagedConnectors, got {other:?}"),
+        }
+        let state = agent.extensions_modal.as_ref().unwrap();
+        assert!(state.modal_message.is_none());
+        assert!(state.pending_action.is_none());
+        assert_eq!(state.pending_entry_index, Some(0));
+    }
+
+    #[test]
+    fn mcp_reauth_hosted_oauth_y_starts_the_captured_server() {
+        let mut hosted = server_info("slack", crate::views::mcps_modal::McpWireSource::Managed);
+        hosted.source = "managed".into();
+        let local = server_info("alpha", crate::views::mcps_modal::McpWireSource::Local);
+
+        let mut agent = super::test_fixtures::make_agent();
+        agent.extensions_modal = Some(mcp_rows(vec![hosted, local]));
+
+        assert_no_action(agent.execute_modal_button_action(ButtonAction::McpAuthTrigger));
+        agent
+            .extensions_modal
+            .as_mut()
+            .unwrap()
+            .picker_state
+            .selected = 1;
+
+        match agent.handle_extensions_modal_key(&key(KeyCode::Char('y'))) {
+            InputOutcome::Action(Action::McpAuthTrigger { server_name }) => {
+                assert_eq!(server_name, "slack");
+            }
+            other => panic!("expected McpAuthTrigger slack, got {other:?}"),
+        }
+        let state = agent.extensions_modal.as_ref().unwrap();
+        assert_eq!(
+            state.pending_action.as_deref(),
+            Some("Authenticating\u{2026}")
+        );
+        assert_eq!(state.pending_entry_index, Some(0));
+        assert!(state.modal_message.is_none());
+    }
+
+    #[test]
+    fn mcp_reauth_hosted_other_key_cancels_without_opening_permissions() {
+        let mut gateway = server_info(
+            "managed_gateway:linear",
+            crate::views::mcps_modal::McpWireSource::Managed,
+        );
+        gateway.is_managed_gateway = true;
+        gateway.display_name = Some("Linear".into());
+
+        let mut agent = super::test_fixtures::make_agent();
+        agent.extensions_modal = Some(mcp_rows(vec![gateway]));
+        assert_no_action(agent.execute_modal_button_action(ButtonAction::McpAuthTrigger));
+
+        match agent.handle_extensions_modal_key(&key(KeyCode::Char('n'))) {
+            InputOutcome::Changed => {}
+            other => panic!("expected Changed, got {other:?}"),
+        }
+        let state = agent.extensions_modal.as_ref().unwrap();
+        assert!(state.modal_message.is_none());
+        assert!(state.pending_action.is_none());
+    }
+
+    #[test]
+    fn mcp_reauth_local_i_starts_auth_immediately() {
+        let mut agent = super::test_fixtures::make_agent();
+        agent.extensions_modal = Some(mcp_rows(vec![server_info(
+            "alpha",
+            crate::views::mcps_modal::McpWireSource::Local,
+        )]));
+
+        match agent.execute_modal_button_action(ButtonAction::McpAuthTrigger) {
+            InputOutcome::Action(Action::McpAuthTrigger { server_name }) => {
+                assert_eq!(server_name, "alpha");
+            }
+            other => panic!("expected immediate McpAuthTrigger, got {other:?}"),
+        }
+        let state = agent.extensions_modal.as_ref().unwrap();
+        assert!(state.modal_message.is_none());
+        assert_eq!(
+            state.pending_action.as_deref(),
+            Some("Authenticating\u{2026}")
+        );
     }
 
     #[test]

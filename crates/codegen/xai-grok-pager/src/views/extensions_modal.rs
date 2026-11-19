@@ -1126,6 +1126,13 @@ pub enum ConfirmationAction {
     Marketplace(xai_hooks_plugins_types::MarketplaceAction),
     /// Delete a removable (local) MCP server by name.
     DeleteMcpServer { server_name: String },
+    /// Re-authenticate a hosted connector. A gateway row opens grok.com, where
+    /// the fresh permission grant is chosen. Any other hosted row starts OAuth
+    /// for `server_name`, the server selected when `i` opened the prompt.
+    ReauthHostedConnector {
+        server_name: String,
+        open_connectors: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
