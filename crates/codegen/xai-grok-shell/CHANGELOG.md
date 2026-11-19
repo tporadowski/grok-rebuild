@@ -1,5 +1,24 @@
 # Changelog
 
+# 1.0.91 — 2026-11-19
+
+## Features
+
+- **Arrow keys** on the welcome screen now move through the menu directly from the prompt.
+- **Ctrl+F or /fork** now offers to fork a session that another Grok window has open.
+- **--system-prompt-file <path>** lets you load a system prompt override from a file.
+- **-p** now accepts flags after it and joins any extra words into the prompt; bare -p reads from stdin.
+- **Ctrl+[ and Ctrl+]** now switch between all open sessions, including fresh ones that have no typed content yet.
+
+## Bug Fixes
+
+- **Headless JSON errors** now preserve any reply text already printed before failure.
+- **Hooks list** now shows each hook's timeout and command on collapsed rows.
+- **Mouse wheel** in Konsole now scrolls three lines per notch, as in Konsole itself.
+- **Direct MCP tool calls** now truncate oversized results and spill them to files.
+- **Fork offers** for sessions held by another window now appear as a notice instead of a turn-failed error.
+
+
 # 1.0.90 — 2026-11-18
 
 ## Features
