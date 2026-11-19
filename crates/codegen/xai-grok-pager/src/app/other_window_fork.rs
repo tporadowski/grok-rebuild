@@ -48,6 +48,16 @@ pub(crate) fn offer_fork_instead_of_load(
     true
 }
 
+/// A fork that could not copy a session another window holds is a notice, not a failed turn.
+pub(crate) fn other_window_fork_failure_notice(error: &str) -> Option<&'static str> {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("another window") || lower.contains("another grok") {
+        Some(OTHER_WINDOW_FORK_NOTICE)
+    } else {
+        None
+    }
+}
+
 pub(crate) fn held_rows(session_id: &str) -> Vec<ActiveSession> {
     xai_grok_active_sessions::list_in(&xai_grok_config::grok_home())
         .unwrap_or_default()

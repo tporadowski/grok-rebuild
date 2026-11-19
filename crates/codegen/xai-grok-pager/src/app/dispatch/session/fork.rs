@@ -548,12 +548,18 @@ pub(in crate::app::dispatch) fn handle_fork_session_failed(
         agent.mark_turn_finished(TurnEnd::Aborted);
         agent.pending_first_prompt = None;
         agent.pending_fork_banner = None;
-        agent
-            .scrollback
-            .push_block(RenderBlock::session_event(SessionEvent::TurnFailed {
-                error,
-                elapsed,
-            }));
+        if let Some(notice) =
+            crate::app::other_window_fork::other_window_fork_failure_notice(&error)
+        {
+            agent.scrollback.push_block(RenderBlock::system(notice));
+        } else {
+            agent
+                .scrollback
+                .push_block(RenderBlock::session_event(SessionEvent::TurnFailed {
+                    error,
+                    elapsed,
+                }));
+        }
     }
     vec![]
 }

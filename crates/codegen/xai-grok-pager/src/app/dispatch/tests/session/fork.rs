@@ -1888,3 +1888,39 @@ fn ctrl_f_or_fork_offers_to_fork_a_session_another_window_holds() {
         "the fork offer is a notice, not a turn-failed error"
     );
 }
+
+#[test]
+fn fork_failure_for_another_window_is_a_notice() {
+    use crate::app::other_window_fork::OTHER_WINDOW_FORK_NOTICE;
+    use crate::scrollback::block::RenderBlock;
+    use crate::scrollback::blocks::SessionEvent;
+
+    let mut app = fork_test_app();
+    let effects = super::super::super::session::fork::handle_fork_session_failed(
+        &mut app,
+        AgentId(0),
+        "session is open in another window".into(),
+    );
+    assert!(effects.is_empty());
+    let agent = app.agents.get(&AgentId(0)).expect("agent");
+    match &agent.scrollback.last().expect("notice").block {
+        RenderBlock::System(message) => assert_eq!(message.text, OTHER_WINDOW_FORK_NOTICE),
+        other => panic!("expected a notice, got {other:?}"),
+    }
+
+    let mut plain = fork_test_app();
+    let _ = super::super::super::session::fork::handle_fork_session_failed(
+        &mut plain,
+        AgentId(0),
+        "disk full".into(),
+    );
+    let agent = plain.agents.get(&AgentId(0)).expect("agent");
+    assert!(
+        matches!(
+            &agent.scrollback.last().expect("failure").block,
+            RenderBlock::SessionEvent(event)
+                if matches!(event.event, SessionEvent::TurnFailed { .. })
+        ),
+        "an ordinary fork failure stays a turn-failed row"
+    );
+}
