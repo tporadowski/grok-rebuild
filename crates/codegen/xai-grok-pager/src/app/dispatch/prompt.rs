@@ -2087,6 +2087,38 @@ pub(super) fn handle_memory_command_complete(
     drain.effects
 }
 
+/// A prompt the user sent while `/compact` was running is already in the transcript.
+/// The outcome belongs above that prompt, with the compaction it finishes.
+fn push_compact_outcome(agent: &mut AgentView, event: SessionEvent) {
+    let block = RenderBlock::session_event(event);
+    if let Some(anchor) = first_prompt_after_compact_start(&agent.scrollback) {
+        agent.scrollback.insert_block_before(anchor, block);
+    } else {
+        agent.scrollback.push_block(block);
+    }
+}
+
+fn first_prompt_after_compact_start(
+    scrollback: &crate::scrollback::state::ScrollbackState,
+) -> Option<crate::scrollback::EntryId> {
+    let mut seen_start = false;
+    for index in 0..scrollback.len() {
+        let Some(entry) = scrollback.entry(index) else {
+            continue;
+        };
+        match &entry.block {
+            RenderBlock::SessionEvent(event)
+                if matches!(event.event, SessionEvent::CompactStarted) =>
+            {
+                seen_start = true;
+            }
+            RenderBlock::UserPrompt(_) if seen_start => return Some(entry.id),
+            _ => {}
+        }
+    }
+    None
+}
+
 pub(super) fn handle_compact_complete(
     app: &mut AppView,
     agent_id: AgentId,
@@ -2118,26 +2150,26 @@ pub(super) fn handle_compact_complete(
 
         match &result {
             Ok(()) => {
-                agent.scrollback.push_block(RenderBlock::session_event(
+                push_compact_outcome(
+                    agent,
                     SessionEvent::CompactCompleted {
                         elapsed: elapsed.unwrap_or_default(),
                     },
-                ));
+                );
             }
             // Typed kind with old-shell text fallback, per `compact_error`.
             Err(err) if was_cancelling || err.cancelled => {
-                agent.scrollback.push_block(RenderBlock::session_event(
-                    SessionEvent::CompactionCancelled,
-                ));
+                push_compact_outcome(agent, SessionEvent::CompactionCancelled);
             }
             Err(err) => {
                 tracing::error!(agent = ?agent_id, error = %err.message, "Compaction failed");
                 // The message is already sanitized and capped by the effect layer
-                agent.scrollback.push_block(RenderBlock::session_event(
+                push_compact_outcome(
+                    agent,
                     SessionEvent::CompactionFailed {
                         error: err.message.clone(),
                     },
-                ));
+                );
             }
         }
 

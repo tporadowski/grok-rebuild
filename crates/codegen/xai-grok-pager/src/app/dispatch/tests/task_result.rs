@@ -3891,6 +3891,61 @@ fn compact_complete_renders_one_failure_line_per_completion() {
     );
 }
 
+#[test]
+fn compact_outcome_lands_before_a_prompt_typed_during_compaction() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent
+            .session
+            .start_command(crate::app::agent::AgentCommand::Compact);
+        agent
+            .scrollback
+            .push_block(RenderBlock::user_prompt("earlier question"));
+        agent
+            .scrollback
+            .push_block(RenderBlock::session_event(SessionEvent::CompactStarted));
+        agent
+            .scrollback
+            .push_block(RenderBlock::user_prompt("look at the other file"));
+    }
+    dispatch_task_result(
+        TaskResult::CompactComplete {
+            agent_id: id,
+            result: Ok(()),
+        },
+        &mut app,
+    );
+    let agent = &expect_agent(&app, id);
+    let labels: Vec<&str> = (0..agent.scrollback.len())
+        .map(|index| match agent.scrollback.entry(index).map(|entry| &entry.block) {
+            Some(RenderBlock::UserPrompt(prompt)) if prompt.text == "earlier question" => {
+                "earlier"
+            }
+            Some(RenderBlock::SessionEvent(event))
+                if matches!(event.event, SessionEvent::CompactStarted) =>
+            {
+                "started"
+            }
+            Some(RenderBlock::SessionEvent(event))
+                if matches!(event.event, SessionEvent::CompactCompleted { .. }) =>
+            {
+                "outcome"
+            }
+            Some(RenderBlock::UserPrompt(prompt)) if prompt.text == "look at the other file" => {
+                "typed"
+            }
+            other => panic!("unexpected row {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        ["earlier", "started", "outcome", "typed"],
+        "the /compact outcome sits before a prompt typed while it ran"
+    );
+}
+
 fn skills_listed(
     session: &str,
     fetch: u64,
