@@ -47,6 +47,7 @@ fn resolve_write_deny(profile: &ProfileName) -> anyhow::Result<Vec<GlobalHookSou
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProfileConfig {
     #[serde(default)]
     pub extends: Option<String>,
@@ -61,6 +62,7 @@ pub struct ProfileConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct SandboxConfig {
     #[serde(default)]
     pub profiles: HashMap<String, ProfileConfig>,
