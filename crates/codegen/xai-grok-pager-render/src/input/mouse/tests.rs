@@ -13,6 +13,22 @@ fn make_config(events_per_tick: u16, mode: ScrollInputMode) -> ScrollConfig {
     )
 }
 
+/// Konsole sends one wheel event per notch and moves three lines, the same as Konsole itself.
+#[test]
+fn konsole_wheel_notch_scrolls_three_lines() {
+    let config = ScrollConfig::from_terminal(TerminalName::Konsole, ScrollConfigOverrides::default());
+    assert_eq!(config.events_per_tick, 1);
+    assert_eq!(config.wheel_lines_per_tick, 3);
+    let base = Instant::now();
+    let mut state = MouseScrollState::new_at(base);
+    let update = state.on_scroll_event_at(
+        base + Duration::from_millis(20),
+        ScrollDirection::Down,
+        config,
+    );
+    assert_eq!(update.lines, 3);
+}
+
 fn make_vscode_config() -> ScrollConfig {
     ScrollConfig::from_terminal(TerminalName::VsCode, ScrollConfigOverrides::default())
 }

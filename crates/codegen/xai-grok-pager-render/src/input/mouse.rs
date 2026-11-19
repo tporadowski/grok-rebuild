@@ -295,7 +295,7 @@ impl ScrollConfig {
                 TerminalName::WezTerm => 1,
                 TerminalName::Alacritty | TerminalName::Rio | TerminalName::Foot => 3,
                 TerminalName::Ghostty => 3,
-                TerminalName::Iterm2 => 1,
+                TerminalName::Iterm2 | TerminalName::Konsole => 1,
                 TerminalName::VsCode
                 | TerminalName::Cursor
                 | TerminalName::Windsurf

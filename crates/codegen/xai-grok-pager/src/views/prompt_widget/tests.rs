@@ -328,6 +328,7 @@
                 | TerminalName::Terminator
                 | TerminalName::WindowsTerminal
                 | TerminalName::Otty
+                | TerminalName::Konsole
                 | TerminalName::Unknown => false,
             };
             assert_eq!(

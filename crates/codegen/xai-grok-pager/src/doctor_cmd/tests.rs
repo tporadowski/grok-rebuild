@@ -844,6 +844,7 @@ fn stable_mapping_tables_are_complete() {
             TerminalName::WindowsTerminal,
             TerminalName::Otty,
             TerminalName::Rex,
+            TerminalName::Konsole,
             TerminalName::Unknown,
         ]
         .map(terminal_name),
@@ -868,6 +869,7 @@ fn stable_mapping_tables_are_complete() {
             "windows_terminal",
             "otty",
             "rex",
+            "konsole",
             "unknown",
         ]
     );

@@ -111,6 +111,7 @@ fn macos_capabilities(brand: TerminalName) -> KeyboardCapabilities {
         TerminalName::WindowsTerminal
         | TerminalName::Otty
         | TerminalName::Rex
+        | TerminalName::Konsole
         | TerminalName::Unknown => {
             (Unknown, Unknown, Unknown)
         }

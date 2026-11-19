@@ -111,6 +111,9 @@ pub enum TerminalName {
     Otty,
     /// Rex (Superlogical). Sets `REX_SESSION` in every terminal and uses `TERM=xterm-rex`.
     Rex,
+    /// KDE Konsole. Sets `KONSOLE_VERSION`. One wheel event is one notch, and Konsole itself moves three lines.
+    #[strum(to_string = "Konsole")]
+    Konsole,
     #[default]
     Unknown,
 }
@@ -140,7 +143,7 @@ impl TerminalName {
     /// Brands whose capabilities are not positively classified.
     /// They share [`Self::Unknown`]'s fail-closed posture (no KKP probe, conservative hyperlinks/notifications/focus, etc.).
     pub fn is_capability_unclassified(self) -> bool {
-        matches!(self, Self::Unknown | Self::Otty | Self::Rex)
+        matches!(self, Self::Unknown | Self::Otty | Self::Rex | Self::Konsole)
     }
 
     /// Host applies OSC 52 writes to the system pasteboard (fail closed).
@@ -182,7 +185,12 @@ impl TerminalName {
             | Self::Vte
             | Self::Terminator
             | Self::WindowsTerminal => WidthShrink::Rewraps,
-            Self::WarpTerminal | Self::JetBrains | Self::Otty | Self::Rex | Self::Unknown => {
+            Self::WarpTerminal
+            | Self::JetBrains
+            | Self::Otty
+            | Self::Rex
+            | Self::Konsole
+            | Self::Unknown => {
                 WidthShrink::Truncates
             }
         }
@@ -765,6 +773,11 @@ pub fn detect_terminal_brand_from_env(env: &HashMap<String, String>) -> Terminal
     // Check before the generic VTE_VERSION fallback so it is identified specifically rather than as a generic VTE terminal (it sets both)
     if env_get(env, "TERMINATOR_UUID").is_some() {
         return TerminalName::Terminator;
+    }
+
+    // Konsole sets KONSOLE_VERSION. Check before the generic VTE fallback.
+    if env_get(env, "KONSOLE_VERSION").is_some() {
+        return TerminalName::Konsole;
     }
 
     // VTE-based terminals (GNOME Terminal, kgx, Tilix, etc.).

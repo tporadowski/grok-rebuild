@@ -169,6 +169,12 @@ fn brand_not_foot_for_foot_prefixed_out_of_set_term() {
 }
 
 #[test]
+fn brand_konsole_from_konsole_version() {
+    let env = env_from(&[("KONSOLE_VERSION", "250400")]);
+    assert_eq!(detect_terminal_brand_from_env(&env), TerminalName::Konsole);
+}
+
+#[test]
 fn brand_vte_from_vte_version() {
     let env = env_from(&[("VTE_VERSION", "7402")]);
     assert_eq!(detect_terminal_brand_from_env(&env), TerminalName::Vte);

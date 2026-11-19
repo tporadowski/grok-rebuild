@@ -372,6 +372,7 @@ pub(super) fn terminal_name(name: TerminalName) -> &'static str {
         TerminalName::WindowsTerminal => "windows_terminal",
         TerminalName::Otty => "otty",
         TerminalName::Rex => "rex",
+        TerminalName::Konsole => "konsole",
         TerminalName::Unknown => "unknown",
     }
 }

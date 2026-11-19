@@ -43,6 +43,7 @@ pub fn select_protocol(ctx: &TerminalContext) -> NotificationProtocol {
         | TerminalName::Zed
         | TerminalName::Otty
         | TerminalName::Rex
+        | TerminalName::Konsole
         | TerminalName::Unknown => NotificationProtocol::Bel,
     }
 }
@@ -268,6 +269,7 @@ mod tests {
             (TerminalName::Alacritty, NotificationProtocol::Bel),
             (TerminalName::VsCode, NotificationProtocol::Bel),
             (TerminalName::WindowsTerminal, NotificationProtocol::Bel),
+            (TerminalName::Konsole, NotificationProtocol::Bel),
             (TerminalName::Unknown, NotificationProtocol::Bel),
         ];
 
