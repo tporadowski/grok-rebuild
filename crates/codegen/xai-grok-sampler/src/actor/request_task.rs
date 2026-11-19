@@ -938,6 +938,7 @@ fn strip_reason_for_image_error(err: &SamplingError) -> StripReason {
         | SamplingError::Serialization(_)
         | SamplingError::EventStreamError(_)
         | SamplingError::IdleTimeout { .. }
+        | SamplingError::ResponseHeadersTimeout { .. }
         | SamplingError::EmptyResponse { .. }
         | SamplingError::MaxTokensTruncation
         | SamplingError::DoomLoopDetected { .. } => StripReason::PayloadHeuristic,

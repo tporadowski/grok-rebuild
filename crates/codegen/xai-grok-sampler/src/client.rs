@@ -537,6 +537,46 @@ fn auth_rejected(message: String, sent_bearer: Option<&str>) -> SamplingError {
     }
 }
 
+/// How long a turn or compaction waits for the status line after the peer accepts the connection.
+/// Same budget as the default per-chunk idle timeout, so a slow first status line still fits.
+/// `GROK_RESPONSE_HEADERS_TIMEOUT_SECS` overrides it. Zero and unparsable values keep the default.
+/// Read on each send: the shared client is built once, and this bound must not latch with it.
+const DEFAULT_RESPONSE_HEADERS_TIMEOUT_SECS: u64 = 300;
+
+fn response_headers_timeout() -> std::time::Duration {
+    let secs = std::env::var("GROK_RESPONSE_HEADERS_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|secs: &u64| *secs > 0)
+        .unwrap_or(DEFAULT_RESPONSE_HEADERS_TIMEOUT_SECS);
+    std::time::Duration::from_secs(secs)
+}
+
+/// `reqwest::Client::execute` resolves when response headers arrive. The body stream is separate.
+/// A client-wide timeout or read timeout would also cut a long SSE body and race the chunk idle timeout.
+async fn execute_until_response_headers(
+    http: &reqwest::Client,
+    request: reqwest::Request,
+) -> Result<reqwest::Response> {
+    let timeout = response_headers_timeout();
+    match tokio::time::timeout(timeout, http.execute(request)).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(error)) => {
+            tracing::debug!("HTTP request failed: {}", error);
+            Err(SamplingError::Http(error))
+        }
+        Err(_) => {
+            tracing::debug!(
+                elapsed_secs = timeout.as_secs(),
+                "provider accepted the connection but sent no response headers"
+            );
+            Err(SamplingError::ResponseHeadersTimeout {
+                elapsed_secs: timeout.as_secs(),
+            })
+        }
+    }
+}
+
 // =============================================================================
 // SamplingClient
 // =============================================================================
@@ -1046,11 +1086,7 @@ impl SamplingClient {
     }
 
     async fn send(&self, request: reqwest::Request) -> Result<reqwest::Response> {
-        self.http
-            .execute(request)
-            .await
-            .inspect_err(|e| tracing::debug!("HTTP request failed: {}", e))
-            .map_err(Into::into)
+        execute_until_response_headers(&self.http, request).await
     }
 
     async fn execute_stream_request(
@@ -1059,11 +1095,9 @@ impl SamplingClient {
         span_timing: &mut StreamSpanTiming,
     ) -> Result<reqwest::Response> {
         span_timing.record_request_build();
-        let response = self.http.execute(built_request).await.map_err(|e| {
-            tracing::debug!("HTTP request failed: {}", e);
-            span_timing.record_transport_failure(&e.to_string());
-            e
-        })?;
+        let response = execute_until_response_headers(&self.http, built_request)
+            .await
+            .inspect_err(|error| span_timing.record_transport_failure(&error.to_string()))?;
         span_timing.record_response_headers();
         Ok(response)
     }
@@ -3013,6 +3047,86 @@ mod tests {
             seen.push(tp);
         }
         assert_eq!(vec![traceparent; 3], seen);
+    }
+
+    /// Turns (`conversation_stream`) and compaction (`conversation_collect`) both wait for headers in
+    /// `execute_until_response_headers`. A peer that accepts and then writes nothing must stop.
+    #[tokio::test]
+    async fn accepted_connection_without_headers_stops_the_turn_and_compaction() {
+        unsafe { std::env::set_var("GROK_RESPONSE_HEADERS_TIMEOUT_SECS", "1") };
+        struct ClearTimeout;
+        impl Drop for ClearTimeout {
+            fn drop(&mut self) {
+                unsafe { std::env::remove_var("GROK_RESPONSE_HEADERS_TIMEOUT_SECS") };
+            }
+        }
+        let _clear = ClearTimeout;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut buf = [0u8; 2048];
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    tokio::io::AsyncReadExt::read(&mut socket, &mut buf),
+                )
+                .await;
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            }
+        });
+
+        let client = SamplingClient::new(SamplerConfig {
+            base_url: format!("http://{addr}/v1"),
+            force_http1: true,
+            ..minimal_config()
+        })
+        .unwrap();
+        let request = || ConversationRequest {
+            items: vec![xai_grok_sampling_types::ConversationItem::user("hi")],
+            ..Default::default()
+        };
+
+        let started = std::time::Instant::now();
+        let turn = match client.conversation_stream(request()).await {
+            Err(error) => error,
+            Ok(_) => panic!("turn should fail when no headers arrive"),
+        };
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed >= std::time::Duration::from_millis(700),
+            "turn returned in {elapsed:?} without waiting for headers"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "turn still waiting after {elapsed:?}"
+        );
+        match &turn {
+            SamplingError::ResponseHeadersTimeout { elapsed_secs } => {
+                assert_eq!(*elapsed_secs, 1)
+            }
+            other => panic!("turn waited on headers as {other}"),
+        }
+        assert!(!turn.is_retryable());
+
+        let started = std::time::Instant::now();
+        let compact = match client.conversation_collect(request()).await {
+            Err(error) => error,
+            Ok(_) => panic!("compaction should fail when no headers arrive"),
+        };
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "compaction still waiting after {:?}",
+            started.elapsed()
+        );
+        match compact {
+            SamplingError::ResponseHeadersTimeout { elapsed_secs } => assert_eq!(elapsed_secs, 1),
+            other => panic!("compaction waited on headers as {other}"),
+        }
+        server.abort();
     }
 
     #[test]

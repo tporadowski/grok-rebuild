@@ -171,6 +171,10 @@ pub(crate) fn map_sampling_err_to_acp(err: SamplingError) -> acp::Error {
                 xai_grok_sampler::SamplingErrorKind::IdleTimeout,
             ))
         }
+        SamplingError::ResponseHeadersTimeout { elapsed_secs } => acp::Error::internal_error()
+            .data(format!(
+                "The provider accepted the connection but sent no response headers after {elapsed_secs}s."
+            )),
         // Recovery consumes these inside the sampler's retry loop; a stray terminal one still renders its labels
         SamplingError::DoomLoopDetected { .. } => {
             acp::Error::internal_error().data(err.to_string())

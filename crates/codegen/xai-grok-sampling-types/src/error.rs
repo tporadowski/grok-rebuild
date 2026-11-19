@@ -176,6 +176,11 @@ pub enum SamplingError {
     /// NOT retryable: the model (or network path) is stuck, and replaying the same request would likely stall again.
     #[error("inference idle timeout after {elapsed_secs}s with no chunks")]
     IdleTimeout { elapsed_secs: u64 },
+    /// The connection was accepted, but no HTTP response headers arrived.
+    /// Not retryable inside the sampler: a provider that accepts and then stays silent stalls again on the same request.
+    /// The body stream is not covered here. Its idle timeout starts only after headers arrive.
+    #[error("response headers timeout after {elapsed_secs}s")]
+    ResponseHeadersTimeout { elapsed_secs: u64 },
     #[error("empty response from model ({})", context.reason)]
     EmptyResponse { context: EmptyResponseContext },
     #[error("{text}", text = MAX_TOKENS_TRUNCATION_MESSAGE)]
@@ -401,6 +406,7 @@ impl SamplingError {
             | SamplingError::Serialization(_)
             | SamplingError::EventStreamError(_)
             | SamplingError::IdleTimeout { .. }
+            | SamplingError::ResponseHeadersTimeout { .. }
             | SamplingError::EmptyResponse { .. }
             | SamplingError::MaxTokensTruncation
             | SamplingError::DoomLoopDetected { .. } => false,
@@ -418,6 +424,7 @@ impl SamplingError {
             SamplingError::EventStreamError(_) => true,
             SamplingError::StreamError { .. } => true,
             SamplingError::IdleTimeout { .. } => false,
+            SamplingError::ResponseHeadersTimeout { .. } => false,
             SamplingError::EmptyResponse { .. } => true,
             SamplingError::MaxTokensTruncation => false,
             SamplingError::DoomLoopDetected { .. } => true,
@@ -483,6 +490,7 @@ impl SamplingError {
             | SamplingError::Serialization(_)
             | SamplingError::EventStreamError(_)
             | SamplingError::IdleTimeout { .. }
+            | SamplingError::ResponseHeadersTimeout { .. }
             | SamplingError::EmptyResponse { .. }
             | SamplingError::MaxTokensTruncation
             | SamplingError::DoomLoopDetected { .. } => false,
@@ -506,6 +514,7 @@ impl SamplingError {
             | SamplingError::Serialization(_)
             | SamplingError::EventStreamError(_)
             | SamplingError::IdleTimeout { .. }
+            | SamplingError::ResponseHeadersTimeout { .. }
             | SamplingError::EmptyResponse { .. }
             | SamplingError::MaxTokensTruncation
             | SamplingError::DoomLoopDetected { .. } => false,

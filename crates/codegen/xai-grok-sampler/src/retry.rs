@@ -264,6 +264,12 @@ pub fn format_sampling_error(err: &SamplingError, retry_count: Option<u32>) -> S
                 retry_prefix, elapsed_secs
             )
         }
+        SamplingError::ResponseHeadersTimeout { elapsed_secs } => {
+            format!(
+                "{}The provider accepted the connection but sent no response headers after {}s.",
+                retry_prefix, elapsed_secs
+            )
+        }
         SamplingError::EmptyResponse { context } => {
             format!(
                 "{}Empty response from model ({}): model={}, had_reasoning={}, finish_reason={}, completion_tokens={}",
@@ -329,6 +335,11 @@ pub(crate) fn clone_error(err: &SamplingError) -> SamplingError {
         SamplingError::IdleTimeout { elapsed_secs } => SamplingError::IdleTimeout {
             elapsed_secs: *elapsed_secs,
         },
+        SamplingError::ResponseHeadersTimeout { elapsed_secs } => {
+            SamplingError::ResponseHeadersTimeout {
+                elapsed_secs: *elapsed_secs,
+            }
+        }
         SamplingError::EmptyResponse { context } => SamplingError::EmptyResponse {
             context: context.clone(),
         },

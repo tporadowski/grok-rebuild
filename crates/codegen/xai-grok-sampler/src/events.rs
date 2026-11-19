@@ -289,6 +289,10 @@ impl From<&SamplingError> for SamplingErrorInfo {
             SamplingError::EventStreamError(_) => (SamplingErrorKind::Http, None, None, None),
             SamplingError::StreamError { .. } => (SamplingErrorKind::Api, None, None, None),
             SamplingError::IdleTimeout { .. } => (SamplingErrorKind::IdleTimeout, None, None, None),
+            // A missing status line is a transport failure. `is_retryable` stays false, so the sampler does not replay it.
+            SamplingError::ResponseHeadersTimeout { .. } => {
+                (SamplingErrorKind::Http, None, None, None)
+            }
             SamplingError::EmptyResponse { .. } => {
                 (SamplingErrorKind::EmptyResponse, None, None, None)
             }
