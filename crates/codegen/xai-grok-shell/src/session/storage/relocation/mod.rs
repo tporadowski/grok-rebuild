@@ -57,6 +57,9 @@ pub(crate) struct RelocationView {
     sessions_root: PathBuf,
     all_candidates: SessionCandidates,
     persisted_candidates: SessionCandidates,
+    /// A directory was skipped because it cannot be read (permission denied).
+    /// Retrying the listing will not make those sessions appear.
+    permanently_incomplete: bool,
 }
 
 impl RelocationView {
@@ -67,12 +70,19 @@ impl RelocationView {
     pub(crate) fn load_for_sessions_root(sessions_root: &Path) -> Result<Self> {
         #[cfg(test)]
         index_load_probe::note();
-        let (all_candidates, persisted_candidates) = load_candidates(sessions_root)?;
+        let (all_candidates, persisted_candidates, permanently_incomplete) =
+            load_candidates(sessions_root)?;
         Ok(Self {
             sessions_root: sessions_root.into(),
             all_candidates,
             persisted_candidates,
+            permanently_incomplete,
         })
+    }
+
+    /// True when a session directory was skipped for a permission error.
+    pub(crate) fn permanently_incomplete(&self) -> bool {
+        self.permanently_incomplete
     }
 
     /// Session directories with a persisted `summary.json`, optionally restricted to `cwd`.
@@ -208,16 +218,24 @@ fn skip_unreadable(error: &io::Error) -> bool {
     )
 }
 
-fn load_candidates(sessions_root: &Path) -> Result<(SessionCandidates, SessionCandidates)> {
+fn load_candidates(
+    sessions_root: &Path,
+) -> Result<(SessionCandidates, SessionCandidates, bool)> {
     let entries = match fs::read_dir(sessions_root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok((HashMap::new(), HashMap::new()));
+            return Ok((HashMap::new(), HashMap::new(), false));
         }
         Err(error) => return Err(io_error("read", sessions_root, error)),
     };
     let mut all = SessionCandidates::new();
     let mut persisted = SessionCandidates::new();
+    let mut permanently_incomplete = false;
+    let note_permanent = |error: &io::Error, flag: &mut bool| {
+        if error.kind() == io::ErrorKind::PermissionDenied {
+            *flag = true;
+        }
+    };
     for cwd_entry in entries {
         let cwd_entry = cwd_entry.map_err(|error| io_error("read", sessions_root, error))?;
         let cwd_path = cwd_entry.path();
@@ -231,19 +249,28 @@ fn load_candidates(sessions_root: &Path) -> Result<(SessionCandidates, SessionCa
         // cwd bucket after readdir(parent) and before we open it.
         let session_entries = match fs::read_dir(&cwd_path) {
             Ok(entries) => entries,
-            Err(error) if skip_unreadable(&error) => continue,
+            Err(error) if skip_unreadable(&error) => {
+                note_permanent(&error, &mut permanently_incomplete);
+                continue;
+            }
             Err(error) => return Err(io_error("read", &cwd_path, error)),
         };
         for session_entry in session_entries {
             let session_entry = match session_entry {
                 Ok(entry) => entry,
-                Err(error) if skip_unreadable(&error) => continue,
+                Err(error) if skip_unreadable(&error) => {
+                    note_permanent(&error, &mut permanently_incomplete);
+                    continue;
+                }
                 Err(error) => return Err(io_error("read", &cwd_path, error)),
             };
             let path = session_entry.path();
             let file_type = match session_entry.file_type() {
                 Ok(file_type) => file_type,
-                Err(error) if skip_unreadable(&error) => continue,
+                Err(error) if skip_unreadable(&error) => {
+                    note_permanent(&error, &mut permanently_incomplete);
+                    continue;
+                }
                 Err(error) => return Err(io_error("inspect", &path, error)),
             };
             let Some(id) = session_entry.file_name().to_str().map(str::to_owned) else {
@@ -260,13 +287,15 @@ fn load_candidates(sessions_root: &Path) -> Result<(SessionCandidates, SessionCa
                 {
                     persisted.entry(id).or_default().push(path);
                 }
-                Err(error) if skip_unreadable(&error) => {}
+                Err(error) if skip_unreadable(&error) => {
+                    note_permanent(&error, &mut permanently_incomplete);
+                }
                 Err(error) => return Err(io_error("inspect", &summary, error)),
                 Ok(_) => {}
             }
         }
     }
-    Ok((all, persisted))
+    Ok((all, persisted, permanently_incomplete))
 }
 
 /// Counts `RelocationView` loads on the blocking thread that installed the probe.
@@ -321,6 +350,27 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    #[test]
+    fn permission_denied_bucket_marks_the_session_list_permanently_incomplete() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let sessions = tmp.path();
+        let locked = sessions.join("cwd-locked");
+        fs::create_dir_all(&locked).unwrap();
+        let mut perms = fs::metadata(&locked).unwrap().permissions();
+        perms.set_mode(0);
+        fs::set_permissions(&locked, perms).unwrap();
+        let view = RelocationView::load_for_sessions_root(sessions).unwrap();
+        let incomplete = view.permanently_incomplete();
+        let mut perms = fs::metadata(&locked).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&locked, perms).unwrap();
+        assert!(
+            incomplete,
+            "a directory that cannot be read leaves the local session list permanently incomplete"
+        );
+    }
 
     #[test]
     fn locate_session_dir_reads_only_the_named_session() {

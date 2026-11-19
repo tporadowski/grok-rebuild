@@ -3280,9 +3280,72 @@ pub(crate) async fn load_light(
 /// List session summaries, optionally filtered by cwd (absolute path string).
 /// Returns summaries sorted by `last_active_at` (else `updated_at`) descending.
 pub async fn list_summaries(cwd: Option<&str>) -> io::Result<Vec<Summary>> {
+    Ok(list_summaries_observed(cwd).await?.summaries)
+}
+
+/// Local session rows plus whether a permission error left some directories unread.
+pub struct ObservedSessionList {
+    pub summaries: Vec<Summary>,
+    /// A session directory could not be read. Another `--continue` will miss the same rows.
+    pub permanently_incomplete: bool,
+}
+
+/// Same rows as [`list_summaries`], with the permanent-incompleteness flag `--continue` reports.
+pub async fn list_summaries_observed(cwd: Option<&str>) -> io::Result<ObservedSessionList> {
     let root_dir = session_list_root();
-    let storage: Box<dyn StorageAdapter> = Box::new(JsonlStorageAdapter::with_root(root_dir));
-    storage.list_sessions(cwd).await
+    let (summaries, permanently_incomplete) =
+        JsonlStorageAdapter::with_root(root_dir)
+            .list_sessions_observed(cwd)
+            .await?;
+    Ok(ObservedSessionList {
+        summaries,
+        permanently_incomplete,
+    })
+}
+
+/// Headless `--continue` text when the local session list cannot be read.
+/// A permission or data error will not recover on retry. A transient error still asks for one.
+pub fn session_list_failure_message(error: &io::Error) -> String {
+    if session_list_failure_is_permanent(error) {
+        format!(
+            "The local session list is incomplete and will not recover on retry ({error})."
+        )
+    } else {
+        format!("The local session list could not be read. Retry --continue ({error}).")
+    }
+}
+
+fn session_list_failure_is_permanent(error: &io::Error) -> bool {
+    if permanent_io_kind(error.kind()) {
+        return true;
+    }
+    if let Some(reloc) = error.get_ref().and_then(|source| {
+        source.downcast_ref::<crate::session::storage::relocation::RelocationError>()
+    }) {
+        return match reloc {
+            crate::session::storage::relocation::RelocationError::Io { source, .. } => {
+                permanent_io_kind(source.kind())
+            }
+            crate::session::storage::relocation::RelocationError::Json { .. }
+            | crate::session::storage::relocation::RelocationError::InvalidComponent { .. } => {
+                true
+            }
+        };
+    }
+    let text = error.to_string();
+    text.contains("Permission denied") || text.contains("Not a directory")
+}
+
+fn permanent_io_kind(kind: io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        io::ErrorKind::PermissionDenied
+            | io::ErrorKind::InvalidData
+            | io::ErrorKind::InvalidInput
+            | io::ErrorKind::NotADirectory
+            | io::ErrorKind::IsADirectory
+            | io::ErrorKind::Unsupported
+    )
 }
 
 /// Sessions under any of `cwds`, from one walk of the session index.
@@ -3296,7 +3359,7 @@ pub(crate) async fn list_summaries_for_cwds(cwds: &[String]) -> io::Result<Vec<S
 
 #[cfg(test)]
 tokio::task_local! {
-    pub(crate) static SESSION_LIST_ROOT: std::path::PathBuf;
+    pub static SESSION_LIST_ROOT: std::path::PathBuf;
 }
 
 fn session_list_root() -> std::path::PathBuf {

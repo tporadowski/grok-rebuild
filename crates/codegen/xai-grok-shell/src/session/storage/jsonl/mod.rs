@@ -306,17 +306,46 @@ impl JsonlStorageAdapter {
             crate::session::storage::relocation::RelocationView,
         ) -> crate::session::storage::relocation::Result<Vec<PathBuf>>,
     ) -> io::Result<Vec<PathBuf>> {
+        Ok(self.session_dirs_and_completeness(select_dirs)?.0)
+    }
+    /// Session directories plus whether a permission error left the index incomplete.
+    fn session_dirs_and_completeness(
+        &self,
+        select_dirs: impl FnOnce(
+            crate::session::storage::relocation::RelocationView,
+        ) -> crate::session::storage::relocation::Result<Vec<PathBuf>>,
+    ) -> io::Result<(Vec<PathBuf>, bool)> {
         let root_dir = match &self.dir_mode {
             SessionDirMode::FromRoot(root) => root,
-            SessionDirMode::Explicit(_) => return Ok(Vec::new()),
+            SessionDirMode::Explicit(_) => return Ok((Vec::new(), false)),
         };
-        crate::session::storage::relocation::RelocationView::load(root_dir)
-            .and_then(select_dirs)
-            .map_err(io::Error::other)
+        let view = crate::session::storage::relocation::RelocationView::load(root_dir)
+            .map_err(io::Error::other)?;
+        let permanently_incomplete = view.permanently_incomplete();
+        let dirs = select_dirs(view).map_err(io::Error::other)?;
+        Ok((dirs, permanently_incomplete))
     }
     fn list_sessions_sync(&self, cwd: Option<&str>) -> io::Result<Vec<Summary>> {
-        let session_dirs = self.scan_session_dirs(cwd)?;
-        Ok(Self::summaries_from_session_dirs(session_dirs))
+        Ok(self.list_sessions_observed_sync(cwd)?.0)
+    }
+    fn list_sessions_observed_sync(
+        &self,
+        cwd: Option<&str>,
+    ) -> io::Result<(Vec<Summary>, bool)> {
+        let (session_dirs, permanently_incomplete) =
+            self.session_dirs_and_completeness(|view| view.session_dirs(cwd))?;
+        Ok((
+            Self::summaries_from_session_dirs(session_dirs),
+            permanently_incomplete,
+        ))
+    }
+    pub async fn list_sessions_observed(
+        &self,
+        cwd: Option<&str>,
+    ) -> io::Result<(Vec<Summary>, bool)> {
+        let adapter = self.clone();
+        let cwd = cwd.map(str::to_owned);
+        blocking_session_scan(move || adapter.list_sessions_observed_sync(cwd.as_deref())).await
     }
     fn list_sessions_for_cwds_sync(&self, cwds: &[String]) -> io::Result<Vec<Summary>> {
         let session_dirs = self.scan_session_dirs_for_cwds(cwds)?;

@@ -788,21 +788,37 @@ pub fn effective_fork_new_cwd(process_cwd: &str, parent_cwd: Option<&Path>) -> S
         .unwrap_or_else(|| process_cwd.to_string())
 }
 pub use xai_grok_shell::session::persistence::RecentSessionSelection;
+/// `--continue` text when the cwd has no admissible session.
+/// A permanently incomplete list must not tell the user to retry.
+pub(crate) fn continue_miss_message(permanently_incomplete: bool) -> &'static str {
+    if permanently_incomplete {
+        "The local session list is incomplete and will not recover on retry. \
+         A session directory could not be read."
+    } else {
+        "No session found for current directory. \
+         Use 'grok' to start a new session."
+    }
+}
 /// Resolve most-recent session id for cwd, or error.
 async fn most_recent_session_id(
     cwd: &str,
     selection: RecentSessionSelection,
 ) -> anyhow::Result<(String, Option<String>)> {
-    let summaries = xai_grok_shell::session::persistence::list_summaries(Some(cwd)).await?;
-    let first = summaries
-        .iter()
-        .find(|summary| selection.admits(summary) && !summary.is_unused_optimistic_husk())
-        .ok_or_else(|| {
+    let listed = xai_grok_shell::session::persistence::list_summaries_observed(Some(cwd))
+        .await
+        .map_err(|error| {
             anyhow::anyhow!(
-                "No session found for current directory. \
-                 Use 'grok' to start a new session."
+                "{}",
+                xai_grok_shell::session::persistence::session_list_failure_message(&error)
             )
         })?;
+    let first = listed
+        .summaries
+        .iter()
+        .find(|summary| selection.admits(summary) && !summary.is_unused_optimistic_husk());
+    let Some(first) = first else {
+        anyhow::bail!(continue_miss_message(listed.permanently_incomplete));
+    };
     Ok((first.info.id.to_string(), first.display_title_opt()))
 }
 /// `AuthManager` for direct grok.com calls made outside the agent (pre-ACP `--continue` conversation listing, the GCS restore effect).
@@ -1563,6 +1579,31 @@ mod tests {
                 most_recent_for_cwd: true,
             }
         );
+    }
+    #[test]
+    fn continue_list_failure_reserves_retry_for_a_transient_read() {
+        let permanent = xai_grok_shell::session::persistence::session_list_failure_message(
+            &std::io::Error::new(std::io::ErrorKind::PermissionDenied, "sessions"),
+        );
+        assert!(
+            permanent.contains("will not recover on retry"),
+            "{permanent}"
+        );
+        assert!(!permanent.contains("Retry --continue"), "{permanent}");
+        let transient = xai_grok_shell::session::persistence::session_list_failure_message(
+            &std::io::Error::new(std::io::ErrorKind::Interrupted, "sessions"),
+        );
+        assert!(transient.contains("Retry --continue"), "{transient}");
+    }
+    #[test]
+    fn continue_miss_does_not_ask_for_a_retry_when_the_list_is_permanently_incomplete() {
+        let message = continue_miss_message(true);
+        assert!(message.contains("will not recover on retry"), "{message}");
+        assert!(!message.contains("Retry --continue"), "{message}");
+        assert!(!message.contains("No session found"), "{message}");
+        let empty = continue_miss_message(false);
+        assert!(empty.contains("No session found"), "{empty}");
+        assert!(!empty.to_lowercase().contains("retry"), "{empty}");
     }
     #[test]
     fn intent_session_id_alone_is_new_with_id() {
