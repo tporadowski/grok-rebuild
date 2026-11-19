@@ -1253,6 +1253,9 @@ pub(in crate::app::dispatch) fn handle_session_loaded(
         agent.scrollback.end_batch();
         agent.session.loading_replay = false;
         agent.arm_late_replay_grace();
+        if agent.scrollback.len() >= super::super::queue::LONG_RESUME_HISTORY {
+            agent.defer_queue_for_resume_history = true;
+        }
         agent.session.restore_degree = restore_degree;
         agent.session.finish_turn(&mut agent.scrollback);
         agent.mark_turn_finished(TurnEnd::Aborted);

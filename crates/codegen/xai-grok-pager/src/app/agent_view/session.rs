@@ -181,6 +181,7 @@ impl AgentView {
             session_reload: None,
             unexpected_replay_drops: 0,
             late_replay_until: None,
+            defer_queue_for_resume_history: false,
             replayed_terminal_prompts: HashSet::new(),
             replayed_visible_prompts: HashSet::new(),
             replayed_bash_prompts: HashSet::new(),

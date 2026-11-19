@@ -4042,6 +4042,104 @@ fn prompt_sent_while_startup_resume_loads_is_queued_then_sent() {
     assert_eq!(agent.prompt.text(), "");
     assert!(agent.session.pending_prompts.is_empty());
 }
+
+/// A long resume keeps a queued prompt until the older transcript is in the scrollback.
+#[test]
+fn long_resume_sends_queued_prompts_after_older_history_is_shown() {
+    let mut app = test_app();
+    dispatch(
+        Action::LoadSession("resume-long".into(), None, false),
+        &mut app,
+    );
+    let agent_id = AgentId(0);
+    let older = super::super::super::queue::LONG_RESUME_HISTORY;
+    {
+        let agent = app.agents.get_mut(&agent_id).unwrap();
+        for index in 0..older {
+            agent
+                .scrollback
+                .push_block(RenderBlock::user_prompt(format!("older history {index}")));
+        }
+    }
+    dispatch(Action::SendPrompt("run next".into()), &mut app);
+    let effects = dispatch(
+        Action::TaskComplete(TaskResult::SessionLoaded {
+            agent_id,
+            session_id: acp::SessionId::new("resume-long"),
+            models: None,
+            modes: None,
+            code_restored: false,
+            restore_summary: None,
+            restore_degree: None,
+            running_prompt_id: None,
+        }),
+        &mut app,
+    );
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::SendPrompt { .. })),
+        "the queued prompt waits until older history is shown, got {effects:?}"
+    );
+    assert_eq!(
+        expect_agent(&app, agent_id)
+            .session
+            .pending_prompts
+            .front()
+            .map(|row| row.text.as_str()),
+        Some("run next")
+    );
+    let replay_still_waiting = acp::SessionNotification::new(
+        acp::SessionId::new("resume-long"),
+        acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(acp::ContentBlock::Text(
+            acp::TextContent::new("still replaying".to_string()),
+        ))),
+    )
+    .meta(serde_json::json!({"isReplay": true}).as_object().cloned());
+    let (tx, _rx) = tokio::sync::oneshot::channel();
+    let waiting = xai_acp_lib::AcpClientMessage::SessionNotification(xai_acp_lib::AcpArgs {
+        request: replay_still_waiting,
+        response_tx: tx,
+    });
+    let held = super::super::super::release_resume_queues_after_history(&mut app, Some(&waiting));
+    assert!(
+        held.is_empty(),
+        "replay still at the head keeps the prompt queued"
+    );
+    assert_eq!(expect_agent(&app, agent_id).session.queue_len(), 1);
+
+    let effects = super::super::super::release_resume_queues_after_history(&mut app, None);
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::SendPrompt { text, .. } if text == "run next"
+        )),
+        "the prompt is sent once older history has caught up, got {effects:?}"
+    );
+    let agent = expect_agent(&app, agent_id);
+    let mut older_at = None;
+    let mut sent_at = None;
+    for index in 0..agent.scrollback.len() {
+        let Some(entry) = agent.scrollback.entry(index) else {
+            continue;
+        };
+        if let RenderBlock::UserPrompt(block) = &entry.block {
+            if block.text == "older history 0" {
+                older_at = Some(index);
+            }
+            if block.text == "run next" {
+                sent_at = Some(index);
+            }
+        }
+    }
+    let older_at = older_at.expect("older history stays on screen");
+    let sent_at = sent_at.expect("the queued prompt is shown after it is sent");
+    assert!(
+        older_at < sent_at,
+        "older history at {older_at} must stay above the sent prompt at {sent_at}"
+    );
+}
+
 /// Several held rows leave the draft alone and are listed as not sent, with their images counted
 #[test]
 fn failed_load_lists_several_held_rows_as_not_sent() {

@@ -15,6 +15,9 @@ use crate::scrollback::state::ScrollbackState;
 use agent_client_protocol as acp;
 use std::time::Instant;
 
+/// A resume whose transcript is already this long can still have older history behind the load response.
+pub(crate) const LONG_RESUME_HISTORY: usize = 24;
+
 fn page_flip_on_send() -> bool {
     crate::appearance::cache::load_page_flip_on_send()
 }
@@ -355,6 +358,10 @@ pub(super) fn maybe_drain_queue(agent: &mut AgentView, notices: &mut Vec<String>
     }
     if agent.session.loading_replay {
         log_blocked("loading_replay", sid);
+        return QueueDrain::blocked();
+    }
+    if agent.defer_queue_for_resume_history {
+        log_blocked("resume_history", sid);
         return QueueDrain::blocked();
     }
     // A hook blocked the previous prompt: park the local drip-feed queue until the user re-engages (see `hook_block_hold`)
@@ -1178,6 +1185,41 @@ pub(crate) fn apply_turn_start_shim(
         agent.session.available_tools = Some(tools.into_iter().collect());
     }
     page_flip_entry
+}
+
+/// Send prompts held for a long resume once older history is no longer waiting at the ACP head.
+/// `None` and a live head mean the replay has caught up. A replay or unrelated head has not.
+pub(crate) fn release_resume_queues_after_history(
+    app: &mut AppView,
+    peek: Option<&xai_acp_lib::AcpClientMessage>,
+) -> Vec<Effect> {
+    let ready: Vec<_> = app
+        .agents
+        .iter()
+        .filter(|(_, agent)| agent.defer_queue_for_resume_history)
+        .filter(|(_, agent)| {
+            agent.session.session_id.as_ref().is_none_or(|session_id| {
+                !matches!(
+                    crate::app::session_load_barrier::acp_load_backlog(peek, session_id),
+                    crate::app::session_load_barrier::AcpLoadBacklog::ReplayHead
+                        | crate::app::session_load_barrier::AcpLoadBacklog::Unrelated
+                )
+            })
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    let mut effects = Vec::new();
+    for id in ready {
+        let Some(agent) = app.agents.get_mut(&id) else {
+            continue;
+        };
+        agent.defer_queue_for_resume_history = false;
+        let drain = maybe_drain_queue(agent, &mut app.pending_image_notices);
+        let page_flip_entry = drain.page_flip_entry;
+        effects.extend(drain.effects);
+        note_peek_page_flip(app, id, page_flip_entry);
+    }
+    effects
 }
 
 pub(crate) fn note_peek_page_flip(

@@ -1938,6 +1938,11 @@ pub(crate) async fn run(
         if quit_after_deferred_load {
             break;
         }
+        let history_effects =
+            dispatch::release_resume_queues_after_history(&mut app, acp_peek.as_ref());
+        if process_effects(history_effects, &mut tasks, &mut app, &progress_tx) {
+            break;
+        }
         let workspace_effects = super::workspace_sync::drain(&mut app);
         if process_effects(workspace_effects, &mut tasks, &mut app, &progress_tx) {
             break;
