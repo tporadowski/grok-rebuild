@@ -18,7 +18,7 @@ pub enum ConfigUpdate {
     Auth(Box<GrokAuth>),
     /// Auth scope was removed (user logged out).
     AuthCleared,
-    /// A **broadcast** MCP reload; it applies to every active session regardless of cwd. Fires for two cases: The global `[mcp_servers]` table in `~/.grok/config.toml` changed. The user's home-level `~/.claude.json` changed.
+    /// A **broadcast** MCP reload; it applies to every active session regardless of cwd. Fires for three cases: The global `[mcp_servers]` table in `~/.grok/config.toml` changed. `disabled_mcp_servers` changed (`grok mcp enable` / `disable`). The user's home-level `~/.claude.json` changed.
     /// `load_claude_json_mcp_servers_as_configs` reads this file for every session, so the reload cannot be narrowed by cwd.
     /// Project-scoped changes emit [`Self::ProjectMcpServersChanged`] instead so the reload can be narrowed to matching cwds. Those are `<cwd>/.grok/config.toml`, `<cwd>/.mcp.json`, and the project-level `<cwd>/.claude.json`.
     McpServersChanged,
@@ -275,11 +275,10 @@ impl ConfigReloader {
             }
         };
 
-        // MCP servers: compare the [mcp_servers] table in the **global** config (`~/.grok/config.toml`) via toml::Value. Project- scoped changes (`<cwd>/.grok/config.toml`, `<cwd>/.mcp.json`) go out separately as `ConfigUpdate::ProjectMcpServersChanged { cwd }`
+        // MCP servers: compare the [mcp_servers] table and `disabled_mcp_servers` in the **global** config (`~/.grok/config.toml`). Project-scoped changes (`<cwd>/.grok/config.toml`, `<cwd>/.mcp.json`) go out separately as `ConfigUpdate::ProjectMcpServersChanged { cwd }`
         // That per-cwd dispatch (see `collect_project_cwds`) keeps them from sweeping unrelated sessions
-        let old_mcp_table = self.last_global_config.get("mcp_servers");
-        let new_mcp_table = new_global.get("mcp_servers");
-        let mcp_changed = old_mcp_table != new_mcp_table;
+        // `grok mcp disable` writes only the disable list, so a table-only diff would leave a running session's server up
+        let mcp_changed = global_mcp_config_changed(&self.last_global_config, &new_global);
         if mcp_changed {
             info!("Global MCP server config change detected");
             let _ = self.config_update_tx.send(ConfigUpdate::McpServersChanged);
@@ -364,6 +363,13 @@ impl ConfigReloader {
         }
         Ok(())
     }
+}
+
+/// True when a global config edit should reload MCP in every running session.
+/// Covers the server table and the disable list `grok mcp enable` / `disable` writes.
+fn global_mcp_config_changed(old: &toml::Value, new: &toml::Value) -> bool {
+    old.get("mcp_servers") != new.get("mcp_servers")
+        || old.get("disabled_mcp_servers") != new.get("disabled_mcp_servers")
 }
 
 fn changed_memory_config(
@@ -963,6 +969,25 @@ command = "/bin/test"
     }
 
     #[test]
+    fn disable_list_change_reloads_running_sessions() {
+        let server = "[mcp_servers.svc]\ncommand = \"svc\"\n";
+        let before: toml::Value = toml::from_str(server).unwrap();
+        let disabled: toml::Value =
+            toml::from_str(&format!("disabled_mcp_servers = [\"svc\"]\n{server}")).unwrap();
+        assert!(
+            !global_mcp_config_changed(&before, &before),
+            "an unchanged file must not reload sessions"
+        );
+        assert!(
+            global_mcp_config_changed(&before, &disabled),
+            "grok mcp disable must reload running sessions"
+        );
+        assert!(
+            global_mcp_config_changed(&disabled, &before),
+            "grok mcp enable must reload running sessions"
+        );
+    }
+
     fn mcp_servers_unchanged_same_config() {
         let cfg: toml::Value = toml::from_str(
             r#"
