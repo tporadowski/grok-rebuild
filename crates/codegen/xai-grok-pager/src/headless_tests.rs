@@ -900,6 +900,19 @@ fn resume_load_failure_reports_the_reason_as_one_json_error() {
 }
 
 #[test]
+fn json_error_keeps_reply_text_printed_before_the_failure() {
+    let mut emitter = HeadlessEmitter::new(OutputFormat::Json, false);
+    emitter.on_text_chunk("partial reply");
+    let reported = emitter.json_error("connection reset");
+    assert_eq!(reported["type"], "error");
+    assert_eq!(reported["message"], "connection reset");
+    assert_eq!(reported["text"], "partial reply");
+
+    let empty = HeadlessEmitter::new(OutputFormat::Json, false);
+    assert!(empty.json_error("boom").get("text").is_none());
+}
+
+#[test]
 fn json_error_includes_the_worktree_folder_after_the_session_starts() {
     let root = std::path::Path::new("/home/me/.grok/worktrees/repo/feature-2");
     let emitter = HeadlessEmitter::new(OutputFormat::Json, false);

@@ -415,6 +415,14 @@ impl HeadlessEmitter {
     /// after [`Self::note_opened_worktree`].
     fn json_error(&self, message: &str) -> serde_json::Value {
         let mut err = serde_json::json!({"type":"error","message": message});
+        if !self.text_buffer.is_empty()
+            && let Some(obj) = err.as_object_mut()
+        {
+            obj.insert(
+                "text".into(),
+                serde_json::Value::String(self.text_buffer.clone()),
+            );
+        }
         if let Some(usage) = &self.usage {
             attach_result_usage(&mut err, usage);
         }
