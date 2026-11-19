@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-342 — The 1.0.91 prompt matches 1.0.90
+
+Signed-in `grok-1.0.90-linux-x86_64` and `grok-1.0.91-linux-x86_64` (gzip) each wrote a 58-line `system_prompt.txt` from an empty directory. After dates, the kernel line, the shell, and the workspace path, the prompt text matches. `templates/prompt.md` and `built_in_user_rules()` stay as they are. The throwaway homes and binaries were deleted.
+
 ### D-341 — Alpha 1.0.91
 
 On 19 November 2026 alpha was 1.0.91 and stable was 1.0.89. The package was already 1.0.90. `1.0.91.external.md` and `.json` both returned 200. The markdown file contains only its own `# ` heading. The JSON list has the same ten descriptions and categories as the markdown, with no breaking changes, but not in markdown order. The catalog follows the markdown. Pending: 10. W2 holds `--system-prompt-file` and `-p` (`v91-f03`, `v91-f04`). W4 holds the hooks row (`v91-x02`). W8 holds fork offers and session switching (`v91-f02`, `v91-f05`, `v91-x05`). W9 holds welcome arrows and the Konsole wheel (`v91-f01`, `v91-x03`). W11 holds headless JSON errors (`v91-x01`). W12 holds direct MCP truncation (`v91-x04`).
