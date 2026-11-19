@@ -62,6 +62,7 @@ mod event_loop_stall;
 mod exit_timeout;
 pub(crate) mod external_editor;
 mod foreign_sessions;
+mod other_window_fork;
 #[cfg(all(test, unix))]
 mod leader_cluster;
 mod modals;

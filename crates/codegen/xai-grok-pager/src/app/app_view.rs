@@ -1144,6 +1144,9 @@ pub struct AppView {
     /// Generation and state for detecting a foreign session to resume, run once per launch.
     pub(crate) foreign_resume_launch_generation: u64,
     pub(crate) foreign_resume_launch: Option<crate::app::foreign_sessions::ForeignResumeLaunch>,
+    /// Session another live window holds. Ctrl+F or `/fork` forks it instead of loading it.
+    pub(crate) pending_other_window_fork:
+        Option<crate::app::other_window_fork::PendingOtherWindowFork>,
     /// When set, the event loop should exit and the process re-exec into the other screen mode.
     /// Driven by `/minimal` and `/fullscreen`.
     /// Captures the session id at action time so a later teardown cannot drop `--resume`.
@@ -1744,6 +1747,7 @@ impl AppView {
             pending_update_version: None,
             foreign_resume_launch_generation: 0,
             foreign_resume_launch: None,
+            pending_other_window_fork: None,
             quit_for_update: false,
             trust_quit_error: None,
             relaunch: None,
@@ -2566,6 +2570,15 @@ impl AppView {
                 return InputOutcome::Action(action);
             }
             self.pending_action = None;
+        }
+        if let Some(key) = key_event
+            && self.pending_other_window_fork.is_some()
+            && key!('f', CONTROL).matches(key)
+        {
+            return InputOutcome::Action(Action::Fork(crate::slash::commands::fork::ForkArgs {
+                worktree_override: Some(false),
+                directive: None,
+            }));
         }
         let modal_open = self.is_scroll_blocking_modal_open();
         if let Event::Mouse(mouse) = ev

@@ -166,6 +166,16 @@ fn dispatch_load_session_ungated(
         }
         return vec![];
     }
+    let held = crate::app::other_window_fork::held_rows(&session_id);
+    if crate::app::other_window_fork::offer_fork_instead_of_load(
+        app,
+        &session_id,
+        session_cwd.clone(),
+        &held,
+        std::process::id(),
+    ) {
+        return vec![];
+    }
     let mut effects = abandon_unused_empty_for_load(app, &session_id);
     let identity_rebind = super::super::dashboard::WorkspaceIdentityRebind::capture(app);
     let acp_session_id = clear_stale_session_id(app, &session_id);

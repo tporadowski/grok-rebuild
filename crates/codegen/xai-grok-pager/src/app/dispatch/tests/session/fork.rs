@@ -1812,3 +1812,79 @@ fn handle_ask_user_question_pushes_system_block_when_displaced_local_fork_modal(
         "exactly one system block pushed"
     );
 }
+
+#[test]
+fn ctrl_f_or_fork_offers_to_fork_a_session_another_window_holds() {
+    use crate::app::other_window_fork::{
+        OTHER_WINDOW_FORK_NOTICE, PendingOtherWindowFork, offer_fork_instead_of_load,
+    };
+    use crate::scrollback::block::RenderBlock;
+    use crate::scrollback::blocks::SessionEvent;
+    use chrono::Utc;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use xai_grok_active_sessions::ActiveSession;
+
+    let live = std::process::id();
+    let rows = vec![ActiveSession {
+        session_id: acp::SessionId::new("held-session"),
+        pid: live,
+        cwd: "/tmp/held".into(),
+        opened_at: Utc::now(),
+    }];
+    let mut app = fork_test_app();
+    assert!(offer_fork_instead_of_load(
+        &mut app,
+        "held-session",
+        Some(std::path::PathBuf::from("/tmp/held")),
+        &rows,
+        live.wrapping_add(1),
+    ));
+    let toast = app
+        .agents
+        .get(&AgentId(0))
+        .and_then(|agent| agent.toast.as_ref())
+        .map(|(text, _)| text.as_str());
+    assert_eq!(toast, Some(OTHER_WINDOW_FORK_NOTICE));
+
+    let key = Event::Key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL));
+    let outcome = app.handle_input(&key);
+    let crate::app::app_view::InputOutcome::Action(action) = outcome else {
+        panic!("Ctrl+F must offer the fork, got {outcome:?}");
+    };
+    let effects = dispatch(action, &mut app);
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::ForkSession { parent_session_id, .. }
+                if parent_session_id.0.as_ref() == "held-session"
+        )),
+        "Ctrl+F forks the session the other window holds, got {effects:?}"
+    );
+    assert!(app.pending_other_window_fork.is_none());
+
+    app.pending_other_window_fork = Some(PendingOtherWindowFork {
+        session_id: "held-session".into(),
+        cwd: Some(std::path::PathBuf::from("/tmp/held")),
+    });
+    let effects = dispatch(Action::Fork(fork_args(None, None)), &mut app);
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::ForkSession { parent_session_id, .. }
+                if parent_session_id.0.as_ref() == "held-session"
+        )),
+        "/fork forks the session the other window holds, got {effects:?}"
+    );
+    assert!(
+        app.agents.values().all(|agent| {
+            (0..agent.scrollback.len()).all(|index| {
+                !matches!(
+                    agent.scrollback.get(index).map(|entry| &entry.block),
+                    Some(RenderBlock::SessionEvent(event))
+                        if matches!(event.event, SessionEvent::TurnFailed { .. })
+                )
+            })
+        }),
+        "the fork offer is a notice, not a turn-failed error"
+    );
+}

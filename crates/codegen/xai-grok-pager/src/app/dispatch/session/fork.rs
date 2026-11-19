@@ -29,6 +29,10 @@ pub(in crate::app::dispatch) fn dispatch_fork(
     app: &mut AppView,
     args: crate::slash::commands::fork::ForkArgs,
 ) -> Vec<Effect> {
+    if let Some(pending) = app.pending_other_window_fork.take() {
+        app.show_toast(crate::app::other_window_fork::OTHER_WINDOW_FORK_NOTICE);
+        return dispatch_startup_fork_session(app, pending.session_id, pending.cwd, None);
+    }
     let ActiveView::Agent(parent_id) = app.active_view else {
         app.show_toast(FORK_ONLY_IN_SESSION);
         return vec![];

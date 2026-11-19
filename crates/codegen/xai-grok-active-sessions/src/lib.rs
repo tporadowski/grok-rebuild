@@ -316,6 +316,10 @@ fn write_data_file_atomic(
     })
 }
 
+pub fn pid_is_alive(pid: u32) -> bool {
+    is_pid_alive(pid)
+}
+
 fn is_pid_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {

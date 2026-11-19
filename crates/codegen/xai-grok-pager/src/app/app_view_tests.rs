@@ -294,6 +294,7 @@ pub(crate) fn test_app() -> AppView {
         pending_update_version: None,
         foreign_resume_launch_generation: 0,
         foreign_resume_launch: None,
+        pending_other_window_fork: None,
         quit_for_update: false,
         trust_quit_error: None,
         relaunch: None,
