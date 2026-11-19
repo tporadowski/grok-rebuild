@@ -1330,8 +1330,20 @@ impl AgentView {
             2 if feedback_open.is_some() => {}
             2 => {
                 // Thinking blocks fold and expand on double-click again (`v86-x33`).
+                // A folded `/btw` row is only the question. Opening it keeps that
+                // header where the scroll left it, so the answer starts below the
+                // viewport. Put the opened answer at the top, as a prompt double-click does.
+                let reveal_folded_btw = self.scrollback.get(idx).is_some_and(|entry| {
+                    matches!(
+                        entry.block,
+                        crate::scrollback::block::RenderBlock::Btw(_)
+                    ) && entry.display_mode == crate::scrollback::types::DisplayMode::Collapsed
+                });
                 if foldable {
                     self.scrollback.toggle_fold_selected();
+                }
+                if reveal_folded_btw {
+                    self.scrollback.scroll_to_entry_top(idx);
                 }
             }
             3.. if !is_prompt => {
@@ -3636,6 +3648,93 @@ mod tests {
         assert!(agent2.pending_scrollback_click.is_none(), "click consumed");
         assert!(agent2.drag_selection.is_none());
         assert!(agent2.deferred_text_press.is_none());
+    }
+
+    /// A folded `/btw` parked on the last viewport rows opens on double-click with the answer on screen.
+    #[test]
+    fn double_click_folded_btw_after_scroll_brings_the_answer_into_view() {
+        use crate::scrollback::blocks::BtwBlock;
+        use crate::scrollback::types::DisplayMode;
+        use std::time::Duration;
+
+        let mut agent = make_agent();
+        let pane = Rect::new(0, 0, 40, 6);
+        agent.pane_areas.scrollback = pane;
+        agent.active_pane = AgentPane::Scrollback;
+        for i in 0..8 {
+            agent
+                .scrollback
+                .push_block(crate::scrollback::block::RenderBlock::agent_message(
+                    format!("before {i}"),
+                ));
+        }
+        let answer = (0..12)
+            .map(|i| format!("ANSWER_LINE_{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        agent
+            .scrollback
+            .push_block(crate::scrollback::block::RenderBlock::Btw(BtwBlock::new(
+                "where did it go",
+                answer,
+            )));
+        let btw_idx = 8;
+        for i in 0..8 {
+            agent
+                .scrollback
+                .push_block(crate::scrollback::block::RenderBlock::agent_message(
+                    format!("after {i}"),
+                ));
+        }
+        let width = pane.width;
+        let height = pane.height;
+        agent.scrollback.prepare_layout(width, height);
+
+        let folded = agent
+            .scrollback
+            .get_cached_entry_height(btw_idx)
+            .expect("folded /btw height") as usize;
+        let vy = agent
+            .scrollback
+            .get_cached_virtual_y()
+            .expect("layout positions");
+        let range_start = agent.scrollback.visible_entry_range().start;
+        let entry_y = vy[btw_idx] - vy[range_start];
+        let offset = entry_y.saturating_sub((height as usize).saturating_sub(folded));
+        agent.scrollback.set_scroll_offset(offset);
+        agent.scrollback.prepare_layout(width, height);
+
+        let (before, _, _) = agent
+            .scrollback
+            .entry_screen_area(btw_idx, pane)
+            .expect("folded /btw is on screen after the scroll");
+        assert!(
+            before.y + before.height >= height.saturating_sub(1),
+            "the folded row sits on the last viewport rows, so the answer would open below them: {before:?}"
+        );
+        assert!(
+            before.height as usize <= folded,
+            "only the folded row is visible before the click"
+        );
+
+        let now = Instant::now();
+        (agent.last_click, _, _) = agent.handle_scrollback_click(now, btw_idx, false);
+        let _ = agent.handle_scrollback_click(now + Duration::from_millis(20), btw_idx, false);
+
+        assert_eq!(
+            agent.scrollback.entry(btw_idx).map(|entry| entry.display_mode),
+            Some(DisplayMode::Expanded)
+        );
+        let (after, top_clipped, _) = agent
+            .scrollback
+            .entry_screen_area(btw_idx, pane)
+            .expect("opened /btw stays on screen");
+        assert!(!top_clipped, "the question stays at the top of the viewport");
+        assert_eq!(after.y, pane.y);
+        assert!(
+            after.height > before.height,
+            "the answer occupies rows that were off-screen: before {before:?} after {after:?}"
+        );
     }
 
     /// Agent over real scrollback content taller than its viewport, so `tick_drag_autoscroll` moves real offsets against real clamps.
