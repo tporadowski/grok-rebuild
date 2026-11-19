@@ -1967,15 +1967,13 @@ impl SessionActor {
             match decision {
                 NoToolContinuation::Pause => {
                     self.goal_tracker.lock().set_no_tool_continuation_streak(0);
-                    self.auto_pause_goal_if_active(
+                    let message = no_tool_continuation_pause_message();
+                    self.auto_pause_goal_if_active_with_message(
                         crate::session::goal_tracker::GoalPauseReason::NoProgress,
+                        message.clone(),
                     )
                     .await;
-                    self.send_slash_command_output(&format!(
-                        "Goal paused after {GOAL_NO_TOOL_CONTINUATION_PAUSE} continuations in a \
-                         row with no tool call. Use /goal resume to continue."
-                    ))
-                    .await;
+                    self.send_slash_command_output(&message).await;
                     return;
                 }
                 NoToolContinuation::Continue { streak } => {

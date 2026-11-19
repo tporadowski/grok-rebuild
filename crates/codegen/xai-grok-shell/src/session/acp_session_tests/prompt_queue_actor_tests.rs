@@ -4474,3 +4474,48 @@ async fn goal_yield_runs_queued_row_next_then_resumes_goal() {
         })
         .await;
 }
+
+/// Three goal rounds in a row that call no tool pause the goal and keep the reason on the goal.
+#[tokio::test(flavor = "current_thread")]
+async fn goal_pauses_after_three_toolless_rounds_and_says_why() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (actor, _rx) = build_actor().await;
+            set_goal_harness_for_tests(&actor);
+            actor.goal_tracker.lock().create_goal(
+                "goal".into(),
+                "objective".into(),
+                None,
+                0,
+                "2026-01-01T00:00:00Z".into(),
+                None,
+            );
+            {
+                let mut tracker = actor.goal_tracker.lock();
+                tracker.set_turn_is_goal_continuation(true);
+                tracker.set_no_tool_continuation_streak(2);
+            }
+            actor.handle_turn_end(true, false).await;
+            let tracker = actor.goal_tracker.lock();
+            assert_eq!(
+                tracker.status(),
+                Some(crate::session::goal_tracker::GoalStatus::NoProgressPaused)
+            );
+            let message = tracker
+                .snapshot()
+                .and_then(|goal| goal.pause_message.clone())
+                .expect("the pause keeps an explanation");
+            assert!(
+                message.contains(&format!(
+                    "{GOAL_NO_TOOL_CONTINUATION_PAUSE} rounds without progress"
+                )),
+                "{message}"
+            );
+            assert!(
+                message.contains("called no tool") && message.contains("stopped itself"),
+                "{message}"
+            );
+        })
+        .await;
+}

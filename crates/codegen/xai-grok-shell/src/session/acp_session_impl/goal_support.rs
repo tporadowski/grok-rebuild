@@ -18,6 +18,15 @@ pub(crate) enum NoToolContinuation {
     Pause,
 }
 
+/// What the goal panel and the transcript say when three tool-less rounds pause the goal.
+pub(crate) fn no_tool_continuation_pause_message() -> String {
+    format!(
+        "Goal paused after {GOAL_NO_TOOL_CONTINUATION_PAUSE} rounds without progress. \
+         Each round continued the goal and called no tool, so it stopped itself. \
+         Use /goal resume to continue."
+    )
+}
+
 pub(crate) fn no_tool_continuation_after_turn(
     is_goal_continuation: bool,
     tool_calls: u32,
