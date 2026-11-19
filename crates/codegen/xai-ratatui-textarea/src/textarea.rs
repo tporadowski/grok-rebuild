@@ -723,7 +723,31 @@ impl TextArea {
     }
 
     pub fn desired_height(&self, width: u16) -> u16 {
-        self.wrapped_lines(width).len() as u16
+        let lines = self.wrapped_lines(width);
+        self.occupied_rows(&lines, width) as u16
+    }
+
+    /// Visual row of the caret. A cursor sitting on the wrap boundary (`col == width`) is the
+    /// start of the next row, including a row past the last wrapped line when that line is full.
+    fn cursor_visual_row(&self, lines: &[std::ops::Range<usize>], width: u16) -> usize {
+        let Some(i) = Self::wrapped_line_index_by_start(lines, self.cursor()) else {
+            return 0;
+        };
+        if width == 0 {
+            return i;
+        }
+        let Some(ls) = lines.get(i) else {
+            return i;
+        };
+        let col = self.display_width_of_range(ls.start, self.cursor());
+        if col >= usize::from(width) { i + 1 } else { i }
+    }
+
+    /// Wrapped rows plus the blank caret row when the cursor fills the last one.
+    fn occupied_rows(&self, lines: &[std::ops::Range<usize>], width: u16) -> usize {
+        lines
+            .len()
+            .max(self.cursor_visual_row(lines, width).saturating_add(1))
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -737,18 +761,16 @@ impl TextArea {
     pub fn cursor_pos_with_state(&self, area: Rect, state: TextAreaState) -> Option<(u16, u16)> {
         let tw = self.text_width(area);
         let lines = self.wrapped_lines(tw);
-        let effective_scroll = self.effective_scroll(area.height, &lines, state.scroll);
-        let mut i = Self::wrapped_line_index_by_start(&lines, self.cursor())?;
-        let ls = lines.get(i)?;
-        let mut col = self.display_width_of_range(ls.start, self.cursor()) as u16;
-
-        // If the cursor sits at the exact wrap boundary (col == content width), show it at the start of the next visual line
-        // instead of on the invisible right border. When the cursor is at text.len() and the last line is exactly full, there is
-        // no next wrapped line — but we still want the cursor on a new row at column 0.
-        if col >= tw {
-            i += 1;
-            col = 0;
-        }
+        let effective_scroll = self.effective_scroll(area.height, &lines, tw, state.scroll);
+        let byte_row = Self::wrapped_line_index_by_start(&lines, self.cursor())?;
+        // A full last row has no wrapped line for the caret. Show it at column 0 of the next row.
+        let i = self.cursor_visual_row(&lines, tw);
+        let col = if i == byte_row {
+            let ls = lines.get(byte_row)?;
+            self.display_width_of_range(ls.start, self.cursor()) as u16
+        } else {
+            0
+        };
 
         // If the cursor's visual line is outside the visible viewport, hide it.
         let scroll = effective_scroll as usize;
@@ -771,7 +793,7 @@ impl TextArea {
     ) -> Option<(u16, u16)> {
         let tw = self.text_width(area);
         let lines = self.wrapped_lines(tw);
-        let effective_scroll = self.effective_scroll(area.height, &lines, state.scroll);
+        let effective_scroll = self.effective_scroll(area.height, &lines, tw, state.scroll);
         let i = Self::wrapped_line_index_by_start(&lines, pos)?;
         let ls = lines.get(i)?;
         let col = self.display_width_of_range(ls.start, pos) as u16;
@@ -804,7 +826,7 @@ impl TextArea {
         }
         let tw = self.text_width(area);
         let lines = self.wrapped_lines(tw);
-        let scroll = self.effective_scroll(area.height, &lines, state.scroll) as usize;
+        let scroll = self.effective_scroll(area.height, &lines, tw, state.scroll) as usize;
         // Rows before the one containing `range.start` cannot intersect;
         // `None` (start ahead of the first row) falls back to scanning all.
         let first = Self::wrapped_line_index_by_start(&lines, range.start).unwrap_or(0);
@@ -865,7 +887,7 @@ impl TextArea {
 
         let tw = self.text_width(area);
         let lines = self.wrapped_lines(tw);
-        let scroll = self.effective_scroll(area.height, &lines, state.scroll);
+        let scroll = self.effective_scroll(area.height, &lines, tw, state.scroll);
 
         let visual_row = (row - area.y) as usize + scroll as usize;
 
@@ -896,7 +918,7 @@ impl TextArea {
 
         let tw = self.text_width(area);
         let lines = self.wrapped_lines(tw);
-        let scroll = self.effective_scroll(area.height, &lines, state.scroll);
+        let scroll = self.effective_scroll(area.height, &lines, tw, state.scroll);
 
         let visual_row = (row - area.y) as usize + scroll as usize;
 
@@ -1313,7 +1335,7 @@ impl TextArea {
                 let (head, new_scroll) = {
                     let tw = self.text_width(area);
                     let lines = self.wrapped_lines(tw);
-                    let scroll = self.effective_scroll(area.height, &lines, state.scroll) as usize;
+                    let scroll = self.effective_scroll(area.height, &lines, tw, state.scroll) as usize;
                     let visible_end = scroll + area.height as usize;
 
                     if event.row < area.y {
@@ -1415,14 +1437,14 @@ impl TextArea {
             MouseEventKind::ScrollDown => {
                 let tw = self.text_width(area);
                 let lines = self.wrapped_lines(tw);
-                let total = lines.len();
+                let total = self.occupied_rows(&lines, tw);
                 if total <= area.height as usize {
                     return MouseAction::Nothing;
                 }
                 let max_scroll = total.saturating_sub(area.height as usize) as u16;
                 let current = self
                     .scroll_override
-                    .unwrap_or_else(|| self.effective_scroll(area.height, &lines, state.scroll));
+                    .unwrap_or_else(|| self.effective_scroll(area.height, &lines, tw, state.scroll));
                 let scroll_lines = Self::scroll_lines_for_height(area.height);
                 let new_scroll = (current + scroll_lines).min(max_scroll);
                 if new_scroll == current {
@@ -1451,13 +1473,13 @@ impl TextArea {
             MouseEventKind::ScrollUp => {
                 let tw = self.text_width(area);
                 let lines = self.wrapped_lines(tw);
-                let total = lines.len();
+                let total = self.occupied_rows(&lines, tw);
                 if total <= area.height as usize {
                     return MouseAction::Nothing;
                 }
                 let current = self
                     .scroll_override
-                    .unwrap_or_else(|| self.effective_scroll(area.height, &lines, state.scroll));
+                    .unwrap_or_else(|| self.effective_scroll(area.height, &lines, tw, state.scroll));
                 let scroll_lines = Self::scroll_lines_for_height(area.height);
                 let new_scroll = current.saturating_sub(scroll_lines);
                 if new_scroll == current {
@@ -3110,13 +3132,15 @@ impl TextArea {
 
     /// Calculate the scroll offset that should be used to satisfy the invariants given the current area size and wrapped
     /// lines. Cursor is always on screen; No scrolling if content fits in the area.
+    /// A caret past a full last row counts as one more occupied row so it stays inside the area.
     fn effective_scroll(
         &self,
         area_height: u16,
         lines: &[Range<usize>],
+        content_width: u16,
         current_scroll: u16,
     ) -> u16 {
-        let total_lines = lines.len() as u16;
+        let total_lines = self.occupied_rows(lines, content_width) as u16;
         if area_height >= total_lines {
             return 0;
         }
@@ -3129,10 +3153,7 @@ impl TextArea {
             return ovr.min(max_scroll);
         }
 
-        // Where is the cursor within wrapped lines? Prefer assigning boundary positions
-        // (where pos equals the start of a wrapped line) to that later line.
-        let cursor_line_idx =
-            Self::wrapped_line_index_by_start(lines, self.cursor()).unwrap_or(0) as u16;
+        let cursor_line_idx = self.cursor_visual_row(lines, content_width) as u16;
 
         let mut scroll = current_scroll.min(max_scroll);
 
@@ -3189,7 +3210,7 @@ impl StatefulWidgetRef for &TextArea {
         let (cw, needs_sb) = self.content_width(area.width, area.height);
         let content_area = Rect { width: cw, ..area };
         let lines = self.wrapped_lines(cw);
-        let scroll = self.effective_scroll(area.height, &lines, state.scroll);
+        let scroll = self.effective_scroll(area.height, &lines, cw, state.scroll);
         state.scroll = scroll;
 
         let start = scroll as usize;

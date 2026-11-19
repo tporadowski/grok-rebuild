@@ -557,6 +557,39 @@
         assert_eq!(pw.desired_height(80, &style, true, 20), 3); // top_divider(1)+text(1)+bot_divider(1)
     }
 
+    /// Filling the last prompt row used to drop the caret: it belongs on the next row, which the
+    /// box did not allocate. The box grows by that row, and a box already at its max still shows it.
+    #[test]
+    fn caret_stays_visible_when_typing_fills_the_last_prompt_row() {
+        let style = PromptStyle::inline(ratatui::style::Color::Reset);
+        let width = 5u16;
+
+        let mut short = PromptWidget::new();
+        short.textarea.insert_str("abcd");
+        let short_h = short.desired_height(width, &style, false, 20);
+
+        let mut pw = PromptWidget::new();
+        pw.textarea.insert_str("abcde");
+        let h = pw.desired_height(width, &style, false, 20);
+        assert_eq!(h, short_h + 1, "a full last row reserves a caret row");
+
+        let area = Rect::new(0, 0, width, h);
+        let mut buf = Buffer::empty(area);
+        let shown = pw
+            .draw(&mut buf, area, None, &style, None, None)
+            .cursor_pos
+            .expect("caret stays visible");
+        assert_eq!(shown, (area.x, area.y + h - 1));
+
+        let capped = Rect::new(0, 0, width, short_h);
+        let mut buf = Buffer::empty(capped);
+        let shown = pw
+            .draw(&mut buf, capped, None, &style, None, None)
+            .cursor_pos
+            .expect("caret stays on the last row when the prompt cannot grow");
+        assert_eq!(shown, (capped.x, capped.y + capped.height - 1));
+    }
+
     #[test]
     fn desired_height_no_info() {
         let pw = PromptWidget::new();

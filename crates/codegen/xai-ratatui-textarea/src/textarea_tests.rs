@@ -2454,6 +2454,26 @@ fn cursor_at_wrap_boundary_shows_on_next_line() {
     assert_eq!(y, 1, "cursor at wrap point should be on second visual line");
 }
 
+/// Typing that fills the last row reserves a caret row, and a box that cannot grow still shows it.
+#[test]
+fn full_last_row_keeps_the_caret_visible() {
+    let mut t = ta_with("abcde");
+    assert_eq!(t.desired_height(5), 2, "a full row reserves the caret row");
+    let grown = Rect::new(0, 0, 5, t.desired_height(5));
+    assert_eq!(t.cursor_pos(grown), Some((0, 1)));
+
+    let mut short = ta_with("abcd");
+    assert_eq!(short.desired_height(5), 1);
+    assert_eq!(short.cursor_pos(Rect::new(0, 0, 5, 1)), Some((4, 0)));
+
+    let clamped = Rect::new(0, 0, 5, 1);
+    assert_eq!(
+        t.cursor_pos(clamped),
+        Some((0, 0)),
+        "the caret stays on the only row when the box cannot grow"
+    );
+}
+
 #[test]
 fn wrapping_and_cursor_positions() {
     let mut t = ta_with("hello world here");
