@@ -414,6 +414,8 @@ pub fn start_minimal_btw(v: &mut AgentView, question: String) -> uuid::Uuid {
         request_id: Some(request_id),
         revision: uuid::Uuid::new_v4(),
     });
+    // A finished answer is already on screen. A new question replaces the panel, so keep that answer in the scrollback.
+    v.commit_finished_btw_to_scrollback();
     // Same overlay identity as the previous Done panel; drop its highlight before replace.
     v.clear_btw_owned_selection();
     v.btw_state = Some(crate::views::btw_overlay::BtwOverlayState::Loading { question });

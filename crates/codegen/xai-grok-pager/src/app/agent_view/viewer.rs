@@ -346,18 +346,30 @@ impl AgentView {
         self.casual_editing_comment_id = None;
     }
 
-    /// Dismiss the /btw panel. If Done, flush response to scrollback first.
-    pub(super) fn dismiss_btw_panel(&mut self) -> InputOutcome {
+    /// Write a finished `/btw` answer into the scrollback and clear that panel.
+    /// A question still running, or an error, stays where it is.
+    pub(crate) fn commit_finished_btw_to_scrollback(&mut self) -> bool {
         use crate::scrollback::block::RenderBlock;
         use crate::scrollback::blocks::BtwBlock;
         use crate::views::btw_overlay::BtwOverlayState;
-        if let Some(BtwOverlayState::Done {
+        let Some(state) = self.btw_state.take() else {
+            return false;
+        };
+        let BtwOverlayState::Done {
             question, content, ..
-        }) = self.btw_state.take()
-        {
-            self.scrollback
-                .push_block(RenderBlock::Btw(BtwBlock::new(question, content.text())));
-        } else {
+        } = state
+        else {
+            self.btw_state = Some(state);
+            return false;
+        };
+        self.scrollback
+            .push_block(RenderBlock::Btw(BtwBlock::new(question, content.text())));
+        true
+    }
+
+    /// Dismiss the /btw panel. If Done, flush response to scrollback first.
+    pub(super) fn dismiss_btw_panel(&mut self) -> InputOutcome {
+        if !self.commit_finished_btw_to_scrollback() {
             self.btw_state = None;
         }
         self.minimal_btw_lifecycle = None;

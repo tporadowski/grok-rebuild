@@ -953,6 +953,7 @@ pub(super) fn dispatch_send_btw(
                 question.clone(),
             ))
         } else {
+            agent.commit_finished_btw_to_scrollback();
             agent.clear_btw_owned_selection();
             agent.btw_state = Some(crate::views::btw_overlay::BtwOverlayState::Loading {
                 question: question.clone(),

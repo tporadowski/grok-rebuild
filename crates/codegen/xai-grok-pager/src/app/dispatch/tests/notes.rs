@@ -433,6 +433,87 @@ fn minimal_btw_requests_stay_independent_across_two_agents() {
     ));
 }
 #[test]
+fn new_btw_question_keeps_the_previous_answer_in_scrollback() {
+    let mut app = test_app_with_agent();
+    let id = AgentId(0);
+    dispatch(
+        Action::SendBtw {
+            question: "first".into(),
+            images: Vec::new(),
+        },
+        &mut app,
+    );
+    dispatch(
+        Action::TaskComplete(TaskResult::BtwResponse {
+            image_notice: None,
+            skipped_image_numbers: Vec::new(),
+            agent_id: id,
+            result: Ok("first answer".into()),
+            minimal_request_id: None,
+        }),
+        &mut app,
+    );
+    assert!(
+        !agent_ref(&app, id)
+            .scrollback
+            .iter_entries()
+            .any(|(_, entry)| matches!(entry.block, RenderBlock::Btw(_))),
+        "the open answer stays in the panel until another question replaces it"
+    );
+
+    dispatch(
+        Action::SendBtw {
+            question: "second".into(),
+            images: Vec::new(),
+        },
+        &mut app,
+    );
+    let saved: Vec<(String, String)> = agent_ref(&app, id)
+        .scrollback
+        .iter_entries()
+        .filter_map(|(_, entry)| {
+            let RenderBlock::Btw(block) = &entry.block else {
+                return None;
+            };
+            Some((block.question.clone(), block.content().text()))
+        })
+        .collect();
+    assert_eq!(saved, vec![("first".to_string(), "first answer".to_string())]);
+    assert!(matches!(
+        agent_ref(&app, id).btw_state,
+        Some(crate::views::btw_overlay::BtwOverlayState::Loading { ref question })
+            if question == "second"
+    ));
+
+    app.screen_mode = crate::app::ScreenMode::Minimal;
+    dispatch(
+        Action::TaskComplete(TaskResult::BtwResponse {
+            image_notice: None,
+            skipped_image_numbers: Vec::new(),
+            agent_id: id,
+            result: Ok("second answer".into()),
+            minimal_request_id: None,
+        }),
+        &mut app,
+    );
+    let _ = send_minimal_btw(&mut app, "third");
+    let saved: Vec<String> = agent_ref(&app, id)
+        .scrollback
+        .iter_entries()
+        .filter_map(|(_, entry)| {
+            let RenderBlock::Btw(block) = &entry.block else {
+                return None;
+            };
+            Some(block.content().text())
+        })
+        .collect();
+    assert_eq!(
+        saved,
+        vec!["first answer".to_string(), "second answer".to_string()]
+    );
+}
+
+#[test]
 fn fullscreen_esc_cancels_an_unanswered_btw_question() {
     let mut app = test_app_with_agent();
     let id = AgentId(0);
