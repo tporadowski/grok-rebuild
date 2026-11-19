@@ -1054,6 +1054,80 @@ fn render_rows_hit_rects_leave_no_dead_zones() {
     );
 }
 
+/// Apple Terminal insets `▀`, so the hover and selection bands must join the
+/// row with lower blocks instead of an upper-half glyph.
+#[test]
+fn apple_terminal_row_highlight_joins_the_band_without_an_upper_half_block() {
+    use crate::terminal::TerminalName;
+
+    struct ClearHaloBrand;
+    impl Drop for ClearHaloBrand {
+        fn drop(&mut self) {
+            set_halo_brand_for_test(None);
+        }
+    }
+    let _clear = ClearHaloBrand;
+    set_halo_brand_for_test(Some(TerminalName::AppleTerminal));
+
+    let rows = vec![
+        header_test_row(1, RowState::Working, "alpha"),
+        header_test_row(2, RowState::Working, "beta"),
+    ];
+    let area = Rect::new(0, 0, 60, 12);
+    let theme = Theme::groknight();
+    assert_ne!(theme.bg_hover, theme.bg_base);
+    assert_ne!(theme.bg_highlight, theme.bg_base);
+
+    let mut state = DashboardState::new();
+    state.grouping = Grouping::State;
+    let mut buf = Buffer::empty(area);
+    render_rows(&mut buf, area, &theme, &rows, &mut state);
+    let Some((id, rect)) = state.row_rects.first().cloned() else {
+        panic!("expected a row rect: {:?}", state.row_rects);
+    };
+    let title_y = rect.y + 1;
+
+    state.hovered_row = Some(id.clone());
+    render_rows(&mut buf, area, &theme, &rows, &mut state);
+    assert_joined_band(&buf, &rect, title_y, theme.bg_hover, theme.bg_base);
+
+    state.hovered_row = None;
+    state.selected = Some(id);
+    render_rows(&mut buf, area, &theme, &rows, &mut state);
+    assert_joined_band(&buf, &rect, title_y, theme.bg_highlight, theme.bg_base);
+}
+
+fn assert_joined_band(buf: &Buffer, rect: &Rect, title_y: u16, band: Color, base: Color) {
+    // The gap after the marker is empty title-line canvas, so its background is the band.
+    let content = buf_cell(buf, rect.x + 1, title_y);
+    assert_eq!(content.symbol(), " ", "highlight stays a solid band");
+    assert_eq!(content.style().bg, Some(band));
+
+    for x in [rect.x + 1, rect.x + rect.width / 2] {
+        let above = buf_cell(buf, x, title_y - 1);
+        assert_eq!(
+            above.symbol(),
+            "\u{2585}",
+            "spacer above joins the row with a lower five-eighths block",
+        );
+        assert_eq!(above.style().fg, Some(band));
+        assert_eq!(above.style().bg, Some(base));
+
+        let below = buf_cell(buf, x, title_y + 1);
+        assert_eq!(
+            below.symbol(),
+            "\u{2584}",
+            "spacer below joins the row with a lower half block",
+        );
+        assert_eq!(below.style().fg, Some(base));
+        assert_eq!(below.style().bg, Some(band));
+    }
+    assert!(
+        buf.content.iter().all(|cell| cell.symbol() != "\u{2580}"),
+        "Apple Terminal must not paint an upper-half halo",
+    );
+}
+
 /// Terminal theme: dim metadata renders via `Theme::dim()` — the DIM attribute, never a `gray_dim`
 /// fg, which equals the hover/selection band. (both bright black) and would vanish. RGB themes keep
 /// the plain `gray_dim` fg.

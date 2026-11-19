@@ -1306,6 +1306,25 @@ fn render_rows_with_grouping(
     }
 }
 
+thread_local! {
+    static HALO_BRAND_OVERRIDE: std::cell::Cell<Option<crate::terminal::TerminalName>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn halo_brand() -> crate::terminal::TerminalName {
+    HALO_BRAND_OVERRIDE.with(|slot| {
+        slot.get()
+            .unwrap_or_else(|| crate::terminal::terminal_context().brand)
+    })
+}
+
+/// Apple Terminal is not this host. `None` restores live brand detection.
+/// The process brand is latched once, so tests cannot reach it through the environment.
+#[cfg(test)]
+fn set_halo_brand_for_test(brand: Option<crate::terminal::TerminalName>) {
+    HALO_BRAND_OVERRIDE.with(|slot| slot.set(brand));
+}
+
 /// Paint the spacer lines between items as half-cell "halos" so a highlighted row reads as
 /// vertically centered.
 fn render_spacer_halos(
@@ -1315,6 +1334,8 @@ fn render_spacer_halos(
     line_bg: &[Option<Color>],
     base: Color,
 ) {
+    // Apple Terminal insets `▀`, leaving a gap so the highlight does not read as one band.
+    let apple = halo_brand() == crate::terminal::TerminalName::AppleTerminal;
     for (i, slot) in line_bg.iter().enumerate() {
         if slot.is_some() {
             continue;
@@ -1340,9 +1361,25 @@ fn render_spacer_halos(
             if matches!(above, Color::Reset) || matches!(below, Color::Reset) {
                 continue;
             }
-            let fill = "\u{2580}".repeat(body_width as usize);
-            buf.set_string(area.x, y, &fill, Style::default().fg(above).bg(below));
+            let (glyph, fg, bg) = if apple {
+                apple_terminal_halo(above, below, base)
+            } else {
+                ('\u{2580}', above, below)
+            };
+            let fill = glyph.to_string().repeat(body_width as usize);
+            buf.set_string(area.x, y, &fill, Style::default().fg(fg).bg(bg));
         }
+    }
+}
+
+/// Lower blocks sit on the cell edge that meets the row. Five eighths on the
+/// spacer above overlaps the font gap; a half block below uses the row color
+/// as the background, which fills flush to the row with no glyph gap.
+fn apple_terminal_halo(above: Color, below: Color, base: Color) -> (char, Color, Color) {
+    if above == base {
+        ('\u{2585}', below, above)
+    } else {
+        ('\u{2584}', below, above)
     }
 }
 
