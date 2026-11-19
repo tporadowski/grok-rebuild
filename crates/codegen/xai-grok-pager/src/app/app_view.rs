@@ -528,6 +528,35 @@ fn is_restricted_tier(tier: Option<&str>) -> bool {
 pub(crate) fn is_api_key_label(s: &str) -> bool {
     s.trim().to_ascii_lowercase().replace([' ', '_', '-'], "") == "apikey"
 }
+/// A pasted shell assignment of a saved API key (`XAI_API_KEY=…`, with an optional `export` and quotes).
+/// The sign-in field keeps the value. The variable name stays off the screen.
+fn pasted_saved_key_value(text: &str) -> Option<&str> {
+    let trimmed = text.trim();
+    let body = trimmed
+        .strip_prefix("export ")
+        .or_else(|| trimmed.strip_prefix("EXPORT "))
+        .unwrap_or(trimmed)
+        .trim_start();
+    let lower = body.to_ascii_lowercase();
+    let rest = ["xai_api_key", "grok_code_xai_api_key"]
+        .iter()
+        .find_map(|name| lower.strip_prefix(name))?;
+    let rest = rest.trim_start().strip_prefix('=')?.trim_start();
+    let value = body[body.len() - rest.len()..].trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+        .unwrap_or(value)
+        .trim();
+    Some(value)
+}
+fn auth_field_text(text: &str) -> std::borrow::Cow<'_, str> {
+    match pasted_saved_key_value(text) {
+        Some(value) => std::borrow::Cow::Owned(value.to_string()),
+        None => std::borrow::Cow::Borrowed(text),
+    }
+}
 /// Pending re-exec into another screen mode (see `/minimal` / `/fullscreen`).
 #[derive(Debug, Clone)]
 pub struct ScreenModeRelaunch {
@@ -4081,9 +4110,9 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     return InputOutcome::Action(Action::QuitConfirmed);
                 }
                 if key!(Enter).matches(key) {
-                    let trimmed = ctx.auth_code_input.text().trim().to_string();
+                    let trimmed = auth_field_text(ctx.auth_code_input.text().trim());
                     if !trimmed.is_empty() {
-                        return InputOutcome::Action(Action::SubmitAuthCode(trimmed));
+                        return InputOutcome::Action(Action::SubmitAuthCode(trimmed.into_owned()));
                     }
                     return InputOutcome::Unchanged;
                 }
@@ -4091,6 +4120,7 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                     let Some(text) = crate::clipboard::system_clipboard_get() else {
                         return InputOutcome::Unchanged;
                     };
+                    let text = auth_field_text(&text);
                     ctx.auth_code_input.insert_paste(&text)
                 } else if key.modifiers.intersects(
                     crossterm::event::KeyModifiers::CONTROL
@@ -4136,7 +4166,8 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                 mode: AuthMode::Loopback,
                 ..
             } => {
-                let _ = ctx.auth_code_input.insert_paste(text);
+                let text = auth_field_text(text);
+                let _ = ctx.auth_code_input.insert_paste(&text);
                 return InputOutcome::Changed;
             }
             _ => {}

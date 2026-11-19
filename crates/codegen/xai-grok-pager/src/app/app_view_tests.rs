@@ -5886,6 +5886,32 @@ fn authenticating_loopback_backspace_removes_char() {
     assert_eq!(app.auth_code_input.text(), "a");
 }
 #[test]
+fn authenticating_loopback_paste_of_a_saved_key_drops_the_variable_name() {
+    let mut app = test_app();
+    app.auth_state = AuthState::Authenticating {
+        request_seq: 1,
+        handle: None,
+        auth_url: None,
+        mode: AuthMode::Loopback,
+    };
+    let outcome = app.handle_input(&Event::Paste(
+        "export XAI_API_KEY=\"xai-saved-key\"\n".to_string(),
+    ));
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert_eq!(app.auth_code_input.text(), "xai-saved-key");
+    assert!(
+        !app.auth_code_input.text().contains("XAI_API_KEY"),
+        "the sign-in field must not name the variable"
+    );
+    let outcome = app.handle_input(&key_event(KeyCode::Enter, KeyModifiers::NONE));
+    match outcome {
+        InputOutcome::Action(Action::SubmitAuthCode(code)) => {
+            assert_eq!(code, "xai-saved-key");
+        }
+        other => panic!("expected SubmitAuthCode, got {other:?}"),
+    }
+}
+#[test]
 fn authenticating_loopback_paste_appends_text() {
     let mut app = test_app();
     app.auth_state = AuthState::Authenticating {
