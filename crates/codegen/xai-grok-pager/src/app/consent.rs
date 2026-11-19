@@ -479,6 +479,35 @@ pub fn consent_verdict(inputs: &ConsentInputs<'_>) -> ConsentState {
     }
 }
 
+/// A notice armed before the account was known stays up, because an answer on disk
+/// belongs to a specific account. Once that account is known, the same answer clears it.
+pub fn clear_terms_notice_for_known_account(
+    state: &mut ConsentState,
+    account: Option<&str>,
+    answers: &BTreeMap<String, ConsentAnswer>,
+) {
+    let ConsentState::Pending { notice, .. } = &*state else {
+        return;
+    };
+    let inputs = ConsentInputs {
+        gate: None,
+        answered_this_run: None,
+        answers,
+        account,
+        minimal: false,
+    };
+    if already_answered(&inputs, notice) {
+        *state = ConsentState::Done;
+    }
+}
+
+pub(crate) fn stored_consent_answers() -> BTreeMap<String, ConsentAnswer> {
+    xai_grok_shell::config::load_from_disk()
+        .ok()
+        .map(|root| xai_grok_shell::util::config::load_config_from_toml(&root).consent.answers)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 #[path = "consent_tests.rs"]
 mod tests;

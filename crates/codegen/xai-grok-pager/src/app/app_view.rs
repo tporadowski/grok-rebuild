@@ -1417,7 +1417,12 @@ impl AppView {
     pub fn apply_auth_meta(&mut self, meta: &xai_grok_login::AuthMeta) {
         self.pending_gate_verification = None;
         let was_gated = self.gate.is_some();
+        let account_was_unknown = self.account_email.is_none();
         self.account_email = meta.email.clone();
+        self.clear_terms_notice_if_account_just_became_known(
+            account_was_unknown,
+            &crate::app::consent::stored_consent_answers(),
+        );
         self.team_id = meta.team_id.clone();
         self.is_team_principal = meta.is_team_principal;
         self.team_name = meta.team_name.clone();
@@ -1461,6 +1466,21 @@ impl AppView {
             self.show_resolved_model = show;
         }
         super::dispatch::refresh_open_settings_modals(self);
+    }
+    /// The terms notice can paint before sign-in names an account. A stored answer counts only
+    /// for that account, so the notice clears once the account arrives and matches.
+    pub(crate) fn clear_terms_notice_if_account_just_became_known(
+        &mut self,
+        account_was_unknown: bool,
+        answers: &std::collections::BTreeMap<String, xai_grok_shell::util::config::ConsentAnswer>,
+    ) {
+        if account_was_unknown && self.account_email.is_some() {
+            crate::app::consent::clear_terms_notice_for_known_account(
+                &mut self.consent_state,
+                self.account_email.as_deref(),
+                answers,
+            );
+        }
     }
     /// Mirror the billing and `/usage` gates onto every slash surface (agents, welcome, dashboard dispatch / peek-reply).
     pub(crate) fn sync_billing_surface_to_agents(&mut self) {

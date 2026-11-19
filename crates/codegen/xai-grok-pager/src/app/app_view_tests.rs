@@ -3377,6 +3377,37 @@ fn consent_pending_app() -> AppView {
         vec![(0, Rect::new(5, 12, 5, 1)), (1, Rect::new(20, 12, 6, 1))];
     app
 }
+
+#[test]
+fn terms_notice_clears_when_the_known_account_matches_the_stored_answer() {
+    use crate::app::consent::ConsentState;
+    use xai_grok_shell::util::config::ConsentAnswer;
+
+    let mut app = consent_pending_app();
+    let answers = std::collections::BTreeMap::from([(
+        "notice".to_string(),
+        ConsentAnswer {
+            version: 1,
+            account: Some("user@example.com".to_string()),
+            acked: false,
+        },
+    )]);
+
+    app.clear_terms_notice_if_account_just_became_known(true, &answers);
+    assert!(matches!(app.consent_state, ConsentState::Pending { .. }));
+
+    app.account_email = Some("other@example.com".to_string());
+    app.clear_terms_notice_if_account_just_became_known(true, &answers);
+    assert!(matches!(app.consent_state, ConsentState::Pending { .. }));
+
+    app.account_email = Some("user@example.com".to_string());
+    app.clear_terms_notice_if_account_just_became_known(false, &answers);
+    assert!(matches!(app.consent_state, ConsentState::Pending { .. }));
+
+    app.clear_terms_notice_if_account_just_became_known(true, &answers);
+    assert!(matches!(app.consent_state, ConsentState::Done));
+}
+
 /// Accept is `a` alone.
 /// `y` belongs to the trust question one screen later, Enter may be buffered, and the rest have no meaning here.
 #[test]

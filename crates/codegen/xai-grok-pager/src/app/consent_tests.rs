@@ -291,6 +291,34 @@ fn an_accountless_answer_does_not_suppress() {
     assert!(matches!(consent_verdict(&i), ConsentState::Pending { .. }));
 }
 
+/// The first frame can arm the notice before sign-in names an account. Disk answers are
+/// ignored until that account is known, then the matching one clears the notice.
+#[test]
+fn terms_notice_disappears_once_the_matching_account_is_known() {
+    let gate = gate();
+    let answers = answered(NOTICE_ID, 3);
+    let mut unknown = inputs(Some(&gate), &answers);
+    unknown.account = None;
+
+    let mut state = consent_verdict(&unknown);
+    assert!(matches!(state, ConsentState::Pending { .. }));
+
+    clear_terms_notice_for_known_account(&mut state, None, &answers);
+    assert!(
+        matches!(state, ConsentState::Pending { .. }),
+        "still unknown"
+    );
+
+    clear_terms_notice_for_known_account(&mut state, Some("other@example.com"), &answers);
+    assert!(
+        matches!(state, ConsentState::Pending { .. }),
+        "a different account still sees the notice"
+    );
+
+    clear_terms_notice_for_known_account(&mut state, Some(ACCOUNT), &answers);
+    assert!(matches!(state, ConsentState::Done));
+}
+
 #[test]
 fn minimal_mode_fails_open() {
     let gate = gate();

@@ -387,17 +387,14 @@ pub(crate) fn seed_consent_state_from_gate(
     gate: Option<&xai_grok_shell::util::config::ConsentGate>,
 ) {
     use crate::app::consent::{ConsentInputs, consent_verdict};
-    let stored = xai_grok_shell::config::load_from_disk()
-        .ok()
-        .map(|root| xai_grok_shell::util::config::load_config_from_toml(&root).consent)
-        .unwrap_or_default();
+    let stored = crate::app::consent::stored_consent_answers();
     app.consent_state = consent_verdict(&ConsentInputs {
         gate,
         answered_this_run: app
             .consent_answered
             .as_ref()
             .map(|(id, version)| (id.as_str(), *version)),
-        answers: &stored.answers,
+        answers: &stored,
         account: app.account_email.as_deref(),
         minimal: app.screen_mode.is_minimal(),
     });
