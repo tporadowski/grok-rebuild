@@ -1673,6 +1673,16 @@ pub(crate) async fn run(
     let connection_cancel = connection.cancel;
     let mut leader_status_rx = connection.leader_status_rx;
     let mut tasks: JoinSet<TaskResult> = JoinSet::new();
+    if let Some(late_auth_meta) = connection.late_auth_meta {
+        tasks.spawn(async move {
+            match late_auth_meta.await {
+                Ok(meta) => TaskResult::LateSignInMeta { meta },
+                Err(_) => TaskResult::LateSignInMeta {
+                    meta: serde_json::Value::Null,
+                },
+            }
+        });
+    }
     let mut session_load_barrier = SessionLoadBarrier::new();
     let mut acp_peek: Option<AcpClientMessage> = None;
     let (progress_tx, mut progress_rx) =

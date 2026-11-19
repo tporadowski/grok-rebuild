@@ -324,6 +324,24 @@ pub(super) fn dispatch_submit_auth_code(app: &mut AppView, code: String) -> Vec<
 
 // TaskResult handlers.
 
+/// Account, tier, and access gate from eager auth that missed the first frame.
+pub(super) fn handle_late_sign_in_meta(
+    app: &mut AppView,
+    meta: serde_json::Value,
+) -> Vec<Effect> {
+    let Ok(auth_meta) = serde_json::from_value::<xai_grok_login::AuthMeta>(meta) else {
+        return vec![];
+    };
+    app.apply_auth_meta(&auth_meta);
+    let mut effects = Vec::new();
+    if app.needs_team_capability_hydration() {
+        effects.push(Effect::HydrateTeamCapability {
+            identity: app.auth_identity(),
+        });
+    }
+    effects
+}
+
 pub(super) fn handle_auth_complete(
     app: &mut AppView,
     request_seq: u64,

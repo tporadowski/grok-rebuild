@@ -1,6 +1,7 @@
 //! Async task-result application: routes task results into state.
 use super::auth::{
-    ensure_login_method, handle_auth_complete, handle_auth_url_ready, handle_mcp_auth_trigger_done,
+    ensure_login_method, handle_auth_complete, handle_auth_url_ready, handle_late_sign_in_meta,
+    handle_mcp_auth_trigger_done,
     handle_mcp_setup_submit_done,
 };
 use super::billing::{
@@ -1217,6 +1218,7 @@ pub(super) fn dispatch_task_result(result: TaskResult, app: &mut AppView) -> Vec
             }
             vec![]
         }
+        TaskResult::LateSignInMeta { meta } => handle_late_sign_in_meta(app, meta),
         TaskResult::AuthComplete { request_seq, meta } => {
             handle_auth_complete(app, request_seq, meta)
         }

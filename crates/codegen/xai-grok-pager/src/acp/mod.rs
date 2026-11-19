@@ -111,6 +111,9 @@ pub struct AcpConnection {
     /// Auth response metadata from eager authentication (cached token or API key).
     /// Contains `team_name`, etc. `None` when interactive login is required.
     pub auth_meta: Option<serde_json::Value>,
+    /// Eager auth that outlived the first-frame deadline. The account, tier, and access
+    /// gate arrive here once the shell finishes.
+    pub late_auth_meta: Option<tokio::sync::oneshot::Receiver<serde_json::Value>>,
     /// Leader connection status. `Some` only when connected via leader.
     pub leader_status_rx: Option<tokio::sync::watch::Receiver<leader_bridge::ConnectionStatus>>,
     /// Whether cancel-rewind is enabled (resolved by shell from config layers).
@@ -250,7 +253,7 @@ pub(in crate::acp) async fn initialize_connection(
     let (needs_login, login_label, login_method_id, auth_start_mode) =
         startup_auth_metadata(&agent.auth_methods);
     startup::enter(StartupPhase::EagerAuth);
-    let (needs_login, login_label, login_method_id, auth_start_mode, auth_meta) =
+    let (needs_login, login_label, login_method_id, auth_start_mode, auth_meta, late_auth_meta) =
         bounded_eager_auth(
             &tx,
             &agent.auth_methods,
@@ -275,6 +278,7 @@ pub(in crate::acp) async fn initialize_connection(
         login_method_id,
         auth_start_mode,
         auth_meta,
+        late_auth_meta,
         leader_status_rx,
         cancel_rewind_enabled: agent.cancel_rewind_enabled,
         session_recap_available: agent.session_recap_available,
@@ -696,7 +700,8 @@ async fn eager_auth_or_login_fallback(
     }
 }
 /// [`eager_auth_or_login_fallback`] bounded by `STARTUP_AUTH_REFRESH_TIMEOUT`, so a hung agent cannot gate the first draw.
-/// On timeout the inputs pass through unchanged and the agent finishes authentication in the background.
+/// On timeout the inputs pass through unchanged. The same attempt keeps running, and its meta is
+/// delivered on the oneshot so the account, tier, and access gate still apply after the first frame.
 async fn bounded_eager_auth(
     tx: &AcpAgentTx,
     auth_methods: &[acp::AuthMethod],
@@ -711,29 +716,55 @@ async fn bounded_eager_auth(
     Option<acp::AuthMethodId>,
     AuthStartMode,
     Option<serde_json::Value>,
+    Option<tokio::sync::oneshot::Receiver<serde_json::Value>>,
 ) {
-    match tokio::time::timeout(
-        xai_grok_shell::http::STARTUP_AUTH_REFRESH_TIMEOUT,
+    let tx = tx.clone();
+    let auth_methods = auth_methods.to_vec();
+    let default_auth_method_id = default_auth_method_id.cloned();
+    let label = login_label.clone();
+    let method_id = login_method_id.clone();
+    let mut work = Box::pin(async move {
         eager_auth_or_login_fallback(
-            tx,
-            auth_methods,
-            default_auth_method_id,
+            &tx,
+            &auth_methods,
+            default_auth_method_id.as_ref(),
             needs_login,
-            login_label.clone(),
-            login_method_id.clone(),
+            label,
+            method_id,
             auth_start_mode,
-        ),
-    )
-    .await
-    {
-        Ok(resolved) => resolved,
-        Err(_) => (
-            needs_login,
-            login_label,
-            login_method_id,
-            auth_start_mode,
-            None,
-        ),
+        )
+        .await
+    });
+    tokio::select! {
+        biased;
+        resolved = work.as_mut() => {
+            let (needs_login, login_label, login_method_id, auth_start_mode, meta) = resolved;
+            (
+                needs_login,
+                login_label,
+                login_method_id,
+                auth_start_mode,
+                meta,
+                None,
+            )
+        }
+        _ = tokio::time::sleep(xai_grok_shell::http::STARTUP_AUTH_REFRESH_TIMEOUT) => {
+            let (late_tx, late_rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let (_, _, _, _, meta) = work.await;
+                if let Some(meta) = meta {
+                    let _ = late_tx.send(meta);
+                }
+            });
+            (
+                needs_login,
+                login_label,
+                login_method_id,
+                auth_start_mode,
+                None,
+                Some(late_rx),
+            )
+        }
     }
 }
 /// Authenticate with the agent using the agent's chosen default method. Do not re-derive api_key vs session

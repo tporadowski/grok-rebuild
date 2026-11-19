@@ -843,3 +843,34 @@ fn auth_complete_preserves_show_resolved_model_when_absent() {
 
     assert!(!app.show_resolved_model);
 }
+
+#[test]
+fn slow_sign_in_applies_account_tier_and_gate_after_the_first_frame() {
+    let mut app = test_app();
+    assert!(app.account_email.is_none());
+    assert!(app.subscription_tier.is_none());
+    assert!(app.has_access());
+
+    let meta = serde_json::to_value(xai_grok_login::AuthMeta {
+        email: Some("ada@example.com".into()),
+        subscription_tier: Some("SuperGrok".into()),
+        gate: Some(xai_grok_login::GateInfo {
+            message: "Subscribe to continue".into(),
+            url: Some("https://grok.com/plans".into()),
+            label: Some("View plans".into()),
+        }),
+        ..Default::default()
+    })
+    .unwrap();
+
+    dispatch(
+        Action::TaskComplete(TaskResult::LateSignInMeta { meta }),
+        &mut app,
+    );
+
+    assert_eq!(app.account_email.as_deref(), Some("ada@example.com"));
+    assert_eq!(app.subscription_tier.as_deref(), Some("SuperGrok"));
+    let gate = app.gate.as_ref().expect("access gate");
+    assert_eq!(gate.message, "Subscribe to continue");
+    assert!(!app.has_access());
+}

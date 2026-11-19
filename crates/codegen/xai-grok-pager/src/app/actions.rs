@@ -2766,6 +2766,11 @@ pub enum TaskResult {
         request_seq: u64,
         meta: Option<serde_json::Value>,
     },
+    /// Eager sign-in finished after the first frame. Carries the same auth meta
+    /// `AuthComplete` would have applied if it had arrived in time.
+    LateSignInMeta {
+        meta: serde_json::Value,
+    },
     /// Authentication failed.
     AuthFailed {
         request_seq: u64,
