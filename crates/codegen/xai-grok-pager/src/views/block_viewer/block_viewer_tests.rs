@@ -285,6 +285,39 @@ fn selected_plain_text_fresh_open_skips_preamble() {
 }
 
 #[test]
+fn search_bar_click_does_not_select_the_line_under_it() {
+    let body = (0..30)
+        .map(|i| format!("LINE{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut pane = pane(&body);
+    let before = pane.selected_plain_text();
+    assert!(!before.is_empty());
+    pane.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    let area = area();
+    let bar_row = area.y + area.height - 1;
+    pane.handle_mouse(MouseEventKind::Down(MouseButton::Left), 2, bar_row);
+    pane.handle_mouse(MouseEventKind::Up(MouseButton::Left), 2, bar_row);
+    assert_eq!(
+        pane.selected_plain_text(),
+        before,
+        "the search bar must not select the line it covers"
+    );
+    pane.handle_mouse(MouseEventKind::Down(MouseButton::Left), 2, bar_row - 1);
+    pane.handle_mouse(MouseEventKind::Up(MouseButton::Left), 2, bar_row - 1);
+    assert_eq!(
+        pane.selected_plain_text(),
+        before,
+        "the divider above the search bar must not select the line under it"
+    );
+    pane.handle_mouse(MouseEventKind::Down(MouseButton::Left), 2, 3);
+    pane.handle_mouse(MouseEventKind::Up(MouseButton::Left), 2, 3);
+    let clicked = pane.selected_plain_text();
+    assert_ne!(clicked, before, "a content row still selects its line");
+    assert!(clicked.starts_with("LINE"), "clicked {clicked:?}");
+}
+
+#[test]
 fn mouse_click_moves_cursor_for_quote() {
     let mut pane = pane("first\nsecond");
     pane.handle_mouse(MouseEventKind::Down(MouseButton::Left), 0, 3);

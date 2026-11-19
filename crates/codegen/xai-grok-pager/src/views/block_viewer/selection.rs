@@ -240,6 +240,11 @@ impl BlockViewerPane {
 
         match kind {
             MEK::Down(MouseButton::Left) if in_content(col, row) => {
+                // The search bar and the divider above it sit on top of the list.
+                // A click there must not select the content line those rows cover.
+                if self.row_is_bottom_chrome(row) {
+                    return true;
+                }
                 self.list_state.exit_visual_mode();
                 let virtual_y =
                     self.list_state.scroll_offset() + (row.saturating_sub(pane_area.y) as usize);
@@ -296,7 +301,7 @@ impl BlockViewerPane {
                     }
 
                     let max_c = pane_area.x + pane_area.width.saturating_sub(1);
-                    let max_r = pane_area.y + pane_area.height.saturating_sub(1);
+                    let max_r = self.last_content_row();
                     let cc = col.clamp(pane_area.x, max_c);
                     let rr = row.clamp(pane_area.y, max_r);
                     if let Some(ep) = self.screen_to_endpoint(cc, rr, &self.cached_unified)
@@ -312,7 +317,7 @@ impl BlockViewerPane {
                 if let Some(mut drag) = self.text_drag {
                     if drag.active {
                         let max_c = pane_area.x + pane_area.width.saturating_sub(1);
-                        let max_r = pane_area.y + pane_area.height.saturating_sub(1);
+                        let max_r = self.last_content_row();
                         let cc = col.clamp(pane_area.x, max_c);
                         let rr = row.clamp(pane_area.y, max_r);
                         if let Some(ep) = self.screen_to_endpoint(cc, rr, &self.cached_unified) {
@@ -344,6 +349,39 @@ impl BlockViewerPane {
         }
     }
 
+    /// Rows the search bar, its divider, or the visual-mode status cover.
+    /// Those rows are painted over the list, so they are not content lines.
+    fn bottom_chrome_rows(&self) -> u16 {
+        let height = self.last_content_area.height;
+        if height <= 2 {
+            return 0;
+        }
+        let has_bar =
+            self.list_state.input_mode().is_some() || self.list_state.matcher().is_some();
+        if has_bar || self.list_state.visual_mode {
+            2
+        } else {
+            0
+        }
+    }
+
+    fn row_is_bottom_chrome(&self, row: u16) -> bool {
+        let chrome = self.bottom_chrome_rows();
+        if chrome == 0 {
+            return false;
+        }
+        let pane = self.last_content_area;
+        row >= pane.y.saturating_add(pane.height.saturating_sub(chrome))
+    }
+
+    /// Last row a content click or drag may use. Stays above the search chrome.
+    fn last_content_row(&self) -> u16 {
+        let pane = self.last_content_area;
+        let chrome = self.bottom_chrome_rows();
+        pane.y
+            .saturating_add(pane.height.saturating_sub(chrome).saturating_sub(1))
+    }
+
     fn screen_to_endpoint(
         &self,
         col: u16,
@@ -351,7 +389,7 @@ impl BlockViewerPane {
         items: &[ContentLine],
     ) -> Option<TextEndpoint> {
         let pane = self.last_content_area;
-        if row < pane.y || col < pane.x {
+        if row < pane.y || col < pane.x || self.row_is_bottom_chrome(row) {
             return None;
         }
         let virtual_y = self.list_state.scroll_offset() + (row - pane.y) as usize;
