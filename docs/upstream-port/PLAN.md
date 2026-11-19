@@ -1461,7 +1461,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 1 | 0 | 38 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 8 | 0 | 73 | 15 | 4 |
 | W9 | Prompt, mentions, and keyboard | 2 | 0 | 59 | 7 | 1 |
-| W10 | Transcript, density, and copy | 3 | 0 | 69 | 4 | 0 |
+| W10 | Transcript, density, and copy | 2 | 0 | 70 | 4 | 0 |
 | W11 | Headless mode and tools | 2 | 0 | 44 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 4 | 0 | 53 | 13 | 10 |
 | W13 | Update, install, and sign-in | 4 | 0 | 35 | 11 | 0 |
@@ -1470,9 +1470,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 896. Pending: 32. Skipped: 10. Done: 699. Already: 118. Deferred: 37.
+Catalog rows: 896. Pending: 31. Skipped: 10. Done: 700. Already: 118. Deferred: 37.
 
-**Next:** `v89-x11`
+**Next:** `v89-x17`
 
 ## Waves
 
@@ -1514,7 +1514,7 @@ Pending: 2. Done: 59 (`v89-x03`; `v88-x42`; `v88-x24`; `v88-x20`; `v88-x16`; `v8
 
 ### W10 — Transcript, density, and copy
 
-Pending: 3. Done: 69 (`v89-x08`; `v89-x05`; `v89-f06`; `v88-x22`; `v88-x18`; `v88-x13`; `v88-x11`; `v88-x08`; `v88-f03`; `v87-x18`, D-315; `v87-x09`, D-314; `v87-x05`, D-313; `v86-x42`, D-282; `v86-x41`, D-281; `v86-x40`, D-280; `v86-x39`, D-279; `v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
+Pending: 2. Done: 70 (`v89-x11`; `v89-x08`; `v89-x05`; `v89-f06`; `v88-x22`; `v88-x18`; `v88-x13`; `v88-x11`; `v88-x08`; `v88-f03`; `v87-x18`, D-315; `v87-x09`, D-314; `v87-x05`, D-313; `v86-x42`, D-282; `v86-x41`, D-281; `v86-x40`, D-280; `v86-x39`, D-279; `v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
 
 ### W11 — Headless mode and tools
 
@@ -2338,7 +2338,7 @@ id | status | wave | kind | flag | covered | note
 - v89-f06 | done | W10 | Features |  |  | **New contextual hint** appears when you keep collapsing thoughts while expand-all is on, showing the chord that turns it off.
 - v89-x05 | done | W10 | Bug Fixes |  |  | **Background tasks and workflows** now appear in the correct place in the transcript after resuming a session.
 - v89-x08 | done | W10 | Bug Fixes |  |  | **Block viewer** search bar no longer selects the line hidden under it.
-- v89-x11 | pending | W10 | Bug Fixes |  |  | **Dead links** in replies now appear as plain text rather than clickable links.
+- v89-x11 | done | W10 | Bug Fixes |  |  | **Dead links** in replies now appear as plain text rather than clickable links.
 - v90-f05 | pending | W10 | Features |  |  | **Queued subagent messages** no longer show the queued label or surrounding quotes; the marker reads read-only.
 - v90-x02 | pending | W10 | Bug Fixes |  |  | **LaTeX math** renders paired bars, \middle, and angle brackets correctly.
 - v86-x43 | done | W14 | Bug Fixes |  |  | Paths ending in one or more slashes shorten correctly and keep the final folder name readable.

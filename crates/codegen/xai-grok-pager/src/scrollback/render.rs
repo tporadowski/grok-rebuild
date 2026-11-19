@@ -582,9 +582,11 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
         // The expanded verb slot's member row keeps its links (row offsets already shifted past the header)
         if !is_group_header || verb_expanded_slot {
             let content_line_offset = entry.block.markdown_body_line_offset(ctx.mode, appearance);
+            let reply = matches!(entry.block, RenderBlock::AgentMessage(_));
             entry.block.with_hyperlinks(|hyperlinks| {
                 if !hyperlinks.is_empty() {
-                    map_hyperlinks_to_overlay(
+                    let mut dead_links = Vec::new();
+                    map_hyperlinks_to_overlay_reporting_dead(
                         hyperlinks,
                         cached_output,
                         content_skip,
@@ -595,7 +597,13 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
                         media_paths,
                         cwd,
                         &mut result.link_overlay,
+                        &mut dead_links,
                     );
+                    // A reply's link that we will not open stays ordinary text.
+                    // The markdown renderer still underlined it.
+                    if reply {
+                        plain_dead_link_cells(buf, &dead_links, theme);
+                    }
                 }
             });
 
@@ -680,13 +688,24 @@ pub(crate) fn render_scrolled_entries_with_selection_boundaries(
                     .take_while(|(screen_row, _, _, _)| *screen_row < max_y)
                     .collect();
 
-                crate::render::osc8::scan_lines_for_url_overlays_indented_with_cwd(
-                    visible_lines.iter().copied(),
-                    entry_row_layout.content.x,
-                    media_paths,
-                    cwd,
-                    &mut result.link_overlay,
-                );
+                if matches!(entry.block, RenderBlock::AgentMessage(_)) {
+                    crate::render::osc8::scan_lines_for_url_overlays_indented_with_cwd_filtered(
+                        visible_lines.iter().copied(),
+                        entry_row_layout.content.x,
+                        media_paths,
+                        cwd,
+                        true,
+                        &mut result.link_overlay,
+                    );
+                } else {
+                    crate::render::osc8::scan_lines_for_url_overlays_indented_with_cwd(
+                        visible_lines.iter().copied(),
+                        entry_row_layout.content.x,
+                        media_paths,
+                        cwd,
+                        &mut result.link_overlay,
+                    );
+                }
                 if !id_mentions.is_empty() {
                     crate::render::osc8::scan_lines_for_id_mentions(
                         visible_lines.iter().copied(),
@@ -946,7 +965,39 @@ pub(crate) fn map_hyperlinks_to_overlay(
     content_line_offset: usize,
     media_paths: &[std::path::PathBuf],
     cwd: Option<&std::path::Path>,
+    overlay: &mut crate::render::osc8::LinkOverlay,
+) {
+    let mut dead = Vec::new();
+    map_hyperlinks_to_overlay_reporting_dead(
+        hyperlinks,
+        block_output,
+        content_skip,
+        first_visible_screen_y,
+        max_screen_y,
+        content_x,
+        content_line_offset,
+        media_paths,
+        cwd,
+        overlay,
+        &mut dead,
+    );
+}
+
+/// Same as [`map_hyperlinks_to_overlay`]. Spans that are not opened are returned in `dead_spans`
+/// as `(screen_row, col_start, col_end)` so a reply can paint them as plain text.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn map_hyperlinks_to_overlay_reporting_dead(
+    hyperlinks: &[xai_grok_markdown::HyperlinkTarget],
+    block_output: &BlockOutput,
+    content_skip: usize,
+    first_visible_screen_y: u16,
+    max_screen_y: u16,
+    content_x: u16,
+    content_line_offset: usize,
+    media_paths: &[std::path::PathBuf],
+    cwd: Option<&std::path::Path>,
     overlay: &mut LinkOverlay,
+    dead_spans: &mut Vec<(u16, u16, u16)>,
 ) {
     // Build mapping: pre-wrap line index to a vec of (wrapped_idx, col_start_in_prewrap, col_end_in_prewrap, indent_width)
     // A joiner of None means a new pre-wrap line starts.
@@ -998,15 +1049,15 @@ pub(crate) fn map_hyperlinks_to_overlay(
             .strip_prefix(crate::render::osc8::SUBAGENT_LINK_PREFIX)
             && !id.is_empty()
         {
-            crate::render::osc8::LinkTarget::Subagent(Arc::from(id))
+            Some(crate::render::osc8::LinkTarget::Subagent(Arc::from(id)))
         } else if crate::app::link_opener::is_safe_to_open(&h.url, scheme_filter) {
-            crate::render::osc8::LinkTarget::Url(Arc::from(h.url.as_str()))
+            Some(crate::render::osc8::LinkTarget::Url(Arc::from(h.url.as_str())))
         } else if let Some(file_target) =
             crate::render::osc8::local_link_to_file_target(&h.url, media_paths, cwd)
         {
-            file_target
+            Some(file_target)
         } else {
-            continue;
+            None
         };
         let adjusted_line = h.line_index + content_line_offset;
         if adjusted_line >= pre_wrap_segments.len() {
@@ -1072,14 +1123,36 @@ pub(crate) fn map_hyperlinks_to_overlay(
                 if vs >= ve {
                     continue;
                 }
-                overlay.push(OverlayLink {
-                    screen_row,
-                    col_start: content_x + vs as u16,
-                    col_end: content_x + ve as u16,
-                    target: target.clone(),
-                    presentation: crate::render::osc8::LinkPresentation::Opaque,
-                    id: Some(h.id),
-                });
+                let col_start = content_x + vs as u16;
+                let col_end = content_x + ve as u16;
+                if let Some(target) = target.clone() {
+                    overlay.push(OverlayLink {
+                        screen_row,
+                        col_start,
+                        col_end,
+                        target,
+                        presentation: crate::render::osc8::LinkPresentation::Opaque,
+                        id: Some(h.id),
+                    });
+                } else {
+                    dead_spans.push((screen_row, col_start, col_end));
+                }
+            }
+        }
+    }
+}
+
+/// A reply link we will not open was still painted with the link color and underline.
+/// Put those cells back to ordinary reply text.
+fn plain_dead_link_cells(buf: &mut Buffer, spans: &[(u16, u16, u16)], theme: &Theme) {
+    for &(row, start, end) in spans {
+        for col in start..end {
+            let Some(cell) = buf.cell_mut((col, row)) else {
+                continue;
+            };
+            cell.modifier.remove(Modifier::UNDERLINED);
+            if cell.fg == theme.link_fg {
+                cell.fg = theme.md_text;
             }
         }
     }

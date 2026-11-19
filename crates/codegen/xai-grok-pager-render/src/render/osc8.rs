@@ -497,6 +497,26 @@ pub fn scan_lines_for_url_overlays_indented_with_cwd<'a>(
     cwd: Option<&Path>,
     overlay: &mut LinkOverlay,
 ) {
+    scan_lines_for_url_overlays_indented_with_cwd_filtered(
+        lines,
+        content_x,
+        media_paths,
+        cwd,
+        false,
+        overlay,
+    );
+}
+
+/// Like [`scan_lines_for_url_overlays_indented_with_cwd`], but a file path that is not on disk stays plain text.
+/// Replies use this so a dead path is not a clickable link. Tool rows keep the unfiltered scan.
+pub fn scan_lines_for_url_overlays_indented_with_cwd_filtered<'a>(
+    lines: impl Iterator<Item = (u16, &'a Line<'static>, Option<&'a str>, usize)>,
+    content_x: u16,
+    media_paths: &[PathBuf],
+    cwd: Option<&Path>,
+    files_must_exist: bool,
+    overlay: &mut LinkOverlay,
+) {
     // Joined text and row segments for the logical line currently being accumulated
     // Buffers are reused across groups to avoid per-row allocation on every render frame
     let mut group_text = String::new();
@@ -518,6 +538,7 @@ pub fn scan_lines_for_url_overlays_indented_with_cwd<'a>(
                     content_x,
                     media_paths,
                     cwd,
+                    files_must_exist,
                     overlay,
                 );
                 group_text.clear();
@@ -540,8 +561,22 @@ pub fn scan_lines_for_url_overlays_indented_with_cwd<'a>(
         content_x,
         media_paths,
         cwd,
+        files_must_exist,
         overlay,
     );
+}
+
+fn file_target_is_on_disk(target: &LinkTarget) -> bool {
+    let LinkTarget::File(path) = target else {
+        return true;
+    };
+    if path.exists() {
+        return true;
+    }
+    let Some(text) = path.to_str() else {
+        return false;
+    };
+    text.contains("%20") && Path::new(&text.replace("%20", " ")).exists()
 }
 
 /// Link known subagent and background-task ids in the same joined rows as [`scan_lines_for_url_overlays_indented`].
@@ -817,6 +852,7 @@ fn scan_logical_line(
     content_x: u16,
     media_paths: &[PathBuf],
     cwd: Option<&Path>,
+    files_must_exist: bool,
     overlay: &mut LinkOverlay,
 ) {
     if text.is_empty() || rows.is_empty() {
@@ -880,6 +916,9 @@ fn scan_logical_line(
         let Some(file_target) = path_to_file_target(path_m.as_str()) else {
             continue;
         };
+        if files_must_exist && !file_target_is_on_disk(&file_target) {
+            continue;
+        }
 
         // Clickable region is the path text only (not the quotes).
         if push_link_segments(
@@ -942,6 +981,9 @@ fn scan_logical_line(
         let Some(file_target) = path_to_file_target(path) else {
             continue;
         };
+        if files_must_exist && !file_target_is_on_disk(&file_target) {
+            continue;
+        }
 
         if push_link_segments(
             text,

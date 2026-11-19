@@ -1686,6 +1686,84 @@ fn agent_relative_file_path_opens_when_it_exists_under_the_session() {
     );
 }
 
+#[test]
+fn dead_links_in_a_reply_are_plain_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("gone.rs");
+    let live = dir.path().join("keep.rs");
+    std::fs::write(&live, b"fn keep() {}").unwrap();
+    let text = format!(
+        "Skip [gone.rs]({missing}) and {missing}, open [keep.rs]({live}) and https://example.com/docs.\n",
+        missing = missing.display(),
+        live = live.display(),
+    );
+    let mut entries = vec![make_markdown_entry(&text)];
+    if let RenderBlock::AgentMessage(block) = &mut at_mut(&mut entries, 0).block {
+        block.finish();
+    }
+    let viewport = Rect::new(0, 0, 160, 8);
+    let (result, buf) =
+        render_with_scratch_and_buffer_with_cwd(&entries, viewport, 0, None, Some(dir.path()));
+    let urls: Vec<String> = result
+        .link_overlay
+        .links()
+        .iter()
+        .filter_map(|link| {
+            resolve_link_target(&link.target)
+                .and_then(|resolved| resolved.osc8_url)
+                .map(|url| url.to_string())
+        })
+        .collect();
+    assert!(
+        urls.iter().any(|url| url.contains("example.com")),
+        "a real web link stays clickable, got {urls:?}"
+    );
+    assert!(
+        urls.iter().any(|url| url.ends_with("/keep.rs")),
+        "a file that exists stays clickable, got {urls:?}"
+    );
+    assert!(
+        !urls.iter().any(|url| url.contains("gone.rs")),
+        "a missing file is not a clickable link, got {urls:?}"
+    );
+
+    let gone = painted_word(&buf, "gone.rs");
+    assert!(
+        !gone.is_empty(),
+        "the reply still shows the missing file's name"
+    );
+    assert!(
+        gone.iter().all(|underlined| !underlined),
+        "the missing file must be plain text, not an underlined link"
+    );
+    let live_word = painted_word(&buf, "keep.rs");
+    assert!(
+        live_word.iter().any(|underlined| *underlined),
+        "a file that exists stays an underlined link, got {live_word:?}"
+    );
+}
+
+/// Underline flag for each time `needle` is painted. ASCII needles match one cell per byte.
+fn painted_word(buf: &Buffer, needle: &str) -> Vec<bool> {
+    let mut found = Vec::new();
+    for y in 0..buf.area.height {
+        let cells: Vec<_> = (0..buf.area.width)
+            .filter_map(|x| buf.cell((x, y)))
+            .collect();
+        let text: String = cells.iter().map(|cell| cell.symbol()).collect();
+        let mut from = 0;
+        while let Some(at) = text[from..].find(needle) {
+            let start = from + at;
+            let underlined = cells[start..start + needle.len()]
+                .iter()
+                .any(|cell| cell.modifier.contains(ratatui::style::Modifier::UNDERLINED));
+            found.push(underlined);
+            from = start + needle.len();
+        }
+    }
+    found
+}
+
 fn repo_with_remotes(remotes: &[(&str, &str)]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("tempdir");
     let repo = git2::Repository::init(dir.path()).expect("init repo");
