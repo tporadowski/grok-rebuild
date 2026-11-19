@@ -1483,7 +1483,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 27 | 10 | 3 |
 | W5 | Workflows and goals | 0 | 0 | 35 | 6 | 0 |
 | W7 | Worktrees | 0 | 0 | 39 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 2 | 0 | 82 | 15 | 4 |
+| W8 | Sessions, resume, and dashboard | 1 | 0 | 83 | 15 | 4 |
 | W9 | Prompt, mentions, and keyboard | 2 | 0 | 61 | 7 | 1 |
 | W10 | Transcript, density, and copy | 0 | 0 | 72 | 4 | 0 |
 | W11 | Headless mode and tools | 1 | 0 | 46 | 7 | 0 |

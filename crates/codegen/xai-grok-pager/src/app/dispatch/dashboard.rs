@@ -1895,7 +1895,7 @@ pub(crate) fn dashboard_overlay_agent_order(app: &AppView) -> Vec<crate::app::ag
             .dashboard
             .as_ref()
             .map_or(&crate::views::dashboard::Filter::None, |d| &d.filter);
-        return workspace_rows(app, filter)
+        let order = workspace_rows(app, filter)
             .0
             .into_iter()
             .filter_map(|row| match row.id {
@@ -1903,6 +1903,7 @@ pub(crate) fn dashboard_overlay_agent_order(app: &AppView) -> Vec<crate::app::ag
                 _ => None,
             })
             .collect();
+        return crate::views::dashboard::include_fresh_open_sessions(&app.agents, order);
     }
     match app.dashboard.as_ref() {
         Some(d) => crate::views::dashboard::overlay_cycle_order(d, &app.agents),

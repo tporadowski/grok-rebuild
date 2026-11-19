@@ -73,12 +73,28 @@ pub fn overlay_cycle_order(
         home,
         &[],
     );
-    rows.iter()
+    let ids = rows
+        .iter()
         .filter_map(|r| match &r.id {
             DashboardRowId::TopLevel(id) => Some(*id),
             _ => None,
         })
-        .collect()
+        .collect();
+    include_fresh_open_sessions(agents, ids)
+}
+
+/// Fresh sessions have no typed content, so the list hides them. Ctrl+[ and Ctrl+] still switch to them.
+pub(crate) fn include_fresh_open_sessions(
+    agents: &indexmap::IndexMap<crate::app::agent::AgentId, crate::app::agent_view::AgentView>,
+    mut order: Vec<crate::app::agent::AgentId>,
+) -> Vec<crate::app::agent::AgentId> {
+    let listed: std::collections::HashSet<_> = order.iter().copied().collect();
+    for (id, agent) in agents {
+        if !listed.contains(id) && row::is_empty_idle_top_level(agent) {
+            order.push(*id);
+        }
+    }
+    order
 }
 
 /// The env override wins (`GROK_AGENT_DASHBOARD=0` turns the dashboard off), else the persisted `[dashboard].enabled` flag (default `true`).

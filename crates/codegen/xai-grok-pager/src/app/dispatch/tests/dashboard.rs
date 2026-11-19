@@ -5052,6 +5052,22 @@ fn dashboard_ctrl_backslash_exits_dashboard() {
         app.active_view,
     );
 }
+/// Ctrl+[ and Ctrl+] follow [`dispatch_dashboard_overlay_cycle`], including a session that has no typed content yet.
+#[test]
+fn ctrl_bracket_switches_to_a_fresh_session_with_no_typed_content() {
+    let mut app = test_app_with_agent();
+    mark_agent_nonempty(&mut app, AgentId(0));
+    let fresh = AgentId(1);
+    let session = make_test_agent_session(&app, fresh, "fresh");
+    app.agents
+        .insert(fresh, AgentView::new(session, ScrollbackState::new()));
+    app.active_view = ActiveView::Agent(AgentId(0));
+    assert!(dispatch_dashboard_overlay_cycle(&mut app, 1).is_empty());
+    assert_eq!(app.active_view, ActiveView::Agent(fresh));
+    assert!(dispatch_dashboard_overlay_cycle(&mut app, -1).is_empty());
+    assert_eq!(app.active_view, ActiveView::Agent(AgentId(0)));
+}
+
 fn insert_second_agent(app: &mut AppView) -> AgentId {
     let id = AgentId(1);
     let session = make_test_agent_session(app, id, "second");
