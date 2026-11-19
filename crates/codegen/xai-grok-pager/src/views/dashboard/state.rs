@@ -2859,6 +2859,11 @@ impl DashboardState {
         if key!('c', CONTROL).matches(key) || key!('d', CONTROL).matches(key) {
             return Some(InputOutcome::Unchanged);
         }
+        // The reply box uses Ctrl+W as unix word rubout. The dashboard worktree chord stays on the list.
+        if key!('w', CONTROL).matches(key) && self.peek.as_ref().is_some_and(|p| p.focused) {
+            let _ = self.peek_reply_handle_key(key);
+            return Some(InputOutcome::Changed);
+        }
 
         // `@`-file-search intercept: while the reply's context picker dropdown is open it owns
         // Up/Down/PageUp-Down/Tab/Enter/Esc/ Ctrl+P-N (navigate.
@@ -3616,6 +3621,26 @@ impl DashboardState {
             // confirm. Non-destructive actions may still repeat.
             if id == crate::actions::ActionId::DashboardStop && key.kind == KeyEventKind::Repeat {
                 return InputOutcome::Unchanged;
+            }
+            // Dispatch box: Ctrl+W deletes the previous word. The worktree chord remains while the list is focused.
+            if honor
+                && id == crate::actions::ActionId::DashboardToggleWorktree
+                && !self.list_focused
+            {
+                let old = self.dispatch.text().to_string();
+                let event = self.dispatch.handle_key(key);
+                if old != self.dispatch.text() {
+                    if self.search_mode {
+                        self.sync_search_filter_from_dispatch();
+                    } else {
+                        self.dispatch.refresh_slash(&self.models);
+                    }
+                }
+                return if event == PromptEvent::Edited || old != self.dispatch.text() {
+                    InputOutcome::Changed
+                } else {
+                    InputOutcome::Unchanged
+                };
             }
             if honor && let Some(outcome) = dashboard_action_for_id(id, &mut self.error_toast) {
                 return outcome;

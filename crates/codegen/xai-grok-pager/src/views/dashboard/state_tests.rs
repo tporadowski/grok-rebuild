@@ -929,6 +929,30 @@ fn state_with_open_peek() -> DashboardState {
     s
 }
 
+/// Ctrl+W in the dispatch box and the focused peek reply deletes the previous word.
+/// The list-focused worktree chord is unchanged.
+#[test]
+fn ctrl_w_deletes_the_previous_word_in_dispatch_and_peek() {
+    let reg = crate::actions::ActionRegistry::defaults();
+    let ctrl_w = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL);
+
+    let mut state = DashboardState::new();
+    state.dispatch.set_text("spawn a fixer");
+    state.dispatch.set_cursor(state.dispatch.text().len());
+    let outcome = state.handle_input(&Event::Key(ctrl_w), &reg);
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert_eq!(state.dispatch.text(), "spawn a ");
+    assert!(!state.worktree_armed());
+
+    let mut state = state_with_open_peek();
+    state.peek_reply.set_text("please look");
+    state.peek_reply.set_cursor(state.peek_reply.text().len());
+    let outcome = state.handle_input(&Event::Key(ctrl_w), &reg);
+    assert!(matches!(outcome, InputOutcome::Changed));
+    assert_eq!(state.peek_reply.text(), "please ");
+    assert_eq!(state.dispatch.text(), "");
+}
+
 /// A dispatch send parked on an image probe must not freeze the peek reply.
 #[test]
 fn peek_accepts_keys_and_pastes_while_dispatch_send_waits_on_an_image() {
