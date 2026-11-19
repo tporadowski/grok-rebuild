@@ -2516,6 +2516,7 @@ pub(crate) fn build_mcp_servers_picker_rows(
             .or_default()
             .push((si, server));
     }
+    ensure_empty_hosted_section(&mut sections, servers, searching);
 
     let mut out = McpServersPickerRows::default();
     for (section_id, section_servers) in &sections {
@@ -2550,6 +2551,25 @@ pub(crate) fn build_mcp_servers_picker_rows(
         }
     }
     out
+}
+
+/// The hosted connectors section is the place to add the first one, so it stays on the
+/// unfiltered list when none have been added. A search that matches nothing does not invent it.
+fn ensure_empty_hosted_section<'a>(
+    sections: &mut std::collections::BTreeMap<
+        crate::views::mcps_modal::McpSectionId,
+        Vec<(usize, &'a crate::views::mcps_modal::McpServerInfo)>,
+    >,
+    servers: &'a [crate::views::mcps_modal::McpServerInfo],
+    searching: bool,
+) {
+    use crate::views::mcps_modal::{McpSectionId, section_for};
+    let any_hosted = servers
+        .iter()
+        .any(|server| section_for(server) == McpSectionId::Managed);
+    if !searching && !any_hosted {
+        sections.entry(McpSectionId::Managed).or_default();
+    }
 }
 
 /// Shared rule for the hook/plugin/skill group-collapse seeds: collapse every group once, on the
@@ -3651,6 +3671,7 @@ pub fn render_extensions_modal(
                             .or_default()
                             .push((si, server));
                     }
+                    ensure_empty_hosted_section(&mut sections, servers, searching);
 
                     for (section_id, section_servers) in &sections {
                         let sec_key = section_key(section_id);
@@ -5036,6 +5057,44 @@ mod tests {
             "local section should still render"
         );
         assert!(rows.labels.iter().any(|l| l == "local-srv"));
+    }
+
+    /// The hosted connectors section is how the first connector is added, so it is present
+    /// before any managed server exists. A search that matches nothing does not invent it.
+    #[test]
+    fn mcp_hosted_connectors_section_shows_before_any_are_added() {
+        use crate::views::mcps_modal::McpWireSource;
+
+        let local = vec![make_mcp_server_for_rows(
+            "local-srv",
+            McpWireSource::Local,
+            vec![],
+        )];
+        let mut state = ExtensionsModalState::new(ExtensionsTab::McpServers);
+        state.mcps_data = TabDataState::Loaded(local.clone());
+        let area = Rect::new(0, 0, 100, 40);
+        let mut buf = Buffer::empty(area);
+        render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
+        assert_eq!(buffer_count(&buf, "Managed by grok.com (0)"), 1);
+        assert_eq!(buffer_count(&buf, "manage connectors"), 1);
+        assert_eq!(buffer_count(&buf, "grok.com/connectors"), 1);
+        assert_eq!(buffer_count(&buf, "local-srv"), 1);
+
+        let rows = build_mcp_servers_picker_rows(
+            &local,
+            "no-such-connector",
+            StatusFilter::All,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
+        assert!(
+            !rows
+                .labels
+                .iter()
+                .any(|label| label.starts_with("Managed by grok.com")),
+            "a search with no hosted match must not invent the section: {:?}",
+            rows.labels
+        );
     }
 
     /// A policy-blocked row must be distinguishable from a personal disable without pressing
