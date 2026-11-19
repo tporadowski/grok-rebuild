@@ -553,7 +553,11 @@ fn fork_summary(
         previous_cwd: source.previous_cwd,
         pending_cwd_switch_reminder: None,
         cwd_switch_bookkeeping_generation: counters.cwd_switch_bookkeeping_generation,
-        session_summary: source.session_summary,
+        session_summary: options
+            .pinned_title
+            .as_ref()
+            .map(|pinned| pinned.session_summary.clone())
+            .unwrap_or(source.session_summary),
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
         num_messages: counters.num_messages,
@@ -588,9 +592,18 @@ fn fork_summary(
         // Fresh local grok_home, not inherited from source: the fork lives on this machine.
         grok_home: crate::session::persistence::grok_home_string(),
         last_active_at: source.last_active_at,
-        generated_title: source.generated_title,
-        // A fork keeps the parent's title, so whether that title was set manually carries over too
-        title_is_manual: source.title_is_manual,
+        // A worktree fork pins the title from before creation. A rename of the source
+        // while the worktree is created must not replace that title.
+        generated_title: options
+            .pinned_title
+            .as_ref()
+            .map(|pinned| pinned.generated_title.clone())
+            .unwrap_or(source.generated_title),
+        title_is_manual: options
+            .pinned_title
+            .as_ref()
+            .map(|pinned| pinned.title_is_manual)
+            .unwrap_or(source.title_is_manual),
         // Re-derived from the target path, never inherited: the source's label describes the parent's worktree, not this one
         worktree_label: target_worktree_identity
             .as_ref()

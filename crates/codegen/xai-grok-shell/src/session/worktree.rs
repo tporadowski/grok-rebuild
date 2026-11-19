@@ -316,6 +316,13 @@ async fn resume_local_session_in_worktree(
         .worktree_type
         .map(ShellWorktreeType::from)
         .unwrap_or(worktree_type_default);
+    // Capture the title before the worktree create. A rename of the source during that create
+    // must not become the fork's title.
+    let pinned_title = source_title_before_worktree_create(
+        &crate::util::grok_home::grok_home(),
+        resolved_session_id,
+        resolved_source_cwd,
+    );
     let wt_resp = create_worktree_for_resume(
         resolved_source_cwd,
         req.copy_mode,
@@ -409,6 +416,7 @@ async fn resume_local_session_in_worktree(
         new_cwd: effective_cwd.clone(),
         session_kind: Some("worktree".to_string()),
         source_workspace_dir: Some(resolved_source_cwd.to_owned()),
+        pinned_title,
         ..Default::default()
     };
     let fork_resp = match fork_session(fork_req, agent_id, auth_manager).await {
@@ -433,6 +441,23 @@ async fn resume_local_session_in_worktree(
         copy_warnings,
     })
 }
+/// Title of `session_id` before worktree creation starts.
+/// `root` is the grok home, so a test can read a temp session without changing the process home.
+pub(crate) fn source_title_before_worktree_create(
+    root: &Path,
+    session_id: &str,
+    cwd: &str,
+) -> Option<crate::session::storage::PinnedSessionTitle> {
+    let path = crate::util::grok_home::sessions_cwd_dir_in(root, cwd)
+        .join(session_id)
+        .join("summary.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let summary = serde_json::from_str::<crate::session::persistence::Summary>(&raw).ok()?;
+    Some(crate::session::storage::PinnedSessionTitle::from_summary(
+        &summary,
+    ))
+}
+
 /// Run session rehydration: recreate the git worktree at the exact path and restore all session state using the original session ID.
 pub(crate) async fn rehydrate_session_in_worktree(
     req: &RehydrateSessionRequest,

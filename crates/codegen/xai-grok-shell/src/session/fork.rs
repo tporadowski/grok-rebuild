@@ -31,6 +31,9 @@ pub struct ForkSessionRequest {
     /// The original workspace directory this worktree session was spawned from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_workspace_dir: Option<String>,
+    /// Title of the source session before worktree creation. A rename during that create is ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_title: Option<crate::session::storage::PinnedSessionTitle>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -110,6 +113,7 @@ pub(crate) async fn fork_session_in(
         // Carry the parent's compaction segment archive into the fork so the child retains pre-compaction history
         // The live summary is already copied via chat_history.jsonl
         copy_compaction_segments: true,
+        pinned_title: request.pinned_title.clone(),
         ..Default::default()
     };
 
@@ -410,6 +414,79 @@ mod tests {
             "the reminder must not split the shown path from the shell path: {reminder}"
         );
         assert!(reminder.contains(&format!("The source checkout is {source_cwd}.")));
+    }
+
+    #[tokio::test]
+    async fn worktree_fork_keeps_the_title_captured_before_the_source_is_renamed() {
+        use crate::session::persistence::default_model_id;
+        use crate::session::storage::StorageAdapter;
+        use crate::sampling::ConversationItem;
+
+        let root = tempfile::TempDir::new().unwrap();
+        let adapter = JsonlStorageAdapter::with_root(root.path().to_path_buf());
+        let source_cwd = "/repo/checkout".to_string();
+        let worktree = "/tmp/grok-worktrees/repo/fork-title".to_string();
+        let source = Info {
+            id: acp::SessionId::new("source-title-pin"),
+            cwd: source_cwd.clone(),
+        };
+        adapter
+            .init_session(&source, default_model_id())
+            .await
+            .unwrap();
+        adapter
+            .append_chat_message(&source, &ConversationItem::user("keep this title".to_string()))
+            .await
+            .unwrap();
+        let mut summary = adapter.load_session(&source).await.unwrap().summary;
+        summary.generated_title = Some("Original title".to_string());
+        summary.session_summary = "Original title".to_string();
+        summary.title_is_manual = true;
+        adapter.write_summary_sync(&source, &summary).unwrap();
+
+        let pinned = crate::session::worktree::source_title_before_worktree_create(
+            root.path(),
+            &source.id.to_string(),
+            &source_cwd,
+        )
+        .expect("the source title is readable before the worktree is created");
+        assert_eq!(pinned.generated_title.as_deref(), Some("Original title"));
+
+        summary.generated_title = Some("Renamed during creation".to_string());
+        summary.session_summary = "Renamed during creation".to_string();
+        adapter.write_summary_sync(&source, &summary).unwrap();
+
+        let response = fork_session_in(
+            ForkSessionRequest {
+                source_session_id: source.id.to_string(),
+                source_cwd: source_cwd.clone(),
+                new_cwd: worktree.clone(),
+                new_session_id: Some("forked-title".to_string()),
+                session_kind: Some("worktree".to_string()),
+                source_workspace_dir: Some(source_cwd),
+                pinned_title: Some(pinned),
+                ..Default::default()
+            },
+            "agent",
+            None,
+            root.path(),
+        )
+        .await
+        .unwrap();
+
+        let child = adapter
+            .load_session(&Info {
+                id: acp::SessionId::new(response.new_session_id),
+                cwd: worktree,
+            })
+            .await
+            .unwrap()
+            .summary;
+        assert_eq!(child.display_title(), "Original title");
+        assert_eq!(child.generated_title.as_deref(), Some("Original title"));
+        assert!(child.title_is_manual);
+        let source_after = adapter.load_session(&source).await.unwrap().summary;
+        assert_eq!(source_after.display_title(), "Renamed during creation");
     }
 
     fn find_named(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {

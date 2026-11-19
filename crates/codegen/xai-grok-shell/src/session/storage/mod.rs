@@ -865,6 +865,25 @@ pub struct CopySessionResult {
     pub compaction_checkpoints_copied: usize,
 }
 
+/// Title captured before a worktree fork starts creating the worktree.
+/// A rename of the source while that create runs must not replace it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PinnedSessionTitle {
+    pub generated_title: Option<String>,
+    pub session_summary: String,
+    pub title_is_manual: bool,
+}
+
+impl PinnedSessionTitle {
+    pub(crate) fn from_summary(summary: &Summary) -> Self {
+        Self {
+            generated_title: summary.generated_title.clone(),
+            session_summary: summary.session_summary.clone(),
+            title_is_manual: summary.title_is_manual,
+        }
+    }
+}
+
 /// Options for copying session data during fork
 #[derive(Debug, Clone)]
 pub struct CopySessionOptions {
@@ -923,6 +942,8 @@ pub struct CopySessionOptions {
     /// The original workspace directory this worktree session was spawned from.
     /// Propagated to the forked session's `Summary::source_workspace_dir`.
     pub source_workspace_dir: Option<String>,
+    /// When set, the child keeps this title instead of whatever the source summary says at copy time.
+    pub pinned_title: Option<PinnedSessionTitle>,
 }
 
 impl Default for CopySessionOptions {
@@ -948,6 +969,7 @@ impl Default for CopySessionOptions {
             inherited_prefix_len: None,
             strip_reasoning: false,
             source_workspace_dir: None,
+            pinned_title: None,
         }
     }
 }

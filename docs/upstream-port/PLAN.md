@@ -1470,7 +1470,7 @@ Refresh these numbers at the end of a session.
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 0 | 0 | 26 | 10 | 3 |
 | W5 | Workflows and goals | 0 | 0 | 35 | 6 | 0 |
-| W7 | Worktrees | 1 | 0 | 38 | 3 | 0 |
+| W7 | Worktrees | 0 | 0 | 39 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 8 | 0 | 73 | 15 | 4 |
 | W9 | Prompt, mentions, and keyboard | 2 | 0 | 59 | 7 | 1 |
 | W10 | Transcript, density, and copy | 2 | 0 | 70 | 4 | 0 |
@@ -1482,9 +1482,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 896. Pending: 19. Skipped: 10. Done: 712. Already: 118. Deferred: 37.
+Catalog rows: 896. Pending: 18. Skipped: 10. Done: 713. Already: 118. Deferred: 37.
 
-**Next:** `v90-x13`
+**Next:** `v90-f03`
 
 ## Waves
 
@@ -1514,7 +1514,7 @@ Pending: 0. Done: 35 (`v90-x07`; `v89-x12`; `v89-f05`; `v88-x14`, `v88-x28`). A 
 
 ### W7 — Worktrees
 
-Pending: 1. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086; `v64-x05`, D-087; `v64-x06`, D-088; `v67-f01`, D-089; `v68-f01`, D-090; `v68-x01`, D-091; `v69-f04`, D-092; `v73-x08`, D-093; `v73-x13`, D-094; `v75-x01`, D-095). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
+Pending: 0. Done: 39 (`v90-x13`; `v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x50`, D-059; `v50-x51`, D-060; `v50-x53`, D-062; `v50-x57`, D-063; `v50-x58`, D-064; `v50-x62`, D-065; `v51-f13` and `v51-f15`, D-066; `v51-f16`, D-067; `v51-f26`, D-068; `v51-x34`, D-069; `v51-x42`, D-070; `v51-x55`, D-071; `v51-x56`, D-072; `v51-x59`, D-073; `v51-x68`, D-074; `v51-x79`, D-075; `v51-x98`, D-076; `v52-x06`, D-077; `v52-x11`, D-078; `v53-x01`, D-079; `v54-x06`, D-080; `v63-f02`, D-082; `v63-x03`, D-083; `v64-f01`, D-084; `v64-x01`, D-085; `v64-x04`, D-086; `v64-x05`, D-087; `v64-x06`, D-088; `v67-f01`, D-089; `v68-f01`, D-090; `v68-x01`, D-091; `v69-f04`, D-092; `v73-x08`, D-093; `v73-x13`, D-094; `v75-x01`, D-095). Already: 3 (`v50-f11`, D-057; `v50-x52`, D-061; `v59-x02`, D-081). Look first: Subcommands such as `detach` and `salvage` already exist. This wave is safety, Jujutsu, missing-folder reporting, and copy behavior, not a new command tree.
 
 ### W8 — Sessions, resume, and dashboard
 
@@ -1726,7 +1726,7 @@ id | status | wave | kind | flag | covered | note
 - v73-x08 | done | W7 | Bug Fixes |  |  | **Worktree creation notes** stay on screen when a queued prompt starts.
 - v73-x13 | done | W7 | Bug Fixes |  |  | **`--restore-code`** restores its own stash even when another worktree changes the stash list meanwhile, and keeps your changes stashed when a post-checkout hook fails after the checkout.
 - v75-x01 | done | W7 | Bug Fixes |  |  | **Notes above a queued prompt**, such as a model switch result or a ready worktree, stay on screen when the prompt starts instead of scrolling out of view.
-- v90-x13 | pending | W7 | Bug Fixes |  |  | **Worktree forks** preserve the original session title even when the source is renamed during creation.
+- v90-x13 | done | W7 | Bug Fixes |  |  | **Worktree forks** preserve the original session title even when the source is renamed during creation.
 - v51-f11 | done | W8 | Features |  |  | **Pinned sessions** on the dashboard now stay in the order you pinned or reordered them.
 - v51-f17 | done | W8 | Features |  |  | **/exit** (and aliases) in a dashboard details view now closes only that session instead of quitting Grok.
 - v51-x10 | done | W8 | Bug Fixes |  |  | Foreground subagent activity now appears correctly after resume.
