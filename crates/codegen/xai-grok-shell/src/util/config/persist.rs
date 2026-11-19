@@ -22,6 +22,7 @@ async fn save_config_locked(
     guard: ConfigWriteGuard,
     slot: &Path,
     dest: BoundDest,
+    before: &Config,
     config: &Config,
 ) -> Result<()> {
     let dest = require_same_user_config_dest(slot, &dest)?;
@@ -49,34 +50,19 @@ async fn save_config_locked(
         root = TomlValue::Table(TomlMap::new());
     }
     let table = root.as_table_mut().expect("root must be a table");
-    merge_section(table, "cli", &config.cli);
-    merge_section(table, "models", &config.models);
-    merge_section(table, "ui", &config.ui);
-    merge_section(table, "keys", &config.keys);
+    apply_changed_settings(table, before, config);
     strip_builtin_fork_secondary_model(table, &config.ui.fork_secondary_model);
-    merge_section(table, "harness", &config.harness);
-    merge_section(table, "session", &config.session);
-    merge_ask_user_question_section(table, &config.ask_user_question);
     if config.privacy == super::mcp::PrivacyConfig::default() {
         table.remove("privacy");
-    } else {
-        merge_section(table, "privacy", &config.privacy);
     }
     if config.consent == super::consent::ConsentConfig::default() {
         table.remove("consent");
-    } else {
-        if let Some(TomlValue::Table(section)) = table.get_mut("consent") {
-            section.remove("answers");
-        }
-        merge_section(table, "consent", &config.consent);
+    } else if let Some(TomlValue::Table(section)) = table.get_mut("consent") {
+        section.remove("answers");
     }
     if config.skills == SkillsConfig::default() {
         table.remove("skills");
-    } else {
-        merge_section(table, "skills", &config.skills);
     }
-    merge_section(table, "telemetry", &config.telemetry);
-    merge_section(table, "features", &config.features);
     let toml_str = toml::to_string_pretty(&root)?;
     let dest = require_same_user_config_dest(slot, &dest)?;
     guard
@@ -313,6 +299,217 @@ fn merge_toml_tables(
         }
     }
 }
+/// Write the settings that differ between `before` and `after`.
+/// A value that returns to its default is removed. Keys the save did not touch stay, including ones this struct does not model.
+fn apply_changed_settings(
+    root: &mut TomlMap<String, TomlValue>,
+    before: &Config,
+    after: &Config,
+) {
+    let defaults = Config::default();
+    apply_section(root, "cli", &before.cli, &after.cli, &defaults.cli);
+    apply_section(
+        root,
+        "models",
+        &before.models,
+        &after.models,
+        &defaults.models,
+    );
+    apply_section(root, "ui", &before.ui, &after.ui, &defaults.ui);
+    apply_section(root, "keys", &before.keys, &after.keys, &defaults.keys);
+    apply_section(
+        root,
+        "harness",
+        &before.harness,
+        &after.harness,
+        &defaults.harness,
+    );
+    apply_section(
+        root,
+        "session",
+        &before.session,
+        &after.session,
+        &defaults.session,
+    );
+    apply_section(
+        root,
+        "privacy",
+        &before.privacy,
+        &after.privacy,
+        &defaults.privacy,
+    );
+    apply_section(
+        root,
+        "consent",
+        &before.consent,
+        &after.consent,
+        &defaults.consent,
+    );
+    apply_section(
+        root,
+        "skills",
+        &before.skills,
+        &after.skills,
+        &defaults.skills,
+    );
+    apply_section(
+        root,
+        "telemetry",
+        &before.telemetry,
+        &after.telemetry,
+        &defaults.telemetry,
+    );
+    apply_section(
+        root,
+        "features",
+        &before.features,
+        &after.features,
+        &defaults.features,
+    );
+    apply_nested_section(
+        root,
+        "toolset",
+        "ask_user_question",
+        &before.ask_user_question,
+        &after.ask_user_question,
+        &defaults.ask_user_question,
+    );
+}
+
+fn apply_section<T: serde::Serialize>(
+    root: &mut TomlMap<String, TomlValue>,
+    key: &str,
+    before: &T,
+    after: &T,
+    defaults: &T,
+) {
+    apply_table_edit(
+        root,
+        key,
+        &toml_table(before),
+        &toml_table(after),
+        &toml_table(defaults),
+    );
+}
+
+fn apply_nested_section<T: serde::Serialize>(
+    root: &mut TomlMap<String, TomlValue>,
+    parent: &str,
+    key: &str,
+    before: &T,
+    after: &T,
+    defaults: &T,
+) {
+    let parent_table = match root.get_mut(parent) {
+        Some(TomlValue::Table(table)) => table,
+        Some(_) => {
+            root.insert(parent.to_string(), TomlValue::Table(TomlMap::new()));
+            match root.get_mut(parent) {
+                Some(TomlValue::Table(table)) => table,
+                _ => return,
+            }
+        }
+        None => {
+            let mut fresh = TomlMap::new();
+            apply_table_edit(
+                &mut fresh,
+                key,
+                &toml_table(before),
+                &toml_table(after),
+                &toml_table(defaults),
+            );
+            if fresh.contains_key(key) {
+                root.insert(parent.to_string(), TomlValue::Table(fresh));
+            }
+            return;
+        }
+    };
+    apply_table_edit(
+        parent_table,
+        key,
+        &toml_table(before),
+        &toml_table(after),
+        &toml_table(defaults),
+    );
+    if parent_table.is_empty() {
+        root.remove(parent);
+    }
+}
+
+fn toml_table<T: serde::Serialize>(value: &T) -> TomlMap<String, TomlValue> {
+    match TomlValue::try_from(value) {
+        Ok(TomlValue::Table(table)) => table,
+        _ => TomlMap::new(),
+    }
+}
+
+fn apply_table_edit(
+    root: &mut TomlMap<String, TomlValue>,
+    key: &str,
+    before: &TomlMap<String, TomlValue>,
+    after: &TomlMap<String, TomlValue>,
+    defaults: &TomlMap<String, TomlValue>,
+) {
+    let mut section = match root.get_mut(key) {
+        Some(TomlValue::Table(table)) => std::mem::take(table),
+        _ => TomlMap::new(),
+    };
+    apply_table_diff(&mut section, before, after, defaults);
+    if section.is_empty() {
+        root.remove(key);
+    } else {
+        root.insert(key.to_string(), TomlValue::Table(section));
+    }
+}
+
+fn apply_table_diff(
+    existing: &mut TomlMap<String, TomlValue>,
+    before: &TomlMap<String, TomlValue>,
+    after: &TomlMap<String, TomlValue>,
+    defaults: &TomlMap<String, TomlValue>,
+) {
+    let mut keys: Vec<String> = before.keys().cloned().collect();
+    for key in after.keys() {
+        if !before.contains_key(key) {
+            keys.push(key.clone());
+        }
+    }
+    for key in keys {
+        let previous = before.get(&key);
+        let next = after.get(&key);
+        if previous == next {
+            continue;
+        }
+        let fallback = defaults.get(&key);
+        match (previous, next) {
+            (Some(TomlValue::Table(previous_table)), Some(TomlValue::Table(next_table))) => {
+                let empty = TomlMap::new();
+                let default_table = fallback.and_then(TomlValue::as_table).unwrap_or(&empty);
+                let mut child = match existing.get_mut(&key) {
+                    Some(TomlValue::Table(table)) => std::mem::take(table),
+                    _ => TomlMap::new(),
+                };
+                apply_table_diff(&mut child, previous_table, next_table, default_table);
+                if child.is_empty() {
+                    existing.remove(&key);
+                } else {
+                    existing.insert(key, TomlValue::Table(child));
+                }
+            }
+            (_, Some(value)) if fallback.is_some_and(|default| default == value) => {
+                existing.remove(&key);
+            }
+            (_, Some(value)) => {
+                existing.insert(key, value.clone());
+            }
+            (Some(_), None) => {
+                existing.remove(&key);
+            }
+            (None, None) => {}
+        }
+    }
+}
+
 fn merge_section<T: serde::Serialize>(
     table: &mut TomlMap<String, TomlValue>,
     key: &str,
@@ -400,8 +597,9 @@ where
     let dest = bind_user_config_dest(&path)?;
     let root: TomlValue = crate::config::load_config_file(dest.as_path())?;
     let mut cfg = load_config_from_toml(&root);
+    let before = cfg.clone();
     f(&mut cfg);
-    save_config_locked(guard, &path, dest, &cfg).await
+    save_config_locked(guard, &path, dest, &before, &cfg).await
 }
 #[cfg(test)]
 #[path = "persist_tests.rs"]

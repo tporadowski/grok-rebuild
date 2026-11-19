@@ -1139,6 +1139,55 @@ fn merge_section_session_load_envrc_does_not_drag_auto_compact() {
          when only load_envrc is being committed"
     );
 }
+#[test]
+fn settings_save_writes_only_changed_keys_and_clear_removes_the_key() {
+    let original = "\
+[ui]
+theme = \"grokday\"
+screen_mode = \"minimal\"
+compact_mode = true
+future_knob = 7
+
+[models]
+web_search = \"kept\"
+";
+    let root: TomlValue = toml::from_str(original).unwrap();
+    let before = load_config_from_toml(&root);
+    let mut after = before.clone();
+    after.models.default = Some("grok-4".to_string());
+    after.ui.theme = Some("tokyonight".to_string());
+    after.ui.screen_mode = None;
+    after.ui.compact_mode = false;
+    let mut table = root.as_table().expect("root table").clone();
+    apply_changed_settings(&mut table, &before, &after);
+
+    let ui = table
+        .get("ui")
+        .and_then(TomlValue::as_table)
+        .expect("ui section");
+    assert_eq!(ui.get("theme").and_then(TomlValue::as_str), Some("tokyonight"));
+    assert!(ui.get("screen_mode").is_none(), "cleared screen_mode leaves the file");
+    assert!(
+        ui.get("compact_mode").is_none(),
+        "resetting a bool to its default removes the key"
+    );
+    assert_eq!(ui.get("future_knob").and_then(TomlValue::as_integer), Some(7));
+    assert!(ui.get("yolo").is_none(), "an untouched default is not written");
+
+    let models = table
+        .get("models")
+        .and_then(TomlValue::as_table)
+        .expect("models section");
+    assert_eq!(
+        models.get("default").and_then(TomlValue::as_str),
+        Some("grok-4")
+    );
+    assert_eq!(
+        models.get("web_search").and_then(TomlValue::as_str),
+        Some("kept")
+    );
+}
+
 mod resolve_auto_compact {
     use super::super::super::RemoteSettings;
     use super::super::super::resolve::{
