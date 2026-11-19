@@ -93,6 +93,19 @@ fn hook_row_label(hook: &xai_hooks_plugins_types::HookInfo) -> String {
     format!("on:{}{matcher}", hook.event)
 }
 
+/// Timeout and command (or URL) painted under a hook while its row is collapsed.
+fn hook_collapsed_summary(hook: &xai_hooks_plugins_types::HookInfo) -> String {
+    let action = hook
+        .command
+        .as_deref()
+        .filter(|text| !text.is_empty())
+        .or(hook.url.as_deref().filter(|text| !text.is_empty()));
+    match action {
+        Some(action) => format!("{} ms · {action}", hook.timeout_ms),
+        None => format!("{} ms", hook.timeout_ms),
+    }
+}
+
 /// File stem stamped on the hook name (`global/block-hihi:event[0].hooks[0]` → `block-hihi`).
 fn hook_file_name(hook: &xai_hooks_plugins_types::HookInfo) -> String {
     let source = match hook.name.rsplit_once(':') {
@@ -3468,7 +3481,7 @@ pub fn render_extensions_modal(
                             entry_labels.push(hook_row_label(hook));
                             entry_right_labels.push(String::new());
                             entry_desc_lines.push(vec![hook_file_name(hook)]);
-                            entry_summary_lines.push(vec![]);
+                            entry_summary_lines.push(vec![hook_collapsed_summary(hook)]);
                             entry_fields.push(hook_setting_fields(hook));
                             entry_is_header.push(false);
                             entry_dimmed.push(hook.disabled);
@@ -4672,6 +4685,57 @@ mod tests {
         assert!(
             !joined.contains("python"),
             "the raw command must not be a field: {joined}"
+        );
+    }
+
+    /// A collapsed hook row shows the timeout and command without opening the settings fields.
+    #[test]
+    fn collapsed_hook_row_shows_timeout_and_command() {
+        let mut hook = make_hook(
+            "global/block-hihi:pre_tool_use[0].hooks[0]",
+            "/home/user/.grok/hooks",
+            false,
+        );
+        hook.matcher = Some("Bash".into());
+        hook.command = Some("python -c 'print(1)'".into());
+        hook.timeout_ms = 5_000;
+
+        let mut state = ExtensionsModalState::new(ExtensionsTab::Hooks);
+        state.hooks_data = TabDataState::Loaded(xai_hooks_plugins_types::HooksListResponse {
+            hooks: vec![hook],
+            project_trusted: true,
+            load_errors: Vec::new(),
+        });
+        let area = Rect::new(0, 0, 120, 40);
+        let mut buf = Buffer::empty(area);
+        render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
+        assert_eq!(buffer_count(&buf, "on:Pre-Tool Use /Bash"), 1);
+        assert_eq!(buffer_count(&buf, "5000 ms · python -c 'print(1)'"), 1);
+
+        // Opening the row swaps the summary for the file name and the settings fields.
+        // The raw command stays off those fields.
+        state.picker_state.expanded.insert(1);
+        let mut buf = Buffer::empty(area);
+        render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
+        assert_eq!(buffer_count(&buf, "python"), 0);
+        assert_eq!(buffer_count(&buf, "5000 ms"), 1);
+
+        let mut http = make_hook("global/ping:pre_tool_use[0].hooks[0]", "/hooks", false);
+        http.handler_type = xai_hooks_plugins_types::HookHandlerType::Http;
+        http.command = None;
+        http.url = Some("http://127.0.0.1:9/hook".into());
+        http.timeout_ms = 1500;
+        state.hooks_data = TabDataState::Loaded(xai_hooks_plugins_types::HooksListResponse {
+            hooks: vec![http],
+            project_trusted: true,
+            load_errors: Vec::new(),
+        });
+        state.picker_state.expanded.clear();
+        let mut buf = Buffer::empty(area);
+        render_extensions_modal(&mut buf, area, &mut state, None, false, 0);
+        assert_eq!(
+            buffer_count(&buf, "1500 ms · http://127.0.0.1:9/hook"),
+            1
         );
     }
 
