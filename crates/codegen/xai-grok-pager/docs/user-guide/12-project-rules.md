@@ -176,7 +176,7 @@ grok --rules "Always use TypeScript. Prefer functional components."
 
 Grok appends this text to the session's system prompt. Use it for session-specific customization.
 
-To replace the system prompt entirely, pass `--system-prompt-override` (alias `--system-prompt`). Grok uses the text verbatim and skips both the default system prompt and `--rules`. (Text passed with `--rules`, by contrast, is wrapped in a `<human_rules>` block and appended to the default prompt.)
+To replace the system prompt entirely, pass `--system-prompt-override` (alias `--system-prompt`). Grok uses the text verbatim and skips both the default system prompt and `--rules`. (Text passed with `--rules`, by contrast, is wrapped in a `<human_rules>` block and appended to the default prompt.) `--system-prompt-file <path>` loads that same override from a file.
 
 ---
 

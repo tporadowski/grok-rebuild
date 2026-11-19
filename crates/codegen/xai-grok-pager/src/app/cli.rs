@@ -613,9 +613,13 @@ pub struct PagerArgs {
     #[clap(
         long = "system-prompt-override",
         alias = "system-prompt",
-        value_name = "PROMPT"
+        value_name = "PROMPT",
+        conflicts_with = "system_prompt_file"
     )]
     pub system_prompt_override: Option<String>,
+    /// Load the system prompt override from a file. Same override as `--system-prompt`.
+    #[clap(long = "system-prompt-file", value_name = "PATH")]
+    pub system_prompt_file: Option<PathBuf>,
     /// Resume a session by ID or title, or the most recent if omitted.
     /// Non-ID values match session titles for the current directory, ignoring letter case; UUID-shaped values always mean IDs.
     /// Among duplicate titles a sole renamed match wins; otherwise the resume fails as ambiguous.
@@ -956,6 +960,21 @@ impl PagerArgs {
         } else {
             None
         }
+    }
+    /// Inline `--system-prompt`, or the contents of `--system-prompt-file`.
+    pub fn resolve_system_prompt_override(&self) -> anyhow::Result<Option<String>> {
+        if let Some(text) = &self.system_prompt_override {
+            return Ok(Some(text.clone()));
+        }
+        let Some(path) = self.system_prompt_file.as_ref() else {
+            return Ok(None);
+        };
+        std::fs::read_to_string(path).map(Some).map_err(|err| {
+            anyhow::anyhow!(
+                "failed to read system prompt file {}: {err}",
+                path.display()
+            )
+        })
     }
     pub(crate) fn memory_override_flag(&self) -> Option<&'static str> {
         if self.experimental_memory {
@@ -1908,5 +1927,63 @@ mod tests {
             panic!("expected agent subcommand");
         };
         assert_eq!(agent.reasoning_effort.as_deref(), Some("max"));
+    }
+
+    #[test]
+    fn system_prompt_file_loads_the_override() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("prompt.txt");
+        std::fs::write(&path, "YOU ARE A PIRATE.\n").expect("write prompt");
+        let args = PagerArgs::try_parse_from([
+            "grok",
+            "--system-prompt-file",
+            path.to_str().expect("utf-8 path"),
+        ])
+        .expect("flag parses");
+        assert_eq!(
+            args.resolve_system_prompt_override()
+                .expect("file reads")
+                .as_deref(),
+            Some("YOU ARE A PIRATE.\n")
+        );
+    }
+
+    #[test]
+    fn system_prompt_file_missing_is_an_error() {
+        let args = PagerArgs::try_parse_from([
+            "grok",
+            "--system-prompt-file",
+            "/no/such/grok-system-prompt.txt",
+        ])
+        .expect("flag parses");
+        let err = args
+            .resolve_system_prompt_override()
+            .expect_err("missing file");
+        assert!(
+            err.to_string().contains("system prompt file"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn inline_system_prompt_still_resolves_without_a_file() {
+        let args = PagerArgs::try_parse_from(["grok", "--system-prompt", "inline text"])
+            .expect("inline parses");
+        assert_eq!(
+            args.resolve_system_prompt_override()
+                .expect("inline")
+                .as_deref(),
+            Some("inline text")
+        );
+        assert!(
+            PagerArgs::try_parse_from([
+                "grok",
+                "--system-prompt",
+                "inline",
+                "--system-prompt-file",
+                "prompt.txt",
+            ])
+            .is_err()
+        );
     }
 }

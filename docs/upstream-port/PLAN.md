@@ -1477,7 +1477,7 @@ Refresh these numbers at the end of a session.
 | Wave | Name | Pending | Skipped | Done | Already | Deferred |
 |---|---|---:|---:|---:|---:|---:|
 | W1 | Breaking changes | 0 | 0 | 5 | 0 | 1 |
-| W2 | CLI surface | 2 | 0 | 12 | 1 | 1 |
+| W2 | CLI surface | 1 | 0 | 13 | 1 | 1 |
 | W3 | Permissions, sandbox, and config | 0 | 0 | 26 | 12 | 8 |
 | W6 | Memory | 0 | 0 | 6 | 1 | 0 |
 | W4 | Hooks | 1 | 0 | 26 | 10 | 3 |
@@ -1494,9 +1494,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 906. Pending: 10. Skipped: 10. Done: 731. Already: 118. Deferred: 37.
+Catalog rows: 906. Pending: 9. Skipped: 10. Done: 732. Already: 118. Deferred: 37.
 
-**Next:** `v91-f03`
+**Next:** `v91-f04`
 
 ## Waves
 
@@ -1506,7 +1506,7 @@ Pending: 0. Done: 5. Deferred: 1 (`v51-b01`, D-020). Look first: Share: `crates/
 
 ### W2 — CLI surface
 
-Pending: 2. Done: 12 (`v91-f04`; `v91-f03`; `v89-f02`). Already: 1 (`v89-x07`, D-335). Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. `grok -p --resume` with another flag names that flag (`v86-x32`, D-266). Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
+Pending: 1. Done: 13 (`v91-f03`; `v89-f02`). Already: 1 (`v89-x07`, D-335). Deferred: 1 (`v86-x21`, D-265). Look first: Clap structs in `crates/codegen/xai-grok-pager-bin/src/main.rs`. `grok -p --resume` with another flag names that flag (`v86-x32`, D-266). Cursor worker already exists: `xai-grok-shell/src/agent/cursor_worker_config.rs` and the leader's `CursorWorkerStartArgs`. `grok usage` today prints session tokens. A plan-limit query that needs a background service not present in this tree is deferred, not invented. Bundled MinGit selects schannel in its system gitconfig when a child is given that git, and when the installer publishes the tree. A global or repo backend still wins. Windows was not run (`v83-x03`, D-239).
 
 ### W3 — Permissions, sandbox, and config
 
@@ -2322,7 +2322,7 @@ id | status | wave | kind | flag | covered | note
 - v86-x32 | done | W2 | Bug Fixes |  |  | Error messages for `grok -p --resume` when other flags are present are clearer.
 - v89-f02 | done | W2 | Features |  |  | **New /models command** refreshes the available model list from the server.
 - v89-x07 | already | W2 | Bug Fixes |  |  | **`grok inspect`** now reports the correct project `.grok/config.toml` or `.mcp.json` file for project-defined MCP servers.
-- v91-f03 | pending | W2 | Features |  |  | **--system-prompt-file <path>** lets you load a system prompt override from a file.
+- v91-f03 | done | W2 | Features |  |  | **--system-prompt-file <path>** lets you load a system prompt override from a file.
 - v91-f04 | pending | W2 | Features |  |  | **-p** now accepts flags after it and joins any extra words into the prompt; bare -p reads from stdin.
 - v86-x33 | done | W10 | Bug Fixes |  |  | **Double-click** on a thinking block folds or expands it again.
 - v86-x34 | done | W9 | Bug Fixes |  |  | **Change directory picker** keeps the folder name visible when a path is too long.
