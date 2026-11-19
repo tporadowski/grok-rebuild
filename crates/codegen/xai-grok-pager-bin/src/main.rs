@@ -2680,6 +2680,8 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
         }
         let memory_enabled_override = args.memory_enabled_override();
         let memory_flush = args.memory_flush;
+        // Resolve before the literal moves `cwd`, `model`, `rules`, and `resume_*` out of `args`.
+        let system_prompt_override = args.resolve_system_prompt_override()?;
         return xai_grok_pager::headless::run_single_turn(
             headless_prompt,
             args.verbatim,
@@ -2695,7 +2697,7 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
                 json_schema,
                 model: args.model,
                 rules: args.rules,
-                system_prompt_override: args.resolve_system_prompt_override()?,
+                system_prompt_override,
                 continue_last_session: args.continue_last_session,
                 fork_session: args.fork_session,
                 worktree: args.worktree,
