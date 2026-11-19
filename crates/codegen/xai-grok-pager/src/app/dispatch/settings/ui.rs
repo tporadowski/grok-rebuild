@@ -736,6 +736,9 @@ pub(in crate::app::dispatch) fn action_for_reset(
         ("contextual_hints.ssh_wrap", SettingValue::Bool(b)) => {
             Some(Action::SetContextualHintSshWrap(*b))
         }
+        ("contextual_hints.expand_all", SettingValue::Bool(b)) => {
+            Some(Action::SetContextualHintExpandAll(*b))
+        }
         ("multiline_mode", SettingValue::Bool(b)) => Some(Action::SetMultilineMode(*b)),
         ("multiline_default", SettingValue::Bool(b)) => Some(Action::SetMultilineDefault(*b)),
         ("single_ctrl_c_quit", SettingValue::Bool(b)) => Some(Action::SetSingleCtrlCQuit(*b)),
@@ -932,6 +935,9 @@ pub(in crate::app::dispatch) fn apply_setting_rollback(
         }
         ("contextual_hints.ssh_wrap", SettingValue::Bool(b)) => {
             set_contextual_hint_inner(app, |h, v| h.ssh_wrap = v, *b)
+        }
+        ("contextual_hints.expand_all", SettingValue::Bool(b)) => {
+            set_contextual_hint_inner(app, |h, v| h.expand_all = v, *b)
         }
         ("respect_manual_folds", SettingValue::Bool(b)) => set_respect_manual_folds_inner(app, *b),
         ("theme", SettingValue::Enum(s)) => set_theme_inner(app, s),

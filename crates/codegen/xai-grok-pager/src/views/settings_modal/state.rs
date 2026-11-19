@@ -923,6 +923,7 @@ pub(super) fn action_for_bool(key: SettingKey, new: bool) -> Option<Action> {
         "contextual_hints.word_select" => Some(Action::SetContextualHintWordSelect(new)),
         "contextual_hints.export_copy" => Some(Action::SetContextualHintExportCopy(new)),
         "contextual_hints.ssh_wrap" => Some(Action::SetContextualHintSshWrap(new)),
+        "contextual_hints.expand_all" => Some(Action::SetContextualHintExpandAll(new)),
         "multiline_mode" => Some(Action::SetMultilineMode(new)),
         "multiline_default" => Some(Action::SetMultilineDefault(new)),
         "single_ctrl_c_quit" => Some(Action::SetSingleCtrlCQuit(new)),

@@ -89,6 +89,7 @@ pub struct ResolvedContextualHints {
     pub word_select: bool,
     pub export_copy: bool,
     pub ssh_wrap: bool,
+    pub expand_all: bool,
 }
 
 impl Default for ResolvedContextualHints {
@@ -102,6 +103,7 @@ impl Default for ResolvedContextualHints {
             word_select: true,
             export_copy: true,
             ssh_wrap: true,
+            expand_all: true,
         }
     }
 }
@@ -130,6 +132,7 @@ pub fn resolve_contextual_hints(
         word_select: resolve_tip(ui.word_select, remote.and_then(|r| r.word_select)),
         export_copy: resolve_tip(ui.export_copy, remote.and_then(|r| r.export_copy)),
         ssh_wrap: resolve_tip(ui.ssh_wrap, remote.and_then(|r| r.ssh_wrap)),
+        expand_all: resolve_tip(ui.expand_all, remote.and_then(|r| r.expand_all)),
     }
 }
 
@@ -222,6 +225,7 @@ mod tests {
             word_select,
             export_copy: None,
             ssh_wrap: None,
+            expand_all: None,
         }
     }
 
@@ -237,6 +241,7 @@ mod tests {
         assert!(resolved.word_select, "word_select defaults ON");
         assert!(resolved.export_copy, "export_copy defaults ON");
         assert!(resolved.ssh_wrap, "ssh_wrap defaults ON");
+        assert!(resolved.expand_all, "expand_all defaults ON");
     }
 
     #[test]
@@ -255,6 +260,7 @@ mod tests {
         assert!(resolved.word_select);
         assert!(resolved.export_copy);
         assert!(resolved.ssh_wrap);
+        assert!(resolved.expand_all);
     }
 
     #[test]
@@ -307,6 +313,7 @@ mod tests {
             word_select: Some(false),
             export_copy: Some(false),
             ssh_wrap: Some(false),
+            expand_all: Some(false),
         };
         let r = remote(Some(false), Some(false), Some(false), Some(false));
         let resolved = resolve_contextual_hints(&ui, Some(&r));
@@ -319,6 +326,7 @@ mod tests {
                 && resolved.word_select
                 && resolved.export_copy
                 && resolved.ssh_wrap
+                && resolved.expand_all
         );
         unsafe { std::env::remove_var(ENV_CONTEXTUAL_HINTS) };
     }
@@ -336,6 +344,7 @@ mod tests {
             word_select: Some(true),
             export_copy: Some(true),
             ssh_wrap: Some(true),
+            expand_all: Some(true),
         };
         let r = remote(Some(true), Some(true), Some(true), Some(true));
         let resolved = resolve_contextual_hints(&ui, Some(&r));
@@ -348,6 +357,7 @@ mod tests {
                 && !resolved.word_select
                 && !resolved.export_copy
                 && !resolved.ssh_wrap
+                && !resolved.expand_all
         );
         unsafe { std::env::remove_var(ENV_CONTEXTUAL_HINTS) };
     }

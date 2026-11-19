@@ -46,7 +46,8 @@ use super::permissions::{
 use super::prompt::{
     dispatch_accept_word_select_tip, dispatch_clear_prompt, dispatch_open_history_search,
     dispatch_send_bash_command, dispatch_send_prompt, dispatch_send_prompt_inner,
-    dispatch_show_plan_nudge, dispatch_show_undo_tip, dispatch_show_word_select_tip,
+    dispatch_show_expand_all_tip, dispatch_show_plan_nudge, dispatch_show_undo_tip,
+    dispatch_show_word_select_tip,
 };
 use super::queue;
 use super::queue::dispatch_drain_queue;
@@ -82,7 +83,8 @@ use super::settings::setters::{
     set_auto_update, set_collapsed_edit_blocks, set_combine_queued_prompts, set_compact_mode,
     set_confirm_before_rewind, set_contextual_hint_export_copy, set_contextual_hint_image_input,
     set_contextual_hint_plan_mode, set_contextual_hint_send_now, set_contextual_hint_small_screen,
-    set_contextual_hint_ssh_wrap, set_contextual_hint_undo, set_contextual_hint_word_select,
+    set_contextual_hint_expand_all, set_contextual_hint_ssh_wrap, set_contextual_hint_undo,
+    set_contextual_hint_word_select,
     set_copy_markdown_shortcut, set_default_model, set_default_selected_permission,
     set_display_refresh_auto_cadence, set_follow_up_behavior, set_fork_secondary_model,
     set_group_tool_verbs, set_hunk_tracker_mode, set_invert_scroll, set_keep_text_selection,
@@ -443,6 +445,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::ShowUndoTip => dispatch_show_undo_tip(app),
         Action::ShowPlanNudge => dispatch_show_plan_nudge(app),
         Action::ShowWordSelectTip => dispatch_show_word_select_tip(app),
+        Action::ShowExpandAllTip => dispatch_show_expand_all_tip(app),
         Action::AcceptWordSelectTip => dispatch_accept_word_select_tip(app),
         Action::DrainQueue => dispatch_drain_queue(app),
         Action::PromptBlockAnswered { row_id, choice } => {
@@ -632,7 +635,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
                     s.toggle_fold_selected();
                 }
             });
-            vec![]
+            dispatch_show_expand_all_tip(app)
         }
         Action::ToggleExpandAll => {
             with_scrollback(app, |s| s.toggle_expand_all());
@@ -1212,6 +1215,7 @@ fn dispatch_inner(action: Action, app: &mut AppView) -> Vec<Effect> {
         Action::SetContextualHintWordSelect(v) => set_contextual_hint_word_select(app, v),
         Action::SetContextualHintExportCopy(v) => set_contextual_hint_export_copy(app, v),
         Action::SetContextualHintSshWrap(v) => set_contextual_hint_ssh_wrap(app, v),
+        Action::SetContextualHintExpandAll(v) => set_contextual_hint_expand_all(app, v),
         Action::SetTheme(v) => set_theme(app, v),
         Action::SetAutoDarkTheme(v) => set_auto_dark_theme(app, v),
         Action::SetAutoLightTheme(v) => set_auto_light_theme(app, v),

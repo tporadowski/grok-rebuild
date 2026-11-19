@@ -60,6 +60,7 @@ pub(crate) fn gate_child_action(action: &Action) -> ChildActionGate {
         | Action::ToggleMouseCapture
         | Action::AcceptWordSelectTip
         | Action::ShowWordSelectTip
+        | Action::ShowExpandAllTip
         // Dashboard navigation resolves no agent at all; the takeover header paints these controls for the parent
         | Action::OpenDashboard
         | Action::DashboardOverlayExit

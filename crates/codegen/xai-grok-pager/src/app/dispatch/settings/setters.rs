@@ -1540,6 +1540,21 @@ pub(in crate::app::dispatch) fn set_contextual_hint_ssh_wrap(
     )
 }
 
+pub(in crate::app::dispatch) fn set_contextual_hint_expand_all(
+    app: &mut AppView,
+    new: bool,
+) -> Vec<Effect> {
+    let prev = app.current_ui.contextual_hints.expand_all;
+    set_contextual_hint(
+        app,
+        "contextual_hints.expand_all",
+        "Expand all",
+        prev,
+        |h, v| h.expand_all = v,
+        new,
+    )
+}
+
 // Theme settings: `theme`, `auto_dark_theme`, `auto_light_theme`.
 // `PreviewX` (preview): visual only, no persist/toast.
 // Auto-theme setters apply visually only when `theme="auto"` AND the system is in the matching mode; otherwise the value is just stored

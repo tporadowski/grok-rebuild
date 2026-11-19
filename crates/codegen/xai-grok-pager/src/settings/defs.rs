@@ -521,6 +521,7 @@ const CONTEXTUAL_HINTS_CHILDREN: &[&str] = &[
     "contextual_hints.word_select",
     "contextual_hints.export_copy",
     "contextual_hints.ssh_wrap",
+    "contextual_hints.expand_all",
 ];
 
 /// Build the catalog; called once at process start via `SettingsRegistry::defaults()`.
@@ -1733,6 +1734,20 @@ pub fn default_settings() -> Vec<SettingMeta> {
             ],
             kind: SettingKind::Bool {
                 default: ui_default.contextual_hints.ssh_wrap.unwrap_or(true),
+            },
+            restart_required: false,
+            hidden_in_minimal: false,
+        },
+        SettingMeta {
+            key: "contextual_hints.expand_all",
+            category: SettingCategory::Advanced,
+            owner: SettingOwner::Shell,
+            label: "Expand all",
+            description: "After you keep collapsing thoughts while expand-all is on, \
+                          show the chord that turns it off.",
+            keywords: &["expand", "collapse", "thinking", "thought", "hint", "ctrl+e"],
+            kind: SettingKind::Bool {
+                default: ui_default.contextual_hints.expand_all.unwrap_or(true),
             },
             restart_required: false,
             hidden_in_minimal: false,

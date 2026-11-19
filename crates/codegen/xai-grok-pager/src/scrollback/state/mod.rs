@@ -168,6 +168,10 @@ pub struct ScrollbackState {
     // Sticky modes. Display mode applied to thinking blocks when they finish running. Defaults to `Collapsed`
     // (auto-collapse on finish). Toggled by `expand_all_thinking()` (Ctrl+E) between `Expanded` and `Collapsed`.
     thinking_display_mode: DisplayMode,
+    /// Thought folds while expand-all is on. The hint arms at [`crate::tips::expand_all::EXPAND_ALL_COLLAPSE_HINT_AFTER`].
+    expand_all_collapse_streak: u8,
+    /// Set when the streak crosses the hint threshold. Cleared by [`Self::take_expand_all_hint`].
+    expand_all_hint_pending: bool,
 
     // Animation
     /// Frame tick counter for animations (increments each render tick).
@@ -268,6 +272,8 @@ impl ScrollbackState {
             layout_cache: None,
             structural_scroll_anchor: None,
             thinking_display_mode: DisplayMode::Collapsed,
+            expand_all_collapse_streak: 0,
+            expand_all_hint_pending: false,
             tick: 0,
             appearance: AppearanceConfig::default(),
             max_thoughts_width: u16::MAX,

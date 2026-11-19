@@ -35,6 +35,72 @@ fn show_plan_nudge_shows_and_counts_when_flag_on() {
     );
 }
 
+/// Two thought folds while expand-all is on name the chord that turns it off. One fold does not.
+#[test]
+fn collapsing_thoughts_while_expand_all_is_on_shows_the_chord() {
+    use crate::scrollback::{DisplayMode, RenderBlock};
+    use crate::tips::expand_all::EXPAND_ALL_TIP_KEY;
+
+    let mut app = test_app_with_agent();
+    app.contextual_hints.expand_all = true;
+    let id = AgentId(0);
+    {
+        let agent = app.agents.get_mut(&id).unwrap();
+        agent.last_terminal_size = (80, 30);
+        let first = agent
+            .scrollback
+            .push_block(RenderBlock::thinking("first thought"));
+        let second = agent
+            .scrollback
+            .push_block(RenderBlock::thinking("second thought"));
+        agent
+            .scrollback
+            .get_by_id_mut(first)
+            .unwrap()
+            .set_display_mode(DisplayMode::Collapsed);
+        agent
+            .scrollback
+            .get_by_id_mut(second)
+            .unwrap()
+            .set_display_mode(DisplayMode::Collapsed);
+        agent.scrollback.expand_all_thinking();
+        assert_eq!(
+            agent.scrollback.entry(0).unwrap().display_mode(),
+            DisplayMode::Expanded
+        );
+        agent.scrollback.set_selected(Some(0));
+    }
+
+    let _ = dispatch(Action::ToggleFold, &mut app);
+    assert!(
+        !test_agent(&app, id).ephemeral_tip.is_active(),
+        "the first fold is not yet keep-collapsing"
+    );
+
+    app.agents
+        .get_mut(&id)
+        .unwrap()
+        .scrollback
+        .set_selected(Some(1));
+    let effects = dispatch(Action::ToggleFold, &mut app);
+    let agent = test_agent(&app, id);
+    assert!(agent.ephemeral_tip.is_active());
+    assert_eq!(agent.ephemeral_tip.current_key(), Some(EXPAND_ALL_TIP_KEY));
+    let text: String = agent
+        .ephemeral_tip
+        .line()
+        .unwrap()
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect();
+    assert!(
+        text.contains("Ctrl+E") && text.contains("turns expand-all off"),
+        "got {text:?}"
+    );
+    assert!(effects.is_empty());
+}
+
 /// `ShowWordSelectTip` is a no-op when its per-tip gate is off.
 #[test]
 fn show_word_select_tip_no_op_when_flag_off() {

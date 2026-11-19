@@ -382,12 +382,19 @@ impl ScrollbackState {
         // 1. Capture state before the fold
         let anchor = self.capture_fold_anchor(i);
         let respect_manual_folds = self.appearance.scrollback.scroll.respect_manual_folds;
+        let expand_all_on = self.thinking_display_mode == DisplayMode::Expanded;
 
         // 2. Apply the fold mutation
         let mut grew = false;
+        let mut collapsed_thought_under_expand_all = false;
         if let Some((id, entry)) = self.entries.get_index_mut(i) {
             let mode_before = entry.display_mode;
+            let is_thought = matches!(entry.block, RenderBlock::Thinking(_));
             mutate(entry);
+            collapsed_thought_under_expand_all = expand_all_on
+                && is_thought
+                && mode_before != DisplayMode::Collapsed
+                && entry.display_mode == DisplayMode::Collapsed;
             grew = display_rank(entry.display_mode) > display_rank(mode_before);
             if respect_manual_folds {
                 entry.display_mode_pinned = true;
@@ -403,6 +410,9 @@ impl ScrollbackState {
             self.dirty_heights.insert(*id);
         }
 
+        if collapsed_thought_under_expand_all {
+            self.note_expand_all_thought_collapse();
+        }
         // Re-key BEFORE the rebuild so the refold sees the migrated id.
         self.rekey_verb_group_expansion(i);
         self.rebuild_with_fold_anchor(i, grew, anchor);
@@ -610,6 +620,24 @@ impl ScrollbackState {
         }
     }
 
+    fn note_expand_all_thought_collapse(&mut self) {
+        self.expand_all_collapse_streak = self.expand_all_collapse_streak.saturating_add(1);
+        if self.expand_all_collapse_streak >= crate::tips::expand_all::EXPAND_ALL_COLLAPSE_HINT_AFTER
+        {
+            self.expand_all_hint_pending = true;
+        }
+    }
+
+    /// Whether a run of thought folds under expand-all should show the chord that turns it off.
+    pub fn expand_all_hint_pending(&self) -> bool {
+        self.expand_all_hint_pending
+    }
+
+    /// Take the armed expand-all hint. A later fold can arm it again.
+    pub fn take_expand_all_hint(&mut self) -> bool {
+        std::mem::take(&mut self.expand_all_hint_pending)
+    }
+
     /// Toggle expand/collapse for all thinking blocks only. Otherwise collapse all thinking blocks. Also sets
     /// `thinking_display_mode` so that future thinking blocks adopt the chosen mode when they finish running.
     pub fn expand_all_thinking(&mut self) {
@@ -626,6 +654,8 @@ impl ScrollbackState {
         };
 
         self.thinking_display_mode = target_mode;
+        self.expand_all_collapse_streak = 0;
+        self.expand_all_hint_pending = false;
 
         let mut changed_ids = Vec::new();
         for (id, entry) in &mut self.entries {

@@ -245,6 +245,9 @@ pub struct ContextualHints {
     /// SSH wrap session-load tip (recommend `grok wrap ssh` when the session runs over SSH without an OSC 52 sink).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_wrap: Option<bool>,
+    /// Expand-all tip after repeated thought folds while every thought is still set to stay open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expand_all: Option<bool>,
 }
 
 impl ContextualHints {
@@ -259,6 +262,7 @@ impl ContextualHints {
             && self.word_select.is_none()
             && self.export_copy.is_none()
             && self.ssh_wrap.is_none()
+            && self.expand_all.is_none()
     }
 }
 

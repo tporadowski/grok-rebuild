@@ -976,6 +976,9 @@ pub struct ContextualHintsRemote {
     /// SSH wrap session-load tip (recommend `grok wrap ssh` for remote sessions).
     #[serde(default)]
     pub ssh_wrap: Option<bool>,
+    /// Expand-all tip after repeated thought folds while expand-all is on.
+    #[serde(default)]
+    pub expand_all: Option<bool>,
 }
 /// Tolerant deserializer for `Option<Vec<RemoteAnnouncement>>`.
 /// Parses as Vec<Value>, tries each as RemoteAnnouncement, and drops failures with a warning.

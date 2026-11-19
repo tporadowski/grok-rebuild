@@ -17,6 +17,8 @@ pub enum ContextualTipKind {
     ExportCopy,
     /// An SSH session without `grok wrap` shows a tip to wrap the ssh command locally.
     SshWrap,
+    /// Repeated thought folds while expand-all is on, naming the chord that turns it off.
+    ExpandAll,
 }
 
 #[derive(Serialize, Clone, Copy, strum::IntoStaticStr)]

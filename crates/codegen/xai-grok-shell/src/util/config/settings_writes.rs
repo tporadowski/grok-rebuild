@@ -234,6 +234,11 @@ pub async fn set_contextual_hint_ssh_wrap(value: bool) -> Result<()> {
     update_config(|cfg| cfg.ui.contextual_hints.ssh_wrap = Some(value)).await
 }
 
+/// Persist `[ui.contextual_hints].expand_all` via `update_config`.
+pub async fn set_contextual_hint_expand_all(value: bool) -> Result<()> {
+    update_config(|cfg| cfg.ui.contextual_hints.expand_all = Some(value)).await
+}
+
 /// Persist `[ui].theme` via `update_config`.
 /// Caller must pass the canonical theme name (`groknight`, `tokyonight`, `auto`, etc.).
 pub async fn set_theme(value: String) -> Result<()> {

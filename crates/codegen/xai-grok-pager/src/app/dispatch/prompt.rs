@@ -556,6 +556,33 @@ pub(super) fn dispatch_show_plan_nudge(app: &mut AppView) -> Vec<Effect> {
     vec![]
 }
 
+/// After repeated thought folds while expand-all is on, name the chord that turns it off.
+pub(super) fn dispatch_show_expand_all_tip(app: &mut AppView) -> Vec<Effect> {
+    let armed = visible_agent_mut(&mut app.agents, app.active_view)
+        .is_some_and(|agent| agent.scrollback.take_expand_all_hint());
+    if !armed || !app.contextual_hints.expand_all {
+        return vec![];
+    }
+    let chord = app
+        .registry
+        .key_for(crate::actions::ActionId::ExpandAllThinking)
+        .map(|key| key.display())
+        .unwrap_or_else(|| "Ctrl+E".to_string());
+    let Some(agent) = visible_agent_mut(&mut app.agents, app.active_view) else {
+        return vec![];
+    };
+    if agent.show_ephemeral_tip(
+        crate::tips::expand_all::expand_all_tip(&chord),
+        &mut app.tip_seen_counts,
+    ) {
+        log_event(xai_grok_telemetry::events::ContextualTip {
+            tip: xai_grok_telemetry::events::ContextualTipKind::ExpandAll,
+            action: xai_grok_telemetry::events::ContextualTipAction::Shown,
+        });
+    }
+    vec![]
+}
+
 /// After a fold/nav double-click on scrollback, tip that Word select lives in `/settings`. Gated by `contextual_hints.word_select` (default ON).
 /// `/settings`. Gated by `contextual_hints.word_select` (default ON).
 pub(super) fn dispatch_show_word_select_tip(app: &mut AppView) -> Vec<Effect> {

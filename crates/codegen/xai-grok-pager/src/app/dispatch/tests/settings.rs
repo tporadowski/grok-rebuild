@@ -2480,6 +2480,9 @@ fn move_setting_away_from_default(app: &mut AppView, key: crate::settings::Setti
         "contextual_hints.ssh_wrap" => {
             let _ = dispatch(Action::SetContextualHintSshWrap(false), app);
         }
+        "contextual_hints.expand_all" => {
+            let _ = dispatch(Action::SetContextualHintExpandAll(false), app);
+        }
         "multiline_mode" => {
             let _ = dispatch(Action::SetMultilineMode(true), app);
         }

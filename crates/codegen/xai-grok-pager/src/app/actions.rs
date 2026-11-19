@@ -217,6 +217,8 @@ pub enum Action {
     /// show the seen-gated "/settings · Text selection · Ctrl+Y to enable" tip.
     /// Gated by the per-tip `contextual_hints.word_select` gate.
     ShowWordSelectTip,
+    /// Repeated thought folds while expand-all is on.
+    ShowExpandAllTip,
     /// Accept the word-select tip (its advertised chord, pressed while the tip is on screen).
     /// Flip `keep_text_selection` to `word_select`, persist it, and retire the tip.
     AcceptWordSelectTip,
@@ -581,6 +583,7 @@ pub enum Action {
     SetContextualHintWordSelect(bool),
     SetContextualHintExportCopy(bool),
     SetContextualHintSshWrap(bool),
+    SetContextualHintExpandAll(bool),
     /// Commit the active theme (canonical name, e.g. `"groknight"`, `"auto"`).
     SetTheme(String),
     /// Commit the theme used when the OS is in dark mode.
