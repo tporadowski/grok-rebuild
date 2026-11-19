@@ -1004,6 +1004,8 @@ pub struct AgentView {
     /// Reset on each activity transition (thinking → responding → tool, etc.).
     /// Used for the `(5s)` phase timer in the turn status line.
     pub activity_started_at: Option<Instant>,
+    /// Set when a goal enters pause. The next phase clock starts at that paint, not at the pre-pause instant.
+    pub(crate) phase_timer_restart: bool,
     /// Last observed [`TurnActivity`]; used to detect phase transitions
     /// and reset `activity_started_at`.
     pub(crate) last_activity: Option<crate::acp::tracker::TurnActivity>,

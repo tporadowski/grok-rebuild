@@ -261,6 +261,7 @@ impl AgentView {
             main_repo: None,
             worktree_label: None,
             activity_started_at: None,
+            phase_timer_restart: false,
             last_activity: None,
             pane_areas: PaneAreas::default(),
             hovered_entry: None,

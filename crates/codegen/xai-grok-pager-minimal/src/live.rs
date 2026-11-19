@@ -541,10 +541,7 @@ fn minimal_advance_phase_timer(
     agent: &mut xai_grok_pager::app::agent_view::AgentView,
 ) -> Option<xai_grok_pager::acp::tracker::TurnActivity> {
     let activity = minimal_api::resolve_turn_activity(agent);
-    if activity.as_ref() != minimal_api::last_activity(agent) {
-        agent.activity_started_at = Some(std::time::Instant::now());
-        minimal_api::set_last_activity(agent, activity.clone());
-    }
+    agent.advance_phase_clock(&activity);
     activity
 }
 /// Reuses the full-TUI [`turn_status::render_turn_status`] widget instead of collapsing everything to "working…".

@@ -247,6 +247,65 @@
     }
 
     #[test]
+    fn goal_pause_restarts_phase_timer_at_zero() {
+        use std::time::{Duration, Instant};
+
+        use crate::acp::tracker::TurnActivity;
+        use crate::views::turn_status::format_turn_timer;
+
+        let mut app = make_app_with_agent("sess-A");
+        send_goal_update(&mut app, "g1", "active", 1_000);
+        let stale = Instant::now() - Duration::from_secs(120);
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            agent.activity_started_at = Some(stale);
+            agent.last_activity = Some(TurnActivity::Thinking);
+        }
+
+        send_goal_update(&mut app, "g1", "user_paused", 5_000);
+        let now = Instant::now();
+        let hook_start = now - Duration::from_secs(90);
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            assert!(agent.activity_started_at.is_none());
+            assert!(agent.last_activity.is_none());
+            assert!(agent.phase_timer_restart);
+            // A hook batch that started before the pause must not restore that instant.
+            crate::acp::tracker::advance_phase_clock(
+                &mut agent.last_activity,
+                &mut agent.activity_started_at,
+                &mut agent.phase_timer_restart,
+                &Some(TurnActivity::Waiting(
+                    crate::acp::tracker::WaitingReason::Hooks {
+                        event_name: "pre_tool_use".into(),
+                        count: 1,
+                    },
+                )),
+                Some(hook_start),
+                now,
+            );
+            let started = agent.activity_started_at.expect("phase clock restarts");
+            assert_eq!(started, now);
+            assert!(!agent.phase_timer_restart);
+            let shown = format_turn_timer(started.saturating_duration_since(now));
+            assert_eq!(shown, "0.0s");
+            assert_ne!(shown, format_turn_timer(Duration::from_secs(120)));
+        }
+
+        // A later pause snapshot must keep the clock that started after the pause.
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            agent.activity_started_at = Some(stale);
+            agent.last_activity = Some(TurnActivity::Thinking);
+            agent.phase_timer_restart = false;
+        }
+        send_goal_update(&mut app, "g1", "user_paused", 6_000);
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        assert_eq!(agent.activity_started_at, Some(stale));
+        assert!(!agent.phase_timer_restart);
+    }
+
+    #[test]
     fn goal_switch_resets_elapsed_floor() {
         // A NEW goal (different id) must start its own clock and NOT inherit the prior goal's carried elapsed floor
         let mut app = make_app_with_agent("sess-A");

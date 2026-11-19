@@ -305,6 +305,29 @@ pub(crate) fn is_phase_transition(
 ) -> bool {
     prev.map(phase_key) != next.map(phase_key)
 }
+/// Move the spinner phase clock onto `now` when `restart` is set, otherwise onto a new phase.
+/// A restart (armed by `/goal pause`) ignores `hook_wait_started`, so a pause cannot keep the pre-pause instant.
+pub(crate) fn advance_phase_clock(
+    last_activity: &mut Option<TurnActivity>,
+    started_at: &mut Option<std::time::Instant>,
+    restart: &mut bool,
+    activity: &Option<TurnActivity>,
+    hook_wait_started: Option<std::time::Instant>,
+    now: std::time::Instant,
+) {
+    let transition = is_phase_transition(last_activity.as_ref(), activity.as_ref());
+    if *restart || transition {
+        *started_at = Some(if *restart {
+            now
+        } else {
+            hook_wait_started.unwrap_or(now)
+        });
+        *restart = false;
+    }
+    if activity != last_activity {
+        *last_activity = activity.clone();
+    }
+}
 /// Agent-visible output kinds.
 /// Shared by the live tracker (output epoch) and replay-marker synthesis so a new visible update cannot change one without the other.
 pub(crate) fn is_agent_output_update(update: &acp::SessionUpdate) -> bool {

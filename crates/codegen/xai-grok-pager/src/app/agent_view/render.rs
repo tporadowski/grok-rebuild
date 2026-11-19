@@ -191,6 +191,33 @@ impl AgentView {
             })
             .fold(0, u64::saturating_add)
     }
+    /// Start the phase timer at `now` when a goal pause armed a restart; otherwise on a phase change.
+    /// A hook wait keeps its batch start unless the restart flag is set.
+    pub fn advance_phase_clock(&mut self, activity: &Option<crate::acp::tracker::TurnActivity>) {
+        self.advance_phase_clock_at(activity, Instant::now());
+    }
+    pub(crate) fn advance_phase_clock_at(
+        &mut self,
+        activity: &Option<crate::acp::tracker::TurnActivity>,
+        now: Instant,
+    ) {
+        let hook_wait_started = matches!(
+            activity,
+            Some(crate::acp::tracker::TurnActivity::Waiting(
+                crate::acp::tracker::WaitingReason::Hooks { .. }
+            ))
+        )
+        .then(|| self.session.tracker.hooks_running_since())
+        .flatten();
+        crate::acp::tracker::advance_phase_clock(
+            &mut self.last_activity,
+            &mut self.activity_started_at,
+            &mut self.phase_timer_restart,
+            activity,
+            hook_wait_started,
+            now,
+        );
+    }
     pub(crate) fn update_scrollback_selection_state(
         &mut self,
         model: ResolvedSelectionModel,
@@ -2218,19 +2245,8 @@ impl AgentView {
                         })),
                     );
                 }
-                let hook_wait_started = matches!(
-                    activity,
-                    Some(crate::acp::tracker::TurnActivity::Waiting(
-                        crate::acp::tracker::WaitingReason::Hooks { .. }
-                    ))
-                )
-                .then(|| self.session.tracker.hooks_running_since())
-                .flatten();
-                self.activity_started_at = Some(hook_wait_started.unwrap_or_else(Instant::now));
             }
-            if activity != self.last_activity {
-                self.last_activity = activity.clone();
-            }
+            self.advance_phase_clock(&activity);
             self.hit_plan_approval_status.clear();
             if let Some(ref pav) = self.plan_approval_view {
                 let diamond_color = crate::views::turn_status::pending_diamond_color(

@@ -1289,6 +1289,11 @@ pub(super) fn handle_session_notification_with_origin(
             ..
         } => {
             let new_status = GoalDisplayStatus::parse(&status);
+            let entering_pause = new_status.is_paused()
+                && agent
+                    .goal_state
+                    .as_ref()
+                    .is_none_or(|g| !g.status.is_paused());
             let just_completed = new_status == GoalDisplayStatus::Complete
                 && agent
                     .goal_state
@@ -1357,6 +1362,12 @@ pub(super) fn handle_session_notification_with_origin(
                     received_at: std::time::Instant::now(),
                     elapsed_floor_ms,
                 });
+                if entering_pause {
+                    // Drop the phase identity too, so the same Thinking/tool phase after pause is a new clock.
+                    agent.activity_started_at = None;
+                    agent.last_activity = None;
+                    agent.phase_timer_restart = true;
+                }
                 true
             }
         }
