@@ -144,6 +144,16 @@ pub struct McpTruncateContext {
 }
 
 impl McpTruncateContext {
+    /// Direct `x.ai/mcp/call` has no tool-call context. Spill the full text under `session_folder`.
+    pub fn direct_call(max_output_bytes: usize, session_folder: PathBuf, call_id: String) -> Self {
+        Self {
+            max_output_bytes,
+            session_folder: Some(session_folder),
+            shell_tool: "bash".into(),
+            call_id,
+        }
+    }
+
     pub async fn from_tool_ctx(ctx: &ToolCallContext, tool_key: &str) -> Self {
         let call_id = ctx.call_id.as_str().to_string();
         let resolved_default = mcp_max_output_bytes();
@@ -196,7 +206,7 @@ fn sanitized_stem(call_id: &str) -> String {
 
 /// Truncate `text` in place when over the limit, dumping the full payload to
 /// the session `mcp/` dir (when available) with a pointer appended.
-async fn truncate_mcp_text(text: &mut String, trunc_ctx: &McpTruncateContext) {
+pub async fn truncate_mcp_text(text: &mut String, trunc_ctx: &McpTruncateContext) {
     if text.len() <= trunc_ctx.max_output_bytes {
         return;
     }

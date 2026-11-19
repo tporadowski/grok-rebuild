@@ -884,7 +884,7 @@ pub async fn call_mcp_tool(
         .map_err(|_| format!("tool '{}' timed out after {}s", tool_name, tool_timeout_sec))?
         .map_err(|e| format!("tool call failed: {}", e))?;
 
-    let content = result
+    let mut content = result
         .content
         .iter()
         .filter_map(|c| match c {
@@ -900,12 +900,30 @@ pub async fn call_mcp_tool(
             }
             _ => None,
         })
-        .collect();
+        .collect::<Vec<_>>();
+    let folder = std::env::temp_dir().join("grok-mcp-direct");
+    bound_direct_mcp_content(&mut content, &folder).await;
 
     Ok(McpCallResponse {
         content,
         is_error: result.is_error,
     })
+}
+
+/// Oversized direct `x.ai/mcp/call` results keep a preview and write the full text to a file.
+pub(crate) async fn bound_direct_mcp_content(content: &mut [McpContentBlock], folder: &std::path::Path) {
+    let max = xai_grok_tools::mcp_max_output_bytes();
+    for (index, block) in content.iter_mut().enumerate() {
+        if block.text.len() <= max {
+            continue;
+        }
+        let ctx = xai_grok_tools::util::mcp_truncate::McpTruncateContext::direct_call(
+            max,
+            folder.to_path_buf(),
+            format!("direct-{index}"),
+        );
+        xai_grok_tools::util::mcp_truncate::truncate_mcp_text(&mut block.text, &ctx).await;
+    }
 }
 
 // ── mcp/list handler ────────────────────────────────────────────────
@@ -2248,6 +2266,32 @@ async fn handle_delete(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn direct_mcp_call_truncates_oversized_text_to_a_file() {
+        let folder = std::env::temp_dir().join(format!(
+            "grok-mcp-direct-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&folder);
+        xai_grok_tools::set_mcp_max_output_bytes(40);
+        let full = "x".repeat(120);
+        let mut content = vec![McpContentBlock {
+            kind: "text".into(),
+            text: full.clone(),
+        }];
+        bound_direct_mcp_content(&mut content, &folder).await;
+        xai_grok_tools::set_mcp_max_output_bytes(0);
+        let text = &content[0].text;
+        assert!(text.contains("MCP output truncated"), "{text}");
+        assert!(text.contains("showing first 40 B of 120 B"), "{text}");
+        assert!(text.contains(&folder.display().to_string()), "{text}");
+        assert_ne!(text.as_str(), full.as_str());
+        let spilled = std::fs::read_to_string(folder.join("mcp").join("direct-0.txt"))
+            .expect("full result spilled to a file");
+        assert_eq!(spilled, full);
+        let _ = std::fs::remove_dir_all(&folder);
+    }
 
     /// The emit-only reverse method (`x.ai/mcp/sdk_call`) shares the `x.ai/mcp/` prefix. `mvp_agent`'s dispatcher therefore routes an inbound copy of it to this module's `handle`.
     /// It must NOT collide with any forward route, so it has no `McpRoute`. `handle` then returns `method_not_found` instead of misrouting a stray inbound reverse call to `handle_call`.
