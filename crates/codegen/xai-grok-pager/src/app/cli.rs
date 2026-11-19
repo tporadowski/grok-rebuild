@@ -550,6 +550,7 @@ pub struct PagerArgs {
         long = "single",
         alias = "print",
         value_name = "PROMPT",
+        allow_hyphen_values = true,
         conflicts_with_all = &["prompt_json",
         "prompt_file"]
     )]
@@ -881,6 +882,114 @@ fn anchor_to_launch_dir(path: PathBuf, launch_dir: Option<&std::path::Path>) -> 
         strip_cur_dir(path)
     }
 }
+/// Pull the words of `-p` / `--single` / `--print` out of the raw argv and put them back as one prompt.
+/// Flags after `-p` stay flags. Words on either side of those flags join with spaces.
+/// A bare `-p` becomes an empty prompt so the caller reads stdin.
+fn rewrite_print_argv(argv: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    if argv.len() < 2 {
+        return argv;
+    }
+    let has_print = argv.iter().skip(1).any(|tok| {
+        tok.to_str().is_some_and(|s| {
+            matches!(s, "-p" | "--single" | "--print")
+                || s.starts_with("--single=")
+                || s.starts_with("--print=")
+        })
+    });
+    if !has_print {
+        return argv;
+    }
+    let cmd = PagerArgs::cli_command();
+    let mut out = Vec::with_capacity(argv.len());
+    out.push(argv[0].clone());
+    let mut inline = std::ffi::OsString::new();
+    let mut words = Vec::new();
+    let mut i = 1;
+    while i < argv.len() {
+        let tok = &argv[i];
+        let text = tok.to_str().unwrap_or("");
+        if let Some(rest) = text.strip_prefix("--single=").or_else(|| text.strip_prefix("--print="))
+        {
+            if !inline.is_empty() {
+                inline.push(" ");
+            }
+            inline.push(rest);
+            i += 1;
+            continue;
+        }
+        if matches!(text, "-p" | "--single" | "--print") {
+            i += 1;
+            continue;
+        }
+        if text == "--" {
+            words.extend(argv[i + 1..].iter().cloned());
+            break;
+        }
+        if text.starts_with('-') && text != "-" {
+            out.push(tok.clone());
+            if print_flag_consumes_next(&cmd, text)
+                && let Some(next) = argv.get(i + 1)
+            {
+                let next_text = next.to_str().unwrap_or("");
+                let next_is_flag = next_text.starts_with('-') && next_text != "-" && next_text != "--";
+                if !next_is_flag {
+                    out.push(next.clone());
+                    i += 2;
+                    continue;
+                }
+            }
+            i += 1;
+            continue;
+        }
+        words.push(tok.clone());
+        i += 1;
+    }
+    let mut joined = inline;
+    for word in &words {
+        if !joined.is_empty() {
+            joined.push(" ");
+        }
+        joined.push(word);
+    }
+    out.push(std::ffi::OsString::from("--single"));
+    out.push(joined);
+    out
+}
+
+/// A following token is this flag's value when the flag requires one, or when it accepts one and the token is not itself a flag.
+fn print_flag_consumes_next(cmd: &clap::Command, token: &str) -> bool {
+    let Some(arg) = print_flag_arg(cmd, token) else {
+        return false;
+    };
+    if let Some(range) = arg.get_num_args() {
+        return range.max_values() > 0;
+    }
+    matches!(
+        arg.get_action(),
+        clap::ArgAction::Set | clap::ArgAction::Append
+    )
+}
+
+fn print_flag_arg<'a>(cmd: &'a clap::Command, token: &str) -> Option<&'a clap::Arg> {
+    if let Some(name) = token.strip_prefix("--") {
+        let name = name.split('=').next().unwrap_or(name);
+        return cmd.get_arguments().find(|arg| {
+            arg.get_long() == Some(name)
+                || arg
+                    .get_all_aliases()
+                    .into_iter()
+                    .flatten()
+                    .any(|alias| alias == name)
+        });
+    }
+    let rest = token.strip_prefix('-')?;
+    if rest.len() != 1 {
+        return None;
+    }
+    let short = rest.chars().next()?;
+    cmd.get_arguments().find(|arg| arg.get_short() == Some(short))
+}
+
 /// Clap's wording for `grok -p --resume` plus other flags.
 /// A missing `-p` value is reported as `--single`, and a `--continue` conflict
 /// reprints a usage line that still shows the flags that cannot combine.
@@ -1028,7 +1137,9 @@ impl PagerArgs {
         I: IntoIterator<Item = T>,
         T: Into<std::ffi::OsString> + Clone,
     {
-        let matches = Self::cli_command().try_get_matches_from(itr)?;
+        let argv: Vec<std::ffi::OsString> = itr.into_iter().map(Into::into).collect();
+        let argv = rewrite_print_argv(argv);
+        let matches = Self::cli_command().try_get_matches_from(argv)?;
         <Self as clap::FromArgMatches>::from_arg_matches(&matches)
     }
     /// Help for `grok help [COMMAND...]`. An empty list is the top-level summary.
@@ -1826,14 +1937,41 @@ mod tests {
         ));
     }
     #[test]
-    fn p_resume_flag_missing_prompt_names_resume() {
-        let argv = ["grok", "-p", "--resume", "sess", "--model", "m"];
-        let err = PagerArgs::try_parse_from(argv).expect_err("a flag is not the -p prompt");
-        let line = clearer_p_resume_error_str(&argv, &err.to_string())
-            .expect("this combination has a clearer line");
-        assert!(line.contains("-p needs a prompt"), "{line}");
-        assert!(line.contains("--resume"), "{line}");
-        assert!(!line.contains("--single"), "{line}");
+    fn p_flags_after_it_stay_flags_and_words_join() {
+        let around = PagerArgs::try_parse_prepared([
+            "grok",
+            "-p",
+            "hello",
+            "--model",
+            "grok-3",
+            "world",
+        ])
+        .expect("flags after -p parse");
+        assert_eq!(around.model.as_deref(), Some("grok-3"));
+        assert_eq!(around.single.as_deref(), Some("hello world"));
+
+        let resume = PagerArgs::try_parse_prepared([
+            "grok",
+            "-p",
+            "--resume",
+            "sess",
+            "--model",
+            "m",
+            "fix",
+            "the",
+            "bug",
+        ])
+        .expect("resume after -p parses");
+        assert_eq!(resume.resume_session.as_deref(), Some("sess"));
+        assert_eq!(resume.model.as_deref(), Some("m"));
+        assert_eq!(resume.single.as_deref(), Some("fix the bug"));
+    }
+
+    #[test]
+    fn bare_p_is_an_empty_prompt() {
+        let args = PagerArgs::try_parse_prepared(["grok", "-p"]).expect("bare -p parses");
+        assert_eq!(args.single.as_deref(), Some(""));
+        assert!(args.command.is_none());
     }
 
     #[test]

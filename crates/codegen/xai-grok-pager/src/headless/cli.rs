@@ -63,6 +63,13 @@ impl HeadlessPrompt {
         stdin_is_terminal: bool,
         read_stdin: impl FnOnce() -> std::io::Result<String>,
     ) -> anyhow::Result<Option<Self>> {
+        if single.is_some_and(|text| text.trim().is_empty()) {
+            let text = read_stdin()
+                .map_err(|e| anyhow::anyhow!("failed to read prompt from stdin: {e}"))?;
+            return Self::from_text(&text)
+                .map(Some)
+                .map_err(|e| anyhow::anyhow!("stdin: {e}"));
+        }
         if let Some(prompt) = Self::from_args(single, prompt_json, prompt_file)? {
             return Ok(Some(prompt));
         }
@@ -354,6 +361,16 @@ mod tests {
         .unwrap();
         assert!(prompt.is_none(), "a terminal with no prompt opens the UI");
         assert_eq!(reads.get(), 0);
+    }
+
+    #[test]
+    fn bare_p_reads_stdin_even_on_a_terminal() {
+        let prompt = HeadlessPrompt::from_args_or_stdin(Some(""), None, None, true, || {
+            Ok("from stdin\n".into())
+        })
+        .unwrap()
+        .expect("bare -p reads stdin");
+        assert_eq!(text_of(prompt), "from stdin");
     }
 
     #[test]
