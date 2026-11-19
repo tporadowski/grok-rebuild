@@ -5566,6 +5566,25 @@ fn welcome_pending_n_is_unchanged() {
     assert!(matches!(outcome, InputOutcome::Unchanged));
 }
 #[test]
+fn welcome_arrows_move_the_menu_from_the_prompt() {
+    let mut app = test_app();
+    app.auth_state = AuthState::Done;
+    app.welcome_prompt_focused = true;
+    let down = key_event(KeyCode::Down, KeyModifiers::NONE);
+    let up = key_event(KeyCode::Up, KeyModifiers::NONE);
+    assert!(matches!(app.handle_input(&down), InputOutcome::Changed));
+    assert_eq!(app.welcome_menu_index, Some(0));
+    assert!(app.welcome_prompt_focused);
+    assert!(matches!(app.handle_input(&up), InputOutcome::Changed));
+    assert!(app.welcome_menu_index.is_some());
+    assert!(app.welcome_prompt_focused);
+    app.welcome_prompt.set_text("still here");
+    let _ = app.handle_input(&down);
+    assert!(app.welcome_prompt.text().contains("still here"));
+    assert!(app.welcome_prompt_focused);
+}
+
+#[test]
 fn welcome_done_n_leaves_home() {
     let mut app = test_app();
     app.auth_state = AuthState::Done;

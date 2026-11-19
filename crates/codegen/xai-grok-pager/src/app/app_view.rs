@@ -4081,6 +4081,13 @@ fn handle_welcome_input(ev: &Event, ctx: &mut WelcomeInputCtx<'_>) -> InputOutco
                         *ctx.prompt_focused = false;
                         return InputOutcome::Changed;
                     }
+                    if matches!(ctx.auth_state, AuthState::Done)
+                        && matches!(key.code, KeyCode::Up | KeyCode::Down)
+                        && key.modifiers.is_empty()
+                        && let Some(outcome) = handle_menu_nav(key, ctx.menu_index, ctx.menu_count)
+                    {
+                        return outcome;
+                    }
                     if had_highlight && ctx.prompt.textarea.selection_range().is_none() {
                         return InputOutcome::Changed;
                     }
