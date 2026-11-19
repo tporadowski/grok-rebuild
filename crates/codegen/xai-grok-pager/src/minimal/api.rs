@@ -702,7 +702,8 @@ pub fn mcp_row_badge(server: &McpServerInfo, theme: &Theme) -> (String, Option<C
     crate::views::extensions_modal::mcp_row_badge(server, theme)
 }
 
-/// Collapse plugin sections once, on the first non-empty MCP list, matching the full modal.
+/// Collapse plugin sections once, on the first MCP list, matching the full modal.
+/// A hosted section with more than ten servers collapses too.
 pub fn init_mcps_section_collapse_on_first_load(
     collapsed_sections: &mut HashSet<String>,
     initialized: &mut bool,

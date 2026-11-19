@@ -2567,7 +2567,11 @@ fn seed_groups_once<T>(
     *seeded = true;
 }
 
-/// On first MCP list load, collapse each distinct plugin section by default.
+/// Hosted (managed) sections stay open on first load through this many servers.
+const HOSTED_SECTION_EXPAND_LIMIT: usize = 10;
+
+/// On first MCP list load, collapse each distinct plugin section.
+/// A hosted section stays open unless it has more than [`HOSTED_SECTION_EXPAND_LIMIT`] servers.
 pub(crate) fn init_mcps_section_collapse_on_first_load(
     collapsed_sections: &mut std::collections::HashSet<String>,
     initialized: &mut bool,
@@ -2577,10 +2581,18 @@ pub(crate) fn init_mcps_section_collapse_on_first_load(
         return;
     }
     use crate::views::mcps_modal::{McpSectionId, section_for, section_key};
+    let mut hosted = 0usize;
     for server in servers {
-        if let McpSectionId::Plugin(ref name) = section_for(server) {
-            collapsed_sections.insert(section_key(&McpSectionId::Plugin(name.clone())));
+        match section_for(server) {
+            McpSectionId::Plugin(name) => {
+                collapsed_sections.insert(section_key(&McpSectionId::Plugin(name)));
+            }
+            McpSectionId::Managed => hosted += 1,
+            McpSectionId::Local => {}
         }
+    }
+    if hosted > HOSTED_SECTION_EXPAND_LIMIT {
+        collapsed_sections.insert(section_key(&McpSectionId::Managed));
     }
     *initialized = true;
 }
@@ -5215,6 +5227,42 @@ mod tests {
                 .contains("mcp-section:plugin:beta")
         );
         assert!(state.mcps_section_collapse_initialized);
+    }
+
+    #[test]
+    fn hosted_section_stays_open_until_it_has_more_than_ten_servers() {
+        use crate::views::mcps_modal::McpWireSource;
+
+        let hosted = |n: usize| {
+            (0..n)
+                .map(|i| make_mcp_server_for_rows(&format!("hosted-{i}"), McpWireSource::Managed, vec![]))
+                .collect::<Vec<_>>()
+        };
+        let mut open = std::collections::HashSet::new();
+        let mut open_init = false;
+        init_mcps_section_collapse_on_first_load(&mut open, &mut open_init, &hosted(10));
+        assert!(
+            !mcp_section_children_hidden(&open, "mcp-section:managed", false),
+            "ten hosted servers stay expanded"
+        );
+
+        let mut folded = std::collections::HashSet::new();
+        let mut folded_init = false;
+        let mut servers = hosted(11);
+        servers.push(make_mcp_server_for_rows(
+            "local-one",
+            McpWireSource::Local,
+            vec![],
+        ));
+        init_mcps_section_collapse_on_first_load(&mut folded, &mut folded_init, &servers);
+        assert!(mcp_section_children_hidden(
+            &folded,
+            "mcp-section:managed",
+            false
+        ));
+        assert!(!mcp_section_children_hidden(
+            &folded, "mcp-section:local", false
+        ));
     }
 
     #[test]
