@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-336 — The peek already takes keys and pastes during a dispatch image wait
+
+`v89-x04` says the dashboard peek still accepts keys and pastes while a dispatch send waits on an image. `DashboardState::handle_input` already routes those events through `peek_owns_input` and `handle_peek_key`, and `take_deferred_sends_after_paste` only releases `deferred_dispatch_send` when `dispatch_paste_probes` hits zero. `peek_accepts_keys_and_pastes_while_dispatch_send_waits_on_an_image` types and pastes into the peek while that send stays parked and the dispatch draft stays put.
+
 ### D-335 — Inspect already names the project MCP file
 
 `grok inspect` reports the file that defined a project MCP server (`v89-x07`). `list_mcp_servers` in `crates/codegen/xai-grok-shell/src/inspect/mod.rs` keeps the origin from `merge_managed_mcp_servers_sourced`. A server in `pkg/.grok/config.toml` renders `config: …/pkg/.grok/config.toml`. A server in `pkg/.mcp.json` renders `.mcp.json: …/pkg/.mcp.json`. Repo-root files stay on the root paths. `project_mcp_servers_name_their_declaring_file` locks that.
@@ -1455,7 +1459,7 @@ Refresh these numbers at the end of a session.
 | W4 | Hooks | 0 | 0 | 26 | 10 | 3 |
 | W5 | Workflows and goals | 1 | 0 | 34 | 6 | 0 |
 | W7 | Worktrees | 1 | 0 | 38 | 3 | 0 |
-| W8 | Sessions, resume, and dashboard | 9 | 0 | 73 | 14 | 4 |
+| W8 | Sessions, resume, and dashboard | 8 | 0 | 73 | 15 | 4 |
 | W9 | Prompt, mentions, and keyboard | 3 | 0 | 58 | 7 | 1 |
 | W10 | Transcript, density, and copy | 6 | 0 | 66 | 4 | 0 |
 | W11 | Headless mode and tools | 2 | 0 | 44 | 7 | 0 |
@@ -1466,9 +1470,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 896. Pending: 37. Skipped: 10. Done: 695. Already: 117. Deferred: 37.
+Catalog rows: 896. Pending: 36. Skipped: 10. Done: 695. Already: 118. Deferred: 37.
 
-**Next:** `v89-x04`
+**Next:** `v89-x03`
 
 ## Waves
 
@@ -1502,7 +1506,7 @@ Pending: 1. Done: 38 (`v51-x96`, with `v50-b01`, D-023; `v50-x30`, D-058; `v50-x
 
 ### W8 — Sessions, resume, and dashboard
 
-Pending: 9. Done: 73 (`v89-f01`; `v88-x58`; `v88-x54`; `v88-x53`; `v88-x52`; `v88-x51`; `v88-x45`; `v88-x43`; `v88-x41`; `v88-x39`; `v88-x38`; `v88-x25`; `v88-x15`; `v88-x07`; `v88-x05`; `v88-x01`; `v88-f01`; `v87-x19`; `v87-x10`, D-308; `v86-x46`, D-273; `v86-x29`, D-271; `v86-x28`, D-270; `v86-x18`; `v86-x03`; `v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 14 (`v86-x45`, D-272; `v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 4 (`v89-x15`, D-332; `v87-x15`, D-309; `v86-x26`, D-269; `v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
+Pending: 8. Done: 73 (`v89-f01`; `v88-x58`; `v88-x54`; `v88-x53`; `v88-x52`; `v88-x51`; `v88-x45`; `v88-x43`; `v88-x41`; `v88-x39`; `v88-x38`; `v88-x25`; `v88-x15`; `v88-x07`; `v88-x05`; `v88-x01`; `v88-f01`; `v87-x19`; `v87-x10`, D-308; `v86-x46`, D-273; `v86-x29`, D-271; `v86-x28`, D-270; `v86-x18`; `v86-x03`; `v86-x02`, D-268; `v51-f11`, D-096; `v51-f17`, D-097; `v51-x10`, D-098; `v51-x22`, D-099; `v51-x24`, D-100; `v51-x36`, D-101; `v51-x49`, D-102; `v51-x54`, D-103; `v51-x97`, D-104; `v51-x108`, D-105; `v59-f01`, D-106; `v60-x02`, D-107; `v61-f02`, D-108; `v61-x01`, D-109; `v62-x02`, D-110; `v64-f03`, D-111; `v65-f01`, D-112; `v66-x01`, D-113; `v69-f01`, D-115; `v69-f02`, D-116; `v73-f06`, D-118; `v74-x04`, D-119; `v74-x22`, D-120; `v74-x23`, D-121; `v75-x04`, D-122; `v77-x05`, D-123). Already: 15 (`v89-x04`, D-336; `v86-x45`, D-272; `v68-x02`, D-114; `v72-x04`, D-117; `v85-f02`, `v85-x08`, D-245). Deferred: 4 (`v89-x15`, D-332; `v87-x15`, D-309; `v86-x26`, D-269; `v81-x19`, D-228). Look first: `/resume`, dashboard, and session list in `xai-grok-pager` and `xai-grok-shell` session storage. Title matching grows across 1.0.59, 1.0.60, 1.0.61, 1.0.65, and 1.0.69. Implement the latest rule: exact id, then separator-insensitive title, then fuzzy words, other folders included, current folder first. The usage credit bar shortens so the percentage stays on the row, and a billing URL wraps instead of being cut off (`v80-x05`). Resume-picker errors already use a few sentence shapes, and the note does not name the wording to converge on (`v81-x19`, D-228). An empty session list says "No sessions in this directory", an empty directory listing says "No subfolders", and that line is clipped to the content width (`v81-x25`).
 
 ### W9 — Prompt, mentions, and keyboard
 
@@ -2387,7 +2391,7 @@ id | status | wave | kind | flag | covered | note
 - v88-x54 | done | W8 | Bug Fixes |  |  | **Session picker keys** now do nothing until the next frame actually draws list rows.
 - v88-x58 | done | W8 | Bug Fixes |  |  | **`/resume` and full-screen pickers** no longer truncate cards when a long CWD contains an early space.
 - v89-f01 | done | W8 | Features |  |  | **New /rename command** on the dashboard renames the selected session without opening it.
-- v89-x04 | pending | W8 | Bug Fixes |  |  | **Dashboard peek** still accepts keys and pastes while a dispatch send waits on an image.
+- v89-x04 | already | W8 | Bug Fixes |  |  | **Dashboard peek** still accepts keys and pastes while a dispatch send waits on an image.
 - v89-x15 | deferred | W8 | Bug Fixes |  |  | **Picking a default model** now shows a generic error when experiment dismissal can't be saved.
 - v90-f03 | pending | W8 | Features |  |  | **Answering No with text** on a subagent card shows that subagent's reply in the main chat.
 - v90-f04 | pending | W8 | Features |  |  | **Sessions** switch models when their model is removed from the available list.

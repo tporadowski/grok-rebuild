@@ -929,6 +929,31 @@ fn state_with_open_peek() -> DashboardState {
     s
 }
 
+/// A dispatch send parked on an image probe must not freeze the peek reply.
+#[test]
+fn peek_accepts_keys_and_pastes_while_dispatch_send_waits_on_an_image() {
+    let mut state = state_with_open_peek();
+    let reg = crate::actions::ActionRegistry::defaults();
+    state.dispatch.set_text("spawn a fixer");
+    state.dispatch_paste_probes = 1;
+    state.paste_probe_in_flight = 1;
+    state.deferred_dispatch_send = Some(DeferredDispatchSend { attach: false });
+    crate::clipboard::set_clipboard_probe_hook(crate::clipboard::ClipboardProbeHook::no_raster(
+        Some("note"),
+    ));
+    let _ = state.handle_input(
+        &Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+        &reg,
+    );
+    let _ = state.handle_input(&Event::Paste("note".into()), &reg);
+    crate::clipboard::clear_clipboard_probe_hook();
+    assert_eq!(state.peek_reply.text(), "xnote");
+    assert_eq!(state.dispatch.text(), "spawn a fixer");
+    assert!(state.deferred_dispatch_send.is_some());
+    assert_eq!(state.dispatch_paste_probes, 1);
+    assert_eq!(state.peek_paste_probes, 0);
+}
+
 /// Regression: with the peek open but the reply UNFOCUSED (Tab → row nav), generic editing chords
 /// must NOT leak into the hidden new-session dispatch draft behind the panel. Backspace / Delete
 /// are consumed. (`Unchanged`) instead of falling through to the hidden dispatch widget.
