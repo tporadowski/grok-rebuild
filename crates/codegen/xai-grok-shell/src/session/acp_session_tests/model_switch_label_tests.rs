@@ -17,6 +17,53 @@ fn head_text(conv: &[ConversationItem]) -> String {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn session_switches_when_its_model_leaves_the_available_list() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (actor, _gateway_rx) = build_actor().await;
+            let endpoints = actor.models_manager.endpoints();
+            actor.models_manager.insert_test_entry(
+                "kept-model",
+                crate::agent::config::ModelEntry::fallback("kept-model", &endpoints),
+            );
+            actor
+                .models_manager
+                .set_current_model_id(agent_client_protocol::ModelId::new("kept-model"));
+            let replacement = actor.models_manager.current_model_id();
+            assert_eq!(replacement.0.as_ref(), "kept-model");
+            let mut sampling = actor
+                .chat_state_handle
+                .get_sampling_config()
+                .await
+                .expect("the session has a sampling config");
+            sampling.model = "removed-from-the-list".to_owned();
+            actor.chat_state_handle.update_sampling_config(sampling);
+
+            assert!(
+                actor
+                    .switch_session_if_its_model_left_the_catalog()
+                    .await
+            );
+            let switched = actor
+                .chat_state_handle
+                .get_sampling_config()
+                .await
+                .expect("sampling config remains");
+            assert_eq!(switched.model, replacement.0.as_ref());
+
+            assert!(
+                !actor
+                    .switch_session_if_its_model_left_the_catalog()
+                    .await,
+                "a model that is still listed stays on the session"
+            );
+            let stayed = actor.chat_state_handle.get_sampling_config().await.unwrap();
+            assert_eq!(stayed.model, replacement.0.as_ref());
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn model_switch_relabels_live_agent_and_system_head() {
     tokio::task::LocalSet::new()
         .run_until(async {

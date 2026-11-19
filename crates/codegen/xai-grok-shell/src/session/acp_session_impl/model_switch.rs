@@ -195,6 +195,62 @@ impl SessionActor {
         }
         Ok(model_id)
     }
+
+    /// The catalog dropped this session's model. Move the session onto the manager's current model.
+    pub(crate) async fn switch_session_if_its_model_left_the_catalog(
+        self: &std::sync::Arc<Self>,
+    ) -> bool {
+        let Some(mut sampling) = self.chat_state_handle.get_sampling_config().await else {
+            return false;
+        };
+        let previous = sampling.model.clone();
+        if previous.is_empty() {
+            return false;
+        }
+        let catalog = self.models_manager.models();
+        let listed = |model: &str| {
+            catalog.contains_key(model)
+                || catalog
+                    .values()
+                    .any(|entry| entry.info().has_model_id(model))
+        };
+        if listed(&previous) {
+            return false;
+        }
+        let replacement = self.models_manager.current_model_id();
+        let new_model = replacement.0.to_string();
+        if new_model.is_empty() || new_model == previous || !listed(&new_model) {
+            return false;
+        }
+        sampling.model = new_model.clone();
+        self.chat_state_handle.update_sampling_config(sampling);
+        let agent_name = self.agent.borrow().definition().name.clone();
+        let _ = self.notifications.persistence_tx.send(
+            crate::session::persistence::PersistenceMsg::CurrentModel {
+                model_id: acp::ModelId::new(new_model.clone()),
+                agent: crate::session::persistence::PersistedAgent::Named(agent_name),
+                reasoning_effort: None,
+                context_window: None,
+            },
+        );
+        let reason = format!("Model \"{previous}\" is no longer available.");
+        self.send_xai_notification(
+            crate::extensions::notification::SessionUpdate::ModelAutoSwitched {
+                previous_model_id: previous,
+                new_model_id: new_model.clone(),
+                reason,
+            },
+        )
+        .await;
+        self.send_xai_notification(crate::extensions::notification::SessionUpdate::ModelChanged {
+            model_id: new_model,
+            reasoning_effort: None,
+            context_window_selection: None,
+        })
+        .await;
+        true
+    }
+
     /// `running_task` is re-checked with no await before the `borrow_mut`: a running turn pins `Ref<Agent>`.
     pub(super) async fn relabel_agent_system_prompt(&self, system_prompt_label: String) {
         let (mut prompt_context, tool_bridge) = {

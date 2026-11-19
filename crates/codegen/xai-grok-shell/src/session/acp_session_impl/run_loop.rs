@@ -580,6 +580,9 @@ pub(super) async fn run_session(
                     if changed.is_ok() {
                         let new_gen = *model_switch_rx.borrow_and_update();
                         session.handle_model_switch_for_laziness(new_gen).await;
+                        session
+                            .switch_session_if_its_model_left_the_catalog()
+                            .await;
                     }
                 }
                 // Events from the ChatStateActor that the session loop must react to
