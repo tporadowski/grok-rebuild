@@ -177,6 +177,23 @@ impl WorkspaceMembership {
         self.committed_snapshot.as_ref()
     }
 
+    /// Stamp a new title on a workspace member this client has not loaded.
+    /// Returns the stored directory and kind so the caller can persist the same title on the session.
+    pub fn retitle_closed_session(
+        &mut self,
+        raw_session_id: &str,
+        title: &str,
+    ) -> Option<(String, MemberKind)> {
+        let session_id = SessionId::new(raw_session_id.to_owned()).ok()?;
+        let member = self.committed_snapshot.as_mut()?.members.iter_mut().find(|member| {
+            member.session_id == session_id
+                && matches!(member.kind, MemberKind::Build | MemberKind::Conversation)
+        })?;
+        let cwd = member.cwd.clone().filter(|cwd| !cwd.is_empty())?;
+        member.title = Some(title.to_owned());
+        Some((cwd, member.kind.clone()))
+    }
+
     pub fn view(&self) -> Option<WorkspaceView> {
         let snapshot = self.committed_snapshot.as_ref()?;
         Some(self.layout.view(snapshot, &self.pending_removal_key_set()))

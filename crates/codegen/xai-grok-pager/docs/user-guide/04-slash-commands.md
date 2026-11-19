@@ -81,7 +81,7 @@ To delete a session you are not in, open `/resume` or the welcome session list a
 
 ### `/rename`
 
-Rename the current session. Alias: `/title`.
+Rename the current session. Alias: `/title`. On the dashboard, the same command renames the selected session and leaves it closed.
 
 ```
 /rename new session title

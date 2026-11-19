@@ -6050,6 +6050,39 @@ fn dashboard_toggle_auto_approve_with_no_selection_toasts() {
         "missing selection must surface a toast",
     );
 }
+/// `/rename` on the dashboard names the selected session and does not open it.
+#[serial_test::serial(GROK_AGENT_DASHBOARD)]
+#[test]
+fn dashboard_slash_rename_keeps_the_session_closed() {
+    let mut app = test_app_with_agent();
+    open_dashboard(&mut app);
+    let id = AgentId(0);
+    if let Some(d) = app.dashboard.as_mut() {
+        d.selected = Some(crate::views::dashboard::DashboardRowId::TopLevel(id));
+    }
+    let effects = dispatch_dashboard_dispatch_slash(&mut app, "/rename Closed title".into());
+    assert!(
+        matches!(app.active_view, ActiveView::AgentDashboard),
+        "rename must leave the dashboard open, got {:?}",
+        app.active_view
+    );
+    assert!(
+        effects.iter().any(|effect| matches!(
+            effect,
+            Effect::RenameSession { agent_id, title, session_id, .. }
+                if *agent_id == id
+                    && title == "Closed title"
+                    && session_id.0.as_ref() == "test-session"
+        )),
+        "slash rename must persist the selected session, got {effects:?}",
+    );
+    assert_eq!(
+        app.agents.get(&id).and_then(|agent| agent.display_name.clone()),
+        Some("Closed title".to_string()),
+    );
+    assert!(app.dashboard.as_ref().unwrap().dispatch.text().is_empty());
+}
+
 /// End-to-end rename flow: begin rename, type characters, then commit.
 /// Untitled fixture agent has no display_name / generated title, so the draft prefills empty; typing then commit emit `RenameSession` and stamp
 /// `display_name`.

@@ -1157,6 +1157,13 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
     if trimmed.is_empty() || !trimmed.starts_with('/') {
         return vec![];
     }
+    // `/rename` on this surface names the selected row. The command still refuses a missing session id.
+    let dashboard_rename_session = crate::slash::parse_invocation(trimmed.as_str())
+        .filter(|invocation| {
+            invocation.token.eq_ignore_ascii_case("rename")
+                || invocation.token.eq_ignore_ascii_case("title")
+        })
+        .and_then(|_| selected_dashboard_session_id(app));
     let coding_data_sharing_opt_out_from_app = app.coding_data_retention_opt_out;
     let coding_data_sharing_lock_from_app = app.coding_data_sharing_lock();
     let show_tips_from_app = app.show_tips;
@@ -1236,7 +1243,7 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
         let dashboard_multiline = app.dashboard.as_ref().is_some_and(|d| d.multiline_mode);
         let mut ctx = CommandExecCtx {
             models: &app.models,
-            session_id: None,
+            session_id: dashboard_rename_session.as_ref(),
             bundle_state: &app.bundle_state,
             screen_mode: app.screen_mode,
             billing_surface_visible: app.usage_visible,
@@ -1344,6 +1351,20 @@ pub(super) fn dispatch_dashboard_dispatch_slash(app: &mut AppView, text: String)
                 d.set_error_toast("No plan to show on the dashboard");
             }
             vec![]
+        }
+        CommandResult::Action(Action::RenameSession { title }) => {
+            if let Some(d) = app.dashboard.as_mut() {
+                d.dispatch.set_text("");
+                d.error_toast = None;
+            }
+            rename_selected_dashboard_session(app, &title)
+        }
+        CommandResult::Action(Action::ResetSessionTitleToAuto) => {
+            if let Some(d) = app.dashboard.as_mut() {
+                d.dispatch.set_text("");
+                d.error_toast = None;
+            }
+            reset_selected_dashboard_session(app)
         }
         CommandResult::Action(action) => {
             if let Some(d) = app.dashboard.as_mut() {
@@ -1648,6 +1669,160 @@ pub(super) fn dispatch_dashboard_toggle_pin(app: &mut AppView) -> Vec<Effect> {
         let _ = d.toggle_pin_selected();
     }
     dispatch_dashboard_persist(app)
+}
+fn selected_dashboard_session_id(app: &AppView) -> Option<acp::SessionId> {
+    use crate::views::dashboard::DashboardRowId;
+    let row = app.dashboard.as_ref()?.selected.clone()?;
+    let raw = match row {
+        DashboardRowId::TopLevel(agent_id) => app
+            .agents
+            .get(&agent_id)?
+            .session
+            .session_id
+            .as_ref()
+            .map(|session_id| session_id.0.to_string()),
+        DashboardRowId::Workspace { session_id } => Some(session_id),
+        DashboardRowId::Roster { .. } => None,
+    }?;
+    Some(raw.into())
+}
+fn agent_id_for_session(app: &AppView, session_id: &str) -> Option<AgentId> {
+    app.agents.iter().find_map(|(id, agent)| {
+        agent
+            .session
+            .session_id
+            .as_ref()
+            .is_some_and(|existing| existing.0.as_ref() == session_id)
+            .then_some(*id)
+    })
+}
+/// `/rename` on the dashboard names the selected row and stays on the dashboard.
+fn rename_selected_dashboard_session(app: &mut AppView, title: &str) -> Vec<Effect> {
+    use crate::views::dashboard::DashboardRowId;
+    let Some(row) = app.dashboard.as_ref().and_then(|d| d.selected.clone()) else {
+        if let Some(d) = app.dashboard.as_mut() {
+            d.set_error_toast("Select a session to rename");
+        }
+        return vec![];
+    };
+    match row {
+        DashboardRowId::TopLevel(agent_id) => rename_loaded_dashboard_session(app, agent_id, title),
+        DashboardRowId::Workspace { session_id } => {
+            if let Some(agent_id) = agent_id_for_session(app, &session_id) {
+                rename_loaded_dashboard_session(app, agent_id, title)
+            } else {
+                rename_closed_dashboard_session(app, &session_id, title)
+            }
+        }
+        DashboardRowId::Roster { .. } => {
+            if let Some(d) = app.dashboard.as_mut() {
+                d.set_error_toast("That session can't be renamed from this client");
+            }
+            vec![]
+        }
+    }
+}
+fn rename_loaded_dashboard_session(
+    app: &mut AppView,
+    agent_id: AgentId,
+    title: &str,
+) -> Vec<Effect> {
+    let mut effects = Vec::new();
+    if let Some(agent) = app.agents.get_mut(&agent_id) {
+        if let Some(session_id) = agent.session.session_id.clone() {
+            let cwd = agent.session.cwd.clone();
+            agent.display_name = Some(title.to_owned());
+            effects.push(Effect::RenameSession {
+                agent_id,
+                session_id,
+                title: title.to_owned(),
+                cwd,
+                kind: agent.rename_kind(),
+            });
+        } else {
+            agent.display_name = Some(title.to_owned());
+        }
+    }
+    crate::app::workspace_sync::request(app);
+    effects
+}
+fn rename_closed_dashboard_session(
+    app: &mut AppView,
+    session_id: &str,
+    title: &str,
+) -> Vec<Effect> {
+    let Some((cwd, kind)) = app
+        .workspace_membership
+        .retitle_closed_session(session_id, title)
+    else {
+        if let Some(d) = app.dashboard.as_mut() {
+            d.set_error_toast("Session isn't in the workspace");
+        }
+        return vec![];
+    };
+    let kind = match kind {
+        xai_grok_dashboard_store::MemberKind::Conversation => {
+            xai_grok_shell::session::unified_list::SessionKind::Chat
+        }
+        _ => xai_grok_shell::session::unified_list::SessionKind::Build,
+    };
+    vec![Effect::RenameSession {
+        agent_id: AgentId(usize::MAX),
+        session_id: session_id.to_owned().into(),
+        title: title.to_owned(),
+        cwd: std::path::PathBuf::from(cwd),
+        kind,
+    }]
+}
+fn reset_selected_dashboard_session(app: &mut AppView) -> Vec<Effect> {
+    use crate::views::dashboard::DashboardRowId;
+    let Some(row) = app.dashboard.as_ref().and_then(|d| d.selected.clone()) else {
+        if let Some(d) = app.dashboard.as_mut() {
+            d.set_error_toast("Select a session to rename");
+        }
+        return vec![];
+    };
+    let agent_id = match row {
+        DashboardRowId::TopLevel(agent_id) => Some(agent_id),
+        DashboardRowId::Workspace { session_id } => agent_id_for_session(app, &session_id),
+        DashboardRowId::Roster { .. } => None,
+    };
+    let Some(agent_id) = agent_id else {
+        if let Some(d) = app.dashboard.as_mut() {
+            d.set_error_toast("Open the session before restoring its auto title");
+        }
+        return vec![];
+    };
+    let Some(agent) = app.agents.get_mut(&agent_id) else {
+        return vec![];
+    };
+    let Some(session_id) = agent.session.session_id.clone() else {
+        return vec![];
+    };
+    let kind = agent.rename_kind();
+    if kind == xai_grok_shell::session::unified_list::SessionKind::Chat {
+        if let Some(d) = app.dashboard.as_mut() {
+            d.set_error_toast("Chat conversations have no auto-title to restore");
+        }
+        return vec![];
+    }
+    let previous_display_name = agent.display_name.clone();
+    let previous_generated_title = agent.generated_session_title.clone();
+    agent.title_unpin_committed = false;
+    let pin = agent.display_name.take();
+    if agent.generated_session_title.as_deref() == pin.as_deref() {
+        agent.generated_session_title = None;
+    }
+    let cwd = agent.session.cwd.clone();
+    crate::app::workspace_sync::request(app);
+    vec![Effect::ResetSessionTitle {
+        agent_id,
+        session_id,
+        cwd,
+        kind,
+        previous_display_name,
+        previous_generated_title,
+    }]
 }
 pub(super) fn dispatch_dashboard_begin_rename(app: &mut AppView) {
     let Some(d) = app.dashboard.as_mut() else {

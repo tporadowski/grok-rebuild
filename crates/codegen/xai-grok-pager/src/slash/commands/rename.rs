@@ -12,11 +12,12 @@ impl SlashCommand for RenameCommand {
     slash_meta! {
         name: "rename",
         aliases: ["title"],
-        description: "Rename the current session",
+        description: "Rename the current session, or the selected dashboard session",
         usage: "/rename <title> | --auto",
         takes_args: true,
         args_required: true,
         session_scoped: true,
+        offered_when_session_less: true,
         arg_placeholder: "<title>",
     }
 
