@@ -3,6 +3,7 @@ use super::*;
 #[allow(clippy::too_many_arguments)]
 fn upsert_workflow_block(
     agent: &mut AgentView,
+    turn_ms: Option<i64>,
     run_id: &str,
     name: &str,
     objective: &str,
@@ -49,8 +50,13 @@ fn upsert_workflow_block(
         Some(id) => id,
         None => {
             let block = WorkflowBlock::started(run_id, name, objective);
-            let id = agent.scrollback.push_block(RenderBlock::Workflow(block));
-            agent.scrollback.set_last_running(true);
+            let id = match turn_ms {
+                Some(ms) => agent
+                    .scrollback
+                    .insert_block_at_turn_ms(ms, RenderBlock::Workflow(block)),
+                None => agent.scrollback.push_block(RenderBlock::Workflow(block)),
+            };
+            agent.scrollback.set_entry_running(id, true);
             agent.workflow_blocks.insert(run_id.to_string(), id);
             id
         }
@@ -87,7 +93,11 @@ fn upsert_workflow_block(
     }
 }
 
-pub(super) fn ingest_workflow_update(agent: &mut AgentView, update: XaiSessionUpdate) -> bool {
+pub(super) fn ingest_workflow_update(
+    agent: &mut AgentView,
+    update: XaiSessionUpdate,
+    turn_ms: Option<i64>,
+) -> bool {
     let XaiSessionUpdate::WorkflowUpdated {
         run_id,
         revision,
@@ -190,6 +200,7 @@ pub(super) fn ingest_workflow_update(agent: &mut AgentView, update: XaiSessionUp
     let active = agents.iter().filter(|a| a.state == "running").count() as u32;
     upsert_workflow_block(
         agent,
+        turn_ms,
         &run_id,
         &name,
         &objective,

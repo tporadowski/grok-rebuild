@@ -1,5 +1,6 @@
 #![cfg_attr(rustfmt, rustfmt::skip)]
     use super::*;
+    use chrono::TimeZone;
 
     /// A background `monitor`/bash task (`TaskBackgrounded`) must restore into `bg_tasks` on a resumed / second terminal.
     /// It must not be dropped by the default match arm.
@@ -981,5 +982,132 @@
                 .get("task-replay")
                 .is_some_and(|t| t.restored_from_replay)
         );
+    }
+
+    /// A resumed session can deliver the task-started row and the workflow row after later turns
+    /// are already in the transcript. Both belong in the turn that started them.
+    /// A later update of the same workflow edits that row.
+    #[test]
+    fn resumed_background_task_and_workflow_stay_in_the_turn_that_started_them() {
+        let mut app = make_app_with_agent("sess-1");
+        let turn_one = 1_700_000_000_000i64;
+        let started = turn_one + 500;
+        let turn_two = turn_one + 60_000;
+        {
+            let agent = app.agents.get_mut(&AgentId(0)).unwrap();
+            agent.session.loading_replay = true;
+            agent.scrollback.push_block(RenderBlock::user_prompt("turn one"));
+            stamp_prompt_at(&mut agent.scrollback, 0, turn_one);
+            agent.scrollback.push_block(RenderBlock::user_prompt("turn two"));
+            stamp_prompt_at(&mut agent.scrollback, 1, turn_two);
+        }
+
+        let task = task_backgrounded_at("sess-1", "tc-late", "task-late", "sleep 12", started);
+        assert!(handle_task_backgrounded(&task, &mut app));
+        let workflow = workflow_updated_at("sess-1", "wf-1", 1, started);
+        assert!(handle_session_notification(&workflow, &mut app));
+        let again = workflow_updated_at("sess-1", "wf-1", 2, started);
+        assert!(handle_session_notification(&again, &mut app));
+        let late = workflow_updated_at("sess-1", "wf-late", 1, turn_two + 5_000);
+        assert!(handle_session_notification(&late, &mut app));
+
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        let labels: Vec<String> = (0..agent.scrollback.len())
+            .map(|index| transcript_label(&agent.scrollback.get(index).unwrap().block))
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "turn one".to_string(),
+                "task:task-late".to_string(),
+                "wf:wf-1".to_string(),
+                "turn two".to_string(),
+                "wf:wf-late".to_string(),
+            ]
+        );
+    }
+
+    fn stamp_prompt_at(
+        scrollback: &mut crate::scrollback::state::ScrollbackState,
+        index: usize,
+        ms: i64,
+    ) {
+        let entry = scrollback.get_mut(index).expect("prompt row");
+        entry.created_at = chrono::Utc
+            .timestamp_millis_opt(ms)
+            .single()
+            .map(|utc: chrono::DateTime<chrono::Utc>| utc.with_timezone(&chrono::Local));
+    }
+
+    fn transcript_label(block: &RenderBlock) -> String {
+        match block {
+            RenderBlock::UserPrompt(prompt) => prompt.text.clone(),
+            RenderBlock::BgTask(task) => format!("task:{}", task.task_id),
+            RenderBlock::Workflow(workflow) => format!("wf:{}", workflow.run_id),
+            _ => "other".to_string(),
+        }
+    }
+
+    fn task_backgrounded_at(
+        session_id: &str,
+        tool_call_id: &str,
+        task_id: &str,
+        command: &str,
+        agent_timestamp_ms: i64,
+    ) -> acp::ExtNotification {
+        let notif = SessionNotification {
+            session_id: acp_fixtures::session_id(session_id),
+            update: XaiSessionUpdate::TaskBackgrounded {
+                tool_call_id: tool_call_id.into(),
+                task_id: task_id.into(),
+                command: command.into(),
+                cwd: "/tmp".into(),
+                output_file: "/tmp/output.log".into(),
+                monitor_description: None,
+                description: None,
+            },
+            meta: Some(serde_json::json!({
+                "isReplay": true,
+                "agentTimestampMs": agent_timestamp_ms,
+            })),
+        };
+        acp_fixtures::ext_notification("x.ai/task_backgrounded", &notif)
+    }
+
+    fn workflow_updated_at(
+        session_id: &str,
+        run_id: &str,
+        revision: u64,
+        turn_start_ms: i64,
+    ) -> acp::ExtNotification {
+        let notif = SessionNotification {
+            session_id: acp_fixtures::session_id(session_id),
+            update: XaiSessionUpdate::WorkflowUpdated {
+                run_id: run_id.into(),
+                revision,
+                name: "review".into(),
+                objective: "check the diff".into(),
+                status: "active".into(),
+                foreground: false,
+                phases: Vec::new(),
+                current_phase: None,
+                agent_budget: None,
+                agents_used: 0,
+                agents_reserved: 0,
+                agents_remaining: None,
+                agent_usage_incomplete: false,
+                elapsed_ms: 1_000,
+                active_agents: 0,
+                current_agent_label: None,
+                agents: Vec::new(),
+                last_event: None,
+                last_event_detail: None,
+                last_event_timestamp: None,
+                pause_message: None,
+                result_summary: None,
+            },
+            meta: Some(serde_json::json!({ "turnStartMs": turn_start_ms })),
+        };
+        acp_fixtures::ext_notification("x.ai/session_notification", &notif)
     }
 

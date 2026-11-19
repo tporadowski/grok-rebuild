@@ -57,6 +57,20 @@ pub(super) fn route_bg_task_stdout(
     true // Consumed: don't pass to tracker
 }
 
+/// A new transcript row for a turn that may already have later prompts after it.
+/// `turnStartMs` wins, then `agentTimestampMs` (the time the shell emitted the row).
+/// No stamp appends, which is where an in-order replay already is.
+fn place_turn_block(
+    scrollback: &mut crate::scrollback::state::ScrollbackState,
+    meta: &NotificationMeta,
+    block: RenderBlock,
+) -> crate::scrollback::entry::EntryId {
+    match meta.turn_start_ms.or(meta.agent_timestamp_ms) {
+        Some(ms) => scrollback.insert_block_at_turn_ms(ms, block),
+        None => scrollback.push_block(block),
+    }
+}
+
 /// Handle `x.ai/task_backgrounded`: a bash command transitioned to background.
 /// Creates a `BgTaskState` in the central store and maps `tool_call_id` to `task_id` for stdout routing.
 /// Otherwise a fresh `BgTask` block is pushed.
@@ -198,8 +212,8 @@ pub(super) fn handle_task_backgrounded(notif: &acp::ExtNotification, app: &mut A
             session.tracker.remove_pending_tool(&tool_call_id);
             let block = crate::scrollback::blocks::BgTaskBlock::started(&command, &task_id)
                 .with_description(description.clone());
-            let fallback = scrollback.push_block(RenderBlock::BgTask(block));
-            scrollback.set_last_running(true);
+            let fallback = place_turn_block(scrollback, &meta, RenderBlock::BgTask(block));
+            scrollback.set_entry_running(fallback, true);
             Some(fallback)
         }
     } else if completed_early {
@@ -208,8 +222,8 @@ pub(super) fn handle_task_backgrounded(notif: &acp::ExtNotification, app: &mut A
     } else {
         let block = crate::scrollback::blocks::BgTaskBlock::started(&command, &task_id)
             .with_description(description.clone());
-        let eid = scrollback.push_block(RenderBlock::BgTask(block));
-        scrollback.set_last_running(true);
+        let eid = place_turn_block(scrollback, &meta, RenderBlock::BgTask(block));
+        scrollback.set_entry_running(eid, true);
         Some(eid)
     };
 

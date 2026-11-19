@@ -673,6 +673,52 @@ impl ScrollbackState {
         self.push(ScrollbackEntry::new(block))
     }
 
+    /// Put `block` in the turn that was open at `turn_ms` (UTC).
+    /// That turn is the last non-interjection user prompt stamped at or before `turn_ms`.
+    /// The block sits at the end of that turn. A prompt with no stamp is not an anchor.
+    /// When every prompt is later than `turn_ms`, the block goes ahead of the first one.
+    /// Resume uses this so a background task or workflow that arrives after later turns
+    /// still lands in the turn that started it.
+    pub fn insert_block_at_turn_ms(&mut self, turn_ms: i64, block: RenderBlock) -> EntryId {
+        let mut saw_prompt = false;
+        let mut all_stamped = true;
+        let mut anchor: Option<EntryId> = None;
+        let mut first_prompt: Option<EntryId> = None;
+        for index in 0..self.entries.len() {
+            let Some((id, entry)) = self.entries.get_index(index) else {
+                continue;
+            };
+            let RenderBlock::UserPrompt(prompt) = &entry.block else {
+                continue;
+            };
+            if prompt.is_interjection {
+                continue;
+            }
+            saw_prompt = true;
+            if first_prompt.is_none() {
+                first_prompt = Some(*id);
+            }
+            let Some(created) = entry.created_at else {
+                all_stamped = false;
+                continue;
+            };
+            if created.timestamp_millis() <= turn_ms {
+                anchor = Some(*id);
+            }
+        }
+        if let Some(started) = anchor {
+            return self.insert_block_at_end_of_turn(started, block);
+        }
+        if saw_prompt
+            && all_stamped
+            && let Some(first) = first_prompt
+            && !self.committed.contains(&first)
+        {
+            return self.insert_block_before(first, block);
+        }
+        self.push_block(block)
+    }
+
     /// Put `block` at the end of the turn that contains `started`.
     /// The end is the next user prompt after that entry. A missing or already-printed anchor appends.
     /// Resume uses this so a background command's completion stays in the turn that ran it.

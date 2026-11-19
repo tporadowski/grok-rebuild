@@ -1063,6 +1063,7 @@ mod workflow_reminder_tests {
             journal_path: None,
             result_summary: None,
             agents: Vec::new(),
+            started_at_ms: None,
         }
     }
     #[test]

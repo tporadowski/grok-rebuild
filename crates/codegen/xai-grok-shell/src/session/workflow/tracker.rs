@@ -168,9 +168,27 @@ pub struct WorkflowRunState {
     pub result_summary: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agents: Vec<WorkflowAgentRow>,
+    /// UTC ms when the run started. Resume stamps this on the transcript row so a
+    /// snapshot that arrives after later turns still lands in the turn that started it.
+    /// Older manifests omit it; [`Self::resolved_started_at_ms`] falls back to history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_ms: Option<i64>,
 }
 
 impl WorkflowRunState {
+    /// When this run started, for transcript placement on resume.
+    /// A manifest written before the field existed uses the earliest history stamp.
+    pub(crate) fn resolved_started_at_ms(&self) -> Option<i64> {
+        if let Some(ms) = self.started_at_ms {
+            return Some(ms);
+        }
+        self.history.iter().find_map(|entry| {
+            chrono::DateTime::parse_from_rfc3339(&entry.at)
+                .ok()
+                .map(|stamp| stamp.timestamp_millis())
+        })
+    }
+
     fn advance_revision(&mut self) {
         self.revision = self.revision.saturating_add(1);
     }
@@ -251,6 +269,7 @@ impl WorkflowTracker {
             journal_path,
             result_summary: None,
             agents: Vec::new(),
+            started_at_ms: Some(chrono::Utc::now().timestamp_millis()),
         };
         state.record_event("workflow_started", None);
         self.runs.push(TrackedRun {
@@ -790,6 +809,20 @@ mod tests {
         );
         assert_eq!(state.status, WorkflowRunStatus::Active);
         (t, "wf_1".into())
+    }
+
+    #[test]
+    fn started_at_is_kept_for_resume_placement() {
+        let (t, id) = tracker_with_run();
+        let state = t.get(&id).unwrap();
+        let stamped = state.started_at_ms.expect("start stamps the run");
+        assert_eq!(state.resolved_started_at_ms(), Some(stamped));
+        let mut older = state.clone();
+        older.started_at_ms = None;
+        let from_history = chrono::DateTime::parse_from_rfc3339(&older.history[0].at)
+            .unwrap()
+            .timestamp_millis();
+        assert_eq!(older.resolved_started_at_ms(), Some(from_history));
     }
 
     #[test]

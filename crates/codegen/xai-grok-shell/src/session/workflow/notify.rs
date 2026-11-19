@@ -37,6 +37,7 @@ impl WorkflowNotifySender {
         self.dispatch(
             build_workflow_updated(state, elapsed_ms, active_agents),
             true,
+            state.resolved_started_at_ms(),
         );
     }
 
@@ -52,6 +53,7 @@ impl WorkflowNotifySender {
         self.dispatch(
             build_workflow_updated(state, elapsed_ms, active_agents),
             false,
+            state.resolved_started_at_ms(),
         );
     }
 
@@ -65,12 +67,19 @@ impl WorkflowNotifySender {
         self.dispatch(
             build_workflow_updated(state, elapsed_ms, active_agents),
             persist_update,
+            state.resolved_started_at_ms(),
         );
     }
 
-    fn dispatch(&self, update: XaiSessionUpdate, persist: bool) {
+    fn dispatch(&self, update: XaiSessionUpdate, persist: bool, started_at_ms: Option<i64>) {
         let mut meta = None;
         crate::util::event_id::ensure_event_id_meta(&self.session_id.0, &mut meta);
+        if let Some(ms) = started_at_ms
+            && let Some(obj) = meta.as_mut()
+        {
+            obj.entry("turnStartMs")
+                .or_insert(serde_json::Value::from(ms));
+        }
         let notification = XaiSessionNotification {
             session_id: self.session_id.clone(),
             update,

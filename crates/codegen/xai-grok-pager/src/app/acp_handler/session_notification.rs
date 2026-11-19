@@ -1253,7 +1253,11 @@ pub(super) fn handle_session_notification_with_origin(
             });
             true
         }
-        update @ XaiSessionUpdate::WorkflowUpdated { .. } => ingest_workflow_update(agent, update),
+        update @ XaiSessionUpdate::WorkflowUpdated { .. } => ingest_workflow_update(
+            agent,
+            update,
+            meta.turn_start_ms.or(meta.agent_timestamp_ms),
+        ),
         XaiSessionUpdate::GoalUpdated {
             goal_id,
             objective,
