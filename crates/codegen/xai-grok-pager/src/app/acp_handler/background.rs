@@ -581,12 +581,21 @@ pub(super) fn handle_task_completed(notif: &acp::ExtNotification, app: &mut AppV
             };
             bg_task.exit_code = exit_code;
             bg_task.signal = signal.clone();
-            bg_task.end_time = Some(std::time::SystemTime::now());
+            // A shell reconciled after it already died has no runtime to show.
+            // Stamping "now" would count every idle moment since it started.
+            bg_task.end_time = if stale_on_load {
+                None
+            } else {
+                task_snapshot
+                    .end_time
+                    .filter(|end| *end >= bg_task.start_time)
+                    .or_else(|| Some(std::time::SystemTime::now()))
+            };
             bg_task.pending_kill = false;
             bg_task.kill_requested_at = None;
             (
                 bg_task.command.clone(),
-                bg_task.elapsed(),
+                bg_task.display_elapsed().unwrap_or_default(),
                 bg_task.description.clone(),
                 bg_task.scrollback_entry_id,
             )

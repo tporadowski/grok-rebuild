@@ -137,10 +137,11 @@ pub(crate) fn tasks_block_text(agent: &AgentView) -> String {
                 BgTaskStatus::Failed => "failed",
             }
         };
-        rows.push(format!(
-            "  {status:<9}{kind} · {one_line}  ({})",
-            format_duration(task.elapsed())
-        ));
+        let timing = task
+            .display_elapsed()
+            .map(|elapsed| format!("  ({})", format_duration(elapsed)))
+            .unwrap_or_default();
+        rows.push(format!("  {status:<9}{kind} · {one_line}{timing}"));
     }
     let mut sched: Vec<_> = agent.session.scheduled_tasks.values().collect();
     sched.sort_by(|a, b| {

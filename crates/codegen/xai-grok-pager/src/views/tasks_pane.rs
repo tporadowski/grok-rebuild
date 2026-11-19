@@ -118,6 +118,13 @@ fn format_line_count_badge(count: usize, truncated: bool) -> String {
     }
     format!("({}M{suffix})", count / 1_000_000)
 }
+
+/// Blank when a stopped shell has no recorded end. A live shell still shows its timer.
+fn bg_task_duration_text(task: &BgTaskState) -> String {
+    task.display_elapsed()
+        .map(|elapsed| format!("{} ", format_duration(elapsed)))
+        .unwrap_or_default()
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskEntryId {
     BgTask(String),
@@ -1401,41 +1408,31 @@ impl TasksPane {
                 BgTaskStatus::Running => {
                     let frames = crate::glyphs::dot_spinner_frames();
                     let frame_idx = (self.tick / SPINNER_DIVISOR) as usize % frames.len();
-                    let elapsed = format_duration(task.elapsed());
                     (
                         frames.get(frame_idx).copied().unwrap_or(""),
                         Style::default().fg(theme.accent_running),
-                        format!("{elapsed} "),
+                        bg_task_duration_text(task),
                         Style::default().fg(theme.gray),
                     )
                 }
-                BgTaskStatus::Done => {
-                    let elapsed = format_duration(task.elapsed());
-                    (
-                        crate::glyphs::check_mark(),
-                        Style::default().fg(theme.accent_success),
-                        format!("{elapsed} "),
-                        Style::default().fg(theme.gray),
-                    )
-                }
-                BgTaskStatus::Failed if task.quit_cancelled() => {
-                    let elapsed = format_duration(task.elapsed());
-                    (
-                        crate::glyphs::idle_mark(),
-                        Style::default().fg(theme.gray),
-                        format!("{elapsed} "),
-                        Style::default().fg(theme.gray),
-                    )
-                }
-                BgTaskStatus::Failed => {
-                    let elapsed = format_duration(task.elapsed());
-                    (
-                        crate::glyphs::ballot_x(),
-                        Style::default().fg(theme.accent_error),
-                        format!("{elapsed} "),
-                        Style::default().fg(theme.gray),
-                    )
-                }
+                BgTaskStatus::Done => (
+                    crate::glyphs::check_mark(),
+                    Style::default().fg(theme.accent_success),
+                    bg_task_duration_text(task),
+                    Style::default().fg(theme.gray),
+                ),
+                BgTaskStatus::Failed if task.quit_cancelled() => (
+                    crate::glyphs::idle_mark(),
+                    Style::default().fg(theme.gray),
+                    bg_task_duration_text(task),
+                    Style::default().fg(theme.gray),
+                ),
+                BgTaskStatus::Failed => (
+                    crate::glyphs::ballot_x(),
+                    Style::default().fg(theme.accent_error),
+                    bg_task_duration_text(task),
+                    Style::default().fg(theme.gray),
+                ),
             }
         };
         let badge = format_line_count_badge(task.stdout_line_count, task.truncated);
@@ -2111,6 +2108,38 @@ mod tests {
         assert!(
             joined.contains("(42+)"),
             "expected `(42+)` badge in rendered buffer, got:\n{joined}",
+        );
+    }
+    #[test]
+    fn stopped_shell_without_an_end_does_not_show_an_invented_duration() {
+        let mut pane = TasksPane::new();
+        pane.overlay.show();
+        pane.show_done = true;
+        let mut stopped = make_bg_task("t-dead", "bash -c exit", BgTaskStatus::Failed);
+        stopped.start_time = SystemTime::now() - std::time::Duration::from_secs(7200);
+        stopped.end_time = None;
+        stopped.signal = Some("session_restart".into());
+        let running = make_bg_task("t-live", "sleep 30", BgTaskStatus::Running);
+        let mut bg_tasks = std::collections::BTreeMap::new();
+        bg_tasks.insert("t-dead".into(), stopped);
+        bg_tasks.insert("t-live".into(), running);
+        pane.sync(&bg_tasks, &HashMap::new(), &HashMap::new(), &[]);
+        let lines = render_pane_to_strings(&mut pane, &bg_tasks, 80, 16);
+        let dead = lines
+            .iter()
+            .find(|row| row.contains("bash -c exit"))
+            .expect("stopped shell row");
+        assert!(
+            !dead.contains("2h"),
+            "stopped shell invented a duration: {dead}"
+        );
+        let live = lines
+            .iter()
+            .find(|row| row.contains("sleep 30"))
+            .expect("running shell row");
+        assert!(
+            live.contains('s'),
+            "a running shell still shows its timer: {live}"
         );
     }
     #[test]

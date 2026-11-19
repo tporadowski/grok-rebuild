@@ -218,6 +218,16 @@ impl BgTaskState {
         end.duration_since(self.start_time)
             .unwrap_or(Duration::ZERO)
     }
+    /// Duration the tasks pane may show. A shell that has already stopped and has no
+    /// recorded end does not get `now - start`: that number was never measured.
+    pub fn display_elapsed(&self) -> Option<Duration> {
+        match self.status {
+            BgTaskStatus::Running => Some(self.elapsed()),
+            BgTaskStatus::Done | BgTaskStatus::Failed => self
+                .end_time
+                .and_then(|end| end.duration_since(self.start_time).ok()),
+        }
+    }
     /// Replace `stdout` with `new_stdout`.
     /// If `new_stdout` exceeds `BG_TASK_MAX_STDOUT`, keeps the head (snapped to a char boundary so UTF-8 stays valid) and sets `truncated = true`.
     /// Always refreshes `stdout_line_count`.
@@ -283,7 +293,7 @@ impl BgTaskState {
             output_file: snapshot.output_file.to_string_lossy().into_owned(),
             status,
             start_time: snapshot.start_time,
-            end_time: Some(snapshot.end_time.unwrap_or_else(SystemTime::now)),
+            end_time: snapshot.end_time,
             exit_code: snapshot.exit_code,
             signal: snapshot.signal.clone(),
             stdout: String::new(),
@@ -1993,7 +2003,10 @@ mod tests {
         let mut tombstone =
             BgTaskState::tombstone_from_snapshot(&snapshot, BgTaskStatus::Done, None, false);
         assert_eq!(tombstone.status, BgTaskStatus::Done);
-        assert!(tombstone.end_time.is_some(), "end_time falls back to now");
+        assert!(
+            tombstone.end_time.is_none(),
+            "a stopped shell with no recorded end does not invent one"
+        );
         let mut fresh =
             BgTaskState::tombstone_from_snapshot(&snapshot, BgTaskStatus::Running, None, false);
         fresh.tool_call_id = "tc-1".into();
