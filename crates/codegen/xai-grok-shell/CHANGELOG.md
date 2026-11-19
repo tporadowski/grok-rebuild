@@ -1,5 +1,37 @@
 # Changelog
 
+# 1.0.89 — 2026-11-17
+
+## Features
+
+- **New /rename command** on the dashboard renames the selected session without opening it.
+- **New /models command** refreshes the available model list from the server.
+- **/hooks** rows now show the hook file name and list settings in readable fields instead of dumping raw commands.
+- **/mcps** now shows hosted sections expanded by default unless they contain more than ten servers.
+- **Enter** on a workflow in the /workflows list now opens its file for viewing and searching.
+- **New contextual hint** appears when you keep collapsing thoughts while expand-all is on, showing the chord that turns it off.
+
+## Bug Fixes
+
+- **/btw answers** now appear in scrollback when a new question is asked.
+- **Typed or pasted answers** on question cards are no longer misinterpreted as shortcuts.
+- **Ctrl+W** now deletes the previous word in the dashboard dispatch and peek reply boxes.
+- **Dashboard peek** still accepts keys and pastes while a dispatch send waits on an image.
+- **Background tasks and workflows** now appear in the correct place in the transcript after resuming a session.
+- **`grok mcp disable`** (and enable) now correctly stops servers inside already-running TUI sessions.
+- **`grok inspect`** now reports the correct project `.grok/config.toml` or `.mcp.json` file for project-defined MCP servers.
+- **Block viewer** search bar no longer selects the line hidden under it.
+- **Search and filter bars** now show `bad pattern` when the regex is invalid.
+- **Question card lists** no longer scroll past the last option while typing an answer.
+- **Dead links** in replies now appear as plain text rather than clickable links.
+- **Phase timers** after `/goal pause` now start from zero instead of showing stale time.
+- **grok update** no longer mentions internal experiment IDs or config files in its output.
+- **Double-clicking a folded /btw answer** after scrolling now brings the full answer into view instead of leaving it off-screen.
+- **Picking a default model** now shows a generic error when experiment dismissal can't be saved.
+- **Sign-in screen** no longer names an environment variable when a saved key may have been pasted.
+- **Turns and compaction** no longer hang indefinitely when a provider accepts the connection but never sends response headers.
+
+
 # 1.0.88 — 2026-11-16
 
 ## Features
