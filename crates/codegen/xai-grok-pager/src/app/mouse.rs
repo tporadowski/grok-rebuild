@@ -384,6 +384,7 @@ impl AgentView {
                     } else {
                         let offset = crate::views::completion_dropdown::scroll_offset(
                             &self.prompt.suggestions.dropdown,
+                            dd_area.height as usize,
                         );
                         let row_idx = (mouse.row - dd_area.y) as usize + offset;
                         self.prompt.set_completion_hovered(Some(row_idx));
@@ -1223,7 +1224,10 @@ impl AgentView {
                         && mouse.column >= dd_area.x + dd_area.width.saturating_sub(2);
                     let new_hover =
                         if dd_area.contains((mouse.column, mouse.row).into()) && !on_scrollbar {
-                            let offset = crate::views::completion_dropdown::scroll_offset(dd);
+                            let offset = crate::views::completion_dropdown::scroll_offset(
+                                dd,
+                                dd_area.height as usize,
+                            );
                             Some((mouse.row - dd_area.y) as usize + offset)
                         } else {
                             None

@@ -34,10 +34,11 @@ pub fn dropdown_height(state: &CompletionDropdownState) -> u16 {
     1 + item_rows // separator + items
 }
 
-/// Compute the scroll offset so the selected row stays centred.
-pub fn scroll_offset(state: &CompletionDropdownState) -> usize {
+/// Compute the scroll offset so the selected row stays centred in `visible_rows`.
+/// A short terminal passes the fitted item area, which can be well under [`MAX_VISIBLE_ROWS`].
+pub fn scroll_offset(state: &CompletionDropdownState, visible_rows: usize) -> usize {
     let total = state.items.len();
-    let visible = MAX_VISIBLE_ROWS as usize;
+    let visible = visible_rows.max(1);
     let selected = state.selected.min(total.saturating_sub(1));
     if total <= visible || selected < visible / 2 {
         0
@@ -85,7 +86,7 @@ pub fn render_dropdown(
 
     let label_col_w = compute_label_column_w(items, row_w.saturating_sub(PREFIX_W));
 
-    let scroll = scroll_offset(state);
+    let scroll = scroll_offset(state, visible_rows);
 
     for vis_row in 0..visible_rows {
         let item_idx = scroll + vis_row;
@@ -401,7 +402,7 @@ mod tests {
             selected: 0,
             ..Default::default()
         };
-        assert_eq!(scroll_offset(&state), 0);
+        assert_eq!(scroll_offset(&state, MAX_VISIBLE_ROWS as usize), 0);
     }
 
     #[test]
@@ -415,10 +416,42 @@ mod tests {
             selected: 10,
             ..Default::default()
         };
-        let offset = scroll_offset(&state);
+        let offset = scroll_offset(&state, MAX_VISIBLE_ROWS as usize);
         let visible = MAX_VISIBLE_ROWS as usize;
         assert!(offset <= 10);
         assert!(offset + visible > 10);
+    }
+
+    /// A one-row list used to keep the six-row window, so a later selection painted off-screen.
+    #[test]
+    fn short_terminal_shows_the_selected_completion() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let theme = Theme::groknight();
+        let items: Vec<_> = (0..8)
+            .map(|i| make_item(&format!("cmd{i}"), "", &format!("cmd{i}")))
+            .collect();
+        let state = CompletionDropdownState {
+            open: true,
+            items,
+            selected: 5,
+            ..Default::default()
+        };
+        let area = Rect::new(0, 0, 24, 1);
+        let mut buf = Buffer::empty(area);
+        render_dropdown(&mut buf, area, &state, &theme);
+        let row: String = (0..area.width)
+            .filter_map(|x| buf.cell((x, 0)).map(|cell| cell.symbol().to_owned()))
+            .collect();
+        assert!(
+            row.contains("cmd5"),
+            "selected entry must be the visible row, got {row}"
+        );
+        assert!(
+            !row.contains("cmd0"),
+            "the first entry must scroll off a one-row list, got {row}"
+        );
     }
 
     #[test]
