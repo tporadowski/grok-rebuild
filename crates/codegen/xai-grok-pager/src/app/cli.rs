@@ -927,7 +927,9 @@ fn rewrite_print_argv(argv: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> 
         }
         if text.starts_with('-') && text != "-" {
             out.push(tok.clone());
-            if print_flag_consumes_next(&cmd, text)
+            // `--model=grok-4` already holds its value. The next word is prompt text.
+            if !text.contains('=')
+                && print_flag_consumes_next(&cmd, text)
                 && let Some(next) = argv.get(i + 1)
             {
                 let next_text = next.to_str().unwrap_or("");
@@ -1964,6 +1966,44 @@ mod tests {
         .expect("resume after -p parses");
         assert_eq!(resume.resume_session.as_deref(), Some("sess"));
         assert_eq!(resume.model.as_deref(), Some("m"));
+        assert_eq!(resume.single.as_deref(), Some("fix the bug"));
+    }
+
+    #[test]
+    fn p_equals_flags_keep_their_value_and_leave_the_prompt() {
+        let model = PagerArgs::try_parse_prepared([
+            "grok",
+            "-p",
+            "--model=grok-4",
+            "fix",
+            "the",
+            "bug",
+        ])
+        .expect("--model= keeps the prompt");
+        assert_eq!(model.model.as_deref(), Some("grok-4"));
+        assert_eq!(model.single.as_deref(), Some("fix the bug"));
+
+        let format = PagerArgs::try_parse_prepared([
+            "grok",
+            "-p",
+            "--output-format=json",
+            "say",
+            "hi",
+        ])
+        .expect("--output-format= keeps the prompt");
+        assert_eq!(format.output_format, OutputFormat::Json);
+        assert_eq!(format.single.as_deref(), Some("say hi"));
+
+        let resume = PagerArgs::try_parse_prepared([
+            "grok",
+            "-p",
+            "--resume=sess",
+            "fix",
+            "the",
+            "bug",
+        ])
+        .expect("--resume= keeps the prompt");
+        assert_eq!(resume.resume_session.as_deref(), Some("sess"));
         assert_eq!(resume.single.as_deref(), Some("fix the bug"));
     }
 
