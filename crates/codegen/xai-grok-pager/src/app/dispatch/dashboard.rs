@@ -2752,6 +2752,8 @@ pub(super) fn dispatch_dashboard_permission_followup(
         }
         None => acp::RequestPermissionOutcome::Cancelled,
     };
+    let card_session = perm.request.request.session_id.0.to_string();
+    agent.arm_subagent_reply_in_main_chat(&card_session, &text);
     let meta = if !text.trim().is_empty() {
         serde_json::json!({ "followup_message": text })
             .as_object()

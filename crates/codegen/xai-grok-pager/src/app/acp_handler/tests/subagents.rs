@@ -2619,3 +2619,108 @@
             "the same tool call must not fold a second time"
         );
     }
+
+#[test]
+fn no_with_text_on_a_subagent_card_shows_the_reply_in_the_main_chat() {
+    use std::sync::Arc;
+
+    fn queue_subagent_card(agent: &mut AgentView, session_id: &str) {
+        let (response_tx, _rx) = tokio::sync::oneshot::channel();
+        let request = acp::RequestPermissionRequest::new(
+            acp::SessionId::new(Arc::from(session_id)),
+            acp::ToolCallUpdate::new(
+                acp::ToolCallId::new(Arc::from("tc-sub")),
+                acp::ToolCallUpdateFields::default(),
+            ),
+            vec![acp::PermissionOption::new(
+                acp::PermissionOptionId::new(Arc::from("reject")),
+                "No",
+                acp::PermissionOptionKind::RejectOnce,
+            )],
+        );
+        let options = request.options.clone();
+        agent
+            .permission_queue
+            .push_back(crate::views::permission_view::PermissionViewState {
+                request: xai_acp_lib::AcpArgs {
+                    request,
+                    response_tx,
+                },
+                id: 1,
+                focus: crate::views::permission_view::PermissionFocus::FollowupInput,
+                options,
+                active_idx: 0,
+                bash_highlights: None,
+                bash_selection_count: 0,
+                bash_deny_selection_count: 0,
+                bash_command_raw: None,
+                mcp_scope: None,
+                title: "subagent".into(),
+                description: vec![],
+                args_expanded: false,
+                desc_scroll: 0,
+                subagent_label: Some("subagent: explore".into()),
+                options_area_height: 0,
+                options_scroll_offset: 0,
+                auto_review: None,
+                auto_review_explanation_open: false,
+            });
+    }
+
+    fn deliver_reply(app: &mut AppView, child_sid: &str, text: &str) {
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        handle(
+            AcpClientMessage::SessionNotification(xai_acp_lib::AcpArgs {
+                request: acp::SessionNotification::new(
+                    acp::SessionId::new(child_sid),
+                    acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk::new(
+                        acp::ContentBlock::Text(acp::TextContent::new(text)),
+                    )),
+                ),
+                response_tx: tx,
+            }),
+            app,
+        );
+    }
+
+    fn main_chat_reply(app: &AppView) -> String {
+        let agent = app.agents.get(&AgentId(0)).unwrap();
+        let mut text = String::new();
+        for index in 0..agent.scrollback.len() {
+            let Some(entry) = agent.scrollback.entry(index) else {
+                continue;
+            };
+            if let Some(message) = entry.block.as_agent_message() {
+                text.push_str(&message.text());
+            }
+        }
+        text
+    }
+
+    with_replay_disk_home(|_home| {
+        let child = "child-no-text";
+        let mut app = make_app_with_agent("sess-parent");
+        spawn_subagent_with_optional_updates(&mut app, child, None);
+        queue_subagent_card(app.agents.get_mut(&AgentId(0)).unwrap(), child);
+        crate::app::dispatch::dispatch(
+            crate::app::actions::Action::PermissionFollowup("look at the other file".into()),
+            &mut app,
+        );
+        deliver_reply(&mut app, child, "Checked the other file.");
+        assert_eq!(main_chat_reply(&app), "Checked the other file.");
+
+        let bare = "child-bare-no";
+        spawn_subagent_with_optional_updates(&mut app, bare, None);
+        queue_subagent_card(app.agents.get_mut(&AgentId(0)).unwrap(), bare);
+        crate::app::dispatch::dispatch(
+            crate::app::actions::Action::PermissionFollowup(String::new()),
+            &mut app,
+        );
+        deliver_reply(&mut app, bare, "This stays in the subagent.");
+        assert_eq!(
+            main_chat_reply(&app),
+            "Checked the other file.",
+            "No without text must not copy the subagent reply into the main chat"
+        );
+    });
+}

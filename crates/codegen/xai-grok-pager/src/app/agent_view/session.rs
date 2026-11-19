@@ -482,6 +482,7 @@ impl AgentView {
             send_now_follow_ids: Vec::new(),
             send_now_armed_ids: Vec::new(),
             inter_agent_send_ids: HashSet::new(),
+            subagent_reply_in_main: None,
             front_message_committed: true,
             optimistic_queue_ids: std::collections::HashSet::new(),
             send_now_awaiting_confirm: None,
@@ -516,6 +517,77 @@ impl AgentView {
         self.copy_to_clipboard(&text);
         true
     }
+    /// No with text on a subagent approval card: the child's next reply also lands in this scrollback.
+    pub(crate) fn arm_subagent_reply_in_main_chat(&mut self, session_id: &str, text: &str) {
+        if text.trim().is_empty() {
+            return;
+        }
+        let is_root = self
+            .session
+            .session_id
+            .as_ref()
+            .is_some_and(|id| id.0.as_ref() == session_id);
+        if is_root {
+            return;
+        }
+        if !self.subagent_sessions.contains_key(session_id)
+            && !self.subagent_views.contains_key(session_id)
+        {
+            return;
+        }
+        if let Some(previous) = self.subagent_reply_in_main.take()
+            && let Some(id) = previous.entry_id
+        {
+            self.scrollback.finish_running(id);
+        }
+        self.subagent_reply_in_main = Some(super::SubagentReplyMirror {
+            child_sid: session_id.to_owned(),
+            entry_id: None,
+        });
+    }
+
+    /// Append one chunk of the armed child's reply onto the main chat.
+    pub(crate) fn mirror_subagent_reply_chunk(&mut self, child_sid: &str, text: &str) {
+        let armed = self
+            .subagent_reply_in_main
+            .as_ref()
+            .is_some_and(|mirror| mirror.child_sid == child_sid);
+        if !armed || text.is_empty() {
+            return;
+        }
+        let existing = self
+            .subagent_reply_in_main
+            .as_ref()
+            .and_then(|mirror| mirror.entry_id);
+        let id = if let Some(id) = existing {
+            id
+        } else {
+            if text.trim().is_empty() {
+                return;
+            }
+            let id = self.scrollback.start_streaming_agent();
+            if let Some(mirror) = self.subagent_reply_in_main.as_mut() {
+                mirror.entry_id = Some(id);
+            }
+            id
+        };
+        self.scrollback.push_chunk_to_agent(id, text);
+    }
+
+    /// The armed reply is complete. A different child's turn does not close it.
+    pub(crate) fn finish_subagent_reply_in_main(&mut self, child_sid: &str) {
+        let Some(mirror) = self.subagent_reply_in_main.take() else {
+            return;
+        };
+        if mirror.child_sid != child_sid {
+            self.subagent_reply_in_main = Some(mirror);
+            return;
+        }
+        if let Some(id) = mirror.entry_id {
+            self.scrollback.finish_running(id);
+        }
+    }
+
     /// Register a child view; the sole path that turns a view into a child, so the role is stamped exactly once.
     /// A child always opens on its transcript, whatever `AgentView::new` chose: `q`/`Esc` close from bare scrollback.
     /// Its composer stays hidden until a role gives it a route, and its queue pane is a read-only mirror.

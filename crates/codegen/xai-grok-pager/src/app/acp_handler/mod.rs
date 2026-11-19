@@ -419,6 +419,7 @@ fn handle_inner(msg: AcpClientMessage, app: &mut AppView) -> bool {
                         .get_mut(&parent_id)
                         .expect("find_session_match returned an existing AgentId");
                     let child_key: &str = notif.request.session_id.0.as_ref();
+                    let reply_text = subagent_reply_chunk_text(&notif.request.update);
                     record_child_usage_update(parent, child_key, &notif.request.update);
                     let mut delivered_send = None;
                     let activity_label = {
@@ -491,6 +492,9 @@ fn handle_inner(msg: AcpClientMessage, app: &mut AppView) -> bool {
                             .resolve(child_key.to_owned());
                         parent.record_inter_agent_exchange(&tool_call_id, sender, block);
                     }
+                    if let Some(text) = reply_text {
+                        parent.mirror_subagent_reply_chunk(child_key, &text);
+                    }
                     sync_subagent_activity(parent, child_key, activity_label);
                     is_active
                 }
@@ -522,6 +526,17 @@ fn handle_inner(msg: AcpClientMessage, app: &mut AppView) -> bool {
         _ => false,
     }
 }
+/// Text of an agent-message chunk, when this update is one.
+fn subagent_reply_chunk_text(update: &acp::SessionUpdate) -> Option<String> {
+    let acp::SessionUpdate::AgentMessageChunk(chunk) = update else {
+        return None;
+    };
+    match &chunk.content {
+        acp::ContentBlock::Text(text) if !text.text.is_empty() => Some(text.text.clone()),
+        _ => None,
+    }
+}
+
 /// Copies a child's `UsageUpdate` into its `SubagentInfo` for the dock.
 /// A child on a daemon backend sends no `SubagentProgress`.
 fn record_child_usage_update(parent: &mut AgentView, child_key: &str, update: &acp::SessionUpdate) {

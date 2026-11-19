@@ -1607,6 +1607,7 @@ pub(super) fn handle_child_session_notification(
             elapsed_ms,
             ..
         } => {
+            agent.finish_subagent_reply_in_main(child_sid);
             if NotificationMeta::from_json(meta.and_then(|v| v.as_object())).is_replay {
                 return false;
             }

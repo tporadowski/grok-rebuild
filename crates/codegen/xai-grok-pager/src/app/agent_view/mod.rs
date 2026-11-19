@@ -777,6 +777,12 @@ pub(crate) struct BlockViewerResume {
     pub scroll_offset: usize,
     pub follow_mode: bool,
 }
+/// The child whose reply is being copied into the parent scrollback, and the streaming row if one started.
+pub(crate) struct SubagentReplyMirror {
+    child_sid: String,
+    entry_id: Option<crate::scrollback::EntryId>,
+}
+
 pub struct AgentView {
     pub session: AgentSession,
     pub(crate) session_binding_epoch: u32,
@@ -1558,6 +1564,8 @@ pub struct AgentView {
     pub(crate) send_now_armed_ids: Vec<String>,
     /// Tool-call ids already copied onto this session as an inter-agent exchange row.
     pub(crate) inter_agent_send_ids: std::collections::HashSet<String>,
+    /// After No with text on a subagent approval, that child's next reply is also written here.
+    pub(crate) subagent_reply_in_main: Option<SubagentReplyMirror>,
     /// Cleared at turn start; set on the first live non-echo update. Defaults true.
     pub(crate) front_message_committed: bool,
     /// Latest send-now whose adoption should follow in place. The chain is [`Self::send_now_follow_ids`].

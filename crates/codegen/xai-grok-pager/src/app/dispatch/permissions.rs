@@ -210,6 +210,10 @@ pub(super) fn dispatch_permission_followup(app: &mut AppView, text: String) -> V
         return vec![];
     };
 
+    // No with text on a subagent card: the child's reply that follows is also shown in this chat.
+    let card_session = perm.request.request.session_id.0.to_string();
+    agent.arm_subagent_reply_in_main_chat(&card_session, &text);
+
     // Include followup message in meta.
     let meta = if !text.trim().is_empty() {
         serde_json::json!({
