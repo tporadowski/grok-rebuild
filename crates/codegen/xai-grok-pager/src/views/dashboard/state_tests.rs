@@ -6510,6 +6510,22 @@ fn ctrl_l_opens_location_picker() {
 }
 
 #[test]
+fn location_picker_swallows_ctrl_backslash_and_stays_open() {
+    let mut state = DashboardState::new();
+    state.location_picker = Some(location_picker(vec![location_candidate("/tmp", "tmp")]));
+    let reg = crate::actions::ActionRegistry::defaults();
+    let key = KeyEvent::new(KeyCode::Char('\\'), KeyModifiers::CONTROL);
+    let outcome = state.handle_input(&Event::Key(key), &reg);
+    assert!(
+        matches!(outcome, InputOutcome::Changed),
+        "Ctrl+\\ must not leave the picker, got {outcome:?}"
+    );
+    assert!(
+        state.location_picker.is_some(),
+        "the picker keeps keyboard focus until it is closed"
+    );
+}
+
 fn location_picker_esc_closes() {
     // Pin vim-mode off; this test asserts the non-vim picker path.
     crate::appearance::cache::set_vim_mode(false);

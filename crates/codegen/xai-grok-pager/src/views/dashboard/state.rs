@@ -2300,6 +2300,15 @@ impl DashboardState {
         true
     }
 
+    fn overlay_owns_keyboard(&self) -> bool {
+        self.shortcuts_modal.is_some()
+            || self.usage_modal.is_some()
+            || self.guide_modal.is_some()
+            || self.location_picker.is_some()
+            || self.worktree_dialog.is_some()
+            || self.rename.is_some()
+    }
+
     /// Top-level input handler.
     /// Mirrors `AgentView::handle_input`; returns an [`InputOutcome`] for the app to dispatch.
     pub fn handle_input(&mut self, ev: &Event, registry: &ActionRegistry) -> InputOutcome {
@@ -2321,6 +2330,11 @@ impl DashboardState {
                 || paste_provenance == crate::app::app_view::PasteProvenance::Terminal,
             "non-paste dashboard events cannot carry paste provenance"
         );
+        // Ctrl+\ leaves or toggles the dashboard. An open modal or picker keeps the keyboard
+        // and swallows that chord until it closes.
+        if self.overlay_owns_keyboard() && is_ctrl_backslash(ev) {
+            return InputOutcome::Changed;
+        }
         // Cheatsheet modal owns the keyboard / mouse when open; its own search input, picker scroll, and chrome buttons would all be inconsistent if
         // the dashboard's row nav got a parallel say
         // Mirrors how `agent_view` short-circuits any `active_modal` before the per-pane handlers run
@@ -4615,6 +4629,16 @@ fn dashboard_action_for_id(
         | ActionId::DashboardOverlayNext
         | ActionId::DashboardOverlayStop => None,
     }
+}
+
+fn is_ctrl_backslash(ev: &Event) -> bool {
+    let Event::Key(key) = ev else {
+        return false;
+    };
+    key.kind != KeyEventKind::Release
+        && key.code == KeyCode::Char('\\')
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+        && !crate::input::key::is_altgr(key.modifiers)
 }
 
 fn handle_rename_key(draft: &mut RenameDraft, key: &KeyEvent) -> InputOutcome {
