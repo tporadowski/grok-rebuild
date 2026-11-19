@@ -1961,6 +1961,51 @@ fn dispatch_fork_no_flag_always_reopens_modal_after_previous_answer() {
         "round 2: modal still offers exactly 4 options (Yes/No/Always/Never)"
     );
 }
+
+/// A local card such as `/fork` submits one of its fixed options. The free-text row is not an answer.
+#[test]
+fn local_fork_question_hides_the_unused_free_text_row() {
+    use crate::views::prompt_widget::StashedPrompt;
+    use crate::views::question_view::{QuestionViewState, question_view_height};
+    let mut app = fork_test_app();
+    app.fork_worktree_mode = crate::app::app_view::WorktreeMode::Ask;
+    let effects = dispatch(Action::Fork(fork_args(None, None)), &mut app);
+    assert!(effects.is_empty(), "the card waits for a fixed option");
+    let qv = agent_ref(&app, AgentId(0))
+        .question_view
+        .as_ref()
+        .expect("fork card");
+    let options = qv
+        .questions
+        .first()
+        .map(|question| question.options.len())
+        .expect("fork question");
+    assert!(qv.no_freeform);
+    assert_eq!(qv.total_items(0), options);
+    assert!(!qv.is_on_freeform_row());
+
+    let mut local = app
+        .agents
+        .get_mut(&AgentId(0))
+        .unwrap()
+        .question_view
+        .take()
+        .unwrap();
+    local.set_cursor(100);
+    assert_eq!(local.cursor(), options - 1);
+    assert!(!local.is_on_freeform_row());
+    let hidden = question_view_height(&mut local, 40, 80);
+    let mut model_card = QuestionViewState::new(
+        "model-question".into(),
+        local.questions.clone(),
+        StashedPrompt::default(),
+    );
+    let with_free_text = question_view_height(&mut model_card, 40, 80);
+    assert!(
+        with_free_text > hidden,
+        "a model question still reserves the free-text row; local {hidden} model {with_free_text}"
+    );
+}
 #[test]
 fn translate_local_submit_skipped_returns_changed_with_no_action() {
     use crate::views::question_view::{LocalQuestionKind, QuestionViewState};

@@ -292,6 +292,8 @@ impl QuestionViewState {
     /// synchronous `Action` path instead of the ACP `response_tx`.
     pub fn with_local_kind(mut self, kind: LocalQuestionKind) -> Self {
         self.local_kind = Some(kind);
+        // Local cards only submit a fixed option. The free-text row is unused.
+        self.no_freeform = true;
         self
     }
 
