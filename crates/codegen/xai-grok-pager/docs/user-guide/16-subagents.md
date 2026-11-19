@@ -182,7 +182,7 @@ If the subagent is active but between turns, `steer` and `interject` each become
 The transcript shows each send as a one-line `Message` row: a verb for the outcome, then the subagent's label (its persona, role, tag, or Subagent fallback) and its description in curly quotes, as its `Subagent …: “…”` scrollback row quotes it, clamped to the first line and 40 characters. The verb carries the delivery, so a steer stays unmarked:
 
 - `Message sent to Subagent “find callers”` (steer)
-- `Message queued for Subagent “find callers”` / `Message interjected to Subagent “find callers”`
+- `Message read-only · Subagent find callers` / `Message interjected to Subagent “find callers”`
 - `Message sending to …` with an animated bullet while the send is in flight
 - `Message rejected · Subagent “find callers”` for a refused send, `Message unconfirmed · Subagent “find callers”` for one the shell could not confirm
 - `Message sent to parent` when a child messages its parent

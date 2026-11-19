@@ -221,7 +221,7 @@ fn collapsed_grammar_covers_every_presentation_delivery_and_target() {
         (sent(named(Steer, "follow up")), format!("sent to {LABEL}")),
         (
             sent(named(Queue, "follow up")),
-            format!("queued for {LABEL}"),
+            "read-only \u{00b7} Explore find callers".to_owned(),
         ),
         (
             sent(named(Interject, "follow up")),
@@ -290,6 +290,10 @@ fn expanded_shows_header_suffixes_and_only_the_id_line_when_unresolved() {
         (
             sent(named(Steer, "follow up")),
             format!("Message sent to {LABEL} \u{b7} steer\n\nfollow up"),
+        ),
+        (
+            sent(named(Queue, "follow up")),
+            "Message read-only \u{00b7} Explore find callers\n\nfollow up".to_owned(),
         ),
         (
             sent(parent),
@@ -646,7 +650,7 @@ fn dedicated_block_participates_in_search_selection_and_export() {
     ))));
     assert_eq!(
         format!(
-            "## Tools\n\n- Message unconfirmed \u{b7} subagent sub-123\n- Message queued for {LABEL}"
+            "## Tools\n\n- Message unconfirmed \u{b7} subagent sub-123\n- Message read-only \u{b7} Explore find callers"
         ),
         crate::scrollback::export::render_blocks_to_markdown([&render_block, &named_block])
     );

@@ -189,7 +189,7 @@ fn wire_delivery_and_registry_select_the_verb_and_target() {
                 "queue": true,
             }),
             named_input(SentMessageDelivery::Queue, "follow up"),
-            format!("Message queued for {LABEL}"),
+            "Message read-only \u{00b7} Explore find callers".to_owned(),
         ),
         (
             input("sub-123", "follow up"),

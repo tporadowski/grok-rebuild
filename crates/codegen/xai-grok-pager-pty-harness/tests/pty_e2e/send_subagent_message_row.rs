@@ -110,7 +110,7 @@ impl SendMessageScenario {
         };
         for row in [
             format!("Message sent to {CHILD_LABEL}"),
-            format!("Message queued for {CHILD_LABEL}"),
+            "Message read-only \u{00b7} Subagent sleeper".to_owned(),
             format!("Message interjected to {CHILD_LABEL}"),
             "Message rejected \u{b7} subagent \u{2026}deadbeef".to_owned(),
             PARENT_DONE.to_owned(),
@@ -195,7 +195,7 @@ async fn send_subagent_message_row() {
     let steer_header = format!("Message sent to {CHILD_LABEL}");
     for header in [
         steer_header.clone(),
-        format!("Message queued for {CHILD_LABEL}"),
+        "Message read-only \u{00b7} Subagent sleeper".to_owned(),
         format!("Message interjected to {CHILD_LABEL}"),
         "Message rejected \u{b7} subagent \u{2026}deadbeef".to_owned(),
     ] {

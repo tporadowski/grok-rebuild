@@ -254,8 +254,32 @@ impl SentMessageToolCallBlock {
         format!("{HEADER_LABEL}{}", self.verb_and_target())
     }
 
+    /// The label with one surrounding curly-quote pair removed: `Explore “find callers”` is `Explore find callers`.
+    fn without_surrounding_quotes(noun: Cow<'_, str>) -> Cow<'_, str> {
+        let Some(open) = noun.find('\u{201c}') else {
+            return noun;
+        };
+        let Some(close) = noun.rfind('\u{201d}') else {
+            return noun;
+        };
+        if close <= open {
+            return noun;
+        }
+        let desc = noun[open + '\u{201c}'.len_utf8()..close].trim();
+        let head = noun[..open].trim_end();
+        let owned = if head.is_empty() {
+            desc.to_owned()
+        } else if desc.is_empty() {
+            head.to_owned()
+        } else {
+            format!("{head} {desc}")
+        };
+        Cow::Owned(owned)
+    }
+
     /// The collapsed verb names the outcome: a steer stays unmarked and an unrecognized delivery reads like one; a
-    /// failed or unconfirmed send names no delivery mode.
+    /// failed or unconfirmed send names no delivery mode. A queued send is a read-only marker and drops the quotes
+    /// around the child description.
     fn verb_and_target(&self) -> String {
         let noun = self
             .input
@@ -266,7 +290,9 @@ impl SentMessageToolCallBlock {
             SentMessagePresentation::Sent => {
                 match self.input.as_ref().and_then(|input| input.delivery) {
                     None | Some(SentMessageDelivery::Steer) => format!("sent to {noun}"),
-                    Some(SentMessageDelivery::Queue) => format!("queued for {noun}"),
+                    Some(SentMessageDelivery::Queue) => {
+                        format!("read-only \u{00b7} {}", Self::without_surrounding_quotes(noun))
+                    }
                     Some(SentMessageDelivery::Interject) => format!("interjected to {noun}"),
                 }
             }
@@ -322,8 +348,13 @@ impl SentMessageToolCallBlock {
             ]
         };
         if let Some(delivery) = self.input.as_ref().and_then(|input| input.delivery) {
-            let delivery = <&str>::from(delivery);
-            spans.push(Span::styled(format!(" \u{00b7} {delivery}"), theme.muted()));
+            // A sent queue row already carries `read-only` in the verb. The old ` · queue` label is not repeated.
+            let queued_sent = matches!(delivery, SentMessageDelivery::Queue)
+                && matches!(self.presentation, SentMessagePresentation::Sent);
+            if !queued_sent {
+                let delivery = <&str>::from(delivery);
+                spans.push(Span::styled(format!(" \u{00b7} {delivery}"), theme.muted()));
+            }
         }
         if self.presentation.is_terminal()
             && let Some(elapsed) = self
