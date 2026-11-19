@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-344 — Alpha is still 1.0.91
+
+After the 1.0.91 stamp, `https://x.ai/cli/alpha` was `1.0.91` and `https://x.ai/cli/stable` was `1.0.89`. No newer changelog was fetched.
+
 ### D-343 — Package version 1.0.91
 
 The package version and the embedded changelog now include 1.0.91. `/release-notes` still prepends CDN `# ` sections whose headings are absent from that file. Every 1.0.91 row is terminal. `v89-x15` stays deferred (D-332).
@@ -1500,7 +1504,7 @@ Refresh these numbers at the end of a session.
 
 Catalog rows: 906. Pending: 0. Skipped: 10. Done: 741. Already: 118. Deferred: 37.
 
-**Next:** recheck the alpha pointer after 1.0.91
+**Next:** none. Alpha is still 1.0.91.
 
 ## Waves
 
