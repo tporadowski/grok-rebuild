@@ -17,12 +17,15 @@ This tree starts from the Grok Build **1.0.45** source.
 - **Fork additions**, listed in [What this fork adds](#what-this-fork-adds).
   These are this tree's own behavior.
 - **Release-note changes** after 1.0.45, reimplemented from the official
-  Grok Build release notes and tracked in
+  Grok Build release notes. Read them in
+  [`CHANGELOG.md`](crates/codegen/xai-grok-shell/CHANGELOG.md).
+  The port is tracked in
   [`docs/upstream-port/PLAN.md`](docs/upstream-port/PLAN.md). The package
-  version is **1.0.87**, the stamp for how far those notes have been applied
+  version is **1.0.93**, the stamp for how far those notes have been applied
   in this tree.
 
 [What this fork adds](#what-this-fork-adds) ·
+[Changelog](crates/codegen/xai-grok-shell/CHANGELOG.md) ·
 [Prebuilt binaries](#prebuilt-binaries) ·
 [Building from source](#building-from-source) ·
 [Documentation](#documentation) ·
@@ -54,10 +57,11 @@ release-note port above is separate from this list.
 - **Plugin hooks at session start.** Enabled, trusted plugin hooks are
   registered when a session starts, not only after a mid-session reload.
 - **Full release notes.** `/release-notes` (alias `/changelog`) lists every
-  shipped version, newest first, so a skipped upgrade is still in the
-  modal. Notes published after this binary was built are prepended from
-  the CDN. The welcome screen still shows only the current version's
-  bullets.
+  shipped version, newest first, from
+  [`CHANGELOG.md`](crates/codegen/xai-grok-shell/CHANGELOG.md), so a skipped
+  upgrade is still in the modal. Notes published after this binary was
+  built are prepended from the CDN. The welcome screen still shows only
+  the current version's bullets.
 - **Copy markdown source.** `Ctrl+Shift+Y` (or `F6`) copies an assistant
   reply as markdown — headings, bold, and code fences — not the rendered
   text. It copies the selected assistant message, or the latest one.
@@ -96,8 +100,9 @@ these binaries as a daily client.
 
 SpaceXSI publishes its own Grok Build binaries at [x.ai/cli](https://x.ai/cli).
 Their changelog is at
-[x.ai/build/changelog](https://x.ai/build/changelog). The notes this tree has
-followed are tracked in
+[x.ai/build/changelog](https://x.ai/build/changelog). This fork's notes are
+in [`CHANGELOG.md`](crates/codegen/xai-grok-shell/CHANGELOG.md). The port
+is tracked in
 [`docs/upstream-port/PLAN.md`](docs/upstream-port/PLAN.md).
 
 ## Building from source
