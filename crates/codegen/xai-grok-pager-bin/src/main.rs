@@ -2635,6 +2635,7 @@ async fn async_main(mut args: PagerArgs) -> Result<()> {
             args.prompt_json.as_deref(),
             args.prompt_file.as_deref(),
             std::io::stdin().is_terminal(),
+            args.initial_prompt(),
             || {
                 let mut buf = String::new();
                 std::io::stdin().read_to_string(&mut buf)?;

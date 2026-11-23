@@ -55,12 +55,13 @@ impl HeadlessPrompt {
         }
     }
 
-    /// Explicit `-p` / `--prompt-json` / `--prompt-file` win. Otherwise a non-terminal stdin is the prompt, so a pipe does not open the UI.
+    /// Explicit `-p` / `--prompt-json` / `--prompt-file` win. A positional prompt with no terminal is the headless prompt, so `grok "text"` prints a reply instead of opening the TUI. Otherwise a non-terminal stdin is the prompt, so a pipe does not open the UI.
     pub fn from_args_or_stdin(
         single: Option<&str>,
         prompt_json: Option<&str>,
         prompt_file: Option<&Path>,
         stdin_is_terminal: bool,
+        positional: Option<&str>,
         read_stdin: impl FnOnce() -> std::io::Result<String>,
     ) -> anyhow::Result<Option<Self>> {
         if single.is_some_and(|text| text.trim().is_empty()) {
@@ -72,6 +73,14 @@ impl HeadlessPrompt {
         }
         if let Some(prompt) = Self::from_args(single, prompt_json, prompt_file)? {
             return Ok(Some(prompt));
+        }
+        // A TTY still seeds the interactive session from the positional words.
+        if !stdin_is_terminal {
+            if let Some(text) = positional.filter(|text| !text.trim().is_empty()) {
+                return Self::from_text(text)
+                    .map(Some)
+                    .map_err(|e| anyhow::anyhow!("prompt: {e}"));
+            }
         }
         if stdin_is_terminal {
             return Ok(None);
@@ -341,7 +350,7 @@ mod tests {
     #[test]
     fn piped_stdin_becomes_the_headless_prompt() {
         let reads = Cell::new(0);
-        let prompt = HeadlessPrompt::from_args_or_stdin(None, None, None, false, || {
+        let prompt = HeadlessPrompt::from_args_or_stdin(None, None, None, false, None, || {
             reads.set(reads.get() + 1);
             Ok("  Explain this codebase\n".to_string())
         })
@@ -354,7 +363,7 @@ mod tests {
     #[test]
     fn a_terminal_without_a_prompt_stays_interactive() {
         let reads = Cell::new(0);
-        let prompt = HeadlessPrompt::from_args_or_stdin(None, None, None, true, || {
+        let prompt = HeadlessPrompt::from_args_or_stdin(None, None, None, true, None, || {
             reads.set(reads.get() + 1);
             Ok("should not be read".into())
         })
@@ -364,8 +373,62 @@ mod tests {
     }
 
     #[test]
+    fn positional_prompt_without_a_terminal_is_headless_and_skips_stdin() {
+        let reads = Cell::new(0);
+        let prompt = HeadlessPrompt::from_args_or_stdin(
+            None,
+            None,
+            None,
+            false,
+            Some("  fix the bug\n"),
+            || {
+                reads.set(reads.get() + 1);
+                Ok("from the pipe".into())
+            },
+        )
+        .unwrap()
+        .expect("positional prompt is headless when there is no terminal");
+        assert_eq!(reads.get(), 0, "the positional words are the prompt");
+        assert_eq!(text_of(prompt), "fix the bug");
+    }
+
+    #[test]
+    fn positional_prompt_on_a_terminal_stays_interactive() {
+        let reads = Cell::new(0);
+        let prompt = HeadlessPrompt::from_args_or_stdin(
+            None,
+            None,
+            None,
+            true,
+            Some("fix the bug"),
+            || {
+                reads.set(reads.get() + 1);
+                Ok("from stdin".into())
+            },
+        )
+        .unwrap();
+        assert!(prompt.is_none(), "a terminal still opens the TUI");
+        assert_eq!(reads.get(), 0);
+    }
+
+    #[test]
+    fn an_explicit_flag_wins_over_a_positional_prompt() {
+        let prompt = HeadlessPrompt::from_args_or_stdin(
+            Some("from the flag"),
+            None,
+            None,
+            false,
+            Some("from the position"),
+            || Ok("from stdin".into()),
+        )
+        .unwrap()
+        .expect("flag prompt");
+        assert_eq!(text_of(prompt), "from the flag");
+    }
+
+    #[test]
     fn bare_p_reads_stdin_even_on_a_terminal() {
-        let prompt = HeadlessPrompt::from_args_or_stdin(Some(""), None, None, true, || {
+        let prompt = HeadlessPrompt::from_args_or_stdin(Some(""), None, None, true, None, || {
             Ok("from stdin\n".into())
         })
         .unwrap()
@@ -377,7 +440,7 @@ mod tests {
     fn an_explicit_prompt_wins_over_the_pipe() {
         let reads = Cell::new(0);
         let prompt =
-            HeadlessPrompt::from_args_or_stdin(Some("from the flag"), None, None, false, || {
+            HeadlessPrompt::from_args_or_stdin(Some("from the flag"), None, None, false, None, || {
                 reads.set(reads.get() + 1);
                 Ok("from the pipe".into())
             })
@@ -445,7 +508,7 @@ mod tests {
 
     #[test]
     fn an_empty_pipe_is_an_error_and_does_not_open_the_ui() {
-        let err = HeadlessPrompt::from_args_or_stdin(None, None, None, false, || Ok(" \n".into()))
+        let err = HeadlessPrompt::from_args_or_stdin(None, None, None, false, None, || Ok(" \n".into()))
             .expect_err("empty stdin is not an interactive session");
         let msg = format!("{err:#}");
         assert!(msg.contains("empty"), "{msg}");
@@ -470,7 +533,7 @@ mod tests {
         assert_eq!(text, "Explain this");
         assert!(!text.contains('\u{feff}'));
 
-        let piped = HeadlessPrompt::from_args_or_stdin(None, None, None, false, || {
+        let piped = HeadlessPrompt::from_args_or_stdin(None, None, None, false, None, || {
             Ok("\u{feff}  from stdin\n".into())
         })
         .unwrap()
