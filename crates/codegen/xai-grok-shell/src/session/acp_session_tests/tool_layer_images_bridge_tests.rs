@@ -66,8 +66,8 @@ async fn handle_bridge_tool_success_multimodal_mcp_image_deferred_followup() {
             let (persistence_tx, _) = tokio::sync::mpsc::unbounded_channel::<
                 PersistenceMsg,
             >();
-            let actor = create_test_actor(0, 256_000, 85, gateway_tx, persistence_tx)
-                .await;
+            let (actor, mut event_rx) =
+                create_test_actor_ex(0, 256_000, 85, gateway_tx, persistence_tx).await;
             assert!(!actor.is_cursor_harness());
             let payload = vision_ok_png_b64();
             let parsed_args = serde_json::json!({});
@@ -119,8 +119,117 @@ async fn handle_bridge_tool_success_multimodal_mcp_image_deferred_followup() {
                 !text.contains("image omitted"),
                 "no budget-omit copy: {text}"
             );
+            let updates = client_tool_updates(&mut event_rx);
+            assert!(
+                updates.iter().all(|update| image_payloads(update).is_empty()),
+                "an interactive session leaves MCP image bytes off the client update"
+            );
         })
         .await;
+}
+/// Headless: the same drained MCP image is on the client tool update, and the model still gets the vision follow-up.
+#[tokio::test(flavor = "current_thread")]
+async fn handle_bridge_tool_success_headless_mcp_image_reaches_client() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (gateway_tx, _) = tokio::sync::mpsc::unbounded_channel::<
+                xai_acp_lib::AcpClientMessage,
+            >();
+            let (persistence_tx, _) = tokio::sync::mpsc::unbounded_channel::<
+                PersistenceMsg,
+            >();
+            let (mut actor, mut event_rx) =
+                create_test_actor_ex(0, 256_000, 85, gateway_tx, persistence_tx).await;
+            actor.startup_hints.headless_session = true;
+            let payload = vision_ok_png_b64();
+            let parsed_args = serde_json::json!({});
+            let followups = actor
+                .handle_bridge_tool_success(BridgeToolSuccess {
+                    tool_call_id: &acp::ToolCallId::new("tc-mcp-img"),
+                    call_id: "tc-mcp-img",
+                    requested_tool_name: "browser_screenshot",
+                    effective_tool_name: "browser_screenshot",
+                    drained: DrainedToolSuccess::new(mcp_screenshot_result(&payload)),
+                    concatenated_json_count: 0,
+                    coercion_note: None,
+                    model_id: "test-model",
+                    tool_parsed_args: &parsed_args,
+                    model_output_override: None,
+                })
+                .await
+                .expect("bridge success");
+            assert!(
+                followup_has_data_image(&followups),
+                "headless still attaches the drained MCP image as a deferred vision follow-up"
+            );
+            let conv = actor.chat_state_handle.get_conversation().await;
+            let tool = conv
+                .iter()
+                .rev()
+                .find(|i| matches!(i, ConversationItem::ToolResult(_)))
+                .expect("tool result pushed");
+            let text = tool_result_text(tool);
+            assert!(
+                text.contains(IMAGE_CONTENT_PLACEHOLDER),
+                "placeholder stays in tool text: {text}"
+            );
+            assert!(
+                !text.contains(&payload),
+                "tool text must not reinject the image bytes"
+            );
+            let updates = client_tool_updates(&mut event_rx);
+            let payloads: Vec<(String, String)> = updates
+                .iter()
+                .flat_map(|update| image_payloads(update))
+                .collect();
+            assert_eq!(
+                payloads,
+                vec![("image/png".to_string(), payload.clone())],
+                "headless client update carries the MCP image"
+            );
+            assert!(
+                updates.iter().all(|update| !raw_contains_payload(update, &payload)),
+                "raw output stays drained of the image bytes"
+            );
+        })
+        .await;
+}
+fn client_tool_updates(
+    event_rx: &mut tokio::sync::mpsc::UnboundedReceiver<SessionEvent>,
+) -> Vec<acp::ToolCallUpdate> {
+    let mut updates = Vec::new();
+    while let Ok(event) = event_rx.try_recv() {
+        let SessionEvent::Notification(SessionNotification::Acp(notification)) = event else {
+            continue;
+        };
+        if let acp::SessionUpdate::ToolCallUpdate(update) = notification.update {
+            updates.push(update);
+        }
+    }
+    updates
+}
+fn image_payloads(update: &acp::ToolCallUpdate) -> Vec<(String, String)> {
+    let Some(content) = update.fields.content.as_ref() else {
+        return Vec::new();
+    };
+    content
+        .iter()
+        .filter_map(|item| {
+            let acp::ToolCallContent::Content(block) = item else {
+                return None;
+            };
+            let acp::ContentBlock::Image(image) = &block.content else {
+                return None;
+            };
+            Some((image.mime_type.clone(), image.data.clone()))
+        })
+        .collect()
+}
+fn raw_contains_payload(update: &acp::ToolCallUpdate, payload: &str) -> bool {
+    serde_json::to_string(&update.fields.raw_output)
+        .unwrap_or_default()
+        .contains(payload)
 }
 #[tokio::test(flavor = "current_thread")]
 async fn handle_bridge_tool_success_replacement_drops_images_and_keeps_reminders() {

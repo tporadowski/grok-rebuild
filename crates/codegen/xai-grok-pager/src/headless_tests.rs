@@ -1250,6 +1250,168 @@ fn handler_answers_ext_method_instead_of_dropping() {
     assert!(matches!(parsed, AskUserQuestionExtResponse::Cancelled));
 }
 
+/// MCP image bytes on a tool update reach streaming-json, streaming-messages-json, and the json result.
+#[test]
+fn headless_mcp_image_results_reach_streaming_and_json() {
+    let png = "iVBORw0KGgoMCPIMAGE";
+    let jpeg = "jpeg-bytes-MCPIMAGE";
+    let raw = serde_json::json!({"marker": "screenshot-ready"});
+    let update = acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+        acp::ToolCallId::new("tc-mcp-img"),
+        acp::ToolCallUpdateFields::new()
+            .status(Some(acp::ToolCallStatus::Completed))
+            .content(Some(vec![
+                acp::ToolCallContent::from(acp::ContentBlock::Image(acp::ImageContent::new(
+                    png, "image/png",
+                ))),
+                acp::ToolCallContent::from(acp::ContentBlock::Image(acp::ImageContent::new(
+                    jpeg, "image/jpeg",
+                ))),
+            ]))
+            .raw_output(Some(raw.clone())),
+    ));
+
+    let mut json = HeadlessEmitter::new(OutputFormat::Json, false);
+    push_headless_update(&mut json, update.clone());
+    let record = json
+        .finish_turn("end_turn", "sess-1", "req-1")
+        .into_iter()
+        .next()
+        .expect("json object");
+    assert_eq!(record["stopReason"], "end_turn");
+    assert!(record.get("images").is_some(), "json result includes images");
+    assert_eq!(record["images"][0]["toolCallId"], "tc-mcp-img");
+    assert_eq!(record["images"][0]["mimeType"], "image/png");
+    assert_eq!(record["images"][0]["data"], png);
+    assert_eq!(record["images"][1]["mimeType"], "image/jpeg");
+    assert_eq!(record["images"][1]["data"], jpeg);
+    assert_eq!(record["images"].as_array().map(Vec::len), Some(2));
+
+    let mut plain_text = HeadlessEmitter::new(OutputFormat::Json, false);
+    push_headless_update(
+        &mut plain_text,
+        acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+            acp::ToolCallId::new("t-text"),
+            acp::ToolCallUpdateFields::new()
+                .status(Some(acp::ToolCallStatus::Completed))
+                .content(Some(vec![acp::ToolCallContent::from(
+                    acp::ContentBlock::Text(acp::TextContent::new("done")),
+                )]))
+                .raw_output(Some(serde_json::json!("done"))),
+        )),
+    );
+    let text_only = plain_text
+        .finish_turn("end_turn", "sess-1", "req-1")
+        .into_iter()
+        .next()
+        .expect("json object");
+    assert!(
+        text_only.get("images").is_none(),
+        "a tool result with no image omits images: {text_only}"
+    );
+
+    let event = super::reducer::map_session_update(&update).expect("tool update maps");
+    let super::reducer::StreamEvent::ToolCallUpdate(mapped) = event else {
+        panic!("expected a tool-call update");
+    };
+    let mut streaming = super::reducer::reducer_for(OutputFormat::StreamingJson).expect("acp");
+    let lines = streaming.reduce(super::reducer::StreamEvent::ToolCallUpdate(mapped));
+    let line = lines.first().expect("streaming-json tool update");
+    assert_eq!(line["type"], "tool_call_update");
+    assert_eq!(line["content"][0]["content"]["data"], png);
+    assert_eq!(line["content"][0]["content"]["mimeType"], "image/png");
+    assert_eq!(line["content"][1]["content"]["data"], jpeg);
+    let raw_output = line["rawOutput"].to_string();
+    assert!(
+        !raw_output.contains(png),
+        "streaming-json rawOutput stays free of the image bytes: {raw_output}"
+    );
+
+    let event = super::reducer::map_session_update(&update).expect("tool update maps");
+    let mut messages =
+        super::reducer::reducer_for(OutputFormat::StreamingMessagesJson).expect("messages");
+    let _ = messages.begin(super::reducer::SessionContext {
+        session_id: "sess-1".into(),
+        model: Some("grok-4".into()),
+        cwd: "/repo".into(),
+        permission_mode: None,
+        mcp_servers: Vec::new(),
+        include_partial_messages: false,
+        api_key_auth: false,
+        context_window: None,
+    });
+    // The first content line carries `init`. The tool result stays buffered until finish.
+    let _ = messages.reduce(event);
+    let finished = messages.finish(&super::reducer::TurnEnd {
+        stop_reason: "end_turn",
+        session_id: "sess-1",
+        request_id: "req-1",
+        usage: None,
+        structured_output: None,
+        result_text: "",
+        duration_ms: 0,
+    });
+    let user = finished
+        .iter()
+        .find(|line| line["type"] == "user")
+        .expect("tool result user message");
+    assert_eq!(user["message"]["content"][0]["tool_use_id"], "tc-mcp-img");
+    let content = &user["message"]["content"][0]["content"];
+    assert_eq!(content[0]["type"], "text");
+    assert!(
+        content[0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("screenshot-ready"),
+        "text block keeps the tool output: {content}"
+    );
+    assert!(
+        !content[0]["text"].as_str().unwrap_or("").contains(png),
+        "text block does not carry the image bytes: {content}"
+    );
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["source"]["type"], "base64");
+    assert_eq!(content[1]["source"]["media_type"], "image/png");
+    assert_eq!(content[1]["source"]["data"], png);
+    assert_eq!(content[2]["source"]["media_type"], "image/jpeg");
+    assert_eq!(content[2]["source"]["data"], jpeg);
+
+    let text_update = acp::SessionUpdate::ToolCallUpdate(acp::ToolCallUpdate::new(
+        acp::ToolCallId::new("t-text"),
+        acp::ToolCallUpdateFields::new()
+            .status(Some(acp::ToolCallStatus::Completed))
+            .raw_output(Some(serde_json::json!("done"))),
+    ));
+    let text_event = super::reducer::map_session_update(&text_update).expect("text update maps");
+    let mut messages =
+        super::reducer::reducer_for(OutputFormat::StreamingMessagesJson).expect("messages");
+    let _ = messages.begin(super::reducer::SessionContext {
+        session_id: "sess-1".into(),
+        model: None,
+        cwd: "/repo".into(),
+        permission_mode: None,
+        mcp_servers: Vec::new(),
+        include_partial_messages: false,
+        api_key_auth: false,
+        context_window: None,
+    });
+    let _ = messages.reduce(text_event);
+    let finished = messages.finish(&super::reducer::TurnEnd {
+        stop_reason: "end_turn",
+        session_id: "sess-1",
+        request_id: "req-1",
+        usage: None,
+        structured_output: None,
+        result_text: "",
+        duration_ms: 0,
+    });
+    let user = finished
+        .iter()
+        .find(|line| line["type"] == "user")
+        .expect("string tool result");
+    assert_eq!(user["message"]["content"][0]["content"], "done");
+}
+
 fn model_with_effort_meta(meta: Option<serde_json::Value>) -> super::ModelState {
     let id = acp::ModelId::new(std::sync::Arc::from("m"));
     let mut state = super::ModelState::default();

@@ -135,6 +135,8 @@ struct HeadlessEmitter {
     paragraph_after_tool: bool,
     /// Schema-validated output read from the prompt-response `_meta`.
     structured_output: Option<Result<serde_json::Value, String>>,
+    /// Image blocks from tool updates. The json result includes them when any arrived.
+    json_images: Vec<serde_json::Value>,
     usage: Option<serde_json::Value>,
     /// Worktree root once a `-w` session is open. Name collisions make this
     /// differ from the label the user typed.
@@ -160,6 +162,7 @@ impl HeadlessEmitter {
             assistant_trailing_newlines: 0,
             paragraph_after_tool: false,
             structured_output: None,
+            json_images: Vec::new(),
             usage: None,
             worktree_path: None,
             reducer: reducer_for(format),
@@ -276,6 +279,32 @@ impl HeadlessEmitter {
         let Some(meta) = meta else { return };
         self.usage = meta.get("usage").cloned();
     }
+    /// Copy ACP image blocks onto the json result. Streaming formats already forward `content`.
+    fn record_json_tool_images(&mut self, update: &acp::ToolCallUpdate) {
+        if self.format != OutputFormat::Json {
+            return;
+        }
+        let Some(content) = update.fields.content.as_ref() else {
+            return;
+        };
+        let tool_call_id = update.tool_call_id.0.to_string();
+        for item in content {
+            let acp::ToolCallContent::Content(block) = item else {
+                continue;
+            };
+            let acp::ContentBlock::Image(image) = &block.content else {
+                continue;
+            };
+            if image.data.is_empty() {
+                continue;
+            }
+            self.json_images.push(serde_json::json!({
+                "toolCallId": tool_call_id,
+                "mimeType": image.mime_type,
+                "data": image.data,
+            }));
+        }
+    }
     /// A tool call between assistant chunks. Plain and json start the next chunk as a new paragraph.
     fn note_tool_call_breaks_paragraph(&mut self) {
         if matches!(self.format, OutputFormat::Plain | OutputFormat::Json) {
@@ -367,6 +396,14 @@ impl HeadlessEmitter {
             obj.insert(
                 "thought".into(),
                 serde_json::Value::String(self.thought_buffer.clone()),
+            );
+        }
+        if !self.json_images.is_empty()
+            && let Some(obj) = result.as_object_mut()
+        {
+            obj.insert(
+                "images".into(),
+                serde_json::Value::Array(self.json_images.clone()),
             );
         }
         if let Some(usage) = &self.usage {
@@ -2405,6 +2442,7 @@ fn handle_headless_acp_message(
                         update.fields.raw_output.as_ref(),
                     );
                     emitter.note_tool_call_breaks_paragraph();
+                    emitter.record_json_tool_images(update);
                     if let Some(event) = map_session_update(&boxed.request.update) {
                         emitter.reduce_and_emit(event);
                     }

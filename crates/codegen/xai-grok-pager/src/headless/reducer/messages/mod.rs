@@ -804,14 +804,61 @@ fn normalized_tool_input(raw: Value) -> Value {
     if raw.is_object() { raw } else { json!({}) }
 }
 
-/// Reduce a tool result to a `tool_result.content` string (verbatim, else compact JSON).
+/// `tool_result.content` is the raw output as a string.
+/// Image blocks on the ACP update become an array: that string as a text block
+/// when it is non-empty, then one base64 image block per image.
 fn tool_result_content(output: Value, content: Value) -> Value {
-    match output {
-        Value::String(s) => Value::String(s),
+    let text = match &output {
+        Value::String(s) => s.clone(),
         Value::Null => match &content {
-            Value::Array(items) if !items.is_empty() => Value::String(content.to_string()),
-            _ => Value::String(String::new()),
+            Value::Array(items) if !items.is_empty() => content.to_string(),
+            _ => String::new(),
         },
-        other => Value::String(other.to_string()),
+        other => other.to_string(),
+    };
+    let images = image_blocks_from_acp_content(&content);
+    if images.is_empty() {
+        return Value::String(text);
     }
+    let mut blocks = Vec::with_capacity(images.len() + usize::from(!text.is_empty()));
+    if !text.is_empty() {
+        blocks.push(json!({"type": "text", "text": text}));
+    }
+    blocks.extend(images);
+    Value::Array(blocks)
+}
+
+/// Anthropic image blocks for ACP `{"type":"content","content":{"type":"image",...}}` items.
+fn image_blocks_from_acp_content(content: &Value) -> Vec<Value> {
+    let Some(items) = content.as_array() else {
+        return Vec::new();
+    };
+    items.iter().filter_map(acp_content_image_block).collect()
+}
+
+fn acp_content_image_block(item: &Value) -> Option<Value> {
+    if item.get("type").and_then(Value::as_str) != Some("content") {
+        return None;
+    }
+    let block = item.get("content")?;
+    if block.get("type").and_then(Value::as_str) != Some("image") {
+        return None;
+    }
+    let data = block.get("data").and_then(Value::as_str)?;
+    if data.is_empty() {
+        return None;
+    }
+    let mime = block
+        .get("mimeType")
+        .and_then(Value::as_str)
+        .filter(|mime| !mime.is_empty())
+        .unwrap_or("application/octet-stream");
+    Some(json!({
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": mime,
+            "data": data,
+        }
+    }))
 }

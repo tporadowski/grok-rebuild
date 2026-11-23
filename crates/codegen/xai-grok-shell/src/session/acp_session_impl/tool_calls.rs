@@ -3101,6 +3101,32 @@ impl SessionActor {
                     }
                 }
             }
+            // Headless streaming and JSON read this update. The bytes stay on
+            // `tool_layer_images` for the model vision follow-up, and
+            // `raw_output` stays drained so PostToolUse hooks never see them.
+            if self.startup_hints.headless_session
+                && matches!(
+                    result.output,
+                    xai_grok_tools::types::output::ToolOutput::MCP(_)
+                )
+            {
+                let image_blocks: Vec<acp::ToolCallContent> = tool_layer_images
+                    .iter()
+                    .filter(|img| !img.data.is_empty())
+                    .map(|img| {
+                        acp::ToolCallContent::from(acp::ContentBlock::Image(
+                            acp::ImageContent::new(img.data.clone(), img.mime_type.clone()),
+                        ))
+                    })
+                    .collect();
+                if !image_blocks.is_empty() {
+                    tool_update
+                        .fields
+                        .content
+                        .get_or_insert_with(Vec::new)
+                        .extend(image_blocks);
+                }
+            }
             tool_update.tool_call_id = tool_call_id.clone();
             self.send_update(acp::SessionUpdate::ToolCallUpdate(tool_update), None)
                 .await;
