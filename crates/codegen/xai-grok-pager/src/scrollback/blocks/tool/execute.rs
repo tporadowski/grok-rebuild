@@ -629,6 +629,50 @@ impl ExecuteToolCallBlock {
 
         BlockOutput { lines }
     }
+
+    /// One wrapped line per openable link in the command's displayed output.
+    ///
+    /// A link already painted on the header is left there. Error text is not command output.
+    fn push_collapsed_output_links(
+        &self,
+        lines: &mut Vec<BlockLine>,
+        theme: &Theme,
+        width: usize,
+    ) {
+        let Some(output) = self.output.as_deref().filter(|output| !output.is_empty()) else {
+            return;
+        };
+        let plain = crate::render::terminal_output::render_terminal_plain(output);
+        if plain.is_empty() {
+            return;
+        }
+        let header_text = visible_block_lines_text(lines);
+        let header_links = crate::render::osc8::plain_openable_links(&header_text);
+        for link in crate::render::osc8::plain_openable_links(&plain) {
+            if header_links.contains(&link) {
+                continue;
+            }
+            push_wrapped_header(
+                lines,
+                Line::from(Span::styled(link, theme.primary())),
+                width,
+                0,
+                0,
+            );
+        }
+    }
+}
+
+/// Plain text of painted block lines, one logical line per row.
+fn visible_block_lines_text(lines: &[BlockLine]) -> String {
+    let mut out = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        crate::scrollback::types::line_plain_text_into(&line.content, &mut out);
+    }
+    out
 }
 
 /// Label verb for a shell command: present while it runs, past when it has finished, cancelled when the turn closed it unanswered.
@@ -701,6 +745,8 @@ impl BlockContent for ExecuteToolCallBlock {
                     self.cancelled,
                     ctx.is_running,
                 );
+                // The body stays hidden. Each openable link from that body is its own line so it can be copied or opened.
+                self.push_collapsed_output_links(&mut lines, &theme, content_width);
                 BlockOutput { lines }
             }
             DisplayMode::Truncated => self.render_with_truncation(
@@ -891,11 +937,24 @@ mod tests {
     }
 
     fn collapsed_lines(block: &ExecuteToolCallBlock, style: ExecuteHeaderStyle) -> Vec<String> {
+        rendered_lines(block, style, DisplayMode::Collapsed, 80)
+            .lines
+            .iter()
+            .map(|line| line_text(&line.content))
+            .collect()
+    }
+
+    fn rendered_lines(
+        block: &ExecuteToolCallBlock,
+        style: ExecuteHeaderStyle,
+        mode: DisplayMode,
+        width: u16,
+    ) -> BlockOutput {
         let mut appearance = AppearanceConfig::default();
         appearance.scrollback.blocks.execute.header_style = style;
         let ctx = crate::scrollback::types::BlockContext {
-            width: 80,
-            mode: DisplayMode::Collapsed,
+            width,
+            mode,
             is_running: false,
             raw: false,
             max_lines: None,
@@ -903,12 +962,7 @@ mod tests {
             is_selected: false,
             cwd: None,
         };
-        block
-            .output(&ctx)
-            .lines
-            .iter()
-            .map(|line| line_text(&line.content))
-            .collect()
+        block.output(&ctx)
     }
 
     /// A cancelled command names what stopped, even when a description would otherwise hide it.
@@ -932,6 +986,163 @@ mod tests {
                 !finished_joined.contains("cargo test --lib"),
                 "{style:?} a finished row with a description stays title-only: {finished_joined}"
             );
+        }
+    }
+
+    /// Collapsed rows list links the command printed. The surrounding output stays hidden.
+    #[test]
+    fn collapsed_row_shows_output_links() {
+        for style in [ExecuteHeaderStyle::Shell, ExecuteHeaderStyle::Label] {
+            let block = ExecuteToolCallBlock::new("echo test").with_output(
+                "See https://example.com and https://example.com\nthen https://other.example/a\n",
+            );
+            let joined = collapsed_lines(&block, style).join("\n");
+            assert_eq!(
+                joined.matches("https://example.com").count(),
+                1,
+                "{style:?} lists a repeated output URL once: {joined}"
+            );
+            assert!(
+                joined.contains("https://other.example/a"),
+                "{style:?} keeps later links: {joined}"
+            );
+            let first = joined.find("https://example.com").expect("first url");
+            let second = joined.find("https://other.example/a").expect("second url");
+            assert!(first < second, "{style:?} keeps first-seen order: {joined}");
+            assert!(
+                !joined.contains("See ") && !joined.contains("then "),
+                "{style:?} leaves the surrounding output hidden: {joined}"
+            );
+
+            let curl = ExecuteToolCallBlock::new("curl https://example.com/status").with_output(
+                "body https://example.com/status\nhttps://fresh.example/new\n",
+            );
+            let curl_joined = collapsed_lines(&curl, style).join("\n");
+            assert_eq!(
+                curl_joined.matches("https://example.com/status").count(),
+                1,
+                "{style:?} a header URL stays on the header: {curl_joined}"
+            );
+            assert!(
+                curl_joined.contains("https://fresh.example/new"),
+                "{style:?} still lists an output URL the header does not have: {curl_joined}"
+            );
+            assert!(
+                !curl_joined.contains("body "),
+                "{style:?} leaves output prose hidden: {curl_joined}"
+            );
+
+            let described = ExecuteToolCallBlock::new("curl https://hidden.example/x")
+                .with_description("Fetch status")
+                .with_output("see https://shown.example/y\n");
+            let described_joined = collapsed_lines(&described, style).join("\n");
+            assert!(
+                described_joined.contains("https://shown.example/y"),
+                "{style:?} shows the output link under a description title: {described_joined}"
+            );
+            assert!(
+                !described_joined.contains("curl https://hidden.example/x"),
+                "{style:?} a finished description row still hides the command: {described_joined}"
+            );
+
+            let paths = ExecuteToolCallBlock::new("ls /tmp/proj").with_output(
+                "/var/log/syslog\nfile:///tmp/proj/note.txt\nmail ada@example.com now\n",
+            );
+            let path_joined = collapsed_lines(&paths, style).join("\n");
+            assert!(
+                !path_joined.contains("/var/log/syslog"),
+                "{style:?} a bare path in the output stays hidden: {path_joined}"
+            );
+            assert!(
+                path_joined.contains("file:///tmp/proj/note.txt"),
+                "{style:?} a local file URL is listed: {path_joined}"
+            );
+            assert!(
+                path_joined.contains("ada@example.com"),
+                "{style:?} an email the command printed is listed: {path_joined}"
+            );
+            assert!(
+                !path_joined.contains("mail ") && !path_joined.contains(" now"),
+                "{style:?} email prose stays hidden: {path_joined}"
+            );
+
+            let colored = ExecuteToolCallBlock::new("echo test")
+                .with_output("\u{1b}[32mhttps://colored.example/a\u{1b}[0m\n");
+            let colored_joined = collapsed_lines(&colored, style).join("\n");
+            assert!(
+                colored_joined.contains("https://colored.example/a"),
+                "{style:?} a colored URL is the text the terminal showed: {colored_joined}"
+            );
+            assert!(
+                !colored_joined.contains("[32m"),
+                "{style:?} escape codes stay out of the link line: {colored_joined}"
+            );
+
+            let failed = ExecuteToolCallBlock::new("false")
+                .with_error("boom https://error.example/x");
+            let failed_joined = collapsed_lines(&failed, style).join("\n");
+            assert!(
+                !failed_joined.contains("https://error.example/x"),
+                "{style:?} an error URL is not command output: {failed_joined}"
+            );
+        }
+
+        let block = ExecuteToolCallBlock::new("echo test")
+            .with_output("See https://example.com for the page\n");
+        for mode in [DisplayMode::Truncated, DisplayMode::Expanded] {
+            let joined = rendered_lines(&block, ExecuteHeaderStyle::Shell, mode, 80)
+                .lines
+                .iter()
+                .map(|line| line_text(&line.content))
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                joined.contains("See https://example.com for the page"),
+                "{mode:?} still paints the output body: {joined}"
+            );
+            assert_eq!(
+                joined.matches("https://example.com").count(),
+                1,
+                "{mode:?} does not add a separate link line: {joined}"
+            );
+        }
+    }
+
+    #[test]
+    fn collapsed_output_link_wraps_and_stays_one_address() {
+        const URL: &str = "https://example.com/some/very/long/path?key=value";
+        let block = ExecuteToolCallBlock::new("echo test").with_output(format!("See {URL}\n"));
+        let output = rendered_lines(&block, ExecuteHeaderStyle::Shell, DisplayMode::Collapsed, 24);
+        assert!(
+            output.lines.len() >= 3,
+            "a narrow collapsed row wraps the output URL, got {}",
+            output.lines.len()
+        );
+        let mut overlay = crate::render::osc8::LinkOverlay::new();
+        crate::render::osc8::scan_lines_for_url_overlays_indented(
+            output.lines.iter().enumerate().map(|(index, line)| {
+                (
+                    index as u16,
+                    &line.content,
+                    line.joiner.as_deref(),
+                    line.indent_width,
+                )
+            }),
+            0,
+            &[],
+            &mut overlay,
+        );
+        let links = overlay.links();
+        assert!(
+            links.len() >= 2,
+            "the wrapped URL links on every row, got {}",
+            links.len()
+        );
+        for link in links {
+            let url = crate::render::osc8::resolve_link_target(&link.target)
+                .and_then(|resolved| resolved.osc8_url)
+                .expect("url");
+            assert_eq!(&*url, URL);
         }
     }
 

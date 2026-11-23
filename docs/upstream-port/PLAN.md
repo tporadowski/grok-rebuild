@@ -56,6 +56,10 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
 
+### D-352 — Collapsed shell rows list output links
+
+`v93-x01`. A collapsed execute row painted its header only. The link overlay scans painted lines, so a URL in the command output had no hit target until the row was expanded. The collapsed row now paints one line for each openable link in the displayed output: http and https URLs, email addresses, and local `file://` URLs, in first-seen order, with duplicates omitted. A link already painted on the header is omitted. Bare filesystem paths in the output are omitted, because a directory listing would otherwise turn the collapsed row into the file list. Header paths stay linkified. Expanded and truncated rows keep the full output and do not add these lines. The scan reads the command output after terminal emulation. Error text is left out.
+
 ### D-351 — A repeated Enter sends the queued follow-up after one second
 
 `v93-x06`. Bare Enter while a turn is running submits a follow-up and dispatch clears the composer. The same key then repeats. Empty Enter used to send the top queued row immediately, which cancels the running turn. The dashboard already treats an empty Enter within one second of a send as an echo of that send, and repeated Enter does not move that stamp (`SEND_ECHO_WINDOW` in `views/dashboard/state.rs`). The agent prompt now does the same for bare Enter. The Enter that submits starts a one-second window. Repeated bare Enter inside it leaves the queued row in place. The next bare Enter, once that second has passed, sends the top row and starts a new window so the following row waits its own second. The send-now chord still sends while the window is open. Any other key closes it. A single tap still leaves the follow-up queued until the turn ends or that later Enter.
@@ -1525,7 +1529,7 @@ Refresh these numbers at the end of a session.
 | W7 | Worktrees | 0 | 0 | 39 | 3 | 0 |
 | W8 | Sessions, resume, and dashboard | 0 | 0 | 84 | 15 | 5 |
 | W9 | Prompt, mentions, and keyboard | 0 | 0 | 64 | 7 | 1 |
-| W10 | Transcript, density, and copy | 1 | 0 | 73 | 4 | 0 |
+| W10 | Transcript, density, and copy | 0 | 0 | 74 | 4 | 0 |
 | W11 | Headless mode and tools | 0 | 0 | 48 | 7 | 0 |
 | W12 | MCP, web, images, and browser | 1 | 0 | 60 | 13 | 10 |
 | W13 | Update, install, and sign-in | 1 | 0 | 39 | 11 | 0 |
@@ -1534,9 +1538,9 @@ Refresh these numbers at the end of a session.
 | SKIP | Not implemented | 0 | 9 | 0 | 0 | 0 |
 | W16 | Fork regression | 0 | 0 | 9 | 0 | 0 |
 
-Catalog rows: 921. Pending: 4. Skipped: 10. Done: 749. Already: 118. Deferred: 40.
+Catalog rows: 921. Pending: 3. Skipped: 10. Done: 750. Already: 118. Deferred: 40.
 
-**Next:** `v93-x01`.
+**Next:** `v93-x03`.
 
 ## Waves
 
@@ -1578,7 +1582,7 @@ Pending: 0. Done: 64 (`v93-x06`; `v91-x03`; `v91-f01`; `v90-x08`; `v90-x01`; `v8
 
 ### W10 — Transcript, density, and copy
 
-Pending: 1 (`v93-x01`). Done: 73 (`v92-f03`; `v90-x02`; `v90-f05`; `v89-x11`; `v89-x08`; `v89-x05`; `v89-f06`; `v88-x22`; `v88-x18`; `v88-x13`; `v88-x11`; `v88-x08`; `v88-f03`; `v87-x18`, D-315; `v87-x09`, D-314; `v87-x05`, D-313; `v86-x42`, D-282; `v86-x41`, D-281; `v86-x40`, D-280; `v86-x39`, D-279; `v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`).
+Pending: 0. Done: 74 (`v93-x01`, D-352; `v92-f03`; `v90-x02`; `v90-f05`; `v89-x11`; `v89-x08`; `v89-x05`; `v89-f06`; `v88-x22`; `v88-x18`; `v88-x13`; `v88-x11`; `v88-x08`; `v88-f03`; `v87-x18`, D-315; `v87-x09`, D-314; `v87-x05`, D-313; `v86-x42`, D-282; `v86-x41`, D-281; `v86-x40`, D-280; `v86-x39`, D-279; `v86-x33`, D-278; `v86-f01`, D-277; `v50-f01`, D-158; `v50-f06`, D-159; `v50-f10`, D-160; `v50-x04`, D-161; `v50-x24`, D-162; `v51-f04`, D-163; `v51-f18`, D-164; `v51-x28`, D-166; `v51-x35`, D-167; `v51-x43`, D-168; `v51-x93`, D-170; `v51-x104`, D-171; `v52-x05`, D-172; `v52-x14`, D-173; `v53-f01`, D-174; `v59-f03`, D-175; `v59-x06`, D-176; `v60-f02`, D-177; `v67-x01`, D-178; `v67-x02`, D-179; `v68-f03`, D-180; `v70-f01`, D-181; `v72-f02`, D-182; `v72-f04`, D-183; `v73-f03`, D-184; `v73-f05`, D-185; `v73-x02`; `v73-x03`; `v73-x07`; `v73-x10`; `v73-x11`; `v74-f01`, D-186; `v74-f04`; `v74-f07`; `v74-f08`; `v74-x06`; `v74-x07`; `v75-f04`; `v75-f07`; `v75-x17`; `v75-x20`; `v77-x01`; `v78-f02`; `v79-x01`; `v82-f02`; `v82-x12`; `v85-x25`, D-247; `v85-x26`, D-248; `v85-x27`, D-249). Already: 4 (`v51-x03`, D-165; `v51-x81`, D-169). Subagent rows: a delivered message between subagents is a left-aligned bullet row naming both sides. Same-pair deliveries fold into that row; a different pair stays separate (D-186). Do not build the centered rows skipped under D-007. Compact mode collapses recaps and keeps user-prompt padding and the prompt gap on a tall terminal (`v50-f01`, D-158). Shift+drag beside the scrollbar copies the row text; the thumb is a space, so the selection does not keep a block glyph (`v80-x12`). Enter and Ctrl+F expand or collapse a long user message in the transcript (`v82-f02`). Copied text from a table, a question card, and the fullscreen viewer keeps backticks around inline code (`v82-x12`). A collapsed shell row lists each openable link from the command's displayed output, and a bare path in that output stays off the row (`v93-x01`, D-352, `collapsed_row_shows_output_links`).
 
 ### W11 — Headless mode and tools
 
@@ -2422,7 +2426,7 @@ id | status | wave | kind | flag | covered | note
 - v90-f05 | done | W10 | Features |  |  | **Queued subagent messages** no longer show the queued label or surrounding quotes; the marker reads read-only.
 - v90-x02 | done | W10 | Bug Fixes |  |  | **LaTeX math** renders paired bars, \middle, and angle brackets correctly.
 - v92-f03 | done | W10 | Features |  |  | **Clickable `file://` links** to local files now open the file the same way bare paths do.
-- v93-x01 | pending | W10 | Bug Fixes |  |  | **Collapsed shell rows** now show links printed by shell commands so you can copy or open them without expanding.
+- v93-x01 | done | W10 | Bug Fixes |  |  | **Collapsed shell rows** now show links printed by shell commands so you can copy or open them without expanding.
 - v86-x43 | done | W14 | Bug Fixes |  |  | Paths ending in one or more slashes shorten correctly and keep the final folder name readable.
 - v86-x44 | done | W14 | Bug Fixes |  |  | **Long setting descriptions** in /settings fit within the modal without being cut off.
 - v87-x02 | done | W14 | Bug Fixes |  |  | **Persona names and descriptions** in the agents modal no longer overflow the window when they contain wide characters.

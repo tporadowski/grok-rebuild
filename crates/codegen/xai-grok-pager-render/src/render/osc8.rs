@@ -245,6 +245,36 @@ pub fn plain_url_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
     ranges
 }
 
+/// Openable links in `text`, in first-seen order, without duplicates.
+///
+/// The click overlay's finder supplies the matches. A `mailto:` href is returned as the address so a painted line scans as mail. A local `file://` URL is kept as written. Every other scheme has to pass the standard opener filter. Bare file paths are left out: this list is links, not a directory listing.
+pub fn plain_openable_links(text: &str) -> Vec<String> {
+    let mut links = Vec::new();
+    let scheme_filter = crate::terminal::hyperlinks::SchemeFilter::Standard;
+    for link in link_finder().links(text) {
+        let Some(href) = linkify_href(text, &link) else {
+            continue;
+        };
+        let display = if crate::link_opener::local_file_url_path(&href).is_some() {
+            href
+        } else if let Some(address) = href.strip_prefix("mailto:") {
+            if !crate::link_opener::is_safe_to_open(&href, scheme_filter) {
+                continue;
+            }
+            address.to_string()
+        } else if crate::link_opener::is_safe_to_open(&href, scheme_filter) {
+            href
+        } else {
+            continue;
+        };
+        if display.is_empty() || links.contains(&display) {
+            continue;
+        }
+        links.push(display);
+    }
+    links
+}
+
 /// linkify's Email kind yields the bare address; the opener expects `mailto:`.
 /// Returns `None` for scp-style remotes (`git@github.com:org/repo`) so those stay plain text instead of becoming a mail link.
 /// Also returns `None` when the match range is not a char-boundary substring.
@@ -1800,6 +1830,30 @@ mod tests {
         scan_unjoined(std::iter::once((0, &line)), 0, &[], &mut overlay);
 
         assert!(overlay.is_empty());
+    }
+
+    #[test]
+    fn plain_openable_links_lists_urls_mail_and_local_files() {
+        let links = plain_openable_links(
+            "See https://example.com, mail ada@example.com, file:///tmp/note.txt, bare /tmp/note.txt, javascript://evil.com/alert(1), ftp://files.example/a, and https://example.com again",
+        );
+        assert_eq!(
+            links,
+            vec![
+                "https://example.com".to_string(),
+                "ada@example.com".to_string(),
+                "file:///tmp/note.txt".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn plain_openable_links_skips_a_remote_file_url() {
+        let links = plain_openable_links("remote file://files.example/etc/passwd");
+        assert!(
+            links.is_empty(),
+            "a non-local file URL is not opened as a path, got: {links:?}"
+        );
     }
 
     #[test]

@@ -2188,22 +2188,41 @@ fn markdown_block_does_not_double_scan() {
 }
 
 #[test]
-fn collapsed_block_body_urls_not_visible() {
-    // URLs in the output body are not rendered when collapsed (only the header line is shown), so no link overlay entries should appear
-    let entries = vec![ScrollbackEntry::new(RenderBlock::execute_with_output(
+fn collapsed_block_shows_output_urls() {
+    // A URL printed by the command is painted and openable while the row stays collapsed.
+    let mut entries = vec![ScrollbackEntry::new(RenderBlock::execute_with_output(
         "echo test",
         "See https://example.com",
         None::<String>,
     ))];
-    let mut entries = entries;
     at_mut(&mut entries, 0).display_mode = DisplayMode::Collapsed;
 
     let viewport = Rect::new(0, 0, 80, 10);
-    let result = render_with_scratch(&entries, viewport, 0, None);
-
+    let (result, buf) = render_with_scratch_and_buffer(&entries, viewport, 0, None);
+    let painted = (0..viewport.height)
+        .map(|y| buffer_row_text(&buf, y))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
-        result.link_overlay.is_empty(),
-        "output-body URLs should not appear when block is collapsed"
+        painted.contains("https://example.com"),
+        "collapsed row should paint the output URL, got: {painted:?}"
+    );
+    assert!(
+        !painted.contains("See "),
+        "collapsed row should leave the surrounding output hidden, got: {painted:?}"
+    );
+
+    let urls: Vec<Arc<str>> = result
+        .link_overlay
+        .links()
+        .iter()
+        .filter_map(|link| {
+            resolve_link_target(&link.target).and_then(|resolved| resolved.osc8_url)
+        })
+        .collect();
+    assert!(
+        urls.iter().any(|url| url.as_ref() == "https://example.com"),
+        "collapsed output URL should be openable, got: {urls:?}"
     );
 }
 
