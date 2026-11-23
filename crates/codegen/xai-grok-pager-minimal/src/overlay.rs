@@ -615,6 +615,9 @@ fn render_question(
     // Clamp any stale scroll offset to the rendered viewport (mirrors `AgentView::draw`)
     // Computed in an inner scope so the immutable borrows end before the `&mut clamp_scroll`
     if let Some(qv) = minimal_api::question_view_mut(agent) {
+        // The sticky freeform row is inside the card but not in the scrolled list.
+        // Counting it as an option row made the clamp one line short of the last option.
+        let freeform_h = u16::from(!input_mode && !qv.no_freeform);
         let vis = qv.questions.get(qv.active_tab).map(|question| {
             xai_grok_pager::views::question_view::visible_options_height(
                 question,
@@ -625,13 +628,14 @@ fn render_question(
                 qv.cached_desc_cap,
                 qv.cached_preview_cap,
             )
+            .saturating_sub(freeform_h)
         });
         if let Some(vis) = vis {
             qv.clamp_scroll(vis, content_w);
         }
     }
 
-    if let Some(qv) = minimal_api::question_view(agent) {
+    let rendered = minimal_api::question_view(agent).map(|qv| {
         xai_grok_pager::views::question_view::render_question_view(
             buf,
             q_area,
@@ -639,6 +643,15 @@ fn render_question(
             minimal_api::hovered_question_item(agent),
             theme,
             true,
+        )
+    });
+    if let Some(rendered) = rendered {
+        // The next arrow key scrolls this painted card, not the unset prompt pane.
+        minimal_api::record_question_card_layout(
+            agent,
+            area,
+            rendered.options_start_y,
+            rendered.options_end_y,
         );
     }
 
@@ -909,6 +922,94 @@ mod tests {
             row_text.contains('z') && row_text.contains("line 1"),
             "editor top row must be the prefix row at the capped offset, got {row_text:?}"
         );
+    }
+
+    /// A short minimal card used to measure its scroll window as the unset prompt pane.
+    /// The first Down then jumped past option 0 even though the card still had room for it.
+    #[test]
+    fn question_card_keeps_the_first_option_after_down() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        use xai_grok_pager::views::prompt_widget::StashedPrompt;
+        use xai_grok_pager::views::question_view::{Question, QuestionOption, QuestionViewState};
+
+        let labels = [
+            "First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth",
+        ];
+        let mut agent = minimal_api::test_agent_view(Some("s1"), std::path::PathBuf::from("/tmp"));
+        let qv = QuestionViewState::new(
+            "tc-scroll".into(),
+            vec![Question {
+                question: "Pick?".into(),
+                options: labels
+                    .into_iter()
+                    .map(|label| QuestionOption {
+                        label: label.into(),
+                        description: String::new(),
+                        preview: None,
+                        id: None,
+                    })
+                    .collect(),
+                multi_select: Some(false),
+                id: None,
+            }],
+            StashedPrompt::default(),
+        );
+        minimal_api::set_question_view(&mut agent, Some(qv));
+
+        let theme = Theme::terminal_default();
+        // Chrome plus the sticky freeform row leave three option rows. Eight
+        // options do not fit, so a bad scroll offset hides "First".
+        let area = Rect::new(0, 0, 80, 8);
+        let mut buf = Buffer::empty(area);
+        render_question(&mut buf, area, &mut agent, &theme, 40);
+        let painted = buffer_text(&buf);
+        assert!(
+            painted.contains("First"),
+            "the card opens on the first option, got {painted:?}"
+        );
+
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        let _ = minimal_api::press_question_key_for_test(&mut agent, &down);
+        let mut buf = Buffer::empty(area);
+        render_question(&mut buf, area, &mut agent, &theme, 40);
+        let painted = buffer_text(&buf);
+        let scroll = minimal_api::question_view(&agent)
+            .and_then(|qv| qv.per_question_scroll.first().copied())
+            .unwrap_or(u16::MAX);
+        assert!(
+            painted.contains("First"),
+            "Down must keep the first option on the card (scroll {scroll}), got {painted:?}"
+        );
+        assert_eq!(
+            minimal_api::question_view(&agent).map(|qv| qv.cursor()),
+            Some(1),
+            "Down moves onto the second option"
+        );
+
+        // Later options stay reachable. The first option is not pinned in place.
+        for _ in 0..6 {
+            let _ = minimal_api::press_question_key_for_test(&mut agent, &down);
+        }
+        let mut buf = Buffer::empty(area);
+        render_question(&mut buf, area, &mut agent, &theme, 40);
+        let painted = buffer_text(&buf);
+        assert!(
+            painted.contains("Eighth"),
+            "walking down must bring the last option onto the card, got {painted:?}"
+        );
+    }
+
+    fn buffer_text(buf: &Buffer) -> String {
+        let area = buf.area;
+        (0..area.height)
+            .flat_map(|y| {
+                (0..area.width).map(move |x| (x, y)).map(|pos| {
+                    buf.cell(pos)
+                        .map(|c| c.symbol().to_string())
+                        .unwrap_or_default()
+                })
+            })
+            .collect()
     }
 
     #[test]

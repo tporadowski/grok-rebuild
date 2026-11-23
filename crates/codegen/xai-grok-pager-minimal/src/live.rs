@@ -131,6 +131,7 @@ pub fn draw_live(app: &mut AppView, terminal: &mut PagerTerminal, ctx: &Terminal
         && let Some(agent) = agents.get_mut(&id)
     {
         clear_btw_geometry(agent);
+        minimal_api::clear_question_card_layout(agent);
     }
     xai_grok_pager::render::draw::draw_frame_at_adopted_size(
         terminal,

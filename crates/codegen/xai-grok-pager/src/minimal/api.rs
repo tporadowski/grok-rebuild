@@ -326,6 +326,24 @@ pub fn question_view_mut(v: &mut AgentView) -> Option<&mut QuestionViewState> {
     v.question_view.as_mut()
 }
 
+/// Remember the question card minimal just painted.
+/// Arrow keys scroll against this rect. The full-TUI prompt pane is unset in minimal, and measuring against it jumped the first option off a short card.
+pub fn record_question_card_layout(
+    v: &mut AgentView,
+    card: Rect,
+    options_start_y: u16,
+    options_end_y: u16,
+) {
+    v.pane_areas.prompt = card;
+    v.question_scroll_region = Some((options_start_y, options_end_y));
+}
+
+/// Drop the card geometry when this frame is not painting a question.
+pub fn clear_question_card_layout(v: &mut AgentView) {
+    v.pane_areas.prompt = Rect::default();
+    v.question_scroll_region = None;
+}
+
 /// `AgentView::elicitation_view`.
 pub fn elicitation_view(v: &AgentView) -> Option<&ElicitationViewState> {
     v.elicitation_view.as_ref()
@@ -974,6 +992,12 @@ pub fn set_feedback_modal(v: &mut AgentView, val: Option<FeedbackModalState>) {
 #[cfg(any(test, feature = "test-support"))]
 pub fn set_question_view(v: &mut AgentView, val: Option<QuestionViewState>) {
     v.question_view = val;
+}
+
+/// Test-only: the question card's own key path, without the full input router.
+#[cfg(any(test, feature = "test-support"))]
+pub fn press_question_key_for_test(v: &mut AgentView, key: &crossterm::event::KeyEvent) {
+    let _ = v.handle_question_key_for_test(key);
 }
 
 /// Test-only: a permission card is waiting.

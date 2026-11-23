@@ -1206,7 +1206,7 @@ impl AgentView {
     pub(crate) fn submit_question_answers_for_test(&mut self, skipped: bool) -> InputOutcome {
         self.submit_question_answers(skipped)
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn handle_question_key_for_test(&mut self, key: &KeyEvent) -> InputOutcome {
         self.handle_question_key(key)
     }
