@@ -7,8 +7,10 @@ description: >
   docs/upstream-port/PLAN.md with a feasibility call on every bullet,
   commit that plan, capture each version's official system prompt from
   a throwaway run, implement every new row in its own commit, and after
-  each version stamp the lockstep packages and CHANGELOG.md and tag that
-  commit `v<version>`. The run finishes every version in the fetch. Use when
+  each version stamp the lockstep packages and CHANGELOG.md. Push a
+  `ci-v<version>` tag to this fork so GitHub Actions builds Linux,
+  Windows, and macOS. When that run is green, delete the ci tag and
+  push `v<version>`. The run finishes every version in the fetch. Use when
   the user runs /port-grok-release, says "port the latest grok release",
   "update from release notes", "catch up to stable", "catch up to
   alpha", or asks to continue the upstream port plan from the official
@@ -43,18 +45,22 @@ This skill overrides four of its session rules:
   each commit, the next action is a tool call on the next row. Do not
   send the user a count of what remains, a partial report, or a
   handoff. The completion report is the last thing you send, and only
-  after the last stamp.
+  after the last tag.
 - After a version's new rows are all terminal, **do** stamp that version
   and update `CHANGELOG.md`, in their own commit. PLAN.md's "do not commit
   a version bump" applies to item commits, not to this boundary commit.
+  The `vV` tag is the GitHub Actions gate in section 7, not this commit.
 - D-223's "embedded changelog stays 1.0.45" is history. The stamp commit
   inserts the version's own notes into `crates/codegen/xai-grok-shell/CHANGELOG.md`.
 
 Never decompile an official `grok` binary. Never commit one, and never
 install one into the user's `~/.grok`. The only download is the throwaway
-capture in section 5. Never push unless the user asks. Never change git
-identity. If `git commit` fails because `user.name` is unset, stop and
-ask. Do not set it yourself.
+capture in section 5. Never push the branch unless the user asks. Never
+push a tag to the xAI remote. The only tags this skill pushes on its own
+are `ci-vV` to the fork, and `vV` to the fork after that workflow is
+green. Never change git identity. If `git commit` fails because
+`user.name` is unset, stop and ask. Do not set it yourself. An annotated
+tag needs that identity too.
 
 Stay on the branch already checked out. Do not switch to `main`.
 
@@ -81,6 +87,11 @@ Package version, the source of truth:
 ```bash
 grep -E '^version = ' crates/codegen/xai-grok-version/Cargo.toml | head -1
 ```
+
+If `v<version>` is not on the fork, the gate in section 7 is not done.
+Run it on the current `HEAD` before fetching anything newer. Do not
+stamp again. A `v<version>` tag already on the fork stays, including
+tags made before this gate existed.
 
 Channel pointers (the body is a single version such as `1.0.77`):
 
@@ -207,10 +218,10 @@ port: plan <first> through <last> from <channel>
 Body: one line per version with its new-row counts. Wrap near 72 columns.
 
 If every new row is terminal, skip section 6 and still run section 5 and
-the stamp in section 7 for each version, oldest first. A version whose
-every bullet was `skipped` for "Minor bug fixes." still gets its prompt
-capture, changelog section, and version stamp, so the embedded history
-does not grow a hole.
+section 7 for each version, oldest first. A version whose every bullet
+was `skipped` for "Minor bug fixes." still gets its prompt capture,
+changelog section, version stamp, ci- gate, and `v` tag, so the
+embedded history does not grow a hole.
 
 ## 5. Capture the official prompt
 
@@ -327,10 +338,12 @@ For each `pending` row:
 
 The only reasons to leave a row unfinished are the hard stops already
 in this skill: a dirty tree that is not this run, a `404` hole, a `vV`
-tag that points somewhere else, or git identity being unset. Anything
-else, including a long list, is still this turn. Commit the row, then
-start the next one. The next row is **Next** in PLAN.md, in wave order.
-Do not skip ahead to an easier later row and then stop.
+tag that points somewhere else, or git identity being unset. A release
+target that does not compile is not one of those stops. Anything else,
+including a long list, is still this turn. Commit the row, then start
+the next one. The next row is **Next**
+in PLAN.md, in wave order. Do not skip ahead to an easier later row and
+then stop.
 
 A compaction does not end the run and is not a place to write a status.
 The first action after it is that same next row.
@@ -370,36 +383,120 @@ port: stamp package version V
 ```
 
 Body: say the embedded changelog gained `V`'s own section. No item
-implementation in this commit.
+implementation in this commit. Do not put the `vV` tag on this commit yet.
 
-Tag that commit `vV` (so `1.0.80` is `v1.0.80`). Annotated, message `vV`,
-same shape as the existing `v1.0.78` tag:
+### Compile, then tag
+
+Linux, Windows, and macOS compile in `.github/workflows/release.yml`
+when a `ci-*` tag is pushed. A `win-*` tag rebuilds only Windows, so
+it is not this gate. `v*` is the release tag, and it is pushed only
+after the `ci-*` run is green.
+
+GitHub runs the `.github/workflows/release.yml` in the tagged commit
+and checks that commit out. That commit has to contain the file, with
+the `ci-*` trigger. Detect the fork the way
+`.grok/skills/update-grok-local/SKILL.md` detects it, by push URL, not
+by remote name. Every `gh` command takes `--repo` of that fork. Do not
+trust `gh`'s default repo: `upstream` is the gh-resolved base and is
+`xai-org/grok-build`. Never push a tag there.
+
+On the commit to release, with a clean working tree, the trial tag is
+`ci-vV` (so `1.0.80` is `ci-v1.0.80`). Lightweight. When that tag is
+already on the fork and points at this commit, leave it there. A run
+still in progress: watch that run. A finished green run: drop the
+trial tag and push `vV`. A finished red run: fix as below, which
+deletes the tag before pushing it again. When the tag points at
+another commit, drop it, then use the create path.
+
+The create path is only for a `ci-vV` that is absent on the fork. A
+local tag that already points at this commit is pushed as it is.
+
+```bash
+CI_TAG="ci-v$V"
+git rev-parse -q --verify "refs/tags/$CI_TAG" >/dev/null || git tag "$CI_TAG"
+git push "$FORK_REMOTE" "refs/tags/$CI_TAG"
+```
+
+Do not push the branch. Find the `push` run whose `headSha` is that
+commit:
+
+```bash
+gh run list --repo "$FORK_REPO" --workflow release.yml --limit 20 \
+  --json databaseId,headSha,status,conclusion,url,createdAt,event
+```
+
+The run can take a few seconds to appear. Stay with it until it
+finishes. The jobs run up to 240 minutes.
+
+```bash
+gh run watch "$ID" --repo "$FORK_REPO" --exit-status
+```
+
+A queued or in-progress run is not a result. Green means that run's
+conclusion is `success`: every job, which is Linux, Windows, and macOS.
+
+Drop the trial tag with this, on success and before every retry.
+Deleting the git tag leaves the GitHub Release, and an existing release
+keeps its target commit, so the release has to go too. If the release
+was never created, delete the remote tag ref.
+
+```bash
+if gh release view "$CI_TAG" --repo "$FORK_REPO" >/dev/null 2>&1; then
+  gh release delete "$CI_TAG" --repo "$FORK_REPO" --yes --cleanup-tag
+else
+  git push "$FORK_REMOTE" ":refs/tags/$CI_TAG"
+fi
+git tag -d "$CI_TAG"
+```
+
+When the run is green, drop the trial tag, then tag and push `vV`.
+Annotated, message `vV`, same shape as the existing `v1.0.78` tag.
+Push only that tag.
 
 ```bash
 git tag -a "v$V" -m "v$V"
+git push "$FORK_REMOTE" "refs/tags/v$V"
 ```
 
-Run it on the stamp commit just created. Do not move a tag that already
-exists. If `vV` already points at this commit, leave it. If it points
-somewhere else, stop before the next version and report both commits.
-A branch push does not send the tag. Push the tag only when the user
-asks to push, together with the branch.
+That commit is the stamp when the first run was green, otherwise the
+last compile-fix commit. Do not move a `vV` that already exists. If the
+fork already has it at this commit, leave it. If it points somewhere
+else, stop before the next version and report both commits. The `v*`
+push starts the release workflow on the commit the `ci-*` run already
+built. Do not wait for that second run before the next version. If
+that later run fails, rerun its failed jobs with
+`gh run rerun "$ID" --repo "$FORK_REPO" --failed`.
+
+When a `ci-*` job fails, read `gh run view "$ID" --repo "$FORK_REPO" --log-failed`.
+Fix the compile in this run and commit it by itself. No tag in that
+commit.
+
+```text
+port: make V compile
+```
+
+Drop the trial tag, point `ci-vV` at the new commit, push it, and watch
+the new run. A fix for one OS can break another. Do not push `vV`, and
+do not start the next version, while the `ci-*` run is red. If the tag
+push or `gh` is rejected, stop and report the error.
 
 Then go back to section 5 for the next version. Do not stamp `V+1`
-before its prompt capture is done and its rows are terminal. The
-completion report comes after the last version in the fetch.
+before `vV` is on the fork, which means its prompt capture is done, its
+rows are terminal, and the `ci-vV` run was green. The completion report
+comes after the last version in the fetch.
 
-Do not rebuild `target/release/xai-grok-pager` unless the user asks. The
-binary embeds the version at compile time and stays on the previous
-stamp until that build.
+Do not rebuild `target/release/xai-grok-pager` unless the user asks.
+This gate does not build it. The binary embeds the version at compile
+time and stays on the previous stamp until that build.
 
 ## Completion report
 
-Send this only after every version in the fetch is stamped, or after a
-hard stop. A row still `pending` or `in_progress` means you are not
-here: go back to section 6. Do not send these headings early. The
-previous run did, after one item, and the session ended with the rest
-of the catalog open.
+Send this only after every version in the fetch is stamped, its `ci-*`
+run is green, that tag is deleted, and `vV` is on the fork, or after a
+hard stop. A row still `pending` or `in_progress`, or a `ci-*` run that
+is not green, means you are not here: go back to section 6 or the
+gate. Do not send these headings early. The previous run did, after one
+item, and the session ended with the rest of the catalog open.
 
 1. **Channel:** package version, stable pointer, alpha pointer, which
    channel was planned.
@@ -409,11 +506,14 @@ of the catalog open.
    commit, or "unchanged", or "system_prompt.txt was not written".
 5. **Items:** each id → `done` / `already` / `skipped` / `deferred`,
    with the commit.
-6. **Stamps:** version-bump commits and their `vV` tags, or "not reached".
-   A tag that already pointed elsewhere is named here.
+6. **Stamps:** version-bump commits, the `ci-vV` run URL and its
+   conclusion, any `port: make V compile` commit, and the pushed `vV`
+   tag, or "not reached". A tag that already pointed elsewhere is named
+   here. A version with no `vV` on the fork did not pass the gate.
 7. **Fork:** any protected behavior a note touched, and whether it
    stayed.
-8. **Unpushed:** `git status -sb`. Push only if the user asks.
+8. **Unpushed:** `git status -sb`. The `ci-vV` tag is gone. `vV` is on
+   the fork. The branch is pushed only if the user asks.
 9. **Skill drift:** one line. If a URL, file, or rule above was wrong
    on this run, say what to change. Otherwise say the skill matched
    the run.
