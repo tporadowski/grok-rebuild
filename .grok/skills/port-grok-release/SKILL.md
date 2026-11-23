@@ -10,7 +10,8 @@ description: >
   each version stamp the lockstep packages and CHANGELOG.md. Push a
   `ci-v<version>` tag to this fork so GitHub Actions builds Linux,
   Windows, and macOS. When that run is green, delete the ci tag and
-  push `v<version>`. The run finishes every version in the fetch. Use when
+  push `v<version>`. Then put that version's notes on the GitHub
+  Release. The run finishes every version in the fetch. Use when
   the user runs /port-grok-release, says "port the latest grok release",
   "update from release notes", "catch up to stable", "catch up to
   alpha", or asks to continue the upstream port plan from the official
@@ -220,8 +221,8 @@ Body: one line per version with its new-row counts. Wrap near 72 columns.
 If every new row is terminal, skip section 6 and still run section 5 and
 section 7 for each version, oldest first. A version whose every bullet
 was `skipped` for "Minor bug fixes." still gets its prompt capture,
-changelog section, version stamp, ci- gate, and `v` tag, so the
-embedded history does not grow a hole.
+changelog section, version stamp, ci- gate, `v` tag, and the notes
+on that GitHub Release, so the embedded history does not grow a hole.
 
 ## 5. Capture the official prompt
 
@@ -458,14 +459,54 @@ git tag -a "v$V" -m "v$V"
 git push "$FORK_REMOTE" "refs/tags/v$V"
 ```
 
+### Notes on the `vV` release
+
+The `v*` workflow creates the GitHub Release. These notes go on that
+release only. The deleted `ci-vV` prerelease does not get them, and a
+`win-*` tag does not either.
+
+Do not wait for the build jobs. Do wait until the Release exists. That
+is the `release` job at the start of the `v*` run, not the uploads.
+Poll `gh release view "v$V" --repo "$FORK_REPO"` for a few minutes.
+Then set the body. If that job never creates the Release, create it
+yourself against the tagged commit, title `grok-rebuild $V`, not a
+prerelease. Take the disclaimer from the Create GitHub Release step in
+`.github/workflows/release.yml` and append `V`'s notes under it.
+
+`gh release edit --notes` replaces the whole body. Keep the disclaimer
+already on the release and append `V`'s notes under it.
+
+Which notes:
+
+- Every catalog row for `V` is `done` or `already`: append `V`'s own
+  section from the fetched `.external.md`, the same text the stamp
+  copied into `CHANGELOG.md`. Leave neighbor versions out.
+- Any row is `deferred` or `skipped`: do not publish that official
+  section. It would claim changes this fork did not ship. Append the
+  `done` and `already` rows instead, grouped under the row's kind
+  heading, using each row's note text. Then `## Not in this build`,
+  one line per `deferred` or `skipped` row: id, status, and the note.
+
+```bash
+gh release view "v$V" --repo "$FORK_REPO" --json body --jq .body > "$NOTES"
+# append V's notes to "$NOTES"
+gh release edit "v$V" --repo "$FORK_REPO" --notes-file "$NOTES"
+```
+
+Read the body back. It still has the disclaimer, and it contains either
+`V`'s changelog heading or the shipped bullets. A body that is only the
+disclaimer is not done. If `gh` rejects the edit, stop and report. Do
+not move the tag.
+
 That commit is the stamp when the first run was green, otherwise the
 last compile-fix commit. Do not move a `vV` that already exists. If the
 fork already has it at this commit, leave it. If it points somewhere
 else, stop before the next version and report both commits. The `v*`
 push starts the release workflow on the commit the `ci-*` run already
-built. Do not wait for that second run before the next version. If
-that later run fails, rerun its failed jobs with
-`gh run rerun "$ID" --repo "$FORK_REPO" --failed`.
+built. Do not wait for the build jobs before the next version. The
+notes above are set once the Release exists, not after the uploads
+finish. If a build job on that later run fails, rerun its failed jobs
+with `gh run rerun "$ID" --repo "$FORK_REPO" --failed`. Do not move `vV`.
 
 When a `ci-*` job fails, read `gh run view "$ID" --repo "$FORK_REPO" --log-failed`.
 Fix the compile in this run and commit it by itself. No tag in that
@@ -482,8 +523,9 @@ push or `gh` is rejected, stop and report the error.
 
 Then go back to section 5 for the next version. Do not stamp `V+1`
 before `vV` is on the fork, which means its prompt capture is done, its
-rows are terminal, and the `ci-vV` run was green. The completion report
-comes after the last version in the fetch.
+rows are terminal, the `ci-vV` run was green, and the `vV` Release body
+has its notes. The completion report comes after the last version in
+the fetch.
 
 Do not rebuild `target/release/xai-grok-pager` unless the user asks.
 This gate does not build it. The binary embeds the version at compile
@@ -492,11 +534,12 @@ time and stays on the previous stamp until that build.
 ## Completion report
 
 Send this only after every version in the fetch is stamped, its `ci-*`
-run is green, that tag is deleted, and `vV` is on the fork, or after a
-hard stop. A row still `pending` or `in_progress`, or a `ci-*` run that
-is not green, means you are not here: go back to section 6 or the
-gate. Do not send these headings early. The previous run did, after one
-item, and the session ended with the rest of the catalog open.
+run is green, that tag is deleted, `vV` is on the fork, and the `vV`
+Release body contains that version's notes, or after a hard stop. A row
+still `pending` or `in_progress`, or a `ci-*` run that is not green,
+means you are not here: go back to section 6 or the gate. Do not send
+these headings early. The previous run did, after one item, and the
+session ended with the rest of the catalog open.
 
 1. **Channel:** package version, stable pointer, alpha pointer, which
    channel was planned.
@@ -507,8 +550,9 @@ item, and the session ended with the rest of the catalog open.
 5. **Items:** each id → `done` / `already` / `skipped` / `deferred`,
    with the commit.
 6. **Stamps:** version-bump commits, the `ci-vV` run URL and its
-   conclusion, any `port: make V compile` commit, and the pushed `vV`
-   tag, or "not reached". A tag that already pointed elsewhere is named
+   conclusion, any `port: make V compile` commit, the pushed `vV`
+   tag, and that the `vV` GitHub Release body contains that version's
+   notes. Or "not reached". A tag that already pointed elsewhere is named
    here. A version with no `vV` on the fork did not pass the gate.
 7. **Fork:** any protected behavior a note touched, and whether it
    stayed.
