@@ -95,6 +95,12 @@ impl AgentView {
         registry: &ActionRegistry,
         prompt_paging: bool,
     ) -> InputOutcome {
+        // Any key other than Enter closes the follow-up echo window. Enter repeats keep the stamp where it is.
+        // The send-now chord is not Enter, and it still sends while the window is open, so it must not close the window first.
+        if key.code != KeyCode::Enter && !registry.matches_id(ActionId::InterjectPrompt, key) {
+            self.queued_follow_up_enter_at = None;
+        }
+
         // Taken first so only a stash made after this key leaves the next Ctrl+Z armed
         let stash_undo_armed = self
             .prompt_stash
@@ -522,6 +528,7 @@ impl AgentView {
             if let Some(text) = self.prompt.try_send_keeping_backslash() {
                 let action = self.prompt_input_mode.send_action(text);
                 self.prompt_input_mode = PromptInputMode::Normal;
+                self.arm_queued_follow_up_enter_window();
                 return InputOutcome::Action(action);
             }
             return InputOutcome::Changed;
@@ -550,10 +557,7 @@ impl AgentView {
                         && self.prompt_input_mode != PromptInputMode::Bash
                         && !slash_accepted_send
                     {
-                        if matches!(self.prompt_mode, PromptMode::Normal)
-                            && self.prompt.text().trim().is_empty()
-                            && let Some(outcome) = self.try_send_now_queued_from_prompt()
-                        {
+                        if let Some(outcome) = self.empty_enter_queued_follow_up() {
                             return outcome;
                         }
                         self.prompt.insert_replacing_selection("\n");
@@ -574,15 +578,13 @@ impl AgentView {
                         };
                         let action = action_mode.send_action(text);
                         self.prompt_input_mode = PromptInputMode::Normal;
+                        self.arm_queued_follow_up_enter_window();
                         return InputOutcome::Action(action);
                     }
-                    // Mid-turn with a queued follow-up: bare Enter force-sends the top queue row so users discover send-now without a chord
-                    // Skip while editing a queued row (edit-mode Enter is handled earlier for non-empty; empty must stay a no-op)
-                    // That Enter must only insert the newline, not fire a queued follow-up
-                    if matches!(self.prompt_mode, PromptMode::Normal)
-                        && self.prompt.text().trim().is_empty()
-                        && let Some(outcome) = self.try_send_now_queued_from_prompt()
-                    {
+                    // Mid-turn with a queued follow-up: bare Enter sends the top row once a second has passed since the Enter that queued it.
+                    // Repeats inside that second leave the row queued. The send-now chord is a separate key and still sends immediately.
+                    // Skip while editing a queued row (edit-mode Enter is handled earlier for non-empty; empty must stay a no-op).
+                    if let Some(outcome) = self.empty_enter_queued_follow_up() {
                         return outcome;
                     }
                     // try_send() returned None (empty, or backslash continuation); the continuation mutates the widget, so redraw

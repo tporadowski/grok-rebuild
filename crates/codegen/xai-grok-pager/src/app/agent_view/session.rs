@@ -440,6 +440,7 @@ impl AgentView {
             cancel_subagents_preference: None,
             cancel_trigger_hint: None,
             ctrl_c_queued_cancel_at: None,
+            queued_follow_up_enter_at: None,
             rewind_state: None,
             rewind_points: None,
             jump_state: None,

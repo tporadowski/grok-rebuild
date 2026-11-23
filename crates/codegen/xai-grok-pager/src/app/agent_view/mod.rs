@@ -1445,6 +1445,9 @@ pub struct AgentView {
     pub(crate) cancel_trigger_hint: Option<crate::app::actions::CancelTrigger>,
     /// Ctrl+C cancelled a turn that still had a queued follow-up. A second Ctrl+C within one second arms quit.
     pub(crate) ctrl_c_queued_cancel_at: Option<std::time::Instant>,
+    /// Bare Enter that submitted a prompt. Empty Enter inside one second is a repeat of that key and leaves a queued follow-up where it is.
+    /// Repeats do not move this stamp, so the top row sends once the second has passed.
+    pub(crate) queued_follow_up_enter_at: Option<std::time::Instant>,
     pub(crate) rewind_state: Option<crate::views::rewind::RewindState>,
     pub(crate) rewind_points: Option<Vec<crate::views::rewind::RewindPointInfo>>,
     /// `/jump` picker overlay (pure client-side turn navigation).

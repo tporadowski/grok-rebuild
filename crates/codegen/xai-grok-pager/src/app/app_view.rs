@@ -2733,6 +2733,13 @@ impl AppView {
                 },
             ),
             ActiveView::Agent(id) => {
+                // Keys that never reach the prompt, such as scrollback navigation, still close the follow-up Enter window.
+                if let Some(key) = key_event
+                    && key.code != KeyCode::Enter
+                    && let Some(agent) = self.agents.get_mut(&id)
+                {
+                    agent.queued_follow_up_enter_at = None;
+                }
                 let overlay_active = self
                     .dashboard
                     .as_ref()

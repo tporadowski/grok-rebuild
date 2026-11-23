@@ -135,6 +135,50 @@ impl AgentView {
         Some(outcome)
     }
 
+    /// How long after a prompt submit an empty Enter still counts as a repeat of that submit.
+    /// One second covers the default key auto-repeat delay on macOS (375 ms), Windows (500 ms), and GNOME (500 ms).
+    const QUEUED_FOLLOW_UP_ENTER_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+
+    fn queued_follow_up_enter_window_open(since_send: std::time::Duration) -> bool {
+        since_send < Self::QUEUED_FOLLOW_UP_ENTER_WINDOW
+    }
+
+    fn follow_up_enter_window_is_open(&self) -> bool {
+        self.queued_follow_up_enter_at
+            .is_some_and(|sent| Self::queued_follow_up_enter_window_open(sent.elapsed()))
+    }
+
+    pub(super) fn arm_queued_follow_up_enter_window(&mut self) {
+        self.queued_follow_up_enter_at = Some(std::time::Instant::now());
+    }
+
+    /// A queued row that empty Enter would send now. Syncs the pane the same way as [`Self::try_send_now_queued_from_prompt`].
+    fn queued_follow_up_awaiting_send_now(&mut self) -> bool {
+        if !self.can_send_now() {
+            return false;
+        }
+        self.sync_queue_pane();
+        self.queue.entry_ids().first().is_some()
+    }
+
+    /// Empty bare Enter on a queued follow-up.
+    /// Inside the one-second window this is a repeat of the Enter that queued the row, so the row stays and the stamp stays.
+    /// Once that second has passed, the same Enter sends the top row and starts a new window.
+    pub(super) fn empty_enter_queued_follow_up(&mut self) -> Option<InputOutcome> {
+        if !matches!(self.prompt_mode, PromptMode::Normal) || !self.prompt.text().trim().is_empty()
+        {
+            return None;
+        }
+        if self.follow_up_enter_window_is_open() && self.queued_follow_up_awaiting_send_now() {
+            return Some(InputOutcome::Changed);
+        }
+        let outcome = self.try_send_now_queued_from_prompt()?;
+        if matches!(outcome, InputOutcome::Action(_)) {
+            self.arm_queued_follow_up_enter_window();
+        }
+        Some(outcome)
+    }
+
     /// The turn is parked in a wait the shell aborts as soon as the user sends anything, and the goal loop is inactive.
     /// The goal check matters because the shell suppresses the abort during goal runs, so treating the wait as user-interruptible would lie there.
     /// Gates Enter interjecting instead of queueing, and the parked queue drain.
@@ -2064,6 +2108,182 @@ mod queue_edit_routing_tests {
             "",
             "send-now must not leave a blank line in the composer"
         );
+    }
+
+    /// Submit a follow-up through the real prompt key path. Dispatch clears the composer after the action; this handler does not.
+    fn submit_follow_up_with_enter(agent: &mut AgentView, multiline: bool) -> std::time::Instant {
+        agent.active_pane = AgentPane::Prompt;
+        agent.queue.overlay.focused = false;
+        agent.multiline_mode = multiline;
+        agent.prompt.set_text("ship the follow-up");
+        let key = if multiline {
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT)
+        } else {
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
+        };
+        let outcome = agent.handle_prompt_key_for_test(&key);
+        match outcome {
+            InputOutcome::Action(Action::SendPrompt(text)) => {
+                assert_eq!(text, "ship the follow-up");
+            }
+            other => panic!("expected the follow-up to submit, got {other:?}"),
+        }
+        let stamped = agent
+            .queued_follow_up_enter_at
+            .expect("submitting a follow-up starts the one-second window for a repeated Enter");
+        agent.prompt.set_text("");
+        stamped
+    }
+
+    #[test]
+    fn queued_follow_up_enter_window_is_one_second() {
+        use std::time::Duration;
+        assert!(AgentView::queued_follow_up_enter_window_open(
+            Duration::from_millis(999)
+        ));
+        assert!(!AgentView::queued_follow_up_enter_window_open(
+            Duration::from_secs(1)
+        ));
+    }
+
+    /// Holding Enter after queueing a follow-up used to send that row immediately. Repeats inside one second leave it queued.
+    #[test]
+    fn repeated_enter_keeps_a_queued_follow_up_for_one_second() {
+        use std::time::Duration;
+        let mut agent = running_agent_local_only();
+        let stamped = submit_follow_up_with_enter(&mut agent, false);
+        let queued = agent.session.pending_prompts.len();
+
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let mut repeat = enter;
+        repeat.kind = crossterm::event::KeyEventKind::Repeat;
+        for key in [enter, repeat] {
+            let outcome = agent.handle_prompt_key_for_test(&key);
+            assert!(
+                matches!(outcome, InputOutcome::Changed),
+                "repeated Enter must leave the queued follow-up, got {outcome:?}"
+            );
+            assert_eq!(agent.queued_follow_up_enter_at, Some(stamped));
+            assert_eq!(agent.session.pending_prompts.len(), queued);
+        }
+
+        agent.queued_follow_up_enter_at = Some(
+            stamped
+                .checked_sub(Duration::from_millis(999))
+                .expect("the submit stamp is later than 999ms after boot"),
+        );
+        let held = agent.queued_follow_up_enter_at;
+        let outcome = agent.handle_prompt_key_for_test(&enter);
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "Enter at 999ms must still leave the queued follow-up, got {outcome:?}"
+        );
+        assert_eq!(agent.queued_follow_up_enter_at, held);
+        assert_eq!(agent.session.pending_prompts.len(), queued);
+    }
+
+    /// Once the second has passed, bare Enter sends the top queued row. The send starts a new window, so the next row waits.
+    #[test]
+    fn enter_after_one_second_sends_the_queued_follow_up() {
+        use std::time::Duration;
+        let mut agent = running_agent_local_only();
+        agent.session.enqueue_prompt("local two".to_string());
+        let stamped = submit_follow_up_with_enter(&mut agent, false);
+        agent.queued_follow_up_enter_at = Some(
+            stamped
+                .checked_sub(Duration::from_secs(1))
+                .expect("the submit stamp is later than one second after boot"),
+        );
+
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let outcome = agent.handle_prompt_key_for_test(&enter);
+        match outcome {
+            InputOutcome::Action(Action::SendPromptNow { text, .. }) => {
+                assert_eq!(text, "local one");
+            }
+            other => panic!("Enter after one second must send the top queued row, got {other:?}"),
+        }
+        assert!(
+            agent
+                .session
+                .pending_prompts
+                .iter()
+                .any(|prompt| prompt.text == "local two"),
+            "the later queued row stays"
+        );
+        let restarted = agent
+            .queued_follow_up_enter_at
+            .expect("sending the row starts a new one-second window");
+        assert!(restarted.elapsed() < Duration::from_secs(1));
+
+        let outcome = agent.handle_prompt_key_for_test(&enter);
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "the Enter that sent the first row must not immediately send the next, got {outcome:?}"
+        );
+        assert!(
+            agent
+                .session
+                .pending_prompts
+                .iter()
+                .any(|prompt| prompt.text == "local two")
+        );
+    }
+
+    /// The send-now chord still sends inside the window. The note is about Enter.
+    #[test]
+    fn interject_chord_sends_during_the_queued_follow_up_enter_window() {
+        let mut agent = running_agent_local_only();
+        let stamped = submit_follow_up_with_enter(&mut agent, false);
+        let outcome = agent.handle_prompt_key_for_test(&force_interject_key());
+        match outcome {
+            InputOutcome::Action(Action::SendPromptNow { text, .. }) => {
+                assert_eq!(text, "local one");
+            }
+            other => panic!("the send-now chord must send inside the Enter window, got {other:?}"),
+        }
+        assert_eq!(
+            agent.queued_follow_up_enter_at,
+            Some(stamped),
+            "the chord sends while the Enter window is still open"
+        );
+        assert!(agent.session.pending_prompts.is_empty());
+    }
+
+    /// A key other than Enter closes the window, so the next Enter sends the queued row.
+    #[test]
+    fn another_key_closes_the_queued_follow_up_enter_window() {
+        let mut agent = running_agent_local_only();
+        let _stamped = submit_follow_up_with_enter(&mut agent, false);
+        let left = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+        let _ = agent.handle_prompt_key_for_test(&left);
+        assert!(agent.queued_follow_up_enter_at.is_none());
+
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let outcome = agent.handle_prompt_key_for_test(&enter);
+        match outcome {
+            InputOutcome::Action(Action::SendPromptNow { text, .. }) => {
+                assert_eq!(text, "local one");
+            }
+            other => panic!("Enter after another key must send the queued row, got {other:?}"),
+        }
+    }
+
+    /// Multiline sends with Shift+Enter. A repeated bare Enter inside the same one-second window leaves the row queued.
+    #[test]
+    fn multiline_repeated_enter_keeps_a_queued_follow_up_for_one_second() {
+        let mut agent = running_agent_local_only();
+        let stamped = submit_follow_up_with_enter(&mut agent, true);
+        let queued = agent.session.pending_prompts.len();
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let outcome = agent.handle_prompt_key_for_test(&enter);
+        assert!(
+            matches!(outcome, InputOutcome::Changed),
+            "multiline bare Enter inside the window must leave the row queued, got {outcome:?}"
+        );
+        assert_eq!(agent.queued_follow_up_enter_at, Some(stamped));
+        assert_eq!(agent.session.pending_prompts.len(), queued);
+        assert_eq!(agent.prompt.text(), "");
     }
 
     /// Multiline with a non-empty composer: bare Enter still inserts a newline (does not queue or send), even mid-turn with a queue present.
