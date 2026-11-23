@@ -4,6 +4,7 @@
 //! The filter intercepts OSC 52 clipboard sequences, making "copy" work for programs that cannot reach the user's clipboard (containers, SSH).
 //! Copy works even under terminals without OSC 52 support.
 //! The filter also answers the private host clipboard image request OSC (see [`crate::wrap_clipboard_image`]).
+//! When this process already inherited the OSC 52 sink, that request is forwarded so the outer wrap reads the host clipboard.
 //! It reports DEC private mode changes to `crate::wrap_restore::ModeTracker`.
 //!
 //! This module owns the PTY setup, the writer/stdin/resize threads, and the exit paths.
@@ -162,7 +163,8 @@ pub(crate) fn run_wrapped_command(program: &str, args: &[String]) -> Result<i32>
                     let _ = tx.send(bytes);
                 });
             })
-            .with_mode_tracker(Arc::clone(&tracker));
+            .with_mode_tracker(Arc::clone(&tracker))
+            .with_inherited_osc52_sink(crate::clipboard::osc52_sink_active());
         let mut buf = [0u8; 8192];
         loop {
             match pty_reader.read(&mut buf) {

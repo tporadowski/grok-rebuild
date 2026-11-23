@@ -1,7 +1,8 @@
 //! Streaming output filter for `grok wrap`: OSC 52 clipboard interception, host-image request handling, and DEC-mode observation.
 //!
 //! `Osc52Filter` sits between the wrap PTY reader and stdout (see `crate::pty_wrap`).
-//! It consumes OSC 52 clipboard sequences (plain and tmux DCS passthrough) and the private host-image request OSC ([`crate::wrap_clipboard_image`]).
+//! It consumes OSC 52 clipboard sequences (plain and tmux DCS passthrough) and the private host-image request OSC ([`crate::wrap_clipboard_image`]), including when tmux wraps that request in a DCS passthrough.
+//! A wrap that already inherited the OSC 52 sink forwards the image request instead of answering it, so an outer wrap reads the host clipboard.
 //! Everything else passes through verbatim, including every CSI sequence, which is additionally reported to the wrap mode tracker.
 //! The parser handles sequences split across arbitrary chunk boundaries.
 
@@ -76,6 +77,8 @@ pub(crate) struct Osc52Filter {
     buf: Vec<u8>,
     clipboard_sink: ClipboardSink,
     wrap_image_handler: Option<WrapImageRequestHandler>,
+    /// Nested wrap: pass the host-image request through so the outer wrap answers it.
+    forward_wrap_image_request: bool,
     mode_tracker: Option<Arc<ModeTracker>>,
 }
 
@@ -87,6 +90,7 @@ impl Osc52Filter {
             buf: Vec::new(),
             clipboard_sink: Box::new(set_local_clipboard),
             wrap_image_handler: None,
+            forward_wrap_image_request: false,
             mode_tracker: None,
         }
     }
@@ -94,6 +98,22 @@ impl Osc52Filter {
     pub(crate) fn with_wrap_image_handler(mut self, handler: impl FnMut() + 'static) -> Self {
         self.wrap_image_handler = Some(Box::new(handler));
         self
+    }
+
+    /// Pass host-image requests through to stdout instead of answering them.
+    pub(crate) fn forward_wrap_image_requests(mut self) -> Self {
+        self.forward_wrap_image_request = true;
+        self
+    }
+
+    /// A wrap started under an outer OSC 52 sink forwards host-image requests.
+    /// The outermost wrap answers them from the host clipboard.
+    pub(crate) fn with_inherited_osc52_sink(self, sink_already_active: bool) -> Self {
+        if sink_already_active {
+            self.forward_wrap_image_requests()
+        } else {
+            self
+        }
     }
 
     /// Report every complete CSI sequence flowing through to `tracker`.
@@ -110,6 +130,7 @@ impl Osc52Filter {
             buf: Vec::new(),
             clipboard_sink: Box::new(sink),
             wrap_image_handler: None,
+            forward_wrap_image_request: false,
             mode_tracker: None,
         }
     }
@@ -290,17 +311,21 @@ impl Osc52Filter {
         if body != crate::wrap_clipboard_image::REQUEST_BODY {
             return false;
         }
+        // Nested wrap: leave the original sequence in the output so the outer wrap answers it.
+        if self.forward_wrap_image_request {
+            return false;
+        }
         if let Some(handler) = self.wrap_image_handler.as_mut() {
             handler();
         }
         true
     }
 
-    /// Try to handle the buffered bytes as a tmux-wrapped OSC 52 sequence. Expected buffer format:
-    /// `\x1bPtmux;\x1b\x1b]52;<sel>;<base64>\x07\x1b\\`. Returns `true` if the sequence was a valid OSC 52 and was
-    /// consumed.
+    /// Try to handle the buffered bytes as a tmux-wrapped OSC. Expected buffer format:
+    /// `\x1bPtmux;\x1b\x1b]<body>\x07\x1b\\`. A host-image request is answered the same way as a bare OSC.
+    /// An OSC 52 body is copied to the clipboard. Returns `true` when the sequence was consumed.
     fn try_handle_tmux_osc52(&mut self) -> bool {
-        // Strip the DCS tmux prefix: \x1bPtmux;\x1b\x1b] (total 9 bytes) and the DCS ST terminator: \x1b\ (2 bytes at the end)
+        // Strip the DCS tmux prefix `\x1bPtmux;\x1b\x1b]` and the DCS ST terminator `\x1b\` at the end.
         // Copy the body to avoid borrowing self.buf while calling &mut self.
         let prefix_len = 2 + TMUX_DCS_PREFIX.len(); // \x1bP + tmux;\x1b\x1b]
         if self.buf.len() < prefix_len + 2 {
@@ -314,6 +339,9 @@ impl Osc52Filter {
         };
         let body = body.to_vec(); // strip DCS ST
         let body = strip_osc_terminator(&body); // strip inner BEL if present
+        if self.try_handle_wrap_image_request(body) {
+            return true;
+        }
         self.extract_and_set_clipboard(body)
     }
 
@@ -703,6 +731,92 @@ mod tests {
         }
         assert!(output.is_empty(), "request OSC must be fully consumed");
         assert_eq!(*calls.borrow(), 1);
+    }
+
+    /// Tmux doubles the leading ESC: `ESC P tmux ; ESC` plus the original OSC, then DCS ST.
+    fn make_tmux_wrap_image_request() -> Vec<u8> {
+        let mut seq = b"\x1bPtmux;\x1b".to_vec();
+        seq.extend_from_slice(&crate::wrap_clipboard_image::request_osc_bytes());
+        seq.extend_from_slice(b"\x1b\\");
+        seq
+    }
+
+    fn image_request_filter(forward: bool) -> (Osc52Filter, Rc<RefCell<usize>>) {
+        let calls = Rc::new(RefCell::new(0usize));
+        let calls_clone = Rc::clone(&calls);
+        let filter = Osc52Filter::with_sink(|_| {})
+            .with_wrap_image_handler(move || {
+                *calls_clone.borrow_mut() += 1;
+            })
+            .with_inherited_osc52_sink(forward);
+        (filter, calls)
+    }
+
+    #[test]
+    fn wrap_image_request_inside_tmux_runs_handler() {
+        let (mut filter, calls) = image_request_filter(false);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&make_tmux_wrap_image_request());
+        input.extend_from_slice(b"after");
+        let output = filter.feed(&input);
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(*calls.borrow(), 1);
+    }
+
+    #[test]
+    fn wrap_image_request_inside_tmux_split_across_chunks() {
+        let (mut filter, calls) = image_request_filter(false);
+        let seq = make_tmux_wrap_image_request();
+        let mut output = Vec::new();
+        for chunk in seq.chunks(3) {
+            output.extend_from_slice(&filter.feed(chunk));
+        }
+        assert!(
+            output.is_empty(),
+            "tmux-wrapped request must be fully consumed, got {output:?}"
+        );
+        assert_eq!(*calls.borrow(), 1);
+    }
+
+    #[test]
+    fn nested_wrap_forwards_image_request() {
+        let (mut filter, calls) = image_request_filter(true);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&crate::wrap_clipboard_image::request_osc_bytes());
+        input.extend_from_slice(b"after");
+        let mut output = Vec::new();
+        for chunk in input.chunks(3) {
+            output.extend_from_slice(&filter.feed(chunk));
+        }
+        assert_eq!(output, input);
+        assert_eq!(*calls.borrow(), 0);
+    }
+
+    #[test]
+    fn nested_wrap_forwards_tmux_image_request() {
+        let (mut filter, calls) = image_request_filter(true);
+        let seq = make_tmux_wrap_image_request();
+        let mut output = Vec::new();
+        for chunk in seq.chunks(3) {
+            output.extend_from_slice(&filter.feed(chunk));
+        }
+        assert_eq!(output, seq);
+        assert_eq!(*calls.borrow(), 0);
+    }
+
+    #[test]
+    fn nested_wrap_still_consumes_osc52() {
+        let clips = Rc::new(RefCell::new(Vec::new()));
+        let clips_clone = Rc::clone(&clips);
+        let mut filter = Osc52Filter::with_sink(move |data: &[u8]| {
+            clips_clone.borrow_mut().push(data.to_vec());
+        })
+        .with_wrap_image_handler(|| {})
+        .with_inherited_osc52_sink(true);
+        let seq = make_osc52_bel("still local");
+        let output = filter.feed(&seq);
+        assert!(output.is_empty(), "OSC 52 stays consumed, got {output:?}");
+        assert_eq!(clips.borrow().as_slice(), [b"still local".to_vec()]);
     }
 
     /// Helper: run data through a tracker-attached filter in chunks.
