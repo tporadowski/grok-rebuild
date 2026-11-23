@@ -65,8 +65,12 @@ pub(crate) fn set_mode(mode: ScreenMode) {
     SCREEN_MODE_FULLSCREEN.store(mode.is_fullscreen(), Ordering::Release);
 }
 
-/// Install signal handlers for the TUI lifecycle. Call after `init_terminal`.
-pub(crate) fn install(mode: ScreenMode) {
+/// Install signal handlers for the TUI lifecycle.
+///
+/// Called from `init_terminal` on the `terminal-queries` thread. That thread is not a Tokio
+/// worker, and [`crate::signal_streams::SignalStreams::install`] panics without a current reactor.
+/// `runtime` is the pager runtime, captured on the async task before that thread starts.
+pub(crate) fn install(mode: ScreenMode, runtime: &tokio::runtime::Handle) {
     set_mode(mode);
     TERMINAL_OWNED.store(true, Ordering::Release);
 
@@ -79,7 +83,15 @@ pub(crate) fn install(mode: ScreenMode) {
         libc::signal(libc::SIGTTOU, libc::SIG_IGN);
     }
 
-    spawn_async_signal_task();
+    // Enter only for registration. Holding the guard across the later terminal queries would make
+    // `Handle::try_current()` succeed on a thread that blocks in tty reads.
+    with_pager_runtime(runtime, spawn_async_signal_task);
+}
+
+/// Run `body` with `runtime` as this thread's current Tokio reactor.
+fn with_pager_runtime<R>(runtime: &tokio::runtime::Handle, body: impl FnOnce() -> R) -> R {
+    let _entered = runtime.enter();
+    body()
 }
 
 /// Mark the terminal as no longer owned by the TUI.
@@ -263,5 +275,28 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(1), notify.notified())
             .await
             .expect("graceful branch notified the registered quit handle");
+    }
+
+    /// `terminal-queries` is a plain thread. Signal registration uses the same enter as `install`.
+    #[tokio::test]
+    async fn terminal_query_thread_spawns_onto_the_entered_pager_runtime() {
+        let runtime = tokio::runtime::Handle::current();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        std::thread::Builder::new()
+            .name("terminal-queries".into())
+            .spawn(move || {
+                super::with_pager_runtime(&runtime, || {
+                    tokio::spawn(async move {
+                        let _ = tx.send(());
+                    });
+                });
+            })
+            .expect("terminal query thread")
+            .join()
+            .expect("terminal query thread panicked");
+        tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+            .await
+            .expect("spawned task did not run on the pager runtime")
+            .expect("spawned task dropped the completion signal");
     }
 }

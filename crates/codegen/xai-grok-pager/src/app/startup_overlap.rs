@@ -2,6 +2,9 @@
 //!
 //! The first frame needs both. Starting the connection only after the queries return makes that
 //! frame wait for the sum. The queries run on their own thread while this task polls the connection.
+//!
+//! That thread is not a Tokio worker. `tokio::signal` inside terminal init panics there unless the
+//! caller enters a `tokio::runtime::Handle` captured on this task.
 
 /// Run `queries` beside `connect`. The join waits for both. Wall time is the longer of the two.
 pub async fn overlap_terminal_queries_with_connect<Q, C, T, U>(queries: Q, connect: C) -> (T, U)

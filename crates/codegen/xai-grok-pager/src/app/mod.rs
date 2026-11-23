@@ -1154,6 +1154,8 @@ pub async fn run(
     let connect_env_for_connect = connect_ui_timeout_env.clone();
     // Protocol queries (keyboard, and the inline cursor question) run on this thread while the
     // agent connection is already in progress. The first frame waits for the slower of the two.
+    // The thread is not a Tokio worker. Signal registration enters `runtime` for that call only.
+    let runtime = tokio::runtime::Handle::current();
     let (terminal_init, (connect_result, timer, primary_started)) =
         startup_overlap::overlap_terminal_queries_with_connect(
             move || {
@@ -1165,6 +1167,7 @@ pub async fn run(
                     writer_sync,
                     cursor_blink,
                     kitty_keyboard,
+                    runtime,
                 )
             },
             async move {
@@ -1631,6 +1634,7 @@ fn init_terminal(
     writer_sync: WriterSync,
     cursor_blink: Option<bool>,
     kitty_keyboard: crate::terminal::KittyKeyboardMode,
+    runtime: tokio::runtime::Handle,
 ) -> io::Result<TerminalInit> {
     xai_crash_handler::enable_terminal_escape_restore();
     terminal::enable_raw_mode()?;
@@ -1694,7 +1698,7 @@ fn init_terminal(
         MOUSE_CAPTURE_ENABLED.store(!want_minimal, Ordering::Release);
         set_current_screen_mode(mode);
         set_panic_hook();
-        signal_handler::install(mode);
+        signal_handler::install(mode, &runtime);
         let drain_timeout = if crate::terminal::terminal_context().vte_version.is_some() {
             std::time::Duration::from_millis(20)
         } else {
