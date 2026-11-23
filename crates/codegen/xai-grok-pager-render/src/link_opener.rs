@@ -340,6 +340,17 @@ fn reveal_in_explorer(path: &std::path::Path) -> bool {
     }
 }
 
+/// Local `file://` URL as a filesystem path.
+/// A host other than localhost stays `None`, so a remote file URL is not opened as a path.
+/// Percent-encoding is decoded, the same path a bare local path would name.
+pub fn local_file_url_path(url: &str) -> Option<std::path::PathBuf> {
+    let parsed = url::Url::parse(url.trim()).ok()?;
+    if parsed.scheme() != "file" {
+        return None;
+    }
+    parsed.to_file_path().ok()
+}
+
 /// Check if a URL's scheme is safe to open.
 ///
 /// Uses the `url` crate for scheme extraction, falling back to prefix matching for non-standard URLs that `url::Url::parse` rejects.
@@ -501,6 +512,24 @@ mod tests {
         assert!(is_safe_to_open(
             "file:///home/user/doc.pdf",
             SchemeFilter::EditorExtended
+        ));
+    }
+
+    #[test]
+    fn local_file_url_decodes_to_the_path_a_bare_path_would_open() {
+        assert_eq!(
+            local_file_url_path("file:///tmp/a%20b.txt").as_deref(),
+            Some(std::path::Path::new("/tmp/a b.txt"))
+        );
+        assert_eq!(
+            local_file_url_path("file:///home/user/doc.pdf").as_deref(),
+            Some(std::path::Path::new("/home/user/doc.pdf"))
+        );
+        assert!(local_file_url_path("file://files.example/share/doc.pdf").is_none());
+        assert!(local_file_url_path("https://example.com/doc.pdf").is_none());
+        assert!(!is_safe_to_open(
+            "file:///tmp/a%20b.txt",
+            SchemeFilter::Standard
         ));
     }
 
@@ -724,10 +753,19 @@ mod tests {
         }
         let ssh = env(&[("SSH_CONNECTION", "203.0.113.4 50000 203.0.113.5 22")]);
         assert_eq!(open_block_from_env(&ssh), Some(OpenBlock::Ssh));
-        assert_eq!(link_open_notice(Some(OpenBlock::Ssh)), "Can't open links over SSH");
-        assert_eq!(file_open_notice(Some(OpenBlock::Ssh)), "Can't open files over SSH");
         assert_eq!(
-            format!("{}:\nhttps://example.com/docs", link_open_notice(Some(OpenBlock::Ssh))),
+            link_open_notice(Some(OpenBlock::Ssh)),
+            "Can't open links over SSH"
+        );
+        assert_eq!(
+            file_open_notice(Some(OpenBlock::Ssh)),
+            "Can't open files over SSH"
+        );
+        assert_eq!(
+            format!(
+                "{}:\nhttps://example.com/docs",
+                link_open_notice(Some(OpenBlock::Ssh))
+            ),
             "Can't open links over SSH:\nhttps://example.com/docs"
         );
 
@@ -741,10 +779,7 @@ mod tests {
             "Can't open files without a display"
         );
         assert_eq!(
-            open_block_from_env(&env(&[
-                ("SSH_TTY", "/dev/pts/3"),
-                ("DISPLAY", ":0"),
-            ])),
+            open_block_from_env(&env(&[("SSH_TTY", "/dev/pts/3"), ("DISPLAY", ":0"),])),
             None,
             "a forwarded display still attempts the opener"
         );
@@ -760,7 +795,10 @@ mod tests {
     fn browser_unavailable_message_includes_full_url() {
         let url = "https://grok.com/supergrok?referrer=grok-build";
         let notice = link_open_notice(current_open_block());
-        assert_eq!(browser_unavailable_message(url), format!("{notice}:\n{url}"));
+        assert_eq!(
+            browser_unavailable_message(url),
+            format!("{notice}:\n{url}")
+        );
         assert!(
             notice == "Can't open links over SSH"
                 || notice == "Can't open links without a display"

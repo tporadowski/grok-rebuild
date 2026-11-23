@@ -404,7 +404,18 @@ pub fn local_link_to_file_target(
     cwd: Option<&Path>,
 ) -> Option<LinkTarget> {
     let dest = dest.trim();
-    if dest.is_empty() || dest.starts_with('#') || dest.contains("://") {
+    if dest.is_empty() || dest.starts_with('#') {
+        return None;
+    }
+    // A local file URL opens as the same path a bare absolute path would.
+    // Remote hosts stay unlinked. The web scheme filter still rejects `file`.
+    if let Some(path) = crate::link_opener::local_file_url_path(dest) {
+        if !path.is_file() {
+            return None;
+        }
+        return Some(LinkTarget::File(Arc::from(path)));
+    }
+    if dest.contains("://") {
         return None;
     }
     let lower = dest.to_ascii_lowercase();
@@ -873,6 +884,25 @@ fn scan_logical_line(
         let Some(url) = linkify_href(text, &link) else {
             continue;
         };
+        if let Some(path) = crate::link_opener::local_file_url_path(&url) {
+            let file_target = LinkTarget::File(Arc::from(path));
+            url_byte_ranges
+                .get_or_insert_with(Vec::new)
+                .push(link.start()..link.end());
+            if files_must_exist && !file_target_is_on_disk(&file_target) {
+                continue;
+            }
+            push_link_segments(
+                text,
+                rows,
+                content_x,
+                link.start()..link.end(),
+                &file_target,
+                LinkPresentation::Opaque,
+                overlay,
+            );
+            continue;
+        }
         if !crate::link_opener::is_safe_to_open(&url, scheme_filter) {
             continue;
         }
@@ -1141,7 +1171,9 @@ fn scan_logical_line_for_pull_requests(
             end += 1;
         }
         let started_with_zero = bytes.get(hash_at.saturating_add(1)) == Some(&b'0');
-        let glued_to_more = bytes.get(end).is_some_and(|next| next.is_ascii_alphanumeric());
+        let glued_to_more = bytes
+            .get(end)
+            .is_some_and(|next| next.is_ascii_alphanumeric());
         if digits == 0 || started_with_zero || glued_to_more {
             i += 1;
             continue;
@@ -1830,6 +1862,60 @@ mod tests {
     }
 
     #[test]
+    fn scan_file_url_opens_as_the_same_path_as_the_bare_path() {
+        let bare = make_line("see /tmp/grok-file-url-same.txt end");
+        let url_line = make_line("see file:///tmp/grok-file-url-same.txt end");
+        let mut bare_overlay = LinkOverlay::new();
+        let mut url_overlay = LinkOverlay::new();
+        scan_unjoined(std::iter::once((0, &bare)), 0, &[], &mut bare_overlay);
+        scan_unjoined(std::iter::once((0, &url_line)), 0, &[], &mut url_overlay);
+
+        assert_eq!(
+            resolve_link_open_target(&nth_link(&bare_overlay, 0).target),
+            Some(LinkTarget::File(Arc::from(Path::new(
+                "/tmp/grok-file-url-same.txt"
+            ))))
+        );
+        assert_eq!(
+            resolve_link_open_target(&nth_link(&url_overlay, 0).target),
+            resolve_link_open_target(&nth_link(&bare_overlay, 0).target),
+            "a local file URL opens through the same path target as the bare path"
+        );
+
+        let encoded = make_line("see file:///tmp/a%20b.txt end");
+        let mut encoded_overlay = LinkOverlay::new();
+        scan_unjoined(std::iter::once((0, &encoded)), 0, &[], &mut encoded_overlay);
+        assert_eq!(
+            resolve_link_open_target(&nth_link(&encoded_overlay, 0).target),
+            Some(LinkTarget::File(Arc::from(Path::new("/tmp/a b.txt"))))
+        );
+
+        let remote = make_line("see file://files.example/share/doc.pdf end");
+        let mut remote_overlay = LinkOverlay::new();
+        scan_unjoined(std::iter::once((0, &remote)), 0, &[], &mut remote_overlay);
+        assert!(
+            remote_overlay.links().is_empty(),
+            "a remote file URL is not opened as a local path: {:?}",
+            remote_overlay.links()
+        );
+    }
+
+    #[test]
+    fn markdown_file_url_matches_the_bare_path_when_the_file_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("doc.pdf");
+        std::fs::write(&file, b"x").unwrap();
+        let url = url::Url::from_file_path(&file).unwrap();
+        let from_url = local_link_to_file_target(url.as_str(), &[], None).unwrap();
+        let from_path =
+            local_link_to_file_target(file.to_str().expect("utf8 path"), &[], None).unwrap();
+        assert_eq!(from_url, from_path);
+        assert!(
+            local_link_to_file_target("file://files.example/share/doc.pdf", &[], None).is_none()
+        );
+    }
+
+    #[test]
     fn scan_detects_relative_path_when_generated_media() {
         // Both media kinds the model prints: `images/N.ext` and `videos/N.ext`.
         let dir = tempfile::tempdir().unwrap();
@@ -2397,7 +2483,10 @@ mod tests {
         };
         assert_eq!(opened.as_ref(), file.as_path());
         let opened_text = opened.to_str().expect("utf-8");
-        assert!(opened_text.contains("%2F"), "a session slash must stay encoded");
+        assert!(
+            opened_text.contains("%2F"),
+            "a session slash must stay encoded"
+        );
         assert!(
             opened_text.contains("%20"),
             "a session space must stay encoded when that directory exists"
@@ -2436,7 +2525,11 @@ mod tests {
         let mut overlay = LinkOverlay::new();
         scan_unjoined(std::iter::once((0, &line)), 0, &[], &mut overlay);
 
-        assert_eq!(overlay.links().len(), 1, "the whole inline path is one link");
+        assert_eq!(
+            overlay.links().len(),
+            1,
+            "the whole inline path is one link"
+        );
         let link = nth_link(&overlay, 0);
         let expected = url::Url::from_file_path(&file).expect("file url");
         assert_eq!(
@@ -2660,7 +2753,11 @@ mod tests {
             std::slice::from_ref(&mention),
             &mut overlay,
         );
-        assert_eq!(overlay.links().len(), 2, "the wrapped id occupies both rows");
+        assert_eq!(
+            overlay.links().len(),
+            2,
+            "the wrapped id occupies both rows"
+        );
         assert!(
             overlay
                 .links()
