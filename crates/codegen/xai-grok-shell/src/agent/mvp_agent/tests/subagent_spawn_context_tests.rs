@@ -340,12 +340,20 @@ async fn subagent_spawn_context_copies_parent_non_interactive() {
         ctx_headless.parent_non_interactive,
         "subagent must copy the parent's non_interactive flag (headless -p parent)"
     );
+    assert_eq!(
+        ctx_headless.inference_idle_timeout_secs, 300,
+        "a headless parent with no per-model or remote idle timeout hands its subagent 5 minutes"
+    );
     let sid_tui = acp::SessionId::new("parent-tui");
     agent.insert_resident(&sid_tui, make_test_handle("test-model", false, None));
     let ctx_tui = agent.build_subagent_spawn_context(sid_tui.0.as_ref());
     assert!(
         !ctx_tui.parent_non_interactive,
         "an interactive parent must not mark its subagents non-interactive"
+    );
+    assert_eq!(
+        ctx_tui.inference_idle_timeout_secs, 600,
+        "an interactive parent keeps the 10 minute idle timeout"
     );
 }
 #[tokio::test]

@@ -189,25 +189,24 @@ impl MvpAgent {
             )
         };
         let am = self.auth_manager.clone();
+        let parent_non_interactive = parent_handle
+            .as_ref()
+            .map(|h| h.non_interactive)
+            .unwrap_or(false);
         let inference_idle_timeout_secs = {
-            let per_model = config::find_model_by_id(&available_models, parent_model_id.0.as_ref())
-                .and_then(|e| e.info.inference_idle_timeout_secs);
             let cfg = self.cfg.borrow();
-            let remote = cfg
-                .remote_settings
-                .as_ref()
-                .and_then(|s| s.inference_idle_timeout_secs);
-            per_model.or(remote).unwrap_or(600).max(10)
+            resolve_inference_idle_timeout_secs(
+                &available_models,
+                parent_model_id.0.as_ref(),
+                cfg.remote_settings.as_ref(),
+                parent_non_interactive,
+            )
         };
         let parent_hook_registry = parent_handle.as_ref().and_then(|h| h.hook_registry.clone());
         let parent_max_turns = parent_handle.as_ref().and_then(|h| h.max_turns);
         let parent_model_agent_type =
             config::find_model_by_id(&available_models, parent_model_id.0.as_ref())
                 .map(|e| e.info.agent_type.clone());
-        let parent_non_interactive = parent_handle
-            .as_ref()
-            .map(|h| h.non_interactive)
-            .unwrap_or(false);
         let (gcs_upload_method, gcs_bucket_url) = match self.trace_upload_config_snapshot() {
             Some(method) => {
                 let bucket = match &method {

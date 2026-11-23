@@ -1140,17 +1140,25 @@ impl AuthRequestMeta {
             .unwrap_or_default()
     }
 }
+const HEADLESS_INFERENCE_IDLE_TIMEOUT_SECS: u64 = 300;
+const INTERACTIVE_INFERENCE_IDLE_TIMEOUT_SECS: u64 = 600;
 fn resolve_inference_idle_timeout_secs(
     models: &indexmap::IndexMap<String, crate::agent::config::ModelEntry>,
     model: &str,
     remote_settings: Option<&crate::util::config::RemoteSettings>,
+    headless: bool,
 ) -> u64 {
     let per_model = models
         .get(model)
         .or_else(|| models.values().find(|entry| entry.info.has_model_id(model)))
         .and_then(|entry| entry.info.inference_idle_timeout_secs);
     let remote = remote_settings.and_then(|s| s.inference_idle_timeout_secs);
-    per_model.or(remote).unwrap_or(600).max(10)
+    let fallback = if headless {
+        HEADLESS_INFERENCE_IDLE_TIMEOUT_SECS
+    } else {
+        INTERACTIVE_INFERENCE_IDLE_TIMEOUT_SECS
+    };
+    per_model.or(remote).unwrap_or(fallback).max(10)
 }
 /// Resolve the subagent 429 wait-attempt budget: env, then config.toml (per-model), then remote, then default.
 pub(crate) fn resolve_subagent_rate_limit_max_attempts(
@@ -2521,3 +2529,5 @@ mod replay_tests;
 mod tests;
 #[cfg(test)]
 mod prompt_response_meta_tests;
+#[cfg(test)]
+mod inference_idle_timeout_tests;

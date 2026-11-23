@@ -225,6 +225,140 @@ async fn exhausted_budget_falls_through_to_terminal() {
         .await;
 }
 
+async fn actor_with_startup(
+    headless_session: bool,
+    is_subagent: bool,
+    non_interactive: bool,
+) -> (Arc<SessionActor>, mpsc::UnboundedReceiver<PersistenceMsg>) {
+    let (gateway_tx, _) = mpsc::unbounded_channel();
+    let (persistence_tx, persistence_rx) = mpsc::unbounded_channel();
+    let mut actor = create_test_actor(50_000, 100_000, 85, gateway_tx, persistence_tx).await;
+    actor.startup_hints.headless_session = headless_session;
+    actor.startup_hints.is_subagent = is_subagent;
+    actor.startup_hints.non_interactive = non_interactive;
+    (Arc::new(actor), persistence_rx)
+}
+
+fn assert_terminal_idle_after_five_minutes(result: Result<SamplerFailureRecovery, acp::Error>) {
+    match result {
+        Err(err) => {
+            let message = err
+                .data
+                .as_ref()
+                .and_then(|data| data.get("message"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            assert!(
+                message.contains("stopped responding after 300s"),
+                "{message}"
+            );
+            assert_eq!(
+                crate::sampling::error::error_kind_from_error(&err),
+                Some(xai_grok_sampler::SamplingErrorKind::IdleTimeout)
+            );
+        }
+        Ok(_) => panic!("expected a terminal idle timeout, got another recovery"),
+    }
+}
+
+/// `grok -p` stops on the first model-silence timeout instead of resubmitting.
+#[tokio::test(flavor = "current_thread")]
+async fn headless_idle_timeout_is_terminal() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (actor, _rx) = actor_with_startup(true, false, true).await;
+            let result = actor
+                .handle_sampling_failure(
+                    error_of_kind(xai_grok_sampler::SamplingErrorKind::IdleTimeout, None),
+                    0,
+                    transient_state(0, true),
+                    false,
+                    TurnParkState::Fresh,
+                )
+                .await;
+            assert_terminal_idle_after_five_minutes(result);
+        })
+        .await;
+}
+
+/// A subagent spawned by a headless parent inherits the same terminal silence.
+#[tokio::test(flavor = "current_thread")]
+async fn headless_subagent_idle_timeout_is_terminal() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (actor, _rx) = actor_with_startup(false, true, true).await;
+            let result = actor
+                .handle_sampling_failure(
+                    error_of_kind(xai_grok_sampler::SamplingErrorKind::IdleTimeout, None),
+                    0,
+                    transient_state(0, true),
+                    false,
+                    TurnParkState::Fresh,
+                )
+                .await;
+            assert_terminal_idle_after_five_minutes(result);
+        })
+        .await;
+}
+
+/// An interactive parent's subagent still resubmits the first idle timeout.
+#[tokio::test(flavor = "current_thread")]
+async fn interactive_subagent_idle_timeout_still_resubmits() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (actor, _rx) = actor_with_startup(false, true, false).await;
+            let result = actor
+                .handle_sampling_failure(
+                    error_of_kind(xai_grok_sampler::SamplingErrorKind::IdleTimeout, None),
+                    0,
+                    transient_state(0, true),
+                    false,
+                    TurnParkState::Fresh,
+                )
+                .await;
+            match result {
+                Ok(SamplerFailureRecovery::RetryTransient { kind, .. }) => {
+                    assert_eq!(kind, xai_grok_sampler::SamplingErrorKind::IdleTimeout);
+                }
+                Ok(_) => panic!("expected RetryTransient, got another recovery"),
+                Err(e) => {
+                    panic!("an interactive subagent's first idle timeout must resubmit: {e:?}")
+                }
+            }
+        })
+        .await;
+}
+
+/// A headless transport error still uses the transient resubmit. Only model silence is terminal.
+#[tokio::test(flavor = "current_thread")]
+async fn headless_server_error_still_resubmits() {
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async {
+            let (actor, _rx) = actor_with_startup(true, false, true).await;
+            let result = actor
+                .handle_sampling_failure(
+                    error_of_kind(xai_grok_sampler::SamplingErrorKind::Api, Some(503)),
+                    0,
+                    transient_state(0, true),
+                    false,
+                    TurnParkState::Fresh,
+                )
+                .await;
+            match result {
+                Ok(SamplerFailureRecovery::RetryTransient { status_code, .. }) => {
+                    assert_eq!(status_code, Some(503));
+                }
+                Ok(_) => panic!("expected RetryTransient, got another recovery"),
+                Err(e) => panic!("a headless 503 must still resubmit: {e:?}"),
+            }
+        })
+        .await;
+}
+
 /// The kill switch disables the arm even with full budget.
 #[tokio::test(flavor = "current_thread")]
 async fn kill_switch_disables_the_arm() {

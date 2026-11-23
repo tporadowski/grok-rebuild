@@ -1478,8 +1478,13 @@ impl SessionActor {
         }
 
         // 4d. Bounded resubmit, after the auth arms, before the terminal paths.
-        //     Budgeted workflow children stay terminal (guards above)
-        if transient_retry_eligible(&error) && transient.enabled {
+        //     Budgeted workflow children stay terminal (guards above).
+        //     A headless `grok -p` turn, and a subagent of that run, stops on the first
+        //     stretch with no model output. Other transient kinds still resubmit.
+        let terminal_model_silence = matches!(error.kind, SamplingErrorKind::IdleTimeout)
+            && (self.startup_hints.headless_session
+                || (self.startup_hints.is_subagent && self.startup_hints.non_interactive));
+        if transient_retry_eligible(&error) && transient.enabled && !terminal_model_silence {
             if transient.budget_remaining(transient_retry_window(self.inference_idle_timeout)) {
                 // Count intercepted attempts; section 5 sees only the final one.
                 if matches!(error.kind, SamplingErrorKind::IdleTimeout) {

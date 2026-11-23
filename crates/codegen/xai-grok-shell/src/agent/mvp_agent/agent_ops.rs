@@ -4680,6 +4680,7 @@ impl MvpAgent {
                 &models,
                 &sampling_config.model,
                 cfg.remote_settings.as_ref(),
+                is_headless,
             )
         };
         let subagent_rate_limit_max_attempts = {
