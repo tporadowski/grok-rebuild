@@ -1,5 +1,17 @@
 # Changelog
 
+# 1.0.93 — 2026-11-20
+
+## Bug Fixes
+
+- **Collapsed shell rows** now show links printed by shell commands so you can copy or open them without expanding.
+- **Subagent task output** no longer shows a duplicate "Worked for …" line.
+- **Image paste** with `grok wrap` now turns off both paste routes together, including when wrap requirements cannot be read.
+- **Pasted xAI API keys** now retry on transient timeout errors.
+- **Subagent stop failure** messages no longer repeat the prefix text.
+- **Queued follow-up messages** now send after one second even when Enter is pressed repeatedly.
+
+
 # 1.0.92 — 2026-11-19
 
 ## Features
