@@ -379,6 +379,27 @@ fn hook_allowed_for_trust(spec: &crate::config::HookSpec, options: DiscoveryOpti
     }
 }
 
+/// A headless session loads this hook even when the folder is not trusted.
+/// Project, plugin, and agent hooks still wait for folder trust.
+pub fn headless_loads_without_folder_trust(spec: &HookSpec) -> bool {
+    hook_allowed_for_trust(
+        spec,
+        DiscoveryOptions {
+            git_root: None,
+            grok_home: None,
+            home: None,
+            compat: CompatHooks {
+                cursor: false,
+                claude: false,
+            },
+            claude_import: ClaudeImport::NotImported,
+            trust: Trust::Untrusted,
+            user_hooks_trusted: true,
+            launch_dir: None,
+        },
+    )
+}
+
 /// A vendor settings path must be added here and to
 /// `xai_grok_workspace::folder_trust::repo_configs_present`, which probes the same paths.
 pub fn discover_hook_source_paths(options: DiscoveryOptions<'_>) -> HookSourcePaths {
@@ -1562,9 +1583,10 @@ timeout = 5
         );
         assert!(errors.is_empty(), "{errors:?}");
         assert!(
-            registry.all_hooks().iter().any(|hook| {
-                hook.command_raw.as_deref() == Some("subfolder-guard")
-            }),
+            registry
+                .all_hooks()
+                .iter()
+                .any(|hook| { hook.command_raw.as_deref() == Some("subfolder-guard") }),
             "hooks in the launch directory must load"
         );
     }

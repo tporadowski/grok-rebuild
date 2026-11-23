@@ -62,7 +62,7 @@ pub(crate) struct InspectReport {
     pub channel: String,
     pub cwd: String,
     pub project_root: Option<String>,
-    /// Folder-trust verdict for `cwd`: when false, repo-local project hooks, plugins, MCP/LSP, instructions, and skills are gated out of the listings below.
+    /// Folder-trust verdict for `cwd`. When false, repo-local plugins, MCP/LSP, instructions, and skills are gated out. Hooks still list what a headless run would load, and rows that wait on folder trust carry a note.
     pub project_trusted: bool,
     pub project_instructions: Vec<InstructionFile>,
     pub permissions: PermissionsReport,
@@ -249,6 +249,9 @@ pub(crate) struct HookEntry {
     pub disabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compatibility_status: Option<CompatEntryStatus>,
+    /// True when a headless run still waits for folder trust before loading this hook.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub needs_folder_trust: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -546,7 +549,12 @@ async fn build_report(cwd: &Path) -> InspectReport {
             vendor_compat_status(&entry.vendor, "skills", &external_compat);
         entry.disabled |= entry.compatibility_status == Some(CompatEntryStatus::Disabled);
     }
-    let mut hooks = list_hooks(git_root.as_deref(), project_trusted, &discovered_plugins);
+    let mut hooks = list_hooks(
+        &crate::util::hooks::process_hook_inputs(),
+        git_root.as_deref(),
+        project_trusted,
+        &discovered_plugins,
+    );
     for entry in &mut hooks {
         entry.compatibility_status = vendor_compat_status(&entry.vendor, "hooks", &external_compat);
         entry.disabled |= entry.compatibility_status == Some(CompatEntryStatus::Disabled);
@@ -887,21 +895,24 @@ fn login_policy_report(config: Option<&crate::agent::config::Config>) -> LoginPo
 }
 
 /// Discovers hooks with every vendor enabled so compatibility can be annotated later.
+/// An untrusted folder still lists the hooks a headless run would load.
+/// Project and plugin hooks that wait on folder trust stay in the list with a note.
 fn list_hooks(
+    inputs: &xai_grok_workspace::hook_inputs::ProcessHookInputs,
     git_root: Option<&Path>,
     project_trusted: bool,
     discovered_plugins: &[xai_grok_agent::plugins::DiscoveredPlugin],
 ) -> Vec<HookEntry> {
     let all_on = xai_grok_tools::types::compat::CompatConfig::default();
-    // Route through the same assembly as session startup
-    // Config-layer hooks (config.toml / managed_config.toml / requirements.toml) then appear in `/hooks` status alongside file hooks
-    // Each carries its provenance name prefix
+    // Route through the same assembly as session startup.
+    // Read project files even when the folder is untrusted, so inspect can name
+    // the hooks a headless run still will not load. The note marks those rows.
     let (registry, _errors) = crate::util::hooks::discover_hooks(
-        &crate::util::hooks::process_hook_inputs(),
+        inputs,
         git_root,
         &all_on,
-        xai_grok_hooks::trust::Trust::from_verdict(project_trusted),
-        false,
+        xai_grok_hooks::trust::Trust::Trusted,
+        true,
     );
 
     let mut entries: Vec<HookEntry> = registry
@@ -929,6 +940,8 @@ fn list_hooks(
                 O::UserFile | O::Plugin | O::Agent | O::Unknown => ConfigSource::User { path },
             };
             let vendor = derive_vendor(&h.source_dir.display().to_string()).map(String::from);
+            let needs_folder_trust = !project_trusted
+                && !xai_grok_hooks::discovery::headless_loads_without_folder_trust(h);
             HookEntry {
                 event: h.event.to_string(),
                 hook_type: h.handler_type.as_ref().to_string(),
@@ -943,11 +956,13 @@ fn list_hooks(
                 vendor,
                 disabled: false,
                 compatibility_status: None,
+                needs_folder_trust,
             }
         })
         .collect();
 
-    // Plugin hooks
+    // Plugin hooks. The plugin trust store (`p.trusted`) is separate from folder trust.
+    // A headless run still withholds every plugin hook until the folder is trusted.
     for p in discovered_plugins {
         if !p.trusted {
             continue;
@@ -956,6 +971,7 @@ fn list_hooks(
             plugin_name: p.manifest.name.clone(),
             path: p.root.clone(),
         };
+        let needs_folder_trust = !project_trusted;
         if let Some(ref hooks_path) = p.hooks_path {
             entries.push(HookEntry {
                 event: "(plugin)".to_string(),
@@ -966,6 +982,7 @@ fn list_hooks(
                 vendor: None,
                 disabled: false,
                 compatibility_status: None,
+                needs_folder_trust,
             });
         } else if p.manifest.inline_hooks().is_some() {
             entries.push(HookEntry {
@@ -977,6 +994,7 @@ fn list_hooks(
                 vendor: None,
                 disabled: false,
                 compatibility_status: None,
+                needs_folder_trust,
             });
         }
     }
@@ -1269,15 +1287,13 @@ fn list_lsp_servers(
 
     servers
         .into_iter()
-        .map(|(name, (cfg, source))| {
-            LspServerEntry {
-                name,
-                command: cfg.command,
-                args: cfg.args,
-                source,
-                extensions: cfg.extensions.keys().cloned().collect(),
-                untrusted: false,
-            }
+        .map(|(name, (cfg, source))| LspServerEntry {
+            name,
+            command: cfg.command,
+            args: cfg.args,
+            source,
+            extensions: cfg.extensions.keys().cloned().collect(),
+            untrusted: false,
         })
         .collect()
 }
@@ -1905,11 +1921,17 @@ fn print_human(r: &InspectReport, out: &mut impl Write) -> std::io::Result<()> {
         },
         |h| {
             let status = disabled_compat_tags(h.disabled, h.compatibility_status);
+            let trust_note = if h.needs_folder_trust {
+                " [needs folder trust]"
+            } else {
+                ""
+            };
             format!(
-                "{}{}{}",
+                "{}{}{}{}",
                 h.source.display_label(),
                 vendor_tag(&h.vendor),
                 status,
+                trust_note,
             )
         },
     )?;
@@ -2063,8 +2085,8 @@ mod tests {
 
     #[test]
     fn inline_plugin_hooks_and_mcp_servers_are_counted() {
-        use xai_grok_agent::plugins::manifest::PathOrInline;
         use xai_grok_agent::plugins::PluginManifest;
+        use xai_grok_agent::plugins::manifest::PathOrInline;
 
         let inline = discovered_plugin(PluginManifest {
             name: "demo".into(),
@@ -2141,15 +2163,14 @@ mod tests {
         assert!(hidden.contains_key("plug-lsp"));
         assert!(lsp_servers_for_folder_trust(servers, true).contains_key("proj-lsp"));
 
-        let mut untrusted =
-            discovered_plugin(PluginManifest {
-                name: "proj-hooks".into(),
-                ..PluginManifest::default()
-            });
+        let mut untrusted = discovered_plugin(PluginManifest {
+            name: "proj-hooks".into(),
+            ..PluginManifest::default()
+        });
         untrusted.trusted = false;
         untrusted.scope = PluginScope::Project;
         untrusted.hooks_path = Some(untrusted.root.join("hooks.json"));
-        let hooks = list_hooks(None, false, &[untrusted]);
+        let hooks = list_hooks(&isolated_hook_inputs(None), None, false, &[untrusted]);
         assert!(
             hooks.iter().all(|hook| match &hook.source {
                 ConfigSource::Plugin { plugin_name, .. } => plugin_name != "proj-hooks",
@@ -2164,7 +2185,7 @@ mod tests {
         });
         trusted.trusted = true;
         trusted.hooks_path = Some(trusted.root.join("hooks.json"));
-        let hooks = list_hooks(None, false, &[trusted]);
+        let hooks = list_hooks(&isolated_hook_inputs(None), None, false, &[trusted]);
         assert!(
             hooks.iter().any(|hook| matches!(
                 &hook.source,
@@ -2195,6 +2216,168 @@ mod tests {
         let names: Vec<_> = listed.iter().map(|entry| entry.name.as_str()).collect();
         assert!(names.contains(&"good-lsp"), "{names:?}");
         assert!(!names.contains(&"evil-lsp"), "{names:?}");
+    }
+
+    fn isolated_hook_inputs(
+        grok_home: Option<&std::path::Path>,
+    ) -> xai_grok_workspace::hook_inputs::ProcessHookInputs {
+        xai_grok_workspace::hook_inputs::ProcessHookInputs::from_parts(
+            grok_home.map(std::path::Path::to_path_buf),
+            None,
+            xai_grok_hooks::discovery::ClaudeImport::NotImported,
+            Vec::new(),
+        )
+    }
+
+    fn write_hook_file(dir: &std::path::Path, file: &str, command: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        let body = serde_json::json!({
+            "hooks": {
+                "SessionStart": [{"hooks": [{"type": "command", "command": command}]}]
+            }
+        });
+        std::fs::write(dir.join(file), body.to_string()).unwrap();
+    }
+
+    fn hooks_section(text: &str) -> &str {
+        let start = text.find("  Hooks (").expect("hooks section");
+        let rest = &text[start..];
+        let end = rest.find("\n  Config Sources").unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    #[test]
+    fn untrusted_folder_lists_headless_hooks_and_notes_folder_trust() {
+        use xai_grok_agent::plugins::PluginManifest;
+
+        let grok_home = tempfile::tempdir().unwrap();
+        let git_root = tempfile::tempdir().unwrap();
+        write_hook_file(
+            &grok_home.path().join("hooks"),
+            "user-wait.json",
+            "echo-user-headless",
+        );
+        write_hook_file(
+            &git_root.path().join(".grok").join("hooks"),
+            "proj-wait.json",
+            "echo-project-waits",
+        );
+
+        let mut folder_wait = discovered_plugin(PluginManifest {
+            name: "folder-wait".into(),
+            ..PluginManifest::default()
+        });
+        folder_wait.trusted = true;
+        folder_wait.hooks_path = Some(folder_wait.root.join("hooks.json"));
+        let mut store_untrusted = discovered_plugin(PluginManifest {
+            name: "store-untrusted".into(),
+            ..PluginManifest::default()
+        });
+        store_untrusted.trusted = false;
+        store_untrusted.hooks_path = Some(store_untrusted.root.join("hooks.json"));
+
+        let inputs = isolated_hook_inputs(Some(grok_home.path()));
+        let hooks = list_hooks(
+            &inputs,
+            Some(git_root.path()),
+            false,
+            &[folder_wait.clone(), store_untrusted.clone()],
+        );
+        let user = hooks
+            .iter()
+            .find(|hook| hook.target.contains("echo-user-headless"))
+            .unwrap_or_else(|| panic!("user hook missing: {hooks:?}"));
+        assert!(
+            !user.needs_folder_trust,
+            "a headless run loads the user hook without folder trust"
+        );
+        let project = hooks
+            .iter()
+            .find(|hook| hook.target.contains("echo-project-waits"))
+            .unwrap_or_else(|| panic!("project hook missing: {hooks:?}"));
+        assert!(
+            project.needs_folder_trust,
+            "the project hook stays listed and still needs folder trust"
+        );
+        let plugin = hooks
+            .iter()
+            .find(|hook| {
+                matches!(
+                    &hook.source,
+                    ConfigSource::Plugin { plugin_name, .. } if plugin_name == "folder-wait"
+                )
+            })
+            .expect("a trusted plugin hook stays listed");
+        assert!(
+            plugin.needs_folder_trust,
+            "plugin hooks wait on folder trust"
+        );
+        assert!(
+            hooks.iter().all(|hook| match &hook.source {
+                ConfigSource::Plugin { plugin_name, .. } => plugin_name != "store-untrusted",
+                _ => true,
+            }),
+            "a plugin the trust store rejects stays out"
+        );
+        let user_json = serde_json::to_value(user).unwrap();
+        assert!(user_json.get("needsFolderTrust").is_none());
+        let project_json = serde_json::to_value(project).unwrap();
+        assert_eq!(project_json["needsFolderTrust"], true);
+
+        let mut report = empty_report();
+        report.project_trusted = false;
+        report.hooks = hooks;
+        let mut out = Vec::new();
+        print_human(&report, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        let section = hooks_section(&text);
+        assert!(
+            section
+                .lines()
+                .any(|line| line.contains("project") && line.contains("needs folder trust")),
+            "{section}"
+        );
+        assert!(
+            section.lines().any(|line| {
+                line.contains("plugin: folder-wait") && line.contains("needs folder trust")
+            }),
+            "{section}"
+        );
+        assert!(
+            section
+                .lines()
+                .any(|line| line.contains("user") && !line.contains("needs folder trust")),
+            "{section}"
+        );
+
+        let trusted_folder = list_hooks(
+            &inputs,
+            Some(git_root.path()),
+            true,
+            &[folder_wait, store_untrusted],
+        );
+        assert!(trusted_folder.iter().any(|hook| {
+            hook.target.contains("echo-project-waits") && !hook.needs_folder_trust
+        }));
+        assert!(trusted_folder.iter().any(|hook| {
+            hook.target.contains("echo-user-headless") && !hook.needs_folder_trust
+        }));
+        assert!(trusted_folder.iter().any(|hook| {
+            matches!(
+                &hook.source,
+                ConfigSource::Plugin { plugin_name, .. } if plugin_name == "folder-wait"
+            ) && !hook.needs_folder_trust
+        }));
+        let mut report = empty_report();
+        report.hooks = trusted_folder;
+        let mut out = Vec::new();
+        print_human(&report, &mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            !hooks_section(&text).contains("needs folder trust"),
+            "{}",
+            hooks_section(&text)
+        );
     }
 
     #[test]
@@ -2241,11 +2424,7 @@ mod tests {
                 .strip_suffix(&suffix)
                 .unwrap_or_else(|| panic!("row suffix: {line}"));
             assert_eq!(crate::util::columns::display_columns(shown), 50, "{line}");
-            assert_eq!(
-                shown.trim_end().ends_with('…'),
-                expect_ellipsis,
-                "{line}"
-            );
+            assert_eq!(shown.trim_end().ends_with('…'), expect_ellipsis, "{line}");
         }
     }
 

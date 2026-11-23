@@ -31,6 +31,22 @@ impl ProcessHookInputs {
         }
     }
 
+    /// Directories and config layers the caller already resolved.
+    /// Session startup still uses [`Self::read`].
+    pub fn from_parts(
+        grok_home: Option<PathBuf>,
+        home: Option<PathBuf>,
+        claude_import: ClaudeImport,
+        config_layers: Vec<HookConfigLayer>,
+    ) -> Self {
+        Self {
+            grok_home,
+            home,
+            claude_import,
+            config_layers,
+        }
+    }
+
     /// [`Self::read`] plus the disabled-hooks file under the same Grok home.
     /// Returned on its own so a dispatcher consumes it once and a caller that only lists hooks never reads it.
     pub fn read_with_disabled(
