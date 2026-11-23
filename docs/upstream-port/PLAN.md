@@ -1,6 +1,6 @@
 # Upstream port plan: 1.0.46 through 1.0.93
 
-Living tracker for bringing this fork from package version **1.0.45** up to the behavior described in the official release notes. The port through **1.0.91** is stamped. The port through **1.0.87** (15 November 2026; stable on the 15 November 2026 fetch was still 1.0.77) was stamped on that earlier fetch. On 13 November 2026 the alpha channel pointed at **1.0.85** and stable at **1.0.77**, and this plan now includes 1.0.85 from that alpha fetch. On 14 November 2026 alpha pointed at **1.0.86**. On 15 November 2026 alpha pointed at **1.0.87**, and this plan now includes 1.0.87 from that fetch. On 17 November 2026 alpha and stable both pointed at **1.0.88**, and this plan now includes 1.0.88 from that alpha fetch. On 18 November 2026 alpha pointed at **1.0.90** and stable at **1.0.89**, and this plan now includes 1.0.89 and 1.0.90 from that alpha fetch. On 19 November 2026 alpha pointed at **1.0.91** and stable was still **1.0.89**, and this plan now includes 1.0.91 from that alpha fetch. On 23 November 2026 alpha pointed at **1.0.93** and stable at **1.0.92**, and this plan now includes 1.0.92 and 1.0.93 from that alpha fetch. The 12 November 2026 fetch had added 1.0.79 through 1.0.84. Public GitHub `xai-org/grok-build` stopped at the 29 September 2026 sync.
+Living tracker for bringing this fork from package version **1.0.45** up to the behavior described in the official release notes. The port through **1.0.92** is stamped. The port through **1.0.87** (15 November 2026; stable on the 15 November 2026 fetch was still 1.0.77) was stamped on that earlier fetch. On 13 November 2026 the alpha channel pointed at **1.0.85** and stable at **1.0.77**, and this plan now includes 1.0.85 from that alpha fetch. On 14 November 2026 alpha pointed at **1.0.86**. On 15 November 2026 alpha pointed at **1.0.87**, and this plan now includes 1.0.87 from that fetch. On 17 November 2026 alpha and stable both pointed at **1.0.88**, and this plan now includes 1.0.88 from that alpha fetch. On 18 November 2026 alpha pointed at **1.0.90** and stable at **1.0.89**, and this plan now includes 1.0.89 and 1.0.90 from that alpha fetch. On 19 November 2026 alpha pointed at **1.0.91** and stable was still **1.0.89**, and this plan now includes 1.0.91 from that alpha fetch. On 23 November 2026 alpha pointed at **1.0.93** and stable at **1.0.92**, and this plan now includes 1.0.92 and 1.0.93 from that alpha fetch. The 12 November 2026 fetch had added 1.0.79 through 1.0.84. Public GitHub `xai-org/grok-build` stopped at the 29 September 2026 sync.
 
 This approval **adds this document to the repo**. It does not start the port. A later session executes it when asked to run the upstream port plan.
 
@@ -55,6 +55,12 @@ Never decompile the official `grok` binary and never paste recovered pseudocode 
 ## Decisions already made
 
 Append new entries as `D-019`, `D-020`, and so on. Do not renumber.
+
+### D-350 — Package version 1.0.92
+
+The package version and the embedded changelog now include 1.0.92. `/release-notes` still prepends CDN `# ` sections whose headings are absent from that file. Every 1.0.92 row is terminal. `v92-x03` stays deferred (D-346). `v92-p01` stays deferred (D-347).
+
+Signed-in `grok-1.0.91` and `grok-1.0.92` each wrote a 59-line, 5065-byte `system_prompt.txt` under the throwaway session directory, and `chat_history.jsonl`. The raw prompts are byte-identical and the user_rule blocks match. `templates/prompt.md` and `built_in_user_rules()` stay as they are.
 
 ### D-349 — A nested wrap forwards the host image request
 
@@ -1526,7 +1532,7 @@ Refresh these numbers at the end of a session.
 
 Catalog rows: 921. Pending: 5. Skipped: 10. Done: 748. Already: 118. Deferred: 40.
 
-**Next:** stamp package version 1.0.92
+**Next:** `v93-x06`.
 
 ## Waves
 

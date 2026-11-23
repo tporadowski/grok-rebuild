@@ -1,5 +1,26 @@
 # Changelog
 
+# 1.0.92 — 2026-11-19
+
+## Features
+
+- **Positional prompts without -p** now run headless and print their reply when the process has no terminal for the TUI.
+- **MCP tool results that contain images** now include those images in headless streaming and JSON output.
+- **Clickable `file://` links** to local files now open the file the same way bare paths do.
+
+## Bug Fixes
+
+- **Question cards** in minimal mode now keep the first option visible instead of scrolling it off-screen.
+- **Headless runs** (`grok -p`) now stop after 5 minutes of no model output instead of hanging indefinitely.
+- **Session resume errors** now give the same helpful instruction on every route instead of suggesting the TUI picker.
+- **grok inspect** now shows the hooks a headless run would actually load, with a note for those that still need folder trust.
+- **Image paste** with `grok wrap` now works when Grok runs inside a remote tmux or through a second wrap.
+
+## Performance
+
+- **grok** no longer watches every directory when only tracking the current git branch.
+
+
 # 1.0.91 — 2026-11-19
 
 ## Features
